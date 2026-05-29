@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#0a0a1a" />
+    <title>GTA Meme</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0a1a;
+        font-family: 'Arial', sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
+      }
+
+      #game-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+
+      /* ── HUD ── */
+      #hud {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        pointer-events: none;
+        z-index: 10;
+      }
+
+      #speed-display {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        color: #fff;
+        font-size: 22px;
+        font-weight: bold;
+        text-shadow: 0 0 6px rgba(0,0,0,0.8);
+        letter-spacing: 1px;
+        display: none;
+      }
+
+      #state-indicator {
+        position: absolute;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #fff;
+        font-size: 14px;
+        background: rgba(0,0,0,0.4);
+        padding: 4px 12px;
+        border-radius: 20px;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+      }
+
+      /* ── TOUCH CONTROLS ── */
+      #controls-overlay {
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        height: 220px;
+        pointer-events: none;
+        z-index: 20;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        padding: 0 20px 28px;
+      }
+
+      /* Left side: joystick */
+      #joystick-zone {
+        width: 140px;
+        height: 140px;
+        pointer-events: all;
+        position: relative;
+        flex-shrink: 0;
+      }
+
+      #joystick-base {
+        width: 140px;
+        height: 140px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.08);
+        border: 2px solid rgba(255,255,255,0.25);
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #joystick-knob {
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.55);
+        border: 2px solid rgba(255,255,255,0.8);
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        transition: none;
+        pointer-events: none;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      }
+
+      /* Right side: buttons */
+      #button-zone {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 10px;
+        pointer-events: all;
+      }
+
+      #btn-row-top {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .ctrl-btn {
+        width: 68px;
+        height: 68px;
+        border-radius: 50%;
+        border: 2px solid rgba(255,255,255,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: bold;
+        letter-spacing: 0.5px;
+        color: #fff;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+        transition: transform 0.06s, opacity 0.06s;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .ctrl-btn:active, .ctrl-btn.pressed {
+        transform: scale(0.92);
+        opacity: 0.8;
+      }
+
+      #btn-gas {
+        background: radial-gradient(circle at 40% 35%, #33cc44, #1a7a28);
+      }
+
+      #btn-brake {
+        background: radial-gradient(circle at 40% 35%, #ee3333, #991111);
+      }
+
+      #btn-action {
+        width: 80px;
+        height: 44px;
+        border-radius: 22px;
+        background: radial-gradient(circle at 40% 35%, #ffcc00, #cc8800);
+        font-size: 12px;
+        pointer-events: all;
+      }
+
+      #btn-action.inactive {
+        opacity: 0.3;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+
+    <div id="hud">
+      <div id="speed-display">0 km/h</div>
+      <div id="state-indicator">Walking</div>
+    </div>
+
+    <div id="controls-overlay">
+      <div id="joystick-zone">
+        <div id="joystick-base">
+          <div id="joystick-knob"></div>
+        </div>
+      </div>
+
+      <div id="button-zone">
+        <div id="btn-row-top">
+          <button class="ctrl-btn" id="btn-brake" type="button">BRAKE</button>
+          <button class="ctrl-btn" id="btn-gas" type="button">GAS</button>
+        </div>
+        <button class="ctrl-btn" id="btn-action" type="button">ENTER</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
