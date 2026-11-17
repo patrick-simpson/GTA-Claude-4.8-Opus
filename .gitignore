@@ -5,3 +5,7 @@ dist/
 
 # Claude Code local settings (may hold secrets from approved commands)
 .claude/settings.local.json
+
+# Test output and throwaway harness pages
+shots/
+scratch/

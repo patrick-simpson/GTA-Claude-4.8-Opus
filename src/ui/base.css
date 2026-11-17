@@ -1,0 +1,53 @@
+/* Page reset and the shared palette. The HUD, touch controls and title card
+   each bring their own stylesheet and build on these variables. */
+
+:root {
+  --ink: #14213d;
+  --bone: #f2e8cf;
+  --vermilion: #e4572e;
+  --mustard: #f0a202;
+  --teal: #2a9d8f;
+  --brick: #9c4a3c;
+  --sage: #8a9a6b;
+
+  --f-head: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+  --f-text: 'Barlow Semi Condensed', 'Arial Narrow', sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ink);
+  color: var(--bone);
+  font-family: var(--f-text);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+#c {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+}
+
+/* Overlay roots. They never take a click meant for the canvas; the pieces
+   inside that need pointer input switch it back on for themselves. */
+#hud, #touch, #title {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+#hud { z-index: 10; }
+#touch { z-index: 20; }
+#title { z-index: 30; }

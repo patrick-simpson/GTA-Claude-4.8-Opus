@@ -10,6 +10,9 @@ export default defineConfig({
     minify: true,
     target: 'es2020',
     chunkSizeWarningLimit: 1500,
+    // Until the first playable milestone the live site is still the old index.html,
+    // so the new game builds from play.html. The switch-over renames it (see PLAN.md).
+    rollupOptions: { input: 'play.html' },
   },
   server: { port: 5173, host: true },
 });

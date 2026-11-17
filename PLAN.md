@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 10% done)
+## Where things stand (about 15% done)
 
 Written and type-checking clean (`npx tsc --noEmit`):
 
@@ -24,8 +24,24 @@ Written and type-checking clean (`npx tsc --noEmit`):
 | `src/world/collide.ts` | Static collision: building boxes and street-prop circles in a grid, with push-out, ray casts and line of sight |
 | `src/world/batch.ts` | Merges thousands of boxes and quads into a few big meshes, split into chunks |
 
-Not started: everything in "Remaining work" below. There is no `src/main.ts`
-and no new page yet.
+**M1 is in progress (started Nov 17, 2026, 6:30 PM ET).** The backbone is written;
+the pieces that plug into it are being built:
+
+| File | What it is |
+| --- | --- |
+| `src/core/api.ts` | The contracts: what every subsystem promises the others. Read this before touching anything |
+| `src/core/game.ts` | The `Game` object, quality presets, events, and the frame order |
+| `src/main.ts` | Entry point and the `window.__game` test hooks |
+| `src/core/cheats.ts` | Typed cheat words (easter egg) |
+| `src/ent/vehicleSpecs.ts` | The eleven vehicles: names, sizes, handling numbers |
+| `src/world/world.ts`, `signals.ts` | Assembles the world from its builders; traffic-signal timing |
+| `play.html`, `src/ui/base.css` | The new page. It is called `play.html` until the switch-over, when it becomes `index.html` |
+| `tools/pw.mjs`, `tools/shot.mjs` | Test harness: boots the game in headless Chromium and takes screenshots (`node tools/shot.mjs shots/a.png --at -30,285 --hour 14`) |
+
+Still to come for M1 (the tree does not build until these exist):
+`world/textures.ts`, `materials.ts`, `ground.ts`, `buildings.ts`, `landmarks.ts`,
+`places.ts`, `sky.ts`, `ent/vehicleModels.ts`, `vehicle.ts`, `character.ts`,
+`player.ts`, `core/camera.ts`, `ui/hud.ts`, `title.ts`, `touch.ts`.
 
 ### The live site is deliberately untouched
 
@@ -46,7 +62,7 @@ playable. At the first playable milestone, in one commit:
 - Fonts are installed from npm and bundled: `@fontsource/big-shoulders-display` (headlines), `@fontsource/barlow-semi-condensed` (text), `@fontsource/ibm-plex-mono` (numbers). Import only the `latin-*.css` files. Await `document.fonts.load(...)` before drawing sign textures.
 - Variable time step clamped to 0.05 s; vehicle physics sub-steps at 1/120 s.
 - One `Game` object holds every subsystem; subsystems take `game` in their constructor.
-- Testing: Playwright and headless Chromium are preinstalled (`require('playwright')`), and WebGL works there. Expose `window.__game` with `step(n, dt)`, `teleport`, `setTime`, `setHeat`, `spawnVehicle` so tests can run the simulation without waiting on real time. After each milestone: `npx tsc --noEmit`, `npm run build`, boot the build headless, fail on any console error, look at a screenshot.
+- Testing: Playwright 1.64.0 is a dev dependency (pinned to match the Chromium already on the owner's PC; never run `playwright install`), and WebGL runs on the real GPU there. Use `tools/pw.mjs`. Expose `window.__game` with `step(n, dt)`, `teleport`, `setTime`, `setHeat`, `spawnVehicle` so tests can run the simulation without waiting on real time. After each milestone: `npx tsc --noEmit`, `npm run build`, boot the build headless, fail on any console error, look at a screenshot.
 
 ## World conventions (already in code)
 
