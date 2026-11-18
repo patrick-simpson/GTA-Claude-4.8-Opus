@@ -12,6 +12,8 @@ export interface Prop {
   x: number; z: number; r: number; h: number;
   kind: PropKind;
   breakable: boolean;
+  /** Solid at parking speeds but sheared off by a hard enough hit: lamps, signals, benches. Set by whoever can show it fall. */
+  hard: boolean;
   alive: boolean;
   /** Instance slot in the prop renderer, so a broken prop can be hidden. */
   slot: number;
@@ -51,7 +53,7 @@ export class Colliders {
   }
 
   addProp(x: number, z: number, r: number, h: number, kind: PropKind, breakable: boolean, slot = -1): Prop {
-    const p: Prop = { x, z, r, h, kind, breakable, alive: true, slot, q: 0 };
+    const p: Prop = { x, z, r, h, kind, breakable, hard: false, alive: true, slot, q: 0 };
     const k = key(Math.floor(x / CELL), Math.floor(z / CELL));
     let a = this.props.get(k);
     if (!a) this.props.set(k, (a = []));

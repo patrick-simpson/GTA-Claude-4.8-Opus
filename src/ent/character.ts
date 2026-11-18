@@ -95,6 +95,8 @@ class Body implements Person {
   phase: number;
   stroke: number;
   gaitSpeed = 0;
+  /** Deep enough in the sea that a run is drawn as a wade. */
+  wading = false;
   /** Which leg leads a jump (0 left, 1 right): the one the stride had forward. */
   lead = 0;
   falls = 0;
@@ -213,14 +215,19 @@ function leg(o: Float32Array, i: number, hipY: number, az: number, ay: number, p
   o[LFT + k] = foot + swing - knee;
 }
 
+// Water over the knee: nobody runs through that, whatever speed the body is being moved at.
+const WADE_DEPTH = 0.6;
+
 function strideLen(v: number, run: boolean): number {
-  return run ? 1 + 0.5 * v : Math.max(0.3, 1.14 * Math.sqrt(v));
+  return run ? 1 + 0.4 * v : Math.max(0.3, 1.14 * Math.sqrt(v));
 }
 
 function blendTime(from: Pose, to: Pose): number {
   if (from === 'down') return 0.5;                  // getting up
   if (to === 'down') return 0.1;                    // the fall has its own timing
-  if (from === 'swim' || to === 'swim') return 0.3;
+  // Standing up out of the sea lifts the whole body through the surface: any quicker and she pops.
+  if (from === 'swim') return 0.45;
+  if (to === 'swim') return 0.3;
   if (from === 'sit' || to === 'sit') return 0.25;
   if (to === 'jump') return 0.1;
   return 0.16;
@@ -266,7 +273,8 @@ function stand(b: Body, o: Float32Array): void {
 
 function gait(b: Body, o: Float32Array, run: boolean): void {
   o.fill(0);
-  const v = b.gaitSpeed;
+  // Chest-deep water holds the legs to a wade however fast the body is carried along.
+  const v = b.wading ? Math.min(b.gaitSpeed, 1.5) : b.gaitSpeed;
   // Barely moving is nearly standing: without this a crawl is a slow-motion march.
   const g = smooth(v / 0.6);
   const S = strideLen(v, run);
@@ -275,10 +283,12 @@ function gait(b: Body, o: Float32Array, run: boolean): void {
   const travel = S * D;
   const zf = travel * (run ? 0.32 : 0.43), zb = zf - travel;
   // The foot leaves and meets the ground already moving backwards at ground speed.
-  const m = -S * (1 - D);
+  // Running keeps only part of that: the full figure throws the trailing foot a quarter meter
+  // further back and the leading one as far forward, and at a sprint that is the splits.
+  const m = -S * (1 - D) * (run ? 0.45 : 1);
   const ph = b.phase;
   const strikeA = run ? 0.1 : 0.34, offA = run ? 0.95 : 0.62;
-  const liftH = run ? 0.2 + 0.04 * v : 0.06 + 0.025 * v;
+  const liftH = run ? 0.18 + 0.035 * v : 0.06 + 0.025 * v;
   const base = lerp(STAND_HIP, run ? 0.852 : 0.878, g);
 
   for (let i = 0; i < 2; i++) {
@@ -295,7 +305,7 @@ function gait(b: Body, o: Float32Array, run: boolean): void {
       const w = (f - D) / (1 - D), w2 = w * w, w3 = w2 * w;
       z = (2 * w3 - 3 * w2 + 1) * zb + (w3 - 2 * w2 + w) * m + (3 * w2 - 2 * w3) * zf + (w3 - w2) * m;
       // Running kicks the heel up early in the swing; walking just clears the ground.
-      lift = liftH * Math.sin(Math.PI * w) * (1 + (run ? 0.45 : 0.1) * Math.cos(Math.PI * w));
+      lift = liftH * Math.sin(Math.PI * w) * (1 + (run ? 0.8 : 0.1) * Math.cos(Math.PI * w));
       fp = offA * (1 - smooth(w / 0.5)) - strikeA * smooth((w - 0.65) / 0.35);
       hold = Math.max(run ? 0 : 1 - smooth(w / 0.2), smooth((w - 0.9) / 0.1));
     }
@@ -321,7 +331,7 @@ function gait(b: Body, o: Float32Array, run: boolean): void {
   o[YAW] = yaw;
   o[TWIST] = -yaw * (run ? 2.3 : 1.9);
   o[SROLL] = -roll * 1.2;
-  o[LEAN] = (run ? 0.1 + 0.02 * v : 0.03 + 0.015 * v) * g;
+  o[LEAN] = (run ? 0.08 + 0.014 * v : 0.03 + 0.015 * v) * g;
   o[HYAW] = -(yaw + o[TWIST]);
   o[HPITCH] = -(pitch + o[LEAN]) * 0.8 + 0.02 * g * Math.cos(2 * TAU * ph);
   o[HROLL] = roll * 0.3;
@@ -485,7 +495,7 @@ function target(b: Body, o: Float32Array): void {
   switch (b.shown) {
     case 'stand': stand(b, o); break;
     case 'walk': gait(b, o, false); break;
-    case 'run': gait(b, o, true); break;
+    case 'run': gait(b, o, !b.wading); break;
     case 'jump': jump(b, o); break;
     case 'fall': fall(b, o); break;
     case 'swim': swim(b, o); break;
@@ -721,8 +731,15 @@ export class People implements PeopleApi {
     b.t += dt;
     b.poseT += dt;
     b.gaitSpeed = damp(b.gaitSpeed, b.speed, 12, dt);
+    // The two bands overlap so a seabed hovering at the line does not flicker between gaits.
+    const wading = b.y < WATER_Y - WADE_DEPTH - (b.wading ? -0.08 : 0.08);
+    if (wading !== b.wading) {
+      b.wading = wading;
+      if (b.shown === 'run') { b.from.set(b.cur); b.blend = 0; b.blendDur = 0.25; }
+    }
     if (b.shown === 'walk' || b.shown === 'run') {
-      b.phase += (b.speed * dt) / strideLen(b.gaitSpeed, b.shown === 'run');
+      // Wading keeps its cadence from the real speed, so the short wading stride just slips a little in the water.
+      b.phase += (b.speed * dt) / strideLen(b.gaitSpeed, b.shown === 'run' && !b.wading) * (b.wading ? 0.7 : 1);
       b.phase -= Math.floor(b.phase);
     } else if (b.shown === 'swim') {
       // A slow tick even when still, so treading water keeps moving.

@@ -239,6 +239,11 @@ function buildPark(K: Kit): void {
     ringUp(f, P.x, P.z, P.a, P.b, RY, P.a + 0.9, P.b + 0.9, RY, t0, t1, STONE, i % 2 ? 1 : 0.94);
     ringWall(f, P.x, P.z, P.a + 0.9, P.b + 0.9, Y, RY, t0, t1, 1, STONE, 0.86);
   }
+  // Rim as a ring of small blocks: the basin is only decoration under the plan's flat ground, so this is what keeps walkers out of the water.
+  for (let i = 0; i < 100; i++) {
+    const t = (i / 100) * TAU;
+    K.col.addBoxC(P.x + Math.cos(t) * (P.a + 0.45), P.z + Math.sin(t) * (P.b + 0.45), 1.7, 1.7, RY + 0.6, Y - 0.2);
+  }
   // Lily pads, and the ducks the sign asks you to keep off.
   for (let i = 0; i < 16; i++) {
     const t = rng.range(0, TAU), k = rng.range(0.25, 0.9), r = rng.range(0.35, 0.7);
@@ -756,12 +761,24 @@ function buildHarbor(K: Kit): void {
   const dq = (x0: number, z0: number, x1: number, z1: number, hex: number): void => D.quad(x0, 0, z1, x1, 0, z1, x1, 0, z0, x0, 0, z0, hex);
   dq(Q.x0, Q.zLand - 14, Q.x1, Q.edge, CONCRETE);
   for (const z of [Q.zLand, Q.zSea]) for (const o of [-0.75, 0.75]) dq(Q.x0, z + o - 0.09, Q.x1, z + o + 0.09, 0x3b4048);
-  for (let x = Q.x0; x < Q.x1; x += 3) dq(x, Q.edge - 1.2, x + 1.5, Q.edge - 0.2, MUST);
-  dq(Q.x0, Q.edge - 0.2, Q.x1, Q.edge, INK);
+  // The beach is flat out to the edge and then shelves slowly, so a decal alone ends in the shallows with no face to it. Past the edge the
+  // apron is a real slab with a wall down below the waterline, a fender strip and a kerb. Walkers cannot stand on it (ground is the plan's), so it is solid.
+  const QT = 0.02, WZ = 506, WB = WATER_Y - 1.6;
+  f.floor(Q.x0, Q.edge - 0.1, Q.x1, WZ, QT, CONCRETE);
+  for (let x = Q.x0; x < Q.x1; x += 3) f.floor(x, Q.edge + 0.2, x + 1.5, Q.edge + 1.2, QT + 0.01, MUST);
+  oq(f, Q.x0, WB, WZ, Q.x1, WB, WZ, Q.x1, QT, WZ, Q.x0, QT, WZ, 0, 0, 1, CONCRETE, 0.8);
+  oq(f, Q.x0, WB, Q.edge, Q.x0, WB, WZ, Q.x0, QT, WZ, Q.x0, QT, Q.edge, -1, 0, 0, CONCRETE, 0.7);
+  oq(f, Q.x1, WB, Q.edge, Q.x1, WB, WZ, Q.x1, QT, WZ, Q.x1, QT, Q.edge, 1, 0, 0, CONCRETE, 0.7);
+  for (let x = Q.x0 + 3; x < Q.x1; x += 7) oq(f, x, WATER_Y - 1.2, WZ + 0.12, x + 0.7, WATER_Y - 1.2, WZ + 0.12, x + 0.7, QT - 0.1, WZ + 0.12, x, QT - 0.1, WZ + 0.12, 0, 0, 1, INK);
+  f.box((Q.x0 + Q.x1) / 2, QT, WZ - 0.2, Q.x1 - Q.x0, 0.22, 0.4, STONE, 0, 5, 0.95);
+  K.col.addBox(Q.x0, Q.edge, Q.x1, WZ, 0.9, -3);
+  // Low kerbs frame the landward side so the slab reads as laid down, not as a decal that wandered onto the sand.
+  f.box((Q.x0 + Q.x1) / 2, 0, Q.zLand - 14, Q.x1 - Q.x0, 0.12, 0.3, STONE, 0, 5, 0.9);
+  f.box(Q.x0, 0, (Q.zLand - 14 + Q.edge) / 2, 0.3, 0.12, Q.edge - Q.zLand + 14, STONE, 0, 5, 0.9);
   for (let x = Q.x0 + 6; x < Q.x1; x += 14) {
-    f.cyl(x, 0, Q.edge + 1, 0.3, 0.26, 0.6, INK, 7, false);
-    f.cyl(x, 0.6, Q.edge + 1, 0.42, 0.42, 0.16, INK, 7);
-    K.col.addProp(x, Q.edge + 1, 0.42, 0.8, 'post', false);
+    f.cyl(x, QT, WZ - 0.9, 0.3, 0.26, 0.6, INK, 7, false);
+    f.cyl(x, QT + 0.6, WZ - 0.9, 0.42, 0.42, 0.16, INK, 7);
+    K.col.addProp(x, WZ - 0.9, 0.42, 0.8, 'post', false);
   }
 
   crane(K, 410, VERM, false);
@@ -813,7 +830,7 @@ function buildHarbor(K: Kit): void {
     }
   }
   // Mooring lines to the quay.
-  for (const x of [S.x0 + 4, S.x1 - 4]) beam(f, x, DK, S.z - S.hb, x + (x < 450 ? -8 : 8), 0.6, Q.edge + 1, 0.12, BONE);
+  for (const x of [S.x0 + 4, S.x1 - 4]) beam(f, x, DK, S.z - S.hb, x + (x < 450 ? -8 : 8), 0.6, 505.1, 0.12, BONE);
 }
 
 // ── Out on the water ─────────────────────────────────────────────────────────

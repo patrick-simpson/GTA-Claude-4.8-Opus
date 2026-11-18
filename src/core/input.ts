@@ -38,6 +38,8 @@ export class Input {
   invertY = false;
   /** Every key code typed this frame, for cheat-code style easter eggs. */
   typed: string[] = [];
+  /** How many keys have ever been typed. The list above is capped, so its length stops changing once it is full. */
+  typedN = 0;
 
   private held = new Set<Action>();
   private pressed = new Set<Action>();
@@ -100,7 +102,7 @@ export class Input {
 
   private onKey(e: KeyboardEvent, down: boolean): void {
     if (e.repeat) { if (KEYMAP[e.code] || e.code.startsWith('Arrow')) e.preventDefault(); return; }
-    if (down) { this.typed.push(e.code); if (this.typed.length > 32) this.typed.shift(); }
+    if (down) { this.typed.push(e.code); this.typedN++; if (this.typed.length > 32) this.typed.shift(); }
     if (down) this.keys.add(e.code); else this.keys.delete(e.code);
     const a = KEYMAP[e.code];
     if (a) {

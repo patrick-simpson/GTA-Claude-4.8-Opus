@@ -18,6 +18,7 @@ import { CameraRig } from './camera';
 import { Hud } from '../ui/hud';
 import { TouchUI } from '../ui/touch';
 import { Cheats } from './cheats';
+import { Ambient } from '../sim/ambient';
 
 const PRESETS: Record<Quality['name'], Quality> = {
   low: { name: 'low', pixelRatio: 1.5, antialias: false, shadows: false, shadowSize: 1024, drawDist: 520, density: 0.5 },
@@ -121,6 +122,7 @@ export class Game {
     this.hud = new Hud(this);
     this.touchUI = new TouchUI(this);
     this.cheats = new Cheats(this);
+    this.systems.push(new Ambient(this));
 
     // One full step so every system has seen every other before the first picture.
     this.state = 'title';
@@ -138,7 +140,8 @@ export class Game {
     const coupe = plan.curbPoint(5, 6, 2, 0.62);
     this.vehicles.spawn('tow', truck.x, truck.z, truck.h, 0xe4572e);
     this.vehicles.spawn('coupe', coupe.x, coupe.z, coupe.h, 0xf0a202);
-    this.player.teleport(feet.x, feet.z, 0);
+    // A step out from the wall, so the opening camera has room behind her for a full-length boom.
+    this.player.teleport(feet.x, feet.z + 0.9, 0);
 
     // Parked cars are part of the first impression, so they do not wait for the traffic milestone.
     const rng = new RNG(4021);
@@ -192,16 +195,15 @@ export class Game {
     this.dt = dt;
     this.frame++;
     this.input.poll();
+    // Cheat words get the keys first, so a letter in a word is not also a control (see Cheats.update).
+    if (this.state === 'play') this.cheats.update();
     if (this.state === 'play' || this.state === 'paused') {
       if (this.input.eat('pause')) this.setPaused(this.state === 'play');
     }
     const running = this.state === 'play' || this.state === 'title';
     if (running) {
       this.time += dt;
-      if (this.state === 'play') {
-        this.cheats.update();
-        this.player.update(dt);
-      }
+      if (this.state === 'play') this.player.update(dt);
       this.vehicles.update(dt);
       this.people.update(dt);
       this.world.update(dt);

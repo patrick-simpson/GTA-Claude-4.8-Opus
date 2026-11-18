@@ -41,6 +41,8 @@ const METAL = [0x9fb3a4, 0xb98468, 0xa9c4c0, 0xd9d0b8, 0xd6b56a, 0x8d9aa6];
 const BOARDWALK = [0xf4b9a0, 0xf6d98b, 0x9fd6cb, 0xf2e8cf, 0xe98f6f, 0xa9cfe0, 0xc5d6a4];
 const AWN = [VERM, TEAL, MUST, INK, BONE, 0x9caf88, 0xc9714a];
 const SHOPFRONT = [0xf2e8cf, 0xd9e2cf, 0xbfd8d2, 0xf0d9a8, 0xe9b7a0, 0xcfd3d6];
+// Midtown brick, knocked back from vermilion: oxblood, dusty rose, buff, sage-painted, soot, so no street is one colour.
+const MIDBRICK = [0x9c5547, 0x7f4a40, 0xc08f7c, 0xcdb48c, 0x9fae8f, 0x6e6a66, 0xb06a52, 0xd8cdb4];
 const BOXES = [VERM, MUST, TEAL, 0x2b4170, BONE, BRICK, 0x9caf88, 0xc9714a, 0x3f6f8f];
 
 /** Height of lawns, drives and paving: just proud of the block slab so the two never flicker. */
@@ -109,6 +111,7 @@ class Builder {
   private zone = '';
   private wide = 'C';
   private decks = new Map<number, string[]>();
+  private reshuffles = 0;
   private clear: Rect[] = [];
   private special = new Map<number, string>();
   private dens: number;
@@ -379,14 +382,14 @@ class Builder {
     lbox(b, f, s + 0.3, dp - 0.1, CURB + gf - 1.6, 0.4, 0.05, 2.1, IRON, 4);
   }
 
-  /** Next unused shop sign on this block, or null once all forty are up. */
-  private dealSign(block: number): string | null {
-    let d = this.decks.get(block);
-    if (!d) {
+  /** Next shop sign from one city-wide shuffled deck, so no pun repeats until all are up; then it is reshuffled. */
+  private dealSign(_block: number): string | null {
+    let d = this.decks.get(0);
+    if (!d || !d.length) {
       d = this.mats.tex.signs.shops.slice();
-      const rng = new RNG(block * 131 + 5);
+      const rng = new RNG(977 + this.reshuffles++ * 31);
       for (let i = d.length - 1; i > 0; i--) { const j = rng.int(0, i); [d[i], d[j]] = [d[j], d[i]]; }
-      this.decks.set(block, d);
+      this.decks.set(0, d);
     }
     return d.pop() ?? null;
   }
@@ -519,16 +522,46 @@ class Builder {
       if (egg) this.room404(f, pad + 2.2);
     }
     this.ring(r, y1 - 0.35, 0.35, 0.16, hex, 0.88);
+    this.lobbyDress(L, r, y1);
     return y1;
+  }
+
+  /** Gives each tower's street level one of a few faces: bare stone, a cafe awning, a bank sign, or a brass marquee. Own RNG, so the lots' layouts are untouched. */
+  private lobbyDress(L: LotCtx, r: Rect, y1: number): void {
+    if (L.kind === 'r404') return;
+    const rg = new RNG((Math.imul(L.i + 7, 2654435761) ^ 0x5bd1e995) >>> 0); rg.next(); rg.next();
+    const v = rg.int(0, 5) % 4, col = rg.pick(AWN);
+    if (v === 0) return;
+    for (let j = 0; j < 4; j++) {
+      const k = (L.lot.face + j) & 3;   // the face the lot looks at first, so the dressing is on the side people see
+      if (!L.street[k]) continue;
+      const f = frameOf(r, k), n = Math.floor((f.len - 1.2) / 4);
+      if (n < 2) continue;
+      const pad = (f.len - n * 4) / 2, i0 = rg.int(0, Math.max(0, n - 2));
+      if (v === 1) this.awning(f, pad + i0 * 4 + 0.15, pad + (i0 + 2) * 4 - 0.15, CURB + 3.2, 0.6, 1.2, col, true);
+      else if (v === 2) { const nm = this.dealSign(L.lot.block); if (nm) this.signBoard(f, nm, pad + i0 * 4 + 0.2, CURB + 3.04, 3.6, 0.12); }
+      else {
+        const s0 = pad + i0 * 4, w = 7.6;
+        lbox(this.b('flat'), f, s0 + w / 2, 0.9, CURB + 3.3, w, 1.8, 0.14, MUST, 5);
+        lbox(this.b('flat'), f, s0 + w / 2, 1.78, CURB + 3.3, w, 0.05, 0.3, INK, 5);
+      }
+      break;
+    }
+    void y1;
   }
 
   /** The easter egg: a brass plate, and the outline of a door that was never cut. */
   private room404(f: Frame, s: number): void {
-    const b = this.b('flat'), y = CURB, edge = 0x4d4a44, o = 0.03;
-    const strip = (s0: number, s1: number, y0: number, y1: number): void => panel(b, f, s0, s1, y0, y1, o, edge, { u0: 0, v0: 0, u1: 1, v1: 1 });
-    strip(s, s + 0.07, y, y + 2.4); strip(s + 1.2, s + 1.27, y, y + 2.4); strip(s, s + 1.27, y + 2.4, y + 2.47);
-    lbox(b, f, s + 0.63, 0.08, y, 1.5, 0.16, 0.06, 0x8c877c, 5);
-    this.signBoard(f, 'room-404', s + 1.6, y + 1.45, 0.62, 0.04, false);
+    const b = this.b('flat'), y = CURB, o = 0.03;
+    const strip = (s0: number, s1: number, y0: number, y1: number, hex: number, out = o): void => panel(b, f, s0, s1, y0, y1, out, hex, { u0: 0, v0: 0, u1: 1, v1: 1 });
+    // A door that was painted but never hung: navy panel, trim, kick plate and a handle, so it reads as a joke and not as missing geometry.
+    strip(s - 0.1, s + 1.37, y, y + 2.55, 0x4d4a44);
+    strip(s, s + 1.27, y, y + 2.45, INK, o + 0.02);
+    strip(s + 0.12, s + 1.15, y + 1.3, y + 2.25, 0x1b2c50, o + 0.03);
+    strip(s, s + 1.27, y, y + 0.3, VERM, o + 0.035);
+    lbox(b, f, s + 1.05, 0.1, y + 1.0, 0.1, 0.1, 0.1, MUST, 5);
+    strip(s - 0.2, s + 1.47, y, y + 0.02, BONE, 0.5);   // doormat
+    this.signBoard(f, 'room-404', s - 0.05, y + 2.62, 1.4, 0.06, true);
     this.site('room404', { ...f, ox: PX(f, s + 0.6, 0) - f.tx * f.len / 2, oz: PZ(f, s + 0.6, 0) - f.tz * f.len / 2 }, this.lastSide(f));
   }
 
@@ -730,7 +763,7 @@ class Builder {
     const st = L.street, R = L.r;
     const r: Rect = { x0: R.x0 + (st[3] ? 0.4 : 0.3), x1: R.x1 - (st[1] ? 0.4 : 0.3), z0: R.z0 + (st[0] ? 0.4 : 0.3), z1: R.z1 - (st[2] ? 0.4 : 0.3) };
     const floors = rng.int(4, 9), gf = 3.6, F = 3.3, top = CURB + gf + (floors - 1) * F;
-    const tint = rng.pick(BRICKS), trim = rng.chance(0.65) ? STONE : 0x5a4a42;
+    const tint = rng.pick(MIDBRICK), trim = rng.chance(0.65) ? STONE : 0x5a4a42;
     this.b('flat').box((r.x0 + r.x1) / 2, 0, (r.z0 + r.z1) / 2, r.x1 - r.x0, CURB + gf, r.z1 - r.z0, tint, 0, 4, 0.82);
     for (let k = 0; k < 4; k++) {
       const f = frameOf(r, k);
@@ -740,7 +773,7 @@ class Builder {
     this.b('f1').walls(r.x0, r.z0, r.x1, r.z1, CURB + gf, top, tint, 3.4, F, 8, L.i);
     this.ring(r, CURB + gf - 0.04, 0.24, 0.1, trim);
     this.ring(r, top - 0.5, 0.5, 0.2, trim);
-    this.flatRoof(r, top, tint, 0.75);
+    this.flatRoof(r, top, rng.chance(0.5) ? tint : rng.pick([0x5a5d60, 0x6d7a63, 0x8a8478, 0x4a4d52]), 0.75);
     this.clutter(r, top, rng, false);
     if (rng.chance(0.3)) this.waterTank(lerp(r.x0 + 3, r.x1 - 3, rng.next()), top, lerp(r.z0 + 3, r.z1 - 3, rng.next()));
     const ff = frameOf(r, lot.face);
@@ -775,7 +808,9 @@ class Builder {
         if (shop && aw) this.awning(hf, ps + 0.15, ps + 3.85, CURB + (sign ? 2.94 : 3.05), 0.5, 1.05, acol, true);
         if (shop && hang) this.hangSign(hf, ps + 0.1, CURB + 3.5, hname);
       }
-      this.ring(hr, CURB + gf - 0.03, 0.16, 0.07, brick ? STONE : tint, 0.8);
+      this.ring(hr, CURB + gf - 0.03, 0.16, 0.07, STONE, 0.9);
+      this.ring(hr, CURB, 0.6, 0.05, 0x6f625a, 0.85);   // plinth: the walls stop looking like they were poured from the sidewalk
+      if (w < 4.2 && w > 1.8) this.kitPiece(hf, 'door', (w - 1.2) / 2, CURB, tint);
       // Roof: ridge along the street, gable to the street, or a flat with a parapet.
       const kind = rng.next(), rise = rng.range(1.7, 3.1);
       if (kind < 0.62) this.gable('tile', hr, top, rise, alongX, 0.35, 0xffffff, tint, rng.range(0.82, 1));
@@ -1036,6 +1071,31 @@ class Builder {
       if (k < 3) for (let i = 0; i < n; i++) b.cyl(x, CURB + i * 0.24, z, 0.4, 0.4, 0.22, 0x26282b, 8);
       else b.cyl(x, CURB, z, 0.3, 0.3, 0.9, k === 3 ? TEAL : VERM, 8);
     }
+    // Impounded and left: cars and a wrecker under bone tarps, a tire stack, oil stains, and the Authority's tape across the bays.
+    const alongX = f.tx !== 0;
+    const lump = (cx: number, cz: number, len: number, wid: number, tarp: boolean, hex: number): void => {
+      const lx = alongX ? len : wid, lz = alongX ? wid : len;
+      b.box(cx, CURB, cz, lx, 0.8, lz, tarp ? BONE : hex, 0, 7, 0.96);
+      b.box(cx, CURB + 0.8, cz, alongX ? len * 0.5 : wid * 0.92, 0.7, alongX ? wid * 0.92 : len * 0.5, tarp ? BONE : 0x9fb3a4, 0, 7, tarp ? 0.9 : 0.7);
+      this.box({ x0: cx - lx / 2, x1: cx + lx / 2, z0: cz - lz / 2, z1: cz + lz / 2 }, CURB + 1.5);
+    };
+    const rows = [f.depth * 0.3, f.depth * 0.52];
+    rows.forEach((dd, ri) => {
+      for (let s = 4 + ri * 3; s < f.len - 18 && s < f.len; s += 6.2) {
+        if (Math.abs(s + 2.2 - mid) < 5 || (ri && s < 11)) continue;
+        const wrecker = rng.chance(0.25), tarp = rng.chance(0.55);
+        lump(PX(f, s + 2.2, -dd), PZ(f, s + 2.2, -dd), wrecker ? 6.2 : 4.4, wrecker ? 2.3 : 1.9, tarp, wrecker ? MUST : rng.pick([VERM, TEAL, 0x6f7a86, 0xb98468]));
+        if (!tarp) { const sx = PX(f, s + 2.2, -dd), sz = PZ(f, s + 2.2, -dd); b.box(sx, CURB + 0.2, sz, alongX ? 4.5 : 0.4, 0.04, alongX ? 0.4 : 4.5, 0x26282b, 0, 7); }
+      }
+    });
+    const tx = PX(f, g0 - 3, -4), tz = PZ(f, g0 - 3, -4);
+    for (let i = 0; i < 4; i++) b.cyl(tx, CURB + i * 0.24, tz, 0.42, 0.42, 0.22, 0x26282b, 8);
+    this.box({ x0: tx - 0.5, x1: tx + 0.5, z0: tz - 0.5, z1: tz + 0.5 }, CURB + 1);
+    for (let k = 0; k < 4; k++) {   // oil stains
+      const ox = PX(f, rng.range(3, f.len - 3), -rng.range(3, f.depth * 0.6)), oz = PZ(f, rng.range(3, f.len - 3), -rng.range(3, f.depth * 0.6));
+      this.ground('decal', { x0: ox - 0.9, x1: ox + 0.9, z0: oz - 0.7, z1: oz + 0.7 }, GY + 0.01, 0x2b2b2a);
+    }
+    lbox(b, hf, 2.4, 0.12, CURB + 1.3, 4.6, 0.03, 0.14, VERM, 7);   // seizure tape across the office door
     this.site('marlowe', f, face);
   }
 
@@ -1222,6 +1282,18 @@ class Builder {
         const c = cut(r, long, s - 0.06, s + 0.06, dd, dd + 5);
         this.ground('decal', c, GY, 0xe6e0d0);
       }
+      // A second tint down the aisle breaks the single sheet of paving, and parked cars (plain boxes, no makes) say someone uses it.
+      this.ground('decal', cut(r, long, 8, f.len - 1, f.depth * 0.5 - 2.4, f.depth * 0.5 + 2.4), GY + 0.004, 0x4a4d50);
+      const ax = f.tx !== 0;
+      for (let s = 9; s < f.len - 4; s += 2.7) for (const dd of [0.4, f.depth - 5.4]) {
+        if (rng.next() > 0.4) continue;
+        const cx = PX(f, s + 1.35, -(dd + 2.5)), cz = PZ(f, s + 1.35, -(dd + 2.5)), lx = ax ? 1.8 : 4.2, lz = ax ? 4.2 : 1.8;
+        const hex = rng.pick([VERM, TEAL, MUST, BONE, 0x6f7a86, INK, 0xb98468]);
+        b.box(cx, CURB, cz, lx, 0.75, lz, hex, 0, 7, 0.95);
+        b.box(cx, CURB + 0.75, cz, ax ? 1.6 : 2.2, 0.6, ax ? 2.2 : 1.6, 0x2c3e50, 0, 7, 0.8);
+        this.box({ x0: cx - lx / 2, x1: cx + lx / 2, z0: cz - lz / 2, z1: cz + lz / 2 }, CURB + 1.4);
+      }
+      for (const [px, pz] of [[r.x0 + 1.2, r.z0 + 1.2], [r.x1 - 1.2, r.z1 - 1.2]]) b.box(px, CURB, pz, 1.4, 0.7, 1.4, HEDGE, 0, 5);
       const a = cut(r, long, 0.5, 7, 1.5, f.depth - 1.5), brick = lot.district === 'midtown', top = CURB + (rng.chance(0.5) ? 3.6 : 6.9), tint = rng.pick(brick ? BRICKS : BOARDWALK);
       if (brick) { b.box((a.x0 + a.x1) / 2, 0, (a.z0 + a.z1) / 2, a.x1 - a.x0, CURB + 0.3, a.z1 - a.z0, tint, 0, 4); this.b('f1').walls(a.x0, a.z0, a.x1, a.z1, CURB, top, tint, 3.4, 3.3, 8, L.i); } else this.siding(a, CURB, top, tint);
       this.kitPiece(frameOf(a, (long + 3) & 3), 'doorSteel', 1, CURB, 0xc9c6bb);

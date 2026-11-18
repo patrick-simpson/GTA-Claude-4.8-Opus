@@ -24,7 +24,7 @@ import type { Vehicle, VehicleControls, VehiclesApi } from '../core/api';
 import { RNG, clamp, clamp01, damp, smooth } from '../core/util';
 import { SPECS, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
 import { vehicleModel, wheelGeometry, type VehicleModel } from './vehicleModels';
-import { groundAt, isWater, WATER_Y } from '../world/plan';
+import { BRIDGE, groundAt, terrainAt, WATER_Y } from '../world/plan';
 import type { Box, Prop } from '../world/collide';
 
 const STEP = 1 / 120;
@@ -38,7 +38,10 @@ const WALL = 0.7;
 const ACCEL_K = 0.63;
 // The bus tops out at 60 mph, so its 0-60 time is nearly its whole run; without
 // help it takes most of a minute.
-const ACCEL_TUNE: Partial<Record<VehicleKind, number>> = { bus: 1.4, tow: 1.15, van: 1.1 };
+// The sedan and the hatch are what a stranger drives first, so they get a little more than their sheet says.
+const ACCEL_TUNE: Partial<Record<VehicleKind, number>> = { bus: 1.7, tow: 1.15, van: 1.1, sedan: 1.13, hatch: 1.14 };
+/** Feet off the pedals, the heavy ones lose speed faster. */
+const COAST: Partial<Record<VehicleKind, number>> = { bus: 1.5, tow: 1.5, van: 1.2 };
 /** The engine's pull would run out this far past top speed; a governor cuts it at top speed instead, so cars reach their figure rather than creep up on it. */
 const OVERRUN = 1.08;
 
@@ -48,7 +51,15 @@ const SLIDE_IN = 2.6, SLIDE_OUT = 1.2;
 const CORNER = 1.45;
 /** How hard a sliding car's nose is pulled back toward the way it is travelling, 1/s. */
 const ALIGN = 2.2;
+/** Car against car: enough bounce that a shunt sends the other one rolling. */
 const RESTITUTION = 0.22;
+/** Car against masonry: almost none, or a crash plays like a bumper car and throws the player back into the road. */
+const WALL_REST = 0.07;
+/** Water over the wheels deeper than this floats the car off; anything shallower is waded through. */
+const DEEP = 0.9;
+/** Seconds a ditched car ploughs into the sea before it is written off and the driver climbs out. */
+const DITCH = 0.55;
+const MARKS = 768, MARK_LIFE = 16, PUFFS = 96;
 /** Closing speed (m/s) above which a hit is reported and costs health. */
 const HARD_HIT = 3;
 const DAMAGE = 1.5;
@@ -120,6 +131,18 @@ class Car implements Vehicle {
   braking = false; reversing = false;
   sinkT = 0;
   hitT = 0;
+  /** In the sea but not yet written off: the half second of plough and spray before `sunk`. */
+  ditch = false;
+  dive = 0;
+  /** Depth of water over the road under the wheels, m. */
+  wade = 0;
+  /** On sand or shore turf rather than paving. */
+  soft = false;
+  /** Seconds since the handbrake was let go, counted down from a short grace. */
+  hbT = 0;
+  // Skid marks: where each rear wheel last laid one.
+  mkOn = false; mlx = 0; mlz = 0; mrx = 0; mrz = 0;
+  puffT = 0;
   dead = false;
   // Render cache.
   stale = true;
@@ -164,28 +187,55 @@ function glowTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(cv);
 }
 
-/** Two overlapping beams on the road, brightest a little ahead of the bumper. The bottom of the canvas is the near end. */
-function poolTexture(): THREE.CanvasTexture {
+/** A one-channel canvas from a function of u (-1..1 across) and v (0 at the bottom to 1). */
+function ramp(w: number, h: number, f: (u: number, v: number) => number): THREE.CanvasTexture {
   const cv = document.createElement('canvas');
-  cv.width = 64; cv.height = 128;
+  cv.width = w; cv.height = h;
   const g = cv.getContext('2d')!;
-  g.fillStyle = '#000';
-  g.fillRect(0, 0, 64, 128);
-  g.globalCompositeOperation = 'lighter';
-  for (const cx of [23, 41]) {
-    g.save();
-    g.translate(cx, 84);
-    g.scale(1, 3.1);
-    const gr = g.createRadialGradient(0, 4, 0, 0, 0, 19);
-    gr.addColorStop(0, '#c8c8c8');
-    gr.addColorStop(0.35, '#8c8c8c');
-    gr.addColorStop(0.7, '#484848');
-    gr.addColorStop(1, '#000000');
-    g.fillStyle = gr;
-    g.fillRect(-32, -42, 64, 84);
-    g.restore();
+  const img = g.createImageData(w, h), d = img.data;
+  for (let y = 0, i = 0; y < h; y++) {
+    for (let x = 0; x < w; x++, i += 4) {
+      d[i] = d[i + 1] = d[i + 2] = Math.round(clamp01(f((x + 0.5) / w * 2 - 1, 1 - (y + 0.5) / h)) * 255);
+      d[i + 3] = 255;
+    }
   }
+  g.putImageData(img, 0, 0);
   return new THREE.CanvasTexture(cv);
+}
+
+/**
+ * Two beams on the road that widen as they go, brightest a few meters ahead of
+ * the bumper. v = 0 is the near end, and every edge reaches black: a quad that
+ * ends while still lit is what made the old pool read as a disc of fog.
+ */
+function poolTexture(): THREE.CanvasTexture {
+  return ramp(64, 128, (u, v) => {
+    const w = 0.15 + 0.5 * v;
+    const dl = (u + 0.2) / w, dr = (u - 0.2) / w;
+    const across = Math.exp(-dl * dl * 2.2) + Math.exp(-dr * dr * 2.2);
+    const along = smooth(v / 0.13) * Math.pow(1 - smooth((v - 0.2) / 0.8), 1.7);
+    const edge = 1 - smooth((Math.abs(u) - 0.65) / 0.35);
+    // The shader squares it.
+    return Math.sqrt(Math.min(1, across * 0.62 * along * edge));
+  });
+}
+
+/** The dark under a car: a soft-edged slab. */
+function shadowTexture(): THREE.CanvasTexture {
+  return ramp(32, 64, (u, v) => {
+    const qx = Math.max(Math.abs(u) - 0.7, 0), qy = Math.max(Math.abs(v * 2 - 1) - 0.76, 0);
+    return 1 - smooth(Math.hypot(qx / 0.3, qy / 0.24));
+  });
+}
+
+/** Rubber on the road: soft across, uncut along, so one stretch butts onto the next. */
+function markTexture(): THREE.CanvasTexture {
+  return ramp(16, 4, (u) => 1 - smooth((Math.abs(u) - 0.45) / 0.55));
+}
+
+/** Smoke, dust and spray. */
+function puffTexture(): THREE.CanvasTexture {
+  return ramp(32, 32, (u, v) => { const r = Math.hypot(u, v * 2 - 1); return (1 - smooth(r)) * (1 - 0.35 * r); });
 }
 
 const GLOW_VS = /* glsl */`
@@ -209,10 +259,11 @@ varying vec2 vUv;
 varying vec3 vCol;
 void main() {
   vUv = uv;
-  vCol = vec3(1.0, 0.84, 0.55) * aCol.z;
+  // aCol.w picks the lamp: 0 the headlights' warm reach, 1 the short red wash under brake lamps.
+  vCol = mix(vec3(1.0, 0.66, 0.27), vec3(1.0, 0.05, 0.02), aCol.w) * aCol.z;
   vec2 f = aCol.xy;
   vec2 r = vec2(-f.y, f.x);
-  vec2 p = r * position.x * 7.0 + f * (position.y + 0.5) * 16.0;
+  vec2 p = r * position.x * mix(6.6, 3.6, aCol.w) + f * (position.y + 0.5) * mix(16.5, 3.4, aCol.w);
   gl_Position = projectionMatrix * viewMatrix * vec4(aPos.x + p.x, aPos.y, aPos.z + p.y, 1.0);
 }`;
 const GLOW_FS = /* glsl */`
@@ -226,6 +277,64 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
+// Dark or pale things laid on the road (shadows, rubber) or hung in the air (smoke): plain alpha, one tint for the lot.
+const GROUND_VS = /* glsl */`
+attribute vec3 aPos;
+attribute vec4 aCol;
+varying vec2 vUv;
+varying vec3 vCol;
+void main() {
+  vUv = uv;
+  vCol = vec3(aCol.w);
+  // aCol.xy is the quad's long side as a vector on the ground, aCol.z its width.
+  vec2 f = aCol.xy;
+  vec2 r = normalize(vec2(-f.y, f.x)) * aCol.z;
+  vec2 p = r * position.x + f * position.y;
+  gl_Position = projectionMatrix * viewMatrix * vec4(aPos.x + p.x, aPos.y, aPos.z + p.y, 1.0);
+}`;
+const PUFF_VS = /* glsl */`
+attribute vec3 aPos;
+attribute vec4 aCol;
+varying vec2 vUv;
+varying vec3 vCol;
+void main() {
+  vUv = uv;
+  vCol = vec3(aCol.x);
+  vec4 mv = viewMatrix * vec4(aPos, 1.0);
+  mv.xy += position.xy * aCol.w;
+  gl_Position = projectionMatrix * mv;
+}`;
+const FLAT_FS = /* glsl */`
+uniform sampler2D map;
+uniform vec3 tint;
+varying vec2 vUv;
+varying vec3 vCol;
+void main() {
+  gl_FragColor = vec4(tint, texture2D(map, vUv).r * vCol.x);
+  #include <colorspace_fragment>
+}`;
+
+/**
+ * A sheen that does not wait for the reflection map: sky colour added at
+ * grazing angles and on faces that look up, and (glass only) rising toward the
+ * top of the pane. Without it the glass is a black hole whenever the
+ * environment is dim, and paint is matte plastic.
+ */
+function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number): void {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uSky = sky;
+    if (grad > 0) sh.vertexShader = 'attribute float aSky;\nvarying float vSky;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvSky = aSky;');
+    sh.fragmentShader = 'uniform vec3 uSky;\n' + (grad > 0 ? 'varying float vSky;\n' : '') + sh.fragmentShader.replace('#include <opaque_fragment>', `{
+      float sF = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
+      float sUp = max(inverseTransformDirection(normal, viewMatrix).y, 0.0);
+      outgoingLight += uSky * (${base.toFixed(3)} + ${fres.toFixed(3)} * sF * sF * sF + ${up.toFixed(3)} * sUp${grad > 0 ? ` + ${grad.toFixed(3)} * vSky * vSky` : ''});
+    }
+    #include <opaque_fragment>`);
+  };
+  // Both materials share this function's source, which is what three keys programs on by default.
+  mat.customProgramCacheKey = () => key;
+}
+
 /** Instanced quads with our own attributes: one draw call for every lamp in town. */
 class Sprites {
   readonly mesh: THREE.Mesh;
@@ -236,7 +345,8 @@ class Sprites {
   private aPos: THREE.InstancedBufferAttribute;
   private aCol: THREE.InstancedBufferAttribute;
 
-  constructor(readonly cap: number, vs: string, map: THREE.Texture, order: number) {
+  /** With a tint the quads are alpha-blended in that one colour; without, additive light. */
+  constructor(readonly cap: number, vs: string, map: THREE.Texture, order: number, readonly tint?: THREE.Color) {
     const quad = new THREE.PlaneGeometry(1, 1);
     this.geo.index = quad.index;
     this.geo.setAttribute('position', quad.getAttribute('position'));
@@ -248,7 +358,12 @@ class Sprites {
     this.geo.setAttribute('aPos', this.aPos);
     this.geo.setAttribute('aCol', this.aCol);
     this.geo.instanceCount = 0;
-    const mat = new THREE.ShaderMaterial({
+    const mat = tint ? new THREE.ShaderMaterial({
+      uniforms: { map: { value: map }, tint: { value: tint } }, vertexShader: vs, fragmentShader: FLAT_FS,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      // Laid a finger above the road; the offset keeps them from flickering into it at a distance.
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+    }) : new THREE.ShaderMaterial({
       uniforms: { map: { value: map } }, vertexShader: vs, fragmentShader: GLOW_FS,
       blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.DoubleSide,
     });
@@ -292,6 +407,23 @@ export class Vehicles implements VehiclesApi {
   private wheelMat: THREE.MeshStandardMaterial;
   private glow: Sprites;
   private pool: Sprites;
+  private shadow: Sprites;
+  private marks: Sprites;
+  private smoke: Sprites;
+  private markBorn = new Float32Array(MARKS);
+  private markA = new Float32Array(MARKS);
+  private markAt = 0;
+  /** Seconds until the last mark laid has faded; the fade loop is skipped at zero. */
+  private marksLive = 0;
+  /** Per puff: x y z, vx vy vz, age, life, size, alpha. */
+  private puffs = new Float32Array(PUFFS * 10);
+  private puffAt = 0;
+  private puffsLive = 0;
+  private time = 0;
+  private fxSeed = 9176;
+  private camX = 0; private camZ = 0;
+  private sky = { value: new THREE.Color() };
+  private smokeTint = new THREE.Color();
   private awake: Car[] = [];
   private pairA: Car[] = [];
   private pairB: Car[] = [];
@@ -302,17 +434,28 @@ export class Vehicles implements VehiclesApi {
   private wet = 0;
 
   constructor(private game: Game) {
-    this.paintMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.35, roughness: 0.4 });
+    this.paintMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.35, roughness: 0.3, envMapIntensity: 1.3 });
+    sheen(this.paintMat, this.sky, 'paint', 0, 0.3, 0.1, 0);
     this.trimMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.7 });
-    this.glassMat = new THREE.MeshStandardMaterial({ color: 0x0a1424, metalness: 0.9, roughness: 0.1 });
+    // Ink navy lifted toward the sea. Near-black metal showed only what the environment gave it, which by day was nothing.
+    this.glassMat = new THREE.MeshStandardMaterial({ color: 0x1d3a52, metalness: 0.3, roughness: 0.15, envMapIntensity: 1.6 });
     this.glassTintMat = this.glassMat.clone();
     this.glassTintMat.vertexColors = true;
+    sheen(this.glassMat, this.sky, 'glass', 0.04, 0.75, 0.2, 0.44);
+    sheen(this.glassTintMat, this.sky, 'glass', 0.04, 0.75, 0.2, 0.44);
     this.wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.15, roughness: 0.75 });
     this.wheelGeo = wheelGeometry();
     this.wheels = this.makeWheels(this.wheelCap);
     this.glow = new Sprites(1024, GLOW_VS, glowTexture(), 6);
     this.pool = new Sprites(96, POOL_VS, poolTexture(), 5);
-    game.scene.add(this.glow.mesh, this.pool.mesh);
+    this.shadow = new Sprites(160, GROUND_VS, shadowTexture(), 2, new THREE.Color(0x0b1322));
+    this.marks = new Sprites(MARKS, GROUND_VS, markTexture(), 3, new THREE.Color(0x0a0c11));
+    this.smoke = new Sprites(PUFFS, PUFF_VS, puffTexture(), 7, this.smokeTint);
+    // The marks are a ring that is always drawn whole; a slot not yet used is a quad of no width.
+    this.marks.n = MARKS;
+    for (let i = 0; i < MARKS; i++) this.marks.col[i * 4] = 1;
+    game.scene.add(this.glow.mesh, this.pool.mesh, this.shadow.mesh, this.marks.mesh, this.smoke.mesh);
+    this.marks.mesh.visible = this.shadow.mesh.visible = this.smoke.mesh.visible = false;
   }
 
   // ── Roster ─────────────────────────────────────────────────────────────────
@@ -384,6 +527,7 @@ export class Vehicles implements VehiclesApi {
     c.lift = clamp((gl + gr) / 2 - c.y, -0.2, 0.2);
     c.vx = c.vy = c.vz = c.yawRate = 0;
     c.airTime = 0; c.slip = 0; c.sliding = false;
+    c.wade = 0; c.soft = false; c.mkOn = false;
     this.sleep(c);
   }
 
@@ -408,6 +552,13 @@ export class Vehicles implements VehiclesApi {
     const night = sky ? sky.night : 0;
     // A zero-length step would divide by it; there is nothing to simulate anyway.
     if (dt <= 0) { this.sync(night); return; }
+    this.time += dt;
+    const eye = game.view ? game.view.pos : game.camera.position;
+    this.camX = eye.x; this.camZ = eye.z;
+    const day = 1 - night;
+    this.sky.value.setRGB(0.5, 0.67, 0.8).multiplyScalar(0.04 + 0.96 * day);
+    // Bone by day; under the sodium lamps smoke is only a shade paler than the road.
+    this.smokeTint.setRGB(0.88, 0.8, 0.62).multiplyScalar(0.22 + 0.78 * day);
 
     awake.length = 0;
     for (let i = 0; i < list.length; i++) {
@@ -426,7 +577,7 @@ export class Vehicles implements VehiclesApi {
       for (let s = 0; s < n; s++) {
         for (let i = 0; i < awake.length; i++) {
           const c = awake[i];
-          if (c.sunk) { this.sink(c, h); continue; }
+          if (c.sunk || c.ditch) { this.sink(c, h); continue; }
           this.step(c, h);
           this.cur = c; this.curS = Math.sin(c.h); this.curC = Math.cos(c.h);
           game.col.forBoxes(c.x, c.z, c.rad + 0.3, this.onBox);
@@ -438,12 +589,14 @@ export class Vehicles implements VehiclesApi {
       for (let i = 0; i < awake.length; i++) {
         const c = awake[i];
         this.settle(c, dt);
+        this.trail(c, dt);
         c.lights = c.driver !== null && night > 0.5 && !c.sunk;
         if (c.dead) dead = true;
       }
       if (dead) for (let i = list.length - 1; i >= 0; i--) if (list[i].dead) list.splice(i, 1);
     }
     this.pairs = 0;
+    this.fx(dt);
     this.sync(night);
   }
 
@@ -486,11 +639,13 @@ export class Vehicles implements VehiclesApi {
     // Keys are all-or-nothing, so the wheel is turned for the player: briskly
     // toward the wish, faster back to center, more gently the faster the car goes.
     const turningIn = wish * c.steerPos >= 0 && Math.abs(wish) > Math.abs(c.steerPos);
-    const rate = (turningIn ? 5.5 - 3 * clamp01(absV / sp.topSpeed) : 8.5) * dt;
+    const rate = (turningIn ? 7 - 3 * clamp01(absV / sp.topSpeed) : 8.5) * dt;
     const ds = wish - c.steerPos;
     c.steerPos += ds > rate ? rate : ds < -rate ? -rate : ds;
 
-    const gripBase = sp.grip * (1 - 0.22 * this.wet);
+    // Sand gives under the tires: less bite, and (below) it drags.
+    const gripBase = sp.grip * (1 - 0.22 * this.wet) * (c.soft ? 0.7 : 1);
+    if (hb) c.hbT = 0.6; else if (c.hbT > 0) c.hbT -= dt;
     const speed2 = vf * vf + vr * vr;
 
     if (c.onF || c.onR) {
@@ -512,12 +667,20 @@ export class Vehicles implements VehiclesApi {
         else { const u = vf / (sp.topSpeed * OVERRUN); along = throttle * a0 * (1 - u * u) * clamp01((sp.topSpeed - vf) / (0.01 * sp.topSpeed)); }
       } else if (throttle < 0) {
         if (vf > 0.6) brake = -throttle;
-        else { const u = vf / (sp.topSpeed * 0.3); along = throttle * a0 * 0.8 * Math.max(0, 1 - u * u); c.reversing = true; }
+        // Capped at about 25 mph: enough for a reverse flick, not a getaway gear.
+        else { const u = vf / Math.min(sp.topSpeed * 0.3, 11); along = throttle * a0 * 0.6 * Math.max(0, 1 - u * u); c.reversing = true; }
       }
+      // Wading: the engine labors and the water pushes back harder the faster the car goes. Nothing
+      // here holds a stopped car, so it can always back out.
+      if (c.wade > 0) along *= 1 - 0.35 * clamp01(c.wade / 0.6);
       // Feet off: engine braking and drag bring it to rest in a block or so. A car nobody is in sits in gear.
-      let drag = throttle === 0 ? 1.5 + 0.045 * absV : 0.15;
+      // Light at speed, so lifting through a bend is not half a brake; firmer near walking pace so it does stop.
+      let drag = throttle === 0 ? (0.55 + 0.02 * absV) * (COAST[sp.kind] ?? 1) + (absV < 5 ? 1 - absV / 5 : 0) : 0.15;
       drag += brake * sp.brake * (1 - 0.15 * this.wet);
-      if (hb) drag += sp.brake * 0.5;
+      // Locked rears scrub little speed: the slide has to carry the car round.
+      if (hb) drag += sp.brake * 0.4;
+      if (c.wade > 0) drag += c.wade * (0.3 + 2.4 * absV + 0.15 * absV * absV);
+      if (c.soft) drag += 1.2 * clamp01(absV / 2);
       if (!driven) drag += 5;
       c.braking = brake > 0.05 || hb;
       // Hills: the part of gravity along the slope.
@@ -534,7 +697,7 @@ export class Vehicles implements VehiclesApi {
       // Only the cars with power to spare break the rear loose: nobody wants a bus that drifts by accident.
       const power = sp.drive === 'rwd' && throttle > 0.8 && Math.abs(c.steerPos) > 0.45 && vf > 1.5 && vf < 15 ? clamp01((sp.accel - 6) / 3) : 0;
       let grip = gripBase;
-      if (hb) grip *= 0.25; else if (c.sliding || c.loose > 0) grip *= 0.5; else grip *= 1 - 0.5 * power;
+      if (hb) grip *= sp.drive === 'rwd' ? 0.2 : 0.25; else if (c.sliding || c.loose > 0) grip *= 0.5; else grip *= 1 - 0.5 * power;
       const cap = gripBase * 1.75 * (hb ? 0.5 : c.sliding ? 0.75 : 1) * dt;
       const avr = Math.abs(vr);
       let dvr = avr * (1 - Math.exp(-grip * dt));
@@ -549,18 +712,20 @@ export class Vehicles implements VehiclesApi {
         let yawWish = -vf * tanS / sp.wheelbase;
         yawWish *= 1 + 0.5 * power;
         // A sliding car weathervanes: left alone, the nose swings back to the way it is going.
-        if (c.sliding && !hb) yawWish -= ALIGN * (vr / Math.sqrt(speed2 + 4)) * clamp(vf / 3, -1, 1);
+        // Not for a moment after the handbrake, and less the further round the car already is: a turn
+        // that has gone past sixty degrees should finish, not unwind.
+        if (c.sliding && !hb && c.hbT <= 0) yawWish -= ALIGN * (vr / Math.sqrt(speed2 + 4)) * clamp(vf / 8, -1, 1);
         const lazy = c.sliding || hb || c.loose > 0;
         // Steering against the spin is answered at once: that is the catch. A spin
         // that is already turning carries on by itself for a while, which is what
         // takes a handbrake turn past ninety degrees after the nose has stopped leading.
         const fading = Math.abs(yawWish) < Math.abs(c.yawRate);
-        const k = !lazy ? 14 : yawWish * c.yawRate < 0 ? 9 : fading ? (hb ? 1.3 : 3) : 6;
+        const k = !lazy ? 14 : yawWish * c.yawRate < 0 ? 9 : fading ? (hb ? 0.7 : c.hbT > 0 ? 1.6 : 3) : 6;
         c.yawRate = damp(c.yawRate, yawWish, k, dt);
       }
 
       const launch = sp.drive === 'rwd' && throttle > 0.9 && vf < 6 && a0 > 5.5 ? (1 - Math.max(vf, 0) / 6) * 0.6 : 0;
-      c.slip = clamp01(Math.max((avr - 1.5) / 5, hb && speed2 > 9 ? 0.6 : 0, launch));
+      c.slip = clamp01(Math.max((avr - 1.5) / 5, hb && speed2 > 9 ? 0.6 : 0, launch, c.soft ? 0.25 * clamp01(absV / 8) : 0));
     } else {
       // In the air nothing steers and nothing pushes.
       c.yawRate *= Math.exp(-0.5 * dt);
@@ -665,12 +830,27 @@ export class Vehicles implements VehiclesApi {
     }
     c.roll = c.groundRoll;
 
-    if (c.y < WATER_Y + 0.15 && isWater(c.x, c.z)) {
-      c.sunk = true;
+    c.wade = c.onGround && c.y < WATER_Y ? WATER_Y - c.y : 0;
+    // Everything off the paved grid that is not a deck or the bridge is sand or shore turf. The box
+    // is the city core's, as in groundAt().
+    c.soft = c.onGround && c.wade === 0 && (c.x < -610 || c.x > 610 || c.z < -440 || c.z > 410)
+      && !(c.z < -430 && Math.abs(c.x - BRIDGE.x) <= BRIDGE.hw + 2) && Math.abs(c.y - terrainAt(c.x, c.z)) < 0.03;
+
+    // The sea takes a car that lands in it or wades in past its sills. Surf to the hubs is only slow going.
+    if (c.y < WATER_Y - 0.1 && groundAt(c.x, c.z) < WATER_Y - DEEP) {
+      c.ditch = true;
       c.sinkT = 0;
+      c.dive = clamp(-c.vy * 0.07, 0, 0.7);
       c.onGround = c.onF = c.onR = false;
-      c.sliding = false; c.slip = 0; c.braking = false; c.reversing = false;
+      c.sliding = false; c.slip = 0; c.braking = false; c.reversing = false; c.wade = 0; c.soft = false;
       this.game.emit('splash', { x: c.x, z: c.z, big: true });
+      // A wall of spray thrown the way the car was going, and a ring around it.
+      const sp1 = Math.hypot(c.vx, c.vz), n = 22;
+      for (let i = 0; i < n; i++) {
+        const a = i / n * Math.PI * 2, r = 0.6 + this.rand() * c.hw, out = 1.5 + this.rand() * 2.5 + sp1 * 0.12;
+        this.puff(c.x + Math.sin(a) * r + sh * c.hl * 0.6, WATER_Y + 0.2, c.z + Math.cos(a) * r + ch * c.hl * 0.6,
+          Math.sin(a) * out + c.vx * 0.35, 3 + this.rand() * 4 + sp1 * 0.1, Math.cos(a) * out + c.vz * 0.35, 0.9 + this.rand() * 0.6, 1.3 + this.rand() * 1.2, 0.85);
+      }
     }
   }
 
@@ -694,8 +874,8 @@ export class Vehicles implements VehiclesApi {
   private wall(c: Car, px: number, pz: number, nx: number, nz: number): boolean {
     const vn = c.vx * nx + c.vz * nz;
     if (vn >= 0) return false;
-    c.vx -= (1 + RESTITUTION) * vn * nx;
-    c.vz -= (1 + RESTITUTION) * vn * nz;
+    c.vx -= (1 + WALL_REST) * vn * nx;
+    c.vz -= (1 + WALL_REST) * vn * nz;
     c.yawRate *= 0.6;
     if (-vn > HARD_HIT) this.impact(c, -vn, null, px, pz, (-vn - HARD_HIT) * DAMAGE);
     return true;
@@ -708,18 +888,34 @@ export class Vehicles implements VehiclesApi {
     this.game.emit('impact', { vehicle: c, speed, other, x, z });
   }
 
-  /** Deep water: the engine is dead, the car bobs, fills and goes down. */
+  /**
+   * Deep water: the engine is dead, the car bobs, fills and goes down. The
+   * first half second is the plough: it digs its nose in and sheds most of its
+   * speed in spray, and only then is it `sunk`, which is the player code's cue
+   * to put the driver in the water. Flipping at the waterline threw the driver
+   * out of a car still doing sixty.
+   */
   private sink(c: Car, dt: number): void {
     c.sinkT += dt;
-    const k = Math.exp(-1.8 * dt);
+    if (c.ditch) {
+      if (c.sinkT > DITCH) { c.ditch = false; c.sunk = true; }
+      c.puffT -= dt;
+      if (c.puffT <= 0) {
+        c.puffT = 0.03;
+        const s = Math.sin(c.h), co = Math.cos(c.h), side = (this.rand() - 0.5) * 2 * c.hw;
+        this.puff(c.x + s * c.hl + co * side, WATER_Y + 0.15, c.z + co * c.hl - s * side, c.vx * 0.5 + co * side * 2, 2.5 + this.rand() * 3, c.vz * 0.5 - s * side * 2, 0.7, 1.1 + this.rand(), 0.8);
+      }
+    }
+    const k = Math.exp(-(c.sunk ? 1.8 : 3.4) * dt);
     c.vx *= k; c.vz *= k; c.yawRate *= k;
     c.x += c.vx * dt; c.z += c.vz * dt; c.h += c.yawRate * dt;
     const f = smooth(c.sinkT / 5), sp = c.spec;
     const floor = groundAt(c.x, c.z);
     const bob = Math.sin(c.sinkT * 3.2) * 0.04 * (1 - f);
-    const level = Math.max(floor, WATER_Y - 0.3 - f * (sp.height + 0.15) + bob);
-    // Engine first: the nose goes down ahead of the tail.
-    const tip = Math.sin(f * Math.PI) * 0.28 * sp.wheelbase / 2;
+    const early = Math.exp(-2.5 * c.sinkT);
+    const level = Math.max(floor, WATER_Y - 0.3 - f * (sp.height + 0.15) + bob - c.dive * early);
+    // Engine first: the nose goes down ahead of the tail, and digs in hardest as it lands.
+    const tip = (Math.sin(f * Math.PI) * 0.28 + early * 0.3) * sp.wheelbase / 2;
     c.yF = damp(c.yF, Math.max(floor, level - tip), 4, dt);
     c.yR = damp(c.yR, level + tip * 0.4, 4, dt);
     c.vyF = c.vyR = 0;
@@ -737,8 +933,10 @@ export class Vehicles implements VehiclesApi {
     const sp = c.spec;
     const vf = c.speed;
     // In the air the wheels hang: the body rides a little high on them.
-    const acc = ((c.onGround || c.sunk ? 0 : -0.06) - c.susp) * 150 - c.suspV * 15;
+    const acc = ((c.onGround || c.sunk || c.ditch ? 0 : -0.06) - c.susp) * 150 - c.suspV * 15;
     c.suspV += acc * dt;
+    // Sand is not flat, whatever the height map says: work the springs a few centimeters.
+    if (c.soft) c.suspV += Math.sin(c.x * 0.63 + c.z * 0.71) * 5 * clamp01(Math.abs(vf) / 6) * dt;
     c.susp += c.suspV * dt;
     if (c.susp > 0.15) { c.susp = 0.15; c.suspV = 0; } else if (c.susp < -0.08) { c.susp = -0.08; c.suspV = 0; }
     const lat = c.onGround ? c.yawRate * vf : 0;
@@ -750,10 +948,116 @@ export class Vehicles implements VehiclesApi {
     if (!(c.driver !== null && c.ctl.handbrake && c.onGround)) c.spinR = (c.spinR + turn) % (Math.PI * 2);
     c.stale = true;
 
-    const still = c.driver === null && !c.sunk && c.onF && c.onR && c.vx * c.vx + c.vz * c.vz < 0.01
+    const still = c.driver === null && !c.sunk && !c.ditch && c.onF && c.onR && c.vx * c.vx + c.vz * c.vz < 0.01
       && Math.abs(c.yawRate) < 0.02 && Math.abs(c.susp) < 0.004 && Math.abs(c.suspV) < 0.03;
     c.rest = still ? c.rest + dt : 0;
     if (c.rest > 0.5) this.sleep(c);
+  }
+
+  // ── Rubber, smoke and spray ────────────────────────────────────────────────
+
+  /** Layout uses `rng`; effects must not disturb it, or the city's paint would depend on how you drove. */
+  private rand(): number {
+    this.fxSeed = (Math.imul(this.fxSeed, 1664525) + 1013904223) >>> 0;
+    return this.fxSeed / 4294967296;
+  }
+
+  private puff(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size: number, alpha: number): void {
+    const p = this.puffs, i = this.puffAt * 10;
+    this.puffAt = (this.puffAt + 1) % PUFFS;
+    p[i] = x; p[i + 1] = y; p[i + 2] = z; p[i + 3] = vx; p[i + 4] = vy; p[i + 5] = vz;
+    p[i + 6] = 0; p[i + 7] = life; p[i + 8] = size; p[i + 9] = alpha;
+    this.puffsLive = Math.max(this.puffsLive, life);
+  }
+
+  private mark(x0: number, z0: number, x1: number, z1: number, y: number, w: number, a: number): void {
+    const m = this.marks, i = this.markAt;
+    this.markAt = (i + 1) % MARKS;
+    m.pos[i * 3] = (x0 + x1) / 2; m.pos[i * 3 + 1] = y; m.pos[i * 3 + 2] = (z0 + z1) / 2;
+    m.col[i * 4] = x1 - x0; m.col[i * 4 + 1] = z1 - z0; m.col[i * 4 + 2] = w; m.col[i * 4 + 3] = a;
+    this.markBorn[i] = this.time; this.markA[i] = a;
+    this.marksLive = MARK_LIFE;
+  }
+
+  /** Once a frame per awake car: what its tires leave behind and throw up. Only near the camera; the pools are small. */
+  private trail(c: Car, dt: number): void {
+    const dx = c.x - this.camX, dz = c.z - this.camZ;
+    if (c.sunk || c.ditch || dx * dx + dz * dz > 22500) { c.mkOn = false; return; }
+    const ws = c.batch.model.wheels;
+    const s = Math.sin(c.h), co = Math.cos(c.h);
+    const v2 = c.vx * c.vx + c.vz * c.vz;
+    const skid = c.onGround && !c.soft && c.wade === 0 && c.slip > 0.4 && v2 > 9 && ws.length >= 4;
+    // Rear wheels: the handbrake locks them and the power spins them. +X on the model is the car's left, which is (cos h, -sin h).
+    const wl = ws[Math.min(2, ws.length - 1)], wr = ws[Math.min(3, ws.length - 1)];
+    const lx = c.x + s * wl.z + co * wl.x, lz = c.z + co * wl.z - s * wl.x;
+    const rx = c.x + s * wr.z + co * wr.x, rz = c.z + co * wr.z - s * wr.x;
+    const y = c.y + c.lift;
+    if (skid) {
+      const ex = lx - c.mlx, ez = lz - c.mlz, d2 = ex * ex + ez * ez;
+      if (!c.mkOn || d2 > 0.3) {
+        // A jump of meters is a teleport, not a skid.
+        if (c.mkOn && d2 < 9) {
+          const a = 0.62 * clamp01((c.slip - 0.3) * 2.5), w = c.spec.wheelW * 1.25;
+          this.mark(c.mlx, c.mlz, lx, lz, y + 0.025, w, a);
+          this.mark(c.mrx, c.mrz, rx, rz, y + 0.025, w, a);
+        }
+        c.mlx = lx; c.mlz = lz; c.mrx = rx; c.mrz = rz; c.mkOn = true;
+      }
+    } else c.mkOn = false;
+
+    c.puffT -= dt;
+    if (c.puffT > 0) return;
+    const left = this.rand() < 0.5, wx = left ? lx : rx, wz = left ? lz : rz;
+    if (skid) {
+      c.puffT = 0.045;
+      this.puff(wx, y + 0.25, wz, c.vx * 0.25 + (this.rand() - 0.5), 0.7 + this.rand() * 0.6, c.vz * 0.25 + (this.rand() - 0.5), 0.9 + this.rand() * 0.5, 0.9 + this.rand() * 0.6, 0.62 * c.slip);
+    } else if (c.wade > 0.04 && v2 > 4) {
+      // Thrown up from the leading end, harder the faster it wades.
+      c.puffT = 0.035;
+      const sp1 = Math.sqrt(v2), lead = c.speed >= 0 ? 1 : -1, side = (this.rand() - 0.5) * 2 * c.hw;
+      this.puff(c.x + s * c.hl * lead + co * side, WATER_Y + 0.1, c.z + co * c.hl * lead - s * side, c.vx * 0.6 + co * side * 1.5, 1.2 + sp1 * 0.22, c.vz * 0.6 - s * side * 1.5,
+        0.55, 0.6 + Math.min(sp1, 14) * 0.06, 0.75 * clamp01(sp1 / 6));
+    } else if (c.soft && v2 > 20) {
+      c.puffT = 0.08;
+      this.puff(wx, y + 0.2, wz, c.vx * 0.2 + (this.rand() - 0.5), 0.5 + this.rand() * 0.5, c.vz * 0.2 + (this.rand() - 0.5), 1.1, 0.9 + this.rand() * 0.6, 0.3 * clamp01(v2 / 150 + 0.3));
+    } else c.puffT = 0;
+  }
+
+  /** Age the marks and the puffs. Both loops stop when there is nothing left to fade. */
+  private fx(dt: number): void {
+    if (this.marksLive > 0) {
+      this.marksLive -= dt;
+      const m = this.marks, t = this.time;
+      for (let i = 0; i < MARKS; i++) {
+        const a = this.markA[i];
+        if (a === 0) continue;
+        // Full strength for most of their life, then gone over the last few seconds.
+        const k = clamp01((MARK_LIFE - (t - this.markBorn[i])) / 5);
+        m.col[i * 4 + 3] = a * k;
+        if (k === 0) this.markA[i] = 0;
+      }
+      m.flush();
+      if (this.marksLive <= 0) m.mesh.visible = false;
+    }
+    const sm = this.smoke;
+    if (this.puffsLive > 0) {
+      this.puffsLive -= dt;
+      const p = this.puffs, k = Math.exp(-2.2 * dt);
+      sm.n = 0;
+      for (let i = 0; i < PUFFS * 10; i += 10) {
+        const life = p[i + 7];
+        if (life === 0) continue;
+        const age = (p[i + 6] += dt);
+        if (age >= life) { p[i + 7] = 0; continue; }
+        p[i + 3] *= k; p[i + 5] *= k;
+        // Spray falls back; smoke, being lighter, has stopped rising by then anyway.
+        p[i + 4] -= (p[i + 4] > 1.2 ? 9 : 0.4) * dt;
+        p[i] += p[i + 3] * dt; p[i + 1] += p[i + 4] * dt; p[i + 2] += p[i + 5] * dt;
+        const u = age / life;
+        sm.add(p[i], p[i + 1], p[i + 2], p[i + 9] * (1 - u) * Math.min(1, u * 10), 0, 0, p[i + 8] * (1 + 1.6 * u));
+      }
+      sm.flush();
+    } else if (sm.mesh.visible) { sm.n = 0; sm.flush(); }
   }
 
   // ── Collisions ─────────────────────────────────────────────────────────────
@@ -769,7 +1073,7 @@ export class Vehicles implements VehiclesApi {
     const vn = (c.vx + c.yawRate * rz) * nx + (c.vz - c.yawRate * rx) * nz;
     if (vn >= 0) return;
     const rn = rz * nx - rx * nz;
-    const j = -(1 + RESTITUTION) * vn / (c.invM + rn * rn * c.invI);
+    const j = -(1 + WALL_REST) * vn / (c.invM + rn * rn * c.invI);
     c.vx += j * nx * c.invM; c.vz += j * nz * c.invM;
     c.yawRate += rn * j * c.invI;
     // Scraping costs a little speed along the wall, never more than the hit was hard.
@@ -822,10 +1126,23 @@ export class Vehicles implements VehiclesApi {
     const ef = lf - clamp(lf, -c.hl, c.hl), er = lr - clamp(lr, -c.hw, c.hw);
     const d2 = ef * ef + er * er;
     if (d2 >= p.r * p.r) return;
-    if (p.breakable && c.vx * c.vx + c.vz * c.vz > 4) {
+    const v2 = c.vx * c.vx + c.vz * c.vz;
+    if (p.breakable && v2 > 4) {
       this.game.col.breakProp(p, c.vx, c.vz);
-      c.vx *= 0.975; c.vz *= 0.975;
+      // Enough to feel the bump, not enough to punish it.
+      c.vx *= 0.94; c.vz *= 0.94;
       return;
+    }
+    if (p.hard) {
+      // A lamp post stops a hatchback at parking speed and loses to a bus at a crawl:
+      // the bar is momentum, so it drops as the mass rises.
+      const v = Math.sqrt(v2);
+      if (v > clamp(13500 * c.invM, 3.5, 9.5)) {
+        this.game.col.breakProp(p, c.vx, c.vz);
+        c.vx *= 0.7; c.vz *= 0.7;
+        this.impact(c, v, null, p.x, p.z, (v - HARD_HIT) * DAMAGE * 0.5);
+        return;
+      }
     }
     // Solid: a wall one post wide. The normal runs from the post to the nearest point of the body.
     let nf: number, nr: number, pen: number;
@@ -834,6 +1151,12 @@ export class Vehicles implements VehiclesApi {
     else { nf = 0; nr = lr < 0 ? 1 : -1; pen = c.hw - Math.abs(lr) + p.r; }
     const nx = nf * sh - nr * ch, nz = nf * ch + nr * sh;
     c.x += nx * pen; c.z += nz * pen;
+    // Square on the nose there is no torque to turn the car, and it sat pinned on a pole
+    // with the throttle down. A thin post lets the bumper slip off to one side instead.
+    if (p.r < 0.6 && Math.abs(nf) > 0.85) {
+      const slip = lr > 0 ? -0.05 : 0.05;
+      c.vx -= ch * slip; c.vz += sh * slip;
+    }
     this.bounce(c, p.x, p.z, nx, nz);
   };
 
@@ -911,6 +1234,15 @@ export class Vehicles implements VehiclesApi {
     const cap = Math.max(8, Math.ceil(SPECS[kind].common * 8));
     b = { kind, model, cap, n: 0, near: 0, paint: null!, trim: null!, glass: null! };
     this.makeMeshes(b);
+    // How far up its pane each glass vertex is, for the sheen's gradient: the top of a windshield shows sky, the bottom the dash.
+    const gp = model.glass.getAttribute('position');
+    if (gp && !model.glass.hasAttribute('aSky')) {
+      let lo = Infinity, hi = -Infinity;
+      for (let i = 0; i < gp.count; i++) { const y = gp.getY(i); if (y < lo) lo = y; if (y > hi) hi = y; }
+      const sky = new Float32Array(gp.count);
+      for (let i = 0; i < gp.count; i++) sky[i] = hi > lo ? (gp.getY(i) - lo) / (hi - lo) : 0.5;
+      model.glass.setAttribute('aSky', new THREE.BufferAttribute(sky, 1));
+    }
     this.batches.set(kind, b);
     this.batchList.push(b);
     return b;
@@ -986,9 +1318,9 @@ export class Vehicles implements VehiclesApi {
     const game = this.game;
     const cam = game.view ? game.view.pos : game.camera.position;
     const far = game.quality.drawDist * 0.7, far2 = far * far;
-    const glow = this.glow, pool = this.pool;
+    const glow = this.glow, pool = this.pool, shadow = this.shadow;
     for (const b of this.batchList) b.n = 0;
-    glow.n = 0; pool.n = 0;
+    glow.n = 0; pool.n = 0; shadow.n = 0;
     let nw = 0;
     let wheelArr = this.wheels.instanceMatrix.array as Float32Array;
 
@@ -1039,6 +1371,16 @@ export class Vehicles implements VehiclesApi {
         nw += nWheels;
       }
 
+      // The dark under the car. The sun's shadow does this at noon; at dusk, at night and with shadows off nothing
+      // else does, and the car floats. It stays behind when the car leaves the ground.
+      if (d3 < 25600 && !c.sunk && !c.ditch && c.y > WATER_Y - 0.2) {
+        const a = (c.onGround ? 1 : Math.max(0, 1 - c.airTime * 5)) * (1 - clamp01((Math.abs(c.pitch) - 0.06) * 7)) * (1 - smooth((d3 - 14400) / 11200));
+        if (a > 0.02) {
+          const s = Math.sin(c.h), co = Math.cos(c.h), len = c.spec.length + 0.7;
+          shadow.add(c.x, c.y + c.lift + 0.03, c.z, s * len, co * len, c.spec.width + 0.6, 0.46 * a);
+        }
+      }
+
       if ((c.lights || c.braking || c.reversing) && d2 < 62500) this.lamps(c, dx, dz, Math.sqrt(d2), night);
     }
     if (pass === 0) { for (const b of this.batchList) b.near = b.n; this.wheelsNear = nw; }
@@ -1055,7 +1397,7 @@ export class Vehicles implements VehiclesApi {
     this.wheels.count = this.wheelsAll = nw;
     this.wheels.visible = nw > 0;
     this.wheels.instanceMatrix.needsUpdate = true;
-    glow.flush(); pool.flush();
+    glow.flush(); pool.flush(); shadow.flush();
   }
 
   /** Growing replaces the meshes, so carry over what this frame has already written. */
@@ -1093,10 +1435,13 @@ export class Vehicles implements VehiclesApi {
         }
       }
     }
-    if (c.lights && dist < 180) {
-      const s = Math.sin(c.h), co = Math.cos(c.h), reach = c.hl - 0.4;
+    if (dist < 180 && c.onGround) {
+      const s = Math.sin(c.h), co = Math.cos(c.h), far = 1 - smooth((dist - 110) / 70);
+      // Lamps come on at half dark, when the road is still lit: the pool grows in with the night instead of arriving as a grey smudge.
+      const dark = clamp01((night - 0.5) / 0.35);
       // Held a hand above the street so it still shows where the beam climbs a curb.
-      this.pool.add(c.x + s * reach, c.y + 0.2, c.z + co * reach, s, co, 0.3 * (1 - smooth((dist - 110) / 70)), 0);
+      if (c.lights) this.pool.add(c.x + s * (c.hl - 0.6), c.y + 0.2, c.z + co * (c.hl - 0.6), s, co, 0.7 * dark * dark * far, 0);
+      if (c.braking && night > 0.4) this.pool.add(c.x - s * (c.hl - 0.5), c.y + 0.2, c.z - co * (c.hl - 0.5), -s, -co, 0.24 * night * night * far, 1);
     }
   }
 }

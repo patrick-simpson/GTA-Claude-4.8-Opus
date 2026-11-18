@@ -7,6 +7,7 @@
 
 import './title.css';
 import type { Game } from '../core/game';
+import type { Weather } from '../core/api';
 import { RNG } from '../core/util';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
@@ -99,6 +100,10 @@ export class Title {
   private shownLabel = '';
   private isReady = false;
   private gone = false;
+  private band: HTMLElement;
+  /** What the sky was doing before the title posed it, to be put back on start. */
+  private held: { hour: number; rate: number; weather: Weather } | null = null;
+  private onResize = (): void => this.frame(1);
 
   constructor(private game: Game) {
     const root = (document.getElementById('title') ?? document.body.appendChild(document.createElement('div'))) as HTMLElement;
@@ -124,6 +129,7 @@ export class Title {
 </div>`;
     this.fill = root.querySelector('.tt-rule i') as HTMLElement;
     this.label = root.querySelector('.tt-load-tx') as HTMLElement;
+    this.band = root.querySelector('.tt-band') as HTMLElement;
 
     addEventListener('keydown', (e) => {
       // Browser business (reload, dev tools, tabbing away) is not "any key".
@@ -148,7 +154,35 @@ export class Title {
     this.progress(1, this.shownLabel);
     this.root.classList.add('ready');
     // Tests call start() before ready(); the card must not come back for them.
-    if (this.game.state !== 'title') this.leave();
+    if (this.game.state !== 'title') { this.leave(); return; }
+    this.pose();
+  }
+
+  /**
+   * The flight under the lettering is the first look anyone gets at the town,
+   * and the real opening hour is a hazy morning that flattens it to grey-green.
+   * So the title shows the town at its best: clear, late afternoon, the clock
+   * stopped. The real morning is put back the moment the game starts.
+   */
+  private pose(): void {
+    const sky = this.game.sky;
+    this.held = { hour: sky.hour, rate: sky.rate, weather: sky.weather };
+    sky.hour = 17.25;
+    sky.rate = 0;
+    sky.setWeather('clear', true);
+    this.frame(1);
+    addEventListener('resize', this.onResize);
+  }
+
+  /**
+   * The band covers the bottom of the screen, where the flight keeps the pier.
+   * Shift the lens (not the camera) so the picture's middle is the middle of
+   * the part still showing. k: 1 = fully shifted, 0 = the plain view.
+   */
+  private frame(k: number): void {
+    const cam = this.game.camera, w = innerWidth, h = innerHeight;
+    if (k <= 0) cam.clearViewOffset();
+    else cam.setViewOffset(w, h, 0, Math.round(this.band.offsetHeight * 0.5 * k), w, h);
   }
 
   private go(lock: boolean): void {
@@ -163,11 +197,27 @@ export class Title {
     this.gone = true;
     const root = this.root, t0 = performance.now();
     root.classList.add('leave');
+    const held = this.held;
+    this.held = null;
+    if (held) {
+      const sky = this.game.sky;
+      sky.hour = held.hour;
+      sky.rate = held.rate;
+      sky.setWeather(held.weather, true);
+      removeEventListener('resize', this.onResize);
+    }
     // Remove the card when its exit is over. A test that freezes the clock is
     // about to take a screenshot, so for it the card goes at once.
     const watch = (): void => {
-      if (this.game.frozen || performance.now() - t0 > 480) root.classList.add('gone');
-      else requestAnimationFrame(watch);
+      const f = (performance.now() - t0) / 480;
+      if (this.game.frozen || f >= 1) {
+        root.classList.add('gone');
+        if (held) this.frame(0);
+        return;
+      }
+      // The lens shift eases out with the band, so the swoop down to Dess starts from the picture that was on screen.
+      if (held) this.frame((1 - f) * (1 - f));
+      requestAnimationFrame(watch);
     };
     requestAnimationFrame(watch);
   }

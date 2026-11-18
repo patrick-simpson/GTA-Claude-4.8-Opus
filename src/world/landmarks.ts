@@ -31,6 +31,8 @@ interface Ctx {
   signs: Batch;
   glow: Batch;
   cast: boolean;
+  /** Anything here that follows the clock registers itself; buildLandmarks() fans setNight out to the list. */
+  night: ((n: number) => void)[];
 }
 
 function mesh(b: Batch, mat: THREE.Material, parent: THREE.Object3D, cast: boolean, name: string): THREE.Mesh {
@@ -200,10 +202,14 @@ function buildPier(c: Ctx): (dt: number, t: number) => void {
     flat.box(lx, y + 4.2, z, 0.36, 0.44, 0.36, 0xfff1c9);
     flat.box(lx, y + 4.64, z, 0.5, 0.08, 0.5, INK);
     halo(c.glow, lx, y + 4.4, z, 2.6, SODIUM);
-    pool(c.glow, lx + inward * 1.2, y + 0.06, z, 5.5, 0x7a4f1e);
+    pool(c.glow, lx + inward * 2.2, y + 0.06, z, 8, 0x9a6426);
   };
   for (let z = 452; z < H.z0; z += 24) { lamp(PIER.x0 + 0.45, z, 1); lamp(PIER.x1 - 0.45, z, -1); }
   for (const z of [604, 636, 664]) { lamp(H.x0 + 0.5, z, 1); lamp(H.x1 - 0.5, z, -1); }
+  // The head is 68 m across and its lamps stand on the rails, so the middle gets its light from the wheel:
+  // one wide pool under the hub and one down each side of the driveway, or the boards go black at night.
+  pool(c.glow, 0, DECK_Y + 0.07, 634, 24, 0xa86c2a);
+  for (const z of [606, 662]) for (const x of [-11, 11]) pool(c.glow, x, DECK_Y + 0.07, z, 9, 0x7a4f1e);
 
   // The entrance arch.
   const AZ = PIER.z0 + 1, AX = 9.7;
@@ -249,6 +255,9 @@ function buildPier(c: Ctx): (dt: number, t: number) => void {
     flat.box(cx, y, cz, w, 2.5, d, body, f);
     flat.box(cx, y, cz, w + 0.08, 0.9, d + 0.08, stripe, f, 4);
     vquad(flat, lx(0, d / 2 + 0.03), y + 1.6, lz(0, d / 2 + 0.03), 3.1, 1.05, f, GLASS);
+    // Open late: the counter glows and spills onto the boards in front of it.
+    vquad(c.glow, lx(0, d / 2 + 0.06), y + 1.6, lz(0, d / 2 + 0.06), 4.4, 2.2, f, 0xb07a34);
+    pool(c.glow, lx(0, d / 2 + 2.6), y + 0.07, lz(0, d / 2 + 2.6), 4.6, 0x7a4f1e);
     flat.box(lx(0, d / 2 + 0.2), y + 0.98, lz(0, d / 2 + 0.2), 3.4, 0.1, 0.45, BONE, f);
     board(c, flat, lx(0, d / 2 + 0.5), y + 3.08, lz(0, d / 2 + 0.5), 3.8, 0.95, f, sign);
     const side = Math.abs(sn) > 0.5;
@@ -312,7 +321,7 @@ function buildWheel(c: Ctx, flat: Batch): (dt: number, t: number) => void {
   for (const sz of [-1, 1]) flat.box(0, HY - 1, HZ + sz * 2.9, 2.6, 2, 1, INK);
 
   // What turns. Built around the origin so the group only ever needs a rotation.
-  const rot = new Batch(), lights = new Batch();
+  const rot = new Batch(), lights = new Batch(), chase = new Batch();
   for (const side of [-1, 1]) {
     const z = side * ZR, f = side > 0 ? 0 : Math.PI, gz = side * (ZR + 0.28);
     for (let i = 0; i < N; i++) {
@@ -324,6 +333,7 @@ function buildWheel(c: Ctx, flat: Batch): (dt: number, t: number) => void {
       beam(rot, c0 * R, s0 * R, z, c1 * RI, s1 * RI, z, 0.1, 0.1, BONE);
       beam(rot, c0 * RM, s0 * RM, z, c1 * RM, s1 * RM, z, 0.14, 0.14, BONE);
       vquad(lights, c0 * R, s0 * R, gz, 2.1, 2.1, f, i % 2 ? WARM : SODIUM);
+      if (i % 4 === 0) vquad(chase, c0 * R, s0 * R, gz + side * 0.02, 3.4, 3.4, f, 0xfff0c8);
     }
     for (let k = 0; k < G; k++) {
       const a = (k / G) * TAU, ca = Math.cos(a), sa = Math.sin(a);
@@ -345,8 +355,17 @@ function buildWheel(c: Ctx, flat: Batch): (dt: number, t: number) => void {
   spin.name = 'ferris-wheel';
   spin.position.set(0, HY, HZ);
   c.parent.add(spin);
-  mesh(rot, mats.flat, spin, c.cast, 'wheel');
+  // The wheel's own paint. Lambert has no way to be lit by two hundred bulbs, so at night the steel takes a
+  // little warm emissive instead; without it the bulbs hang on a black cut-out.
+  const steel = mats.flat.clone();
+  steel.emissive.setHex(0xa8743a);
+  steel.emissiveIntensity = 0;
+  c.night.push((n) => { steel.emissiveIntensity = smooth(n * 1.2) * 0.34; });
+  mesh(rot, steel, spin, c.cast, 'wheel');
   mesh(lights, mats.glow, spin, false, 'wheel-lights');
+  // Every fourth rim bulb burns brighter, and the bright ones step round the rim one socket at a time.
+  const run = mesh(chase, mats.glow, spin, false, 'wheel-chase');
+  run.matrixAutoUpdate = true;
 
   // One gondola, hanging from the origin. White paint takes the instance colour; the dark parts stay dark.
   const g = new Batch();
@@ -357,7 +376,7 @@ function buildWheel(c: Ctx, flat: Batch): (dt: number, t: number) => void {
   for (const x of [-0.98, 0.98]) for (const z of [-0.98, 0.98]) g.box(x, -1.95, z, 0.16, 0.87, 0.16, 0xffffff, 0, 4);
   g.box(0, -2.95, 0, 2.1, 1.0, 2.1, 0xffffff, 0, 7);
   g.box(0, -2.12, 0, 2.2, 0.14, 2.2, 0xb8b8b8, 0, 7);
-  const cars = new THREE.InstancedMesh(g.toGeometry(), mats.flat, G);
+  const cars = new THREE.InstancedMesh(g.toGeometry(), steel, G);
   cars.name = 'gondolas';
   cars.castShadow = c.cast;
   // They ride around the whole wheel, so cull against the wheel, not against wherever they started.
@@ -365,12 +384,21 @@ function buildWheel(c: Ctx, flat: Batch): (dt: number, t: number) => void {
   const tints = [VERM, MUST, TEAL, BONE], tint = new THREE.Color();
   for (let k = 0; k < G; k++) cars.setColorAt(k, tint.setHex(tints[k % 4]));
   c.parent.add(cars);
+  // A lit cabin in each one. Same instance matrices as the gondolas, so they swing together for free.
+  const wb = new Batch();
+  for (const f of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) vquad(wb, Math.sin(f) * 1.0, -1.52, Math.cos(f) * 1.0, 2.1, 1.1, f, 0x94642c);
+  const cabins = new THREE.InstancedMesh(wb.toGeometry(), mats.glow, G);
+  cabins.name = 'gondola-lamps';
+  cabins.instanceMatrix = cars.instanceMatrix;
+  cabins.boundingSphere = cars.boundingSphere;
+  c.parent.add(cabins);
 
   const M = new THREE.Matrix4();
   let theta = 0.2;
   return (dt, t) => {
     theta = (theta + dt * 0.07) % TAU;
     spin.rotation.z = theta;
+    run.rotation.z = -Math.floor(t * 5) * (TAU / N);
     for (let k = 0; k < G; k++) {
       const a = theta + (k / G) * TAU;
       M.makeRotationZ(Math.sin(t * 0.9 + k * 1.7) * 0.035);
@@ -409,24 +437,40 @@ class Gerald {
   private glance = 0;
   private nextGlance = 1;
   private tilt = 0;
+  private lean = 0.38;
+  private wasClose = false;
   private static readonly SCALE = 1.7;
 
   constructor(private game: Game, c: Ctx) {
-    const white = 0xf7f3e8, grey = 0x9aa3ad, leg = 0xe89a1c;
+    const white = 0xf7f3e8, grey = 0x8f9aa6, dark = 0x23262d, leg = 0xe89a1c;
     const body = new Batch();
     body.box(0, 0.14, 0, 0.2, 0.19, 0.4, white);
-    body.box(0, 0.17, 0.2, 0.16, 0.15, 0.1, white);
-    body.box(0, 0.32, -0.05, 0.22, 0.04, 0.42, grey);
-    body.box(0, 0.27, -0.3, 0.12, 0.04, 0.18, 0x30333b);
-    for (const x of [-0.05, 0.05]) { body.box(x, 0, 0.02, 0.025, 0.15, 0.025, leg, 0, 4); body.box(x, 0, 0.05, 0.06, 0.012, 0.09, leg); }
+    body.box(0, 0.17, 0.2, 0.16, 0.17, 0.1, white);
+    body.box(0, 0.24, -0.3, 0.13, 0.04, 0.16, white);
+    body.box(0, 0.32, -0.05, 0.2, 0.035, 0.4, grey);
+    // Folded wings: a grey slab down each flank ending in black primaries with one white mirror,
+    // which is most of what makes a gull a gull from the side.
+    for (const x of [-0.108, 0.108]) {
+      body.box(x, 0.2, -0.03, 0.04, 0.135, 0.36, grey);
+      body.box(x, 0.235, -0.29, 0.036, 0.085, 0.2, dark);
+      body.box(x, 0.275, -0.37, 0.038, 0.03, 0.035, white);
+    }
+    for (const x of [-0.05, 0.05]) { body.box(x, 0, 0.02, 0.025, 0.15, 0.025, leg, 0, 4); body.box(x, 0, 0.05, 0.07, 0.012, 0.1, leg); }
     mesh(body, c.mats.flat, this.root, c.cast, 'gerald');
 
     const hd = new Batch();
     hd.box(0, -0.03, 0, 0.1, 0.1, 0.1, white, 0, 4);
-    hd.box(0, 0.05, 0.02, 0.14, 0.13, 0.16, white);
-    hd.box(0, 0.075, 0.15, 0.045, 0.04, 0.13, MUST);
-    hd.box(0, 0.068, 0.215, 0.047, 0.03, 0.03, VERM);
-    for (const x of [-0.072, 0.072]) hd.box(x, 0.115, 0.06, 0.012, 0.028, 0.028, INK);
+    hd.box(0, 0.05, 0.02, 0.15, 0.14, 0.17, white);
+    // A heavy bill with a hooked tip and the red spot, and on each side a yellow eye under a flat dark brow.
+    // The brow is what does it: without one he is a pigeon, with one he is an auditor.
+    hd.box(0, 0.07, 0.17, 0.06, 0.05, 0.13, MUST);
+    hd.box(0, 0.045, 0.215, 0.05, 0.04, 0.04, MUST);
+    hd.box(0, 0.05, 0.15, 0.064, 0.022, 0.045, VERM);
+    for (const x of [-0.074, 0.074]) {
+      hd.box(x, 0.095, 0.065, 0.014, 0.055, 0.055, MUST);
+      hd.box(x * 1.06, 0.108, 0.075, 0.014, 0.03, 0.03, INK);
+      hd.box(x, 0.152, 0.075, 0.02, 0.016, 0.085, dark);
+    }
     this.head = new THREE.Mesh(hd.toGeometry(), c.mats.flat);
     this.head.position.set(0, 0.33, 0.17);
     this.root.add(this.head);
@@ -494,13 +538,14 @@ class Gerald {
     }
 
     const p = this.perches[this.at];
-    let wantYaw = this.glance, near = false;
+    let wantYaw = this.glance, near = false, close = false;
     if (pl) {
       const dx = pl.x - p[0], dz = pl.z - p[2], d2 = dx * dx + dz * dz;
       const level = Math.abs(pl.y - (p[1] - 1.16)) < 2.5;
       if (d2 < 200 && level) {
         // He watches you come. It is the pocket he is watching.
         near = true;
+        if (d2 < 36) { if (!this.wasClose) this.lean = rand() < 0.5 ? -0.38 : 0.38; close = true; }
         wantYaw = clamp(angleDiff(root.rotation.y, headingOf(dx, dz)), -1.5, 1.5);
       }
       if (level && pl.vehicle && d2 < 30) this.flee(pl.x, pl.z);
@@ -517,6 +562,7 @@ class Gerald {
     }
 
     // Idle business: glance about, cock the head, hop on the spot.
+    this.wasClose = close;
     this.nextGlance -= dt;
     if (this.nextGlance <= 0) {
       this.nextGlance = rand(0.7, 2.4);
@@ -524,7 +570,9 @@ class Gerald {
       this.tilt = rand() < 0.35 ? rand(-0.4, 0.4) : 0;
     }
     this.head.rotation.y = damp(this.head.rotation.y, wantYaw, near ? 9 : 14, dt);
-    this.head.rotation.z = damp(this.head.rotation.z, this.tilt, 10, dt);
+    // Inside six meters he cocks his head and leans in, the better to count your change.
+    this.head.rotation.z = damp(this.head.rotation.z, close ? this.lean : this.tilt, 10, dt);
+    this.head.rotation.x = damp(this.head.rotation.x, close ? 0.24 : 0, 8, dt);
     this.nextHop -= dt;
     if (this.nextHop <= 0) {
       this.nextHop = rand(2.2, 5.5);
@@ -676,12 +724,16 @@ function buildLighthouse(c: Ctx): { update(dt: number, t: number): void; setNigh
   mesh(lb, lampMat, c.parent, false, 'lighthouse-lamp');
   halo(c.glow, LX, LY, LZ, 18, 0xfff0c0);
 
-  // Not fogged: a beam that fades with distance on its own and then again in fog simply vanishes.
-  const beamMat = new THREE.MeshBasicMaterial({
-    vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
-    side: THREE.DoubleSide, fog: false, opacity: 0,
+  // Not fogged by the scene: a beam that fades with distance on its own and then again in fog simply
+  // vanishes. update() shortens and dims it by the fog density instead. Front faces only and a low
+  // opacity, because two layers of a wide additive cone at full strength add up to a white wedge that
+  // hides the sky; this one is a narrow shaft the stars show through.
+  const coneMat = (side: THREE.Side): THREE.MeshBasicMaterial => new THREE.MeshBasicMaterial({
+    vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side, fog: false, opacity: 0,
   });
-  const beams = new THREE.Mesh(coneGeometry(320, 1, 13, 10, 0xfff0c0, 0.5, 0.012, true), beamMat);
+  const beamMat = coneMat(THREE.FrontSide), rayMat = coneMat(THREE.DoubleSide);
+  const BEAM = 0.3;
+  const beams = new THREE.Mesh(coneGeometry(230, 0.7, 5.5, 12, 0xffd58a, 1, 0.012, true), beamMat);
   beams.name = 'lighthouse-beams';
   beams.position.set(LX, LY, LZ);
   beams.visible = false;
@@ -704,7 +756,7 @@ function buildLighthouse(c: Ctx): { update(dt: number, t: number): void; setNigh
   ufo.name = 'ufo';
   ufo.visible = false;
   mesh(ub, new THREE.MeshBasicMaterial({ vertexColors: true }), ufo, false, 'saucer');
-  const ray = new THREE.Mesh(coneGeometry(11.5, 1.1, 4.4, 14, 0xc8ffe0, 0.42, 0, false), beamMat);
+  const ray = new THREE.Mesh(coneGeometry(11.5, 1.1, 4.4, 14, 0xc8ffe0, 0.42, 0, false), rayMat);
   ray.rotation.z = -Math.PI / 2; // the cone is built along +x; this points it at the lamp room
   ray.position.y = -0.8;
   ufo.add(ray);
@@ -714,7 +766,14 @@ function buildLighthouse(c: Ctx): { update(dt: number, t: number): void; setNigh
   let night = 0;
   return {
     update(dt, t) {
-      if (beams.visible) beams.rotation.y = (beams.rotation.y + dt * 0.24) % TAU;
+      if (beams.visible) {
+        beams.rotation.y = (beams.rotation.y + dt * 0.24) % TAU;
+        // Clear air sits near 0.002; sea fog is several times that and should leave a short soft stub.
+        const fog = game.scene.fog as THREE.FogExp2 | null;
+        const k = clamp(0.0026 / Math.max(fog && fog.density ? fog.density : 0.001, 0.0005), 0.28, 1);
+        beams.scale.x = k;
+        beamMat.opacity = BEAM * night * lerp(0.6, 1, k);
+      }
       const sky = game.sky, hr = sky ? sky.hour : 12;
       const here = hr >= 3 && hr < 3 + 25 / 60;
       ufo.visible = here;
@@ -726,7 +785,7 @@ function buildLighthouse(c: Ctx): { update(dt: number, t: number): void; setNigh
     setNight(n) {
       night = n;
       lampMat.emissiveIntensity = smooth(n * 1.4) * 1.2;
-      beamMat.opacity = night;
+      rayMat.opacity = night;
       beams.visible = n > 0.03;
     },
   };
@@ -926,7 +985,9 @@ class Blob {
 
 function buildDuck(c: Ctx): (dt: number, t: number) => void {
   const { game } = c;
-  const DX = 6, DZ = 712;
+  // Dead ahead of the pier ramp and close enough that a car leaving the gap in the rail arrives on it
+  // before the sea does: at speed the drop from the deck is only good for about fifteen meters.
+  const DX = 0, DZ = 689;
   const b = new Blob(), yel = 0xf6ae0a;
   b.ball(0, 1.9, 0, 3.6, 2.9, 4.8, yel);                      // body
   b.ball(0, 3.4, 2.6, 2.6, 1.9, 2.2, yel);                    // chest, so the neck is not a ball on a ball
@@ -941,6 +1002,13 @@ function buildDuck(c: Ctx): (dt: number, t: number) => void {
   b.ball(0, 5.2, 4.7, 1.1, 0.3, 1.2, 0xc94a26, 0.1);
   // Phong, alone in a Lambert city: the duck is meant to look like wet vinyl.
   const mat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 70, specular: 0x777766 });
+  // Saturated yellow under a moon still reads as noon, so the paint itself goes down to a dim teal-grey
+  // at night; the specular stays, and that is the moonlit rim it is seen by.
+  c.night.push((n) => {
+    const k = smooth(n);
+    mat.color.setRGB(lerp(1, 0.3, k), lerp(1, 0.37, k), lerp(1, 0.43, k));
+    mat.specular.setScalar(lerp(0.2, 0.1, k));
+  });
   const duck = new THREE.Mesh(b.toGeometry(), mat);
   duck.castShadow = c.cast;
   const spin = new THREE.Group(), rock = new THREE.Group();
@@ -964,9 +1032,10 @@ function buildDuck(c: Ctx): (dt: number, t: number) => void {
     const list = game.vehicles ? game.vehicles.list : null;
     if (!hit && list) for (let i = 0; i < list.length; i++) {
       const v = list[i], dx = v.x - DX;
-      if (dx > 8.5 || dx < -8.5) continue;
+      if (dx > 10.5 || dx < -10.5) continue;
       const dz = v.z - DZ;
-      if (dx * dx + dz * dz < 72 && v.y < 9) { hit = true; hx = dx; hz = dz; break; }
+      // Wider than the wall around the duck: a car that lands just short and sinks alongside has still called on it.
+      if (dx * dx + dz * dz < 110 && v.y < 9) { hit = true; hx = dx; hz = dz; break; }
     }
     // Only the moment of contact counts: leaning on the duck does not make it honk forever.
     if (hit && !touching && cool <= 0) {
@@ -993,7 +1062,7 @@ export function buildLandmarks(game: Game, mats: CityMaterials, parent: THREE.Gr
   const group = new THREE.Group();
   group.name = 'landmarks';
   parent.add(group);
-  const c: Ctx = { game, mats, parent: group, signs: new Batch(), glow: new Batch(), cast: game.quality.shadows };
+  const c: Ctx = { game, mats, parent: group, signs: new Batch(), glow: new Batch(), cast: game.quality.shadows, night: [] };
 
   const wheel = buildPier(c);
   const gerald = new Gerald(game, c);
@@ -1013,6 +1082,9 @@ export function buildLandmarks(game: Game, mats: CityMaterials, parent: THREE.Gr
       light.update(dt, t);
       duck(dt, t);
     },
-    setNight(n) { light.setNight(n); },
+    setNight(n) {
+      light.setNight(n);
+      for (const f of c.night) f(n);
+    },
   };
 }

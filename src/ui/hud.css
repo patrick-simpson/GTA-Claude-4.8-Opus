@@ -368,7 +368,9 @@
   letter-spacing: 0.015em;
   text-transform: uppercase;
   white-space: nowrap;
-  text-shadow: 2px 2px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink), 3px 3px 0 var(--ink);
+  /* Navy letters on a bone offset: bone-on-cream vanished in morning fog; navy mass reads on bright and, with the bone edge, on dark streets. */
+  color: var(--ink);
+  text-shadow: 1px 1px 0 var(--bone), -1px -1px 0 var(--bone), 1px -1px 0 var(--bone), -1px 1px 0 var(--bone), 3px 3px 0 var(--bone), 4px 4px 0 var(--bone);
 }
 .hud-place-s {
   display: inline-block;
@@ -615,3 +617,52 @@
 #hud.touch .hud-card-row { padding: 0.34em 0 0.3em; }
 #hud.touch .hud-card-ft { margin-top: 0.9em; }
 #hud.touch .hud-card-or, #hud.touch .hud-keys { display: none; }
+
+/* Somebody composing a picture of somewhere else: no banner over it. */
+#hud.pinned .hud-place { display: none; }
+
+/* ── Condition and padding ─────────────────────────────────────────────────
+   The figures for the two scales drawn round the radar's rim, on two ink tabs
+   beside it. The chip repeats each scale's colour so the pairing needs no key. */
+
+.hud-vitals {
+  position: absolute;
+  left: 19.4em;
+  bottom: 0.5em;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3em;
+}
+.hud-vital {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.24em 0.6em 0.26em 0.5em;
+  background: var(--ink);
+  color: var(--bone);
+  font-size: 0.92em;
+}
+.hud-vital i {
+  width: 0.62em;
+  height: 0.62em;
+  background: var(--vermilion);
+}
+.hud-vital:last-child i { background: none; box-shadow: inset 0 0 0 1.5px var(--bone); }
+.hud-vital .hud-lbl { opacity: 0.78; }
+.hud-vital b {
+  min-width: 2em;
+  font-family: var(--f-mono);
+  font-weight: 600;
+  text-align: right;
+}
+/* 30 or under: the condition tab flashes vermilion, on and off, no easing. */
+.hud-vitals.low .hud-vital:first-child { animation: hud-vital-low 0.9s steps(1) infinite; }
+.hud-vitals.low .hud-vital:first-child i { background: var(--bone); }
+@keyframes hud-vital-low {
+  0% { background: var(--vermilion); }
+  50% { background: var(--ink); }
+}
+/* On a phone the radar is in the top corner, so the tabs sit under it. */
+#hud.touch .hud-vitals { left: 0; top: 14.2em; bottom: auto; }
+#hud.touch .hud-vital .hud-lbl { display: none; }

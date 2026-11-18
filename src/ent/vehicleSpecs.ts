@@ -51,25 +51,25 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
     kind: 'hatch', name: 'Pip 3-Door',
     length: 3.8, width: 1.7, height: 1.5, wheelbase: 2.45, track: 1.46, wheelR: 0.3, wheelW: 0.2,
     mass: 1050, topSpeed: 37, accel: 5.8, brake: 13, grip: 7.6, steer: 0.64, drive: 'fwd',
-    colors: [MUSTARD, TEAL, VERMILION, BONE, SKY, TERRA], common: 8,
+    colors: [SAGE, TEAL, BONE, SKY, TERRA, VERMILION], common: 8,
   },
   coupe: {
     kind: 'coupe', name: 'Sandpiper GT',
     length: 4.4, width: 1.8, height: 1.32, wheelbase: 2.65, track: 1.55, wheelR: 0.33, wheelW: 0.24,
     mass: 1300, topSpeed: 50, accel: 8, brake: 14, grip: 8, steer: 0.58, drive: 'rwd',
-    colors: [VERMILION, NAVY, BONE, TEAL, CHARCOAL], common: 5,
+    colors: [NAVY, BONE, TEAL, CHARCOAL, VERMILION], common: 5,
   },
   muscle: {
     kind: 'muscle', name: 'Brawler Eight',
     length: 4.95, width: 1.92, height: 1.35, wheelbase: 2.9, track: 1.6, wheelR: 0.35, wheelW: 0.28,
     mass: 1650, topSpeed: 54, accel: 9.5, brake: 12.5, grip: 6, steer: 0.56, drive: 'rwd',
-    colors: [MUSTARD, VERMILION, CHARCOAL, PLUM, TEAL], common: 3,
+    colors: [PLUM, CHARCOAL, MUSTARD, BRICK, BONE], common: 3,
   },
   sports: {
     kind: 'sports', name: 'Cormorant RS',
     length: 4.35, width: 1.95, height: 1.18, wheelbase: 2.6, track: 1.66, wheelR: 0.34, wheelW: 0.3,
     mass: 1350, topSpeed: 64, accel: 11.5, brake: 16, grip: 9.5, steer: 0.54, drive: 'rwd',
-    colors: [VERMILION, MUSTARD, BONE, NAVY, TEAL], common: 1.5,
+    colors: [VERMILION, BONE, NAVY, TEAL, SKY], common: 1.5,
   },
   pickup: {
     kind: 'pickup', name: 'Dockhand',
@@ -81,7 +81,7 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
     kind: 'van', name: 'Breadbox',
     length: 5.2, width: 2.0, height: 2.3, wheelbase: 3.2, track: 1.7, wheelR: 0.36, wheelW: 0.24,
     mass: 2300, topSpeed: 33, accel: 4.2, brake: 10.5, grip: 5.5, steer: 0.58, drive: 'fwd',
-    colors: [BONE, FOG, TEAL, MUSTARD, BRICK], common: 5,
+    colors: [BONE, FOG, SAGE, SKY, TERRA, BRICK], common: 5,
   },
   taxi: {
     kind: 'taxi', name: 'Calamity Cab',
@@ -93,7 +93,7 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
     kind: 'tow', name: 'Mule Wrecker',
     length: 6.2, width: 2.2, height: 2.4, wheelbase: 3.8, track: 1.84, wheelR: 0.46, wheelW: 0.3,
     mass: 4200, topSpeed: 31, accel: 4.6, brake: 10, grip: 5.6, steer: 0.6, drive: 'rwd',
-    colors: [VERMILION, TEAL, MUSTARD], common: 0.6,
+    colors: [BRICK, CHARCOAL, VERMILION], common: 0.6,
   },
   bus: {
     kind: 'bus', name: 'Harbor Line No. 7',

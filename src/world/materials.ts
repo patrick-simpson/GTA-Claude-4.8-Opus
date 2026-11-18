@@ -130,6 +130,8 @@ export class CityMaterials {
     for (const f of this.facade) f.emissiveIntensity = w * 0.92;
     this.kit.emissiveIntensity = w * 0.66;
     this.sign.emissiveIntensity = n * 0.32;
+    // Lawns are the most saturated thing in town and stayed postcard green under the moon.
+    this.grass.color.setRGB(1 - 0.42 * n, 1 - 0.34 * n, 1 - 0.24 * n);
     this.glow.opacity = smooth(n * 1.2);
     // An invisible material costs no draw calls, so lamps are free by day.
     this.glow.visible = n > 0.01;

@@ -38,6 +38,10 @@ const REGION = 360;
 const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler();
 const P = new THREE.Vector3(), S = new THREE.Vector3(), COL = new THREE.Color();
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+// Scratch for laying a sheared pole down.
+const FELL_P = new THREE.Vector3(), FELL_S = new THREE.Vector3(), FELL_A = new THREE.Vector3(), FELL_Q = new THREE.Quaternion();
+/** What a lamp or signal needs to be shown fallen: its instance, the model axis its arm runs along, its halo and its signal heads. */
+interface Felled { inst: Inst; i: number; axis: 0 | 2; halo: number; sig: number }
 
 /** Fill the shared matrix M: position, heading, scale, and an optional forward lean. */
 function xf(x: number, y: number, z: number, h: number, sx = 1, sy = sx, sz = sx, lean = 0): void {
@@ -111,6 +115,7 @@ function keepOut(x: number, z: number): boolean {
 class Inst {
   private buckets = new Map<number, { m: number[]; c: number[] }>();
   readonly meshes: THREE.InstancedMesh[] = [];
+  private keys: number[] = [];
   constructor(private geo: THREE.BufferGeometry, private mat: THREE.Material, private region = 0) {}
 
   /** Add the matrix currently in M. Returns the instance index inside its bucket. */
@@ -126,8 +131,16 @@ class Inst {
     return b.c.length / 3 - 1;
   }
 
+  /** The mesh holding whatever was added at (x, z). Valid after build(). */
+  meshAt(x: number, z: number): THREE.InstancedMesh | null {
+    const R = this.region;
+    const i = this.keys.indexOf(R ? (Math.floor(x / R) + 64) * 256 + Math.floor(z / R) + 64 : 0);
+    return i < 0 ? null : this.meshes[i];
+  }
+
   build(parent: THREE.Object3D, cast: boolean): void {
-    for (const b of this.buckets.values()) {
+    for (const [k, b] of this.buckets) {
+      this.keys.push(k);
       const mesh = new THREE.InstancedMesh(this.geo, this.mat, b.c.length / 3);
       mesh.instanceMatrix.array.set(b.m);
       mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(b.c), 3);
@@ -308,20 +321,23 @@ void main() {
   vec2 g = slope(p / 131.0 + t * vec2(0.0045, 0.003))
          + slope(p / 47.0 + t * vec2(-0.011, 0.008)) * 0.75
          + slope(p / 19.0 + t * vec2(0.017, -0.022)) * 0.5;
-  vec3 N = normalize(vec3(-g.x * 26.0, 1.0, -g.y * 26.0));
+  // Far from the camera the slope noise only reads as grey marble blotches: ease it flat with distance.
+  float near = 1.0 - smoothstep(90.0, 600.0, dist);
+  vec3 N = normalize(vec3(-g.x * 26.0 * near, 1.0, -g.y * 26.0 * near));
 
   float off = smoothstep(-8.0, 190.0, sd);
   vec3 col = mix(mix(uShallow, uShallowN, uNight), mix(uDeep, uDeepN, uNight), pow(off, 0.62));
   // Wave faces turned to the light are a shade brighter, the far faces a shade darker.
-  col *= 1.0 + clamp((dot(N, uLight) - uLight.y) * 1.5, -0.22, 0.3);
+  col *= 1.0 + clamp((dot(N, uLight) - uLight.y) * 1.5, -0.22, 0.3) * near;
 
   #ifdef USE_FOG
-    vec3 sky = fogColor;
+    // Pulled toward the water's own teal and dimmed by night, so a bright dusk horizon never turns the sea to paper.
+    vec3 sky = mix(fogColor, mix(uShallow, uShallowN, uNight) * 1.1, 0.3) * (1.0 - 0.55 * uNight);
   #else
     vec3 sky = vec3(0.8, 0.88, 0.9);
   #endif
-  float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-  col = mix(col, sky, fres * 0.5);
+  float fres = pow(1.0 - max(dot(normalize(mix(vec3(0.0, 1.0, 0.0), N, 0.4)), V), 0.0), 3.0);
+  col = mix(col, sky, fres * 0.38);
 
   vec3 H = normalize(uLight + V);
   float spec = pow(max(dot(N, H), 0.0), 240.0);
@@ -350,8 +366,8 @@ type Surface = 'sidewalk' | 'grass' | 'asphalt' | 'cobble' | 'wood';
 /** What a block is paved with inside its sidewalk ring. */
 const FILL: Record<District, [Surface, number]> = {
   downtown: ['sidewalk', 0xe6dfcd], midtown: ['sidewalk', 0xcfc8b7], oldtown: ['cobble', 0xffffff],
-  suburb: ['grass', 0xf4efc4], industrial: ['asphalt', 0xffffff], port: ['sidewalk', 0xbfb8a8],
-  strand: ['wood', 0xffffff], park: ['grass', 0xffffff], arena: ['asphalt', 0xf2f0ea],
+  suburb: ['grass', 0xe6e0b0], industrial: ['asphalt', 0xffffff], port: ['sidewalk', 0xbfb8a8],
+  strand: ['wood', 0xffffff], park: ['grass', 0xdfe2b0], arena: ['asphalt', 0xf2f0ea],
 };
 
 type Species = 'plane' | 'maple' | 'oak' | 'cypress' | 'palm';
@@ -359,7 +375,7 @@ type Species = 'plane' | 'maple' | 'oak' | 'cypress' | 'palm';
 const STREET_TREES: Record<District, [Species, number, number]> = {
   downtown: ['plane', 15, 0.85], midtown: ['plane', 14, 0.8], oldtown: ['plane', 21, 0.5],
   suburb: ['maple', 10, 0.9], industrial: ['plane', 40, 0.1], port: ['plane', 40, 0.06],
-  strand: ['palm', 13, 0.9], park: ['oak', 12, 0.85], arena: ['plane', 22, 0.5],
+  strand: ['palm', 13, 0.5], park: ['oak', 12, 0.85], arena: ['plane', 22, 0.5],
 };
 const LEAF: Record<Species, number[]> = {
   plane: [0x7f9c54, 0x8ca95e, 0x70904f],
@@ -374,7 +390,7 @@ const HYDRANT = 0, BIN = 1, MAILBOX = 2, BENCH = 3, POST = 4, NEWS = 5;
 /** Collision for each: kind, radius, height, breakable. A newspaper box collides (and breaks) like a mailbox. */
 const FURN: [PropKind, number, number, boolean][] = [
   ['hydrant', 0.28, 0.75, true], ['bin', 0.38, 1.0, true], ['mailbox', 0.4, 1.15, true],
-  ['bench', 0.75, 0.9, false], ['post', 0.14, 2.7, true], ['mailbox', 0.34, 1.05, true],
+  ['bench', 0.5, 0.9, false], ['post', 0.14, 2.7, true], ['mailbox', 0.34, 1.05, true],
 ];
 /** Relative odds of each kind, then how full the curb is. */
 const FURN_MIX: Record<District, [number[], number]> = {
@@ -412,6 +428,8 @@ class Ground implements WorldPart {
   private slotKind: number[] = [];
   private slotIdx: number[] = [];
   private slotProp: Prop[] = [];
+  private felled = new Map<Prop, Felled>();
+  private haloPos: THREE.BufferAttribute | null = null;
   private pools = new Batch();
   private halos: number[] = [];
 
@@ -461,12 +479,38 @@ class Ground implements WorldPart {
         mesh.setMatrixAt(this.slotIdx[p.slot], ZERO);
         mesh.instanceMatrix.needsUpdate = true;
       }
+      const f = this.felled.get(p);
+      if (f) this.fell(p, f, vx, vz);
       earlier?.(p, vx, vz);
       game.emit('propBreak', { prop: p, vx, vz });
     };
 
     this.setNight(mats.night);
     this.update(0);
+  }
+
+  /**
+   * Lay a sheared lamp or signal down. It falls square to its own arm, to whichever side
+   * the hit was heading, so the arm ends up flat on the ground and not buried or in the air.
+   */
+  private fell(p: Prop, f: Felled, vx: number, vz: number): void {
+    const mesh = f.inst.meshAt(p.x, p.z);
+    if (mesh) {
+      mesh.getMatrixAt(f.i, M);
+      M.decompose(FELL_P, Q, FELL_S);
+      const a = FELL_A.set(f.axis === 0 ? 1 : 0, 0, f.axis === 2 ? 1 : 0).applyQuaternion(Q);
+      // Turning about a tips "up" toward (-a.z, 0, a.x).
+      if (-a.z * vx + a.x * vz < 0) a.negate();
+      Q.premultiply(FELL_Q.setFromAxisAngle(a, 1.5));
+      FELL_P.x -= a.z * 0.5; FELL_P.z += a.x * 0.5; FELL_P.y += 0.12;
+      mesh.setMatrixAt(f.i, M.compose(FELL_P, Q, FELL_S));
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+    if (f.halo >= 0 && this.haloPos) { this.haloPos.setY(f.halo, -900); this.haloPos.needsUpdate = true; }
+    if (f.sig >= 0 && this.bulbs) {
+      for (let k = 0; k < 6; k++) this.bulbs.setMatrixAt(f.sig * 6 + k, ZERO);
+      this.bulbs.instanceMatrix.needsUpdate = true;
+    }
   }
 
   private mesh(b: Batch, mat: THREE.Material, order = 0): void {
@@ -520,7 +564,9 @@ class Ground implements WorldPart {
 
         const n = noise2(x * 0.028 + 9, z * 0.028), n2 = noise2(x * 0.09, z * 0.09 + 31);
         // Ragged bands, and on the south shore the sand runs all the way up to Seawall Dr.
-        const s = sd + (n - 0.5) * 16 + 44 * smooth((z - 250) / 150);
+        // The shift must only move the inland stops: applied to the underwater tints it paints sea-floor green on dry sand.
+        const base = sd + (n - 0.5) * 16;
+        const s = base > -13 ? base : Math.min(base + 44 * smooth((z - 250) / 150), -13);
         let k = 0;
         while (k < stops.length - 2 && s > stops[k + 1][0]) k++;
         const a = stops[k], b = stops[k + 1];
@@ -562,7 +608,7 @@ class Ground implements WorldPart {
       ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
       uTime: { value: 0 }, uNight: { value: 0 },
       uLight: { value: new THREE.Vector3(0.5, 0.6, 0.62).normalize() },
-      uShallow: C(0x43b5a4), uDeep: C(0x17325c), uShallowN: C(0x0c2c36), uDeepN: C(0x050b18),
+      uShallow: C(0x43b5a4), uDeep: C(0x1b4f68), uShallowN: C(0x0c2c36), uDeepN: C(0x050b18),
       uFoam: C(0xf7f0dd), uGlint: { value: new THREE.Color() },
       uNoise: { value: this.mats.tex.noise },
     };
@@ -699,9 +745,11 @@ class Ground implements WorldPart {
         const px = n.x + dx * along + rx * across, pz = n.z + dz * along + rz * across;
         const y = groundAt(px, pz), hs = hd + Math.PI, wide = e.lanes === 2 ? 1 : 0;
         xf(px, y, pz, hs);
-        masts[wide].add(px, pz);
+        const mi = masts[wide].add(px, pz);
         this.claim(px, pz, 1.2);
-        this.game.col.addProp(px, pz, 0.2, y + 6.2, 'signal', false);
+        const sp = this.game.col.addProp(px, pz, 0.2, y + 6.2, 'signal', false);
+        sp.hard = true;
+        this.felled.set(sp, { inst: masts[wide], i: mi, axis: 0, halo: -1, sig: this.sigNode.length });
 
         // Model space to world: +X is (cos hs, -sin hs), +Z is (sin hs, cos hs).
         const cs = Math.cos(hs), sn = Math.sin(hs);
@@ -748,6 +796,8 @@ class Ground implements WorldPart {
         const x = e.horiz ? A.x + s : A.x + off, z = e.horiz ? A.z + off : A.z + s;
         // The arm points back at the middle of the road.
         const h = e.horiz ? (side > 0 ? Math.PI : 0) : (side > 0 ? -Math.PI / 2 : Math.PI / 2);
+        // Not in front of the one door in town that matters (ROOM 404, on Eel Alley).
+        if (Math.abs(x + 129.3) < 6 && Math.abs(z - 126.7) < 5) continue;
         if (keepOut(x, z) || !this.claim(x, z, 1.0)) continue;
         this.lamp(x, z, h);
       }
@@ -757,8 +807,10 @@ class Ground implements WorldPart {
   private lamp(x: number, z: number, h: number): void {
     const y = groundAt(x, z);
     xf(x, y, z, h);
-    this.lamps.add(x, z);
-    this.game.col.addProp(x, z, 0.18, y + 6.5, 'lamp', false);
+    const li = this.lamps.add(x, z);
+    const lp = this.game.col.addProp(x, z, 0.18, y + 6.5, 'lamp', false);
+    lp.hard = true;
+    this.felled.set(lp, { inst: this.lamps, i: li, axis: 2, halo: this.halos.length / 3, sig: -1 });
     const fx = Math.sin(h), fz = Math.cos(h);
     this.halos.push(x + fx * LAMP_REACH, y + LAMP_H, z + fz * LAMP_REACH);
     // The pool of light is centered under the head and cut at the curb line: the part on the
@@ -775,6 +827,10 @@ class Ground implements WorldPart {
     this.poolMat.polygonOffset = true;
     this.poolMat.polygonOffsetFactor = -3;
     this.poolMat.polygonOffsetUnits = -6;
+    // From eye height a pool is seen at a grazing angle, and the small mip levels of a radial
+    // gradient are one flat colour: the disc became an orange rectangle with ruled edges.
+    const pm = this.poolMat.map;
+    if (pm) { pm.generateMipmaps = false; pm.minFilter = THREE.LinearFilter; pm.needsUpdate = true; }
     if (!this.pools.empty) {
       const m = new THREE.Mesh(this.pools.toGeometry(), this.poolMat);
       m.matrixAutoUpdate = false;
@@ -784,10 +840,22 @@ class Ground implements WorldPart {
     // True billboards for the price of one draw call. Not fogged: far lamps prick through the haze.
     this.haloMat = new THREE.PointsMaterial({
       map: this.mats.tex.glow, color: SODIUM, size: 7.5, sizeAttenuation: true, transparent: true,
-      blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: true, opacity: 0,
     });
+    // Additive light must not mix toward a bright fog colour (that adds white); it just dims, slower than geometry does.
+    this.haloMat.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <fog_fragment>', `#ifdef USE_FOG
+        #ifdef FOG_EXP2
+          float fa = exp(-fogDensity * vFogDepth * 0.35);
+        #else
+          float fa = 1.0 - smoothstep(fogNear, fogFar * 1.5, vFogDepth);
+        #endif
+        gl_FragColor.rgb *= fa; gl_FragColor.a *= fa;
+      #endif`);
+    };
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.halos, 3));
+    this.haloPos = g.getAttribute('position') as THREE.BufferAttribute;
     const pts = new THREE.Points(g, this.haloMat);
     pts.matrixAutoUpdate = false;
     pts.frustumCulled = false;
@@ -832,14 +900,17 @@ class Ground implements WorldPart {
           if (!keep) continue;
           const [x, z] = at(s, STRIP);
           const [pk, pr, ph, breakable] = FURN[kind];
-          if (keepOut(x, z) || !this.claim(x, z, pr + 0.5)) continue;
+          // The bench claims its full length even though it collides as less.
+          if (keepOut(x, z) || !this.claim(x, z, (kind === BENCH ? 0.75 : pr) + 0.5)) continue;
           if (kind === POST) busStop = true;
           const y = groundAt(x, z);
           xf(x, y, z, inward + turn);
           const i = this.furn[kind].add(x, z, kind === NEWS ? tint : 0xffffff);
           const slot = this.slotProp.length;
           this.slotKind.push(kind); this.slotIdx.push(i);
-          this.slotProp.push(col.addProp(x, z, pr, y + ph, pk, breakable, slot));
+          const fp = col.addProp(x, z, pr, y + ph, pk, breakable, slot);
+          fp.hard = kind === BENCH;
+          this.slotProp.push(fp);
         }
       });
     }
@@ -860,6 +931,8 @@ class Ground implements WorldPart {
           if (!keep) continue;
           const [x, z] = at(s + j, STRIP + 0.2);
           const sp = species === 'maple' && alt < 0.12 ? 'cypress' : species;
+          // Palm crowns hang in front of sign boards; the spawn-side WDOOF board is the first one a player sees.
+          if (sp === 'palm' && Math.abs(x - 52) < 12 && Math.abs(z - 302) < 12) continue;
           if (!keepOut(x, z) && this.claim(x, z, 1.7)) this.tree(sp, x, z, rng);
         }
       });

@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 40% done)
+## Where things stand (about 45% done)
 
 **Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
@@ -41,6 +41,37 @@ the "Room 404" door, typed cheat words, the pun shop signs, the WDOOF billboard.
 Still owed: the pause-menu stat "Mistakes made: 0*" belongs to the M4 menu (the M1
 pause card shows it already).
 
+### Owner decisions since M1 (Nov 18, 2026) — these override older text in this file
+
+1. **Not low-poly: as realistic as a browser can manage.** The owner asked for
+   this after seeing M1. It replaces the flat "travel poster" shading (the palette
+   survives as the town's colours and the colour grade; the HUD paperwork style
+   stays) and it lifts the "no external art" rule: models and textures may ship as
+   files, as long as our own scripts generate them (Blender 5.2 is installed on the
+   owner's PC and may be used). Do it in visible steps, pushing each: (a) physically
+   based materials and lighting across the city (normal and roughness maps, wet
+   roads, soft shadows, ambient occlusion, reflections, bloom, a filmic grade);
+   (b) cars modelled in Blender with curved panels, interiors and baked shading,
+   with simpler versions at distance; (c) people with real proportions, a skeleton
+   and skinned meshes instead of box limbs; (d) foliage, props, building depth.
+   Phones get a simpler version. This rework comes BEFORE the rest of M2.
+2. **Use cheaper models where they do the job.** Haiku for fixed-recipe checks
+   (screenshot sets, scripted numbers, data validation); Sonnet for well-specified
+   code and small fixes with a clear repro; the top model for driving feel, art,
+   lighting, integration and writing.
+3. **The site is at gta.doofus.live** (the owner moved it from gtaopus).
+
+### Test-and-fix round after M1 (pushed Nov 18, about 11:45 AM ET)
+
+Eight testers, nine fixers, one integration gate. Now in: `src/sim/ambient.ts`, a
+first cut of M2's living city (about 50 walkers and 18 AI cars that follow lanes,
+stop at red lights and queue), lamps and signal masts that shear off when hit
+hard, ramps moved so every stunt works, cheats that no longer trigger controls, a
+styled health and armor readout, and an opening objective strip. Still open:
+walkers ignore each other and never cross streets; AI cars use one lane; the pier
+handrail is solid at any speed; the park pond is flat ground; a felled lamp keeps
+its light pool; car bodies and people are untouched because the rework replaces
+them.
 ### How M1 was checked, and what was not
 
 Checked on the production build: type-check and build clean; boots with zero

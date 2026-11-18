@@ -9,16 +9,23 @@
 import './hud.css';
 import type { Game } from '../core/game';
 import type { GameState, HudApi, Vehicle, Weather } from '../core/api';
-import { MPH, RNG, TAU, clamp, clamp01, damp, money } from '../core/util';
+import { MPH, RNG, TAU, clamp, clamp01, damp } from '../core/util';
 import {
   BREAKWATER, BRIDGE, LIGHTHOUSE, PIER, PIER_HEAD, RAMPS, WATER_Y, ZS,
-  islandSD, terrainAt, type CityPlan, type Rect,
+  islandSD, terrainAt, type CityPlan, type District, type Rect,
 } from '../world/plan';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f', SAGE = '#8a9a6b';
 // Chart tints. Land is the buff of a paper chart and the sea is left as bare
 // paper, which is how the real ones do it and keeps the vermilion arrow loud.
 const LAND = '#ead8ab', BUILT = '#dfca98', SAND = '#f8f0dc', SHOAL = '#d2e2d0', PLANK = '#cdb682';
+
+// A wash per district, every one close to the buff: town reads as
+// neighbourhoods at a glance and the streets and the arrow lose no contrast.
+const WASH: Record<District, string> = {
+  downtown: '#c6cac0', midtown: '#e6c67c', oldtown: '#dba486', suburb: '#cdd6a2', industrial: '#c2ab84',
+  port: '#b4cfc4', strand: '#f2cda6', park: SAGE, arena: BUILT,
+};
 
 // ── The chart ────────────────────────────────────────────────────────────────
 
@@ -130,7 +137,7 @@ function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   for (const blk of plan.blocks) {
     const r = blk.rect, w = r.x1 - r.x0, d = r.z1 - r.z0;
     if (w <= 0 || d <= 0) continue;
-    c.fillStyle = blk.district === 'park' ? SAGE : BUILT;
+    c.fillStyle = WASH[blk.district];
     c.fillRect(r.x0, r.z0, w, d);
     if (blk.district !== 'port' && blk.district !== 'arena') continue;
     c.save();
@@ -274,6 +281,16 @@ const R_FACE = 0.79, R_RING = 0.872, R_GAUGE = 0.937, W_GAUGE = 0.07;
 /** Half the gap left at the top and bottom of the gauge scales, radians. */
 const GAUGE_GAP = 0.2;
 
+// Landmarks the radar points at from anywhere: off the face, each rides the
+// inside edge on its bearing, so the middle of town still says where the sea
+// front is. The symbols are the chart's own.
+type MarkKind = 'wheel' | 'light' | 'bridge';
+const MARKS: { x: number; z: number; kind: MarkKind }[] = [
+  { x: (PIER_HEAD.x0 + PIER_HEAD.x1) / 2, z: (PIER_HEAD.z0 + PIER_HEAD.z1) / 2, kind: 'wheel' },
+  { x: LIGHTHOUSE.x, z: LIGHTHOUSE.z, kind: 'light' },
+  { x: BRIDGE.x, z: (BRIDGE.z0 + BRIDGE.z1) / 2, kind: 'bridge' },
+];
+
 class Radar {
   private ctx: CanvasRenderingContext2D;
   private size = 0;
@@ -316,8 +333,9 @@ class Radar {
    * @param viewR  meters from the middle to the edge of the face
    * @param hp     0..1   @param armor 0..1
    * @param faint  draw the health bar dimmed (the low-health blink)
+   * @param hot    index into MARKS of the landmark to pick out in mustard, or -1
    */
-  draw(x: number, z: number, yaw: number, h: number, viewR: number, hp: number, armor: number, faint: boolean): void {
+  draw(x: number, z: number, yaw: number, h: number, viewR: number, hp: number, armor: number, faint: boolean, hot: number): void {
     const c = this.ctx, H = this.size / 2;
     if (H <= 0) return;
     c.setTransform(1, 0, 0, 1, 0, 0);
@@ -337,6 +355,15 @@ class Radar {
     c.rotate(yaw - Math.PI);
     this.blit(x, z, viewR, rf / viewR);
     c.restore();
+
+    // Bearing marks, upright whichever way the chart is turned.
+    const mr = H * 0.085, md = rf - mr * 1.3, ca = Math.cos(yaw - Math.PI), sa = Math.sin(yaw - Math.PI);
+    for (let i = 0; i < MARKS.length; i++) {
+      const m = MARKS[i], dx = m.x - x, dz = m.z - z, d = Math.hypot(dx, dz);
+      // Inside this the chart's own drawing of the place is on the face.
+      if (d < viewR * 0.86) continue;
+      this.mark(m.kind, ((dx * ca - dz * sa) / d) * md, ((dx * sa + dz * ca) / d) * md, mr, i === hot);
+    }
 
     // Compass ring: a bone card that turns with the chart.
     const rr = H * R_RING, north = yaw + Math.PI / 2;
@@ -398,6 +425,41 @@ class Radar {
     c.lineWidth = Math.max(1, H * 0.012);
     c.stroke();
     c.restore();
+  }
+
+  /** One landmark badge on the edge of the face. `hot` is the one the player is being sent to. */
+  private mark(kind: MarkKind, x: number, y: number, r: number, hot: boolean): void {
+    const c = this.ctx, fg = hot ? INK : BONE;
+    c.fillStyle = hot ? MUSTARD : INK;
+    c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+    c.strokeStyle = hot ? INK : BONE;
+    c.lineWidth = Math.max(1, r * 0.13);
+    c.stroke();
+    c.lineCap = 'butt';
+    c.beginPath();
+    if (kind === 'wheel') {
+      const w = r * 0.5;
+      c.strokeStyle = hot ? INK : VERMILION;
+      c.lineWidth = Math.max(1, r * 0.2);
+      c.arc(x, y, w, 0, TAU);
+      c.moveTo(x - w, y); c.lineTo(x + w, y);
+      c.moveTo(x, y - w); c.lineTo(x, y + w);
+      c.stroke();
+    } else if (kind === 'light') {
+      c.fillStyle = fg;
+      c.moveTo(x - r * 0.14, y - r * 0.2); c.lineTo(x + r * 0.14, y - r * 0.2);
+      c.lineTo(x + r * 0.36, y + r * 0.62); c.lineTo(x - r * 0.36, y + r * 0.62);
+      c.closePath(); c.fill();
+      c.fillStyle = hot ? INK : MUSTARD;
+      c.beginPath(); c.arc(x, y - r * 0.42, r * 0.24, 0, TAU); c.fill();
+    } else {
+      c.strokeStyle = fg;
+      c.lineWidth = Math.max(1, r * 0.2);
+      c.moveTo(x - r * 0.66, y + r * 0.1); c.lineTo(x + r * 0.66, y + r * 0.1);
+      c.moveTo(x - r * 0.3, y - r * 0.55); c.lineTo(x - r * 0.3, y + r * 0.5);
+      c.moveTo(x + r * 0.3, y - r * 0.55); c.lineTo(x + r * 0.3, y + r * 0.5);
+      c.stroke();
+    }
   }
 
   /** Copy the square of chart around (x, z) into the face. k = screen pixels per meter. */
@@ -484,6 +546,24 @@ function clock12(mins: number): string {
   return `${h % 12 || 12}:${m < 10 ? '0' : ''}${m} ${h < 12 ? 'AM' : 'PM'}`.padStart(8, ' ');
 }
 
+/**
+ * Money for the slips, from whole cents: the cents are printed only when there
+ * are some, and a debt carries its sign ahead of the dollar sign.
+ */
+function cashText(cents: number): string {
+  const a = Math.abs(cents);
+  return (cents < 0 ? '−$' : '$') + (a / 100).toLocaleString('en-US', { minimumFractionDigits: a % 100 ? 2 : 0, maximumFractionDigits: 2 });
+}
+
+const FEET = 3.28084;
+/** Remarks for a hop too small to earn a stamp. */
+const HOPS = [
+  'Wheels are advised to remain on the road.',
+  'The suspension has filed a grievance.',
+  'No flight plan was filed.',
+  'Landing gear: none.',
+];
+
 interface Toast { el: HTMLElement; left: number; dying: number }
 
 export class Hud implements HudApi {
@@ -508,6 +588,9 @@ export class Hud implements HudApi {
   private keysEl: HTMLElement;
   private pauseEl: HTMLElement;
   private pauseVals: HTMLElement[];
+  private vitals: HTMLElement;
+  private hpEl: HTMLElement;
+  private arEl: HTMLElement;
 
   // What each readout last showed. Nothing touches the DOM unless one of these moves.
   private state: GameState = 'loading';
@@ -527,6 +610,30 @@ export class Hud implements HudApi {
   private placeT = 0;
   private flip = false;
   private instant = false;
+  private pinned = false;
+  private placeNeed = 0.5;
+  private placeShow = 0;
+  private lastX = NaN;
+  private lastZ = 0;
+  private shownHp = -1;
+  private shownAr = -1;
+
+  // Notices waiting for room on the stack, and how long the big stamp still has the floor.
+  private pending: { text: string; seconds: number }[] = [];
+  private stampT = 0;
+
+  // The flight being timed: whose, how long so far, and where it left the ground.
+  private airV: Vehicle | null = null;
+  private airT = 0;
+  private airX = 0;
+  private airZ = 0;
+  private sunkV: Vehicle | null = null;
+  private hops = 0;
+
+  // The newcomer's tour: 0 off, 1 just arrived, 2 pointed at the truck, 3 pointed at the pier.
+  private intro = 0;
+  private introT = 0;
+  private hot = -1;
 
   private toasts: Toast[] = [];
   private serial = 4070;
@@ -554,6 +661,10 @@ export class Hud implements HudApi {
     root.innerHTML = `
 <div class="hud-frame">
   <div class="hud-radar"><canvas></canvas></div>
+  <div class="hud-vitals">
+    <span class="hud-vital"><i></i><span class="hud-lbl">Condition</span><b>100</b></span>
+    <span class="hud-vital"><i></i><span class="hud-lbl">Padding</span><b>0</b></span>
+  </div>
   <div class="hud-right">
     <div class="hud-cash hud-slip">
       <div class="hud-cash-top"><span class="hud-lbl">Cash on hand</span><span class="hud-delta"></span></div>
@@ -587,11 +698,16 @@ export class Hud implements HudApi {
 <div class="hud-pause">
   <div class="hud-card hud-slip">
     <div class="hud-card-hd"><span class="hud-lbl">Harbor Authority of Port Calamity</span><span class="hud-lbl">Form P-4</span></div>
-    <div class="hud-card-t">PAUSED</div>
-    <div class="hud-card-sub">Temporary suspension of all activities, lawful or otherwise.</div>
-    <div class="hud-card-rows">
-      ${field('Location')}${field('Time')}${field('Cash on hand')}
-      <div class="hud-card-row"><span class="hud-lbl">Mistakes made</span><span>0*</span></div>
+    <div class="hud-card-cols">
+      <div class="hud-card-main">
+        <div class="hud-card-t">PAUSED</div>
+        <div class="hud-card-sub">Temporary suspension of all activities, lawful or otherwise.</div>
+        <div class="hud-card-rows">
+          ${field('Location')}${field('Time')}${field('Cash on hand')}${field('Condition')}${field('Vehicle')}${field('Heat')}
+          <div class="hud-card-row"><span class="hud-lbl">Mistakes made</span><span>0*</span></div>
+        </div>
+      </div>
+      <div class="hud-card-keys"><div class="hud-lbl">Attached: Form K-1</div>${rows}</div>
     </div>
     <div class="hud-card-ft"><button class="hud-btn" type="button">Resume</button><span class="hud-card-or">or press ${kc('Esc')}</span></div>
     <div class="hud-card-note">* As reported by the applicant. Anything typed is not counted.</div>
@@ -618,6 +734,9 @@ export class Hud implements HudApi {
     this.keysEl = q('.hud-keys');
     this.pauseEl = q('.hud-pause');
     this.pauseVals = Array.from(root.querySelectorAll<HTMLElement>('.hud-card-row > span:last-child'));
+    this.vitals = q('.hud-vitals');
+    this.hpEl = q('.hud-vital:first-child b');
+    this.arEl = q('.hud-vital:last-child b');
 
     this.radar = new Radar(q('.hud-radar canvas') as HTMLCanvasElement, game.plan, game.quality.name === 'low');
 
@@ -641,6 +760,16 @@ export class Hud implements HudApi {
   // ── What other systems call ────────────────────────────────────────────────
 
   toast(text: string, seconds = 4): void {
+    let alive = 0;
+    for (const t of this.toasts) if (t.dying < 0) alive++;
+    if (alive < 3 && this.pending.length === 0) { this.showToast(text, seconds); return; }
+    // Three is a stack; four is a pile. The newcomer waits its turn (the oldest
+    // slip is hurried along for it), so nothing is lost and nothing is buried.
+    if (this.pending.length >= 5) this.pending.shift();
+    this.pending.push({ text, seconds });
+  }
+
+  private showToast(text: string, seconds: number): void {
     const el = document.createElement('div');
     el.className = 'hud-toast hud-slip';
     el.innerHTML = `<div class="hud-toast-hd hud-lbl"><span>Notice</span><span>No. ${++this.serial}</span></div><div class="hud-toast-tx"></div>`;
@@ -649,19 +778,21 @@ export class Hud implements HudApi {
     this.toasts.push({ el, left: seconds, dying: -1 });
     // Two frames on, so the slip has been laid out off to the side before it is told to slide in.
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in')));
-    // Three is a stack; four is a pile. The oldest goes early.
-    let alive = 0;
-    for (const t of this.toasts) if (t.dying < 0) alive++;
-    for (const t of this.toasts) {
-      if (alive <= 3) break;
-      if (t.dying < 0) { t.left = 0; alive--; }
-    }
   }
 
   stamp(title: string, sub = ''): void {
+    this.plate(title, sub, false);
+    // The stamp has the floor for its four seconds: the notices dim and their clocks stop.
+    this.stampT = 4;
+    this.root.classList.add('stamping');
+  }
+
+  /** `small` is the same plate struck higher and lighter, for news that must not hide the road. */
+  private plate(title: string, sub: string, small: boolean): void {
     const inner = this.stampEl.firstElementChild as HTMLElement;
     (inner.children[0] as HTMLElement).textContent = title;
     (inner.children[1] as HTMLElement).textContent = sub;
+    this.stampEl.classList.toggle('sm', small);
     this.restart(this.stampEl);
   }
 
@@ -672,6 +803,12 @@ export class Hud implements HudApi {
   prompt(text: string | null): void { this.promptText = text; }
 
   objective(text: string | null): void {
+    // Real business outranks the newcomer's tour.
+    if (this.intro) { this.intro = 0; this.setHot(-1); }
+    this.setObjective(text);
+  }
+
+  private setObjective(text: string | null): void {
     this.objEl.classList.toggle('on', !!text);
     if (text) this.objTx.textContent = text;
   }
@@ -696,16 +833,16 @@ export class Hud implements HudApi {
     }
 
     // Cash.
-    const cash = Math.floor(p.money);
+    const cash = Math.round(p.money * 100);
     if (cash !== this.cash) {
       if (!Number.isNaN(this.cash)) {
         const d = cash - this.cash;
-        this.delta.textContent = (d > 0 ? '+ ' : '− ') + money(Math.abs(d));
+        this.delta.textContent = (d > 0 ? '+ ' : '− ') + cashText(Math.abs(d));
         this.restart(this.delta);
         this.restart(this.amt);
       }
       this.cash = cash;
-      this.amt.textContent = money(cash);
+      this.amt.textContent = cashText(cash);
     }
 
     // Clock and weather.
@@ -753,7 +890,18 @@ export class Hud implements HudApi {
       this.writeHint(near);
     }
 
+    // Condition and padding in figures, beside the two scales that draw them.
+    const hpN = Math.max(0, Math.ceil(p.health)), arN = Math.max(0, Math.ceil(p.armor));
+    if (hpN !== this.shownHp) {
+      this.shownHp = hpN;
+      this.hpEl.textContent = String(hpN);
+      this.vitals.classList.toggle('low', hpN > 0 && hpN <= 30);
+    }
+    if (arN !== this.shownAr) { this.shownAr = arN; this.arEl.textContent = String(arN); }
+
     if (live) {
+      this.tickStunts(v);
+      this.tickIntro(dt, v, p.z);
       this.tickToasts(dt);
       if (this.keysT > 0 && (this.keysT -= dt) <= 0) this.keysEl.classList.remove('on');
       this.tickPlace(dt, p.x, p.z);
@@ -771,14 +919,23 @@ export class Hud implements HudApi {
     const shown = st === 'play' || st === 'paused';
     this.root.classList.toggle('off', !shown);
     this.pauseEl.classList.toggle('on', st === 'paused');
+    this.root.classList.toggle('paused', st === 'paused');
     if (st === 'paused') {
       const p = g.player, name = g.plan.placeName(p.x, p.z);
       const street = OFF_GRID[name] ? '' : ', ' + g.plan.streetAt(p.x, p.z);
       this.pauseVals[0].textContent = name + street;
       this.pauseVals[1].textContent = `${clock12(Math.floor(g.sky.hour * 60) % 1440).trim()}, ${(WEATHER_WORD[g.sky.weather] ?? '').toLowerCase()}`;
-      this.pauseVals[2].textContent = money(p.money);
+      this.pauseVals[2].textContent = cashText(Math.round(p.money * 100));
+      const ar = Math.max(0, Math.ceil(p.armor)), heat = Math.ceil(clamp(p.heat, 0, 5));
+      this.pauseVals[3].textContent = `${Math.max(0, Math.ceil(p.health))} of 100, ${ar > 0 ? 'padding ' + ar : 'no padding'}`;
+      this.pauseVals[4].textContent = p.vehicle ? `${p.vehicle.spec.name}, ${Math.round(p.speed * MPH)} mph` : 'On foot';
+      this.pauseVals[5].textContent = heat > 0 ? `${heat} of 5 beacons lit` : 'None on file';
     }
-    if (st === 'play' && was === 'title' && !(g.input.touch || this.coarse)) this.showKeys(12);
+    if (st === 'play' && was === 'title') {
+      if (!(g.input.touch || this.coarse)) this.showKeys(12);
+      this.intro = 1;
+      this.introT = 0;
+    }
   }
 
   private showKeys(seconds: number): void {
@@ -820,17 +977,104 @@ export class Hud implements HudApi {
   }
 
   private tickToasts(dt: number): void {
+    if (this.stampT > 0) {
+      if ((this.stampT -= dt) <= 0) this.root.classList.remove('stamping');
+      return;
+    }
     const list = this.toasts;
+    let alive = 0;
     for (let i = 0; i < list.length; i++) {
       const t = list[i];
       if (t.dying < 0) {
-        if ((t.left -= dt) <= 0) { t.dying = 0.32; t.el.classList.add('out'); }
+        // With slips waiting, the oldest one up is hurried along.
+        if (alive === 0 && this.pending.length) t.left = Math.min(t.left, 1);
+        if ((t.left -= dt) <= 0) { t.dying = 0.32; t.el.classList.add('out'); } else alive++;
       } else if ((t.dying -= dt) <= 0) {
         this.dropToast(i--);
       }
     }
+    if (alive < 3 && this.pending.length) {
+      const next = this.pending.shift() as { text: string; seconds: number };
+      this.showToast(next.text, next.seconds);
+    }
   }
 
+  /**
+   * A car that leaves the ground for long enough gets it in writing, and so
+   * does one that leaves the island. Flights are measured takeoff to touchdown
+   * along the ground, which is how a witness would pace it out.
+   */
+  private tickStunts(v: Vehicle | null): void {
+    const was = this.airV;
+    if (v !== was) {
+      // Thrown clear as it went under: the report is still owed.
+      if (was && was.sunk) this.lostAtSea(was);
+      this.airV = v;
+      this.airT = 0;
+    }
+    if (!v) return;
+    if (v.sunk) { this.lostAtSea(v); this.airT = 0; return; }
+    if (!v.onGround) {
+      if (this.airT === 0) { this.airX = v.x; this.airZ = v.z; }
+      this.airT = Math.max(this.airT, v.airTime, 0.001);
+      return;
+    }
+    const t = this.airT;
+    if (t === 0) return;
+    this.airT = 0;
+    if (t < 0.8) return;
+    const feet = Math.round(Math.hypot(v.x - this.airX, v.z - this.airZ) * FEET);
+    if (t >= 1.5 || feet >= 110) this.plate('AIRBORNE', `${feet} ft · ${t.toFixed(1)} s · no flight plan filed`, true);
+    else this.toast(`Off the ground for ${t.toFixed(1)} s and ${feet} ft. ${HOPS[this.hops++ % HOPS.length]}`, 5);
+    if (this.intro === 3) this.endIntro();
+  }
+
+  private lostAtSea(v: Vehicle): void {
+    if (v === this.sunkV) return;
+    this.sunkV = v;
+    const feet = Math.round(Math.hypot(v.x - this.airX, v.z - this.airZ) * FEET);
+    this.toast(this.airT >= 0.8 && feet >= 30
+      ? `${feet} ft through the air, concluding in Calamity Sound. One ${v.spec.name}, written off.`
+      : `One ${v.spec.name}, lost to Calamity Sound. It was never a boat.`, 6);
+    if (this.intro === 3) this.endIntro();
+  }
+
+  /**
+   * The first minutes, before there are missions to say it: one line of
+   * business at a time, pointing a stranger at the truck and then at the pier,
+   * whose badge on the radar turns mustard. Any real objective ends the tour.
+   */
+  private tickIntro(dt: number, v: Vehicle | null, z: number): void {
+    if (this.intro === 0) return;
+    this.introT += dt;
+    if (this.intro === 1 && this.introT > 2.5) {
+      this.intro = 2;
+      if (!v) this.setObjective('Get in the tow truck. It is the last thing you own.');
+    }
+    if (this.intro <= 2 && v) {
+      this.intro = 3;
+      this.introT = 0;
+      this.setObjective('Take it down Pelican Pier: due south, under the arch.');
+      this.toast('There is a ramp at the end of the pier. Nobody has signed for it.', 7);
+      this.setHot(0);
+    } else if (this.intro === 3 && (z > PIER_HEAD.z0 - 20 || this.introT > 180)) {
+      this.endIntro();
+    }
+  }
+
+  private endIntro(): void {
+    this.intro = 0;
+    this.setObjective(null);
+    this.setHot(-1);
+  }
+
+  private setHot(i: number): void {
+    if (i === this.hot) return;
+    this.hot = i;
+    this.drawn[0] = NaN;
+  }
+
+  /** Take a spent slip out and let the ones under it slide up instead of jumping. */
   /** Take a spent slip out and let the ones under it slide up instead of jumping. */
   private dropToast(i: number): void {
     const list = this.toasts;
@@ -849,19 +1093,50 @@ export class Hud implements HudApi {
   }
 
   private tickPlace(dt: number, x: number, z: number): void {
-    // Four looks a second is plenty, and a name has to hold for half a second
-    // so driving along a boundary street does not machine-gun stamps.
+    const g = this.game;
+    // The banner's three seconds are counted in game time, not by the
+    // stylesheet, so a paused or stepped game never holds a stale name.
+    if (this.placeShow > 0 && (this.placeShow -= dt) <= 0) this.placeEl.classList.remove('on');
+    // A pinned camera is somebody composing a picture of somewhere else.
+    const pinned = g.view !== null;
+    if (pinned !== this.pinned) { this.pinned = pinned; this.root.classList.toggle('pinned', pinned); }
+
+    // Four looks a second is plenty.
     if ((this.placeT -= dt) > 0) return;
     const step = 0.25 - this.placeT;
     this.placeT = 0.25;
-    const name = this.game.plan.placeName(x, z);
+    const dx = x - this.lastX, dz = z - this.lastZ;
+    this.lastX = x;
+    this.lastZ = z;
+    const name = g.plan.placeName(x, z);
+    // No car covers 30 m between looks, so this is a teleport, a respawn or the
+    // first look of all. Wherever she was is no longer news: clear the banner
+    // and announce the new place promptly, even if it has the same name.
+    if (!(dx * dx + dz * dz < 900)) {
+      this.placeEl.classList.remove('on');
+      this.placeShow = 0;
+      this.place = '';
+      this.placeCand = name;
+      this.placeHeld = 0;
+      this.placeNeed = 0.5;
+      return;
+    }
     if (name !== this.placeCand) { this.placeCand = name; this.placeHeld = 0; return; }
     this.placeHeld += step;
-    if (name === this.place || this.placeHeld < 0.5) return;
+    // A name has to hold for a second and a half, so driving along a boundary
+    // street does not machine-gun banners ...
+    if (name === this.place || this.placeHeld < this.placeNeed) return;
+    // ... and she has to be staying: if two and a half seconds on at this pace
+    // she will be somewhere else, this place was only clipped on the way there.
+    const k = 2.5 / step;
+    if (g.plan.placeName(x + dx * k, z + dz * k) !== name) return;
     this.place = name;
+    this.placeNeed = 1.5;
+    this.placeShow = 3;
     const inner = this.placeEl.firstElementChild as HTMLElement;
     (inner.children[0] as HTMLElement).textContent = name;
-    (inner.children[1] as HTMLElement).textContent = OFF_GRID[name] ?? this.game.plan.streetAt(x, z);
+    (inner.children[1] as HTMLElement).textContent = OFF_GRID[name] ?? g.plan.streetAt(x, z);
+    this.placeEl.classList.add('on');
     this.restart(this.placeEl);
   }
 
@@ -875,7 +1150,7 @@ export class Hud implements HudApi {
     this.viewR = damp(this.viewR, want, 2, dt);
     this.blink += dt;
     const hp = clamp01(p.health / 100), armor = clamp01(p.armor / 100);
-    const faint = hp > 0 && hp < 0.25 && this.blink % 0.7 < 0.3 ? 1 : 0;
+    const faint = hp > 0 && hp <= 0.3 && this.blink % 0.7 < 0.3 ? 1 : 0;
 
     const d = this.drawn, yaw = g.cam.yaw;
     const jumped = Math.abs(p.x - d[0]) > 4 || Math.abs(p.z - d[1]) > 4;
@@ -888,6 +1163,6 @@ export class Hud implements HudApi {
       Math.abs(p.h - d[3]) < 0.01 && Math.abs(this.viewR - d[4]) < 0.4 && hp === d[5] && armor === d[6] && faint === d[7]
     ) return;
     d[0] = p.x; d[1] = p.z; d[2] = yaw; d[3] = p.h; d[4] = this.viewR; d[5] = hp; d[6] = armor; d[7] = faint;
-    this.radar.draw(p.x, p.z, yaw, p.h, this.viewR, hp, armor, faint === 1);
+    this.radar.draw(p.x, p.z, yaw, p.h, this.viewR, hp, armor, faint === 1, this.hot);
   }
 }

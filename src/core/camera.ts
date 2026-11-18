@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import type { Game } from './game';
 import type { CameraApi, Vehicle } from './api';
+import type { Prop } from '../world/collide';
 import { angleDiff, clamp, clamp01, damp, headingOf, lerp, smooth, wrapAngle } from './util';
 import { WATER_Y, groundAt } from '../world/plan';
 
@@ -25,7 +26,11 @@ const FOOT_HOLD = 2, DRIVE_HOLD = 1.5;
 /** How tightly the pivot follows a car, 1/s. It trails by LAG seconds of travel, so speed stretches the view a little. */
 const CHASE_RATE = 14, CHASE_LAG = 0.03;
 /** Stay this far off a wall, and never closer than MIN_DIST to the pivot. */
-const MARGIN = 0.3, MIN_DIST = 0.7;
+const MARGIN = 0.3, MIN_DIST = 0.15;
+/** On foot, a boom shorter than this goes up over her head instead of into the back of it. */
+const TIGHT = 1.1;
+/** A shop awning reaches about this far out from its wall (see `duck`). */
+const AWNING = 1.25;
 /** Half the width of the near plane, give or take: the side rays in reach() protect the picture's corners. */
 const SIDE = 0.42;
 /** Keep the lens this far above the ground and the sea. */
@@ -83,6 +88,10 @@ export class CameraRig implements CameraApi {
   /** How much a wall is currently pulling the camera in, and the ground pushing it up. */
   private squeeze = 0;
   private raise = 0;
+  /** How far the camera is ducked for a wall close beside it. */
+  private duck = 0;
+  /** 1 while she is on the ground (knocked down, or dead): the camera looks at the road, from higher up. */
+  private low = 0;
   private zoom = 0;
   private lookIdle = 0;
 
@@ -93,6 +102,10 @@ export class CameraRig implements CameraApi {
   private inherited = false;
   private slope = 0;
   private revT = 0; private fwdT = 0;
+  /** The swing to and from the reversing view runs on a softer spring for this long. */
+  private wasRev = false; private softT = 0;
+  /** 1 while the car is off the ground. */
+  private air = 0;
 
   private trauma = 0;
   private rumble = 0;
@@ -129,6 +142,7 @@ export class CameraRig implements CameraApi {
     this.blendT = 1; this.swoop = false;
     this.trauma = 0; this.rumble = 0; this.raise = 0; this.squeeze = 0;
     this.lookIdle = 0; this.inherited = false;
+    this.wasRev = false; this.softT = 0;
     if (this.mode === 'title') {
       this.flyTitle(0);
     } else if (this.mode === 'drive') {
@@ -208,11 +222,14 @@ export class CameraRig implements CameraApi {
     } else if (!this.snapping) {
       this.lookIdle += dt;
       if (this.lookIdle > FOOT_HOLD && p.speed > 1.2) {
-        // Left alone, drift in behind where she is headed. Not when she is running
-        // at the lens: turning then would turn her controls with it, in a circle.
+        // Left alone, drift in behind where she is headed, but only while she is
+        // headed more or less away from the lens. Her controls turn with the
+        // camera, so following a sidestep (or a diagonal on the keys) would bend
+        // a straight run into a circle. What is left is steering with a stick.
         const k = smooth((this.lookIdle - FOOT_HOLD) / 1.5) * Math.min(p.speed / 4.3, 1.3);
         const off = angleDiff(this.yaw, per.h);
-        if (Math.abs(off) < 2.4) this.yaw = wrapAngle(this.yaw + off * (1 - Math.exp(-0.75 * k * dt)));
+        const turn = k * smooth((Math.cos(off) - 0.75) / 0.2);
+        this.yaw = wrapAngle(this.yaw + off * (1 - Math.exp(-0.75 * turn * dt)));
         this.pitch = damp(this.pitch, FOOT_PITCH, 0.5 * k, dt);
       }
     }
@@ -220,12 +237,22 @@ export class CameraRig implements CameraApi {
     // Sideways she is followed tightly; in height loosely, so a jump moves her and not the whole picture.
     L.px = this.to(L.px, per.x, 20, dt);
     L.pz = this.to(L.pz, per.z, 20, dt);
-    L.py = this.to(L.py, p.swimming ? WATER_Y + 0.35 : per.y + SHOULDER * per.look.height, 8, dt);
-    L.yaw = this.yaw; L.pitch = this.pitch;
+    // Flat on the road she is a meter and a half lower than the place the camera
+    // usually aims at: look at her, and from higher, so she is not cut off by the bottom edge.
+    const down = per.pose === 'down';
+    this.low = this.to(this.low, down ? 1 : 0, down ? 3 : 5, dt);
+    if (down && !this.snapping && lx === 0 && ly === 0 && this.blocked(per.x, per.y + 0.45, per.z)) {
+      // A tree or a lamp post between the lens and the body: walk around it.
+      this.yaw = wrapAngle(this.yaw + 1.1 * dt);
+    }
+    const stand = lerp(SHOULDER * per.look.height, 0.45, this.low);
+    L.py = this.to(L.py, p.swimming ? WATER_Y + 0.35 : per.y + stand, 8, dt);
+    L.yaw = this.yaw; L.pitch = Math.min(this.pitch + 0.34 * this.low, PITCH_MAX);
     // Looking up from below, slide in along the ground rather than under it.
     const tuck = 1 - 0.42 * clamp01(-this.pitch / -PITCH_MIN);
     L.dist = this.to(L.dist, FOOT_DIST * ZOOM[this.zoom] * tuck, 7, dt);
-    L.lift = 0.09; L.ax = 0; L.az = 0;
+    // On the ground she also goes in the lower part of the picture, under the stamp that says so.
+    L.lift = 0.09 + 0.2 * this.low; L.ax = 0; L.az = 0;
     L.fov = this.to(L.fov, 60 + 3 * smooth((p.speed - 4.8) / 2), 4, dt);
     this.rumble = this.to(this.rumble, 0, 6, dt);
   }
@@ -242,7 +269,10 @@ export class CameraRig implements CameraApi {
       else { this.fwdT += dt; if (v.speed > 1 || this.fwdT > 0.7) this.revT = 0; }
     }
     let target = v.h;
-    if (this.revT > 1) target += Math.PI;
+    const rev = this.revT > 1;
+    if (rev !== this.wasRev && !this.snapping) { this.wasRev = rev; this.softT = 1.7; }
+    this.softT = Math.max(0, this.softT - dt);
+    if (rev) target += Math.PI;
     else if (sp > 3 && v.speed > 0) {
       // In a slide the nose points one way and the car travels another. Sit
       // between the two, so a drift is seen from the side it is going.
@@ -252,7 +282,9 @@ export class CameraRig implements CameraApi {
     else {
       // Critically damped spring, solved exactly so it behaves the same at any frame rate.
       // At 6/s it trails a steady turn by a third of a second, which shows the car's flank in corners.
-      const W = 6, err = -angleDiff(this.chaseYaw, target);
+      // Half a turn at that stiffness is a whip (the lens covers 50 m in a second),
+      // so the swing round for reversing, and the one home, get a softer spring.
+      const W = lerp(6, 3.4, smooth(this.softT / 0.5)), err = -angleDiff(this.chaseYaw, target);
       const tmp = (this.chaseVel + W * err) * dt, ex = Math.exp(-W * dt);
       this.chaseVel = (this.chaseVel - W * tmp) * ex;
       this.chaseYaw = wrapAngle(target + (err + tmp) * ex);
@@ -289,7 +321,19 @@ export class CameraRig implements CameraApi {
       tilt = -Math.atan2(v.vy, Math.max(sp, 6)) * 0.35;
     }
     this.slope = this.to(this.slope, clamp(tilt, -0.3, 0.3), 2.5, dt);
-    this.pitch = clamp(DRIVE_PITCH + this.slope + this.freePitch, -0.35, PITCH_MAX);
+    // A jump only reads as one if the car leaves the middle of the picture. In
+    // the air the camera stops matching its height, backs off and opens up, so
+    // the car climbs up the frame with the ground still in view, and comes back
+    // down into it. The first tenth of a second is a curb, not a jump.
+    const flying = !v.onGround && v.airTime > 0.1;
+    this.air = this.to(this.air, flying ? 1 : 0, flying ? 8 : 3.5, dt);
+    // And it gets down low. From above, a car in the air is a car on the road
+    // with a small shadow; from its own height it is a car against the sky with
+    // the ground a long way under it. Once it is coming down, the tilt above
+    // takes over and looks at where it will land.
+    const high = v.y - Math.max(groundAt(v.x, v.z), WATER_Y) - 1;
+    const under = this.air * clamp(high * 0.07, 0, 0.3) * clamp01(0.6 + v.vy / 8);
+    this.pitch = clamp(DRIVE_PITCH + this.slope + this.freePitch - under, -0.35, PITCH_MAX);
 
     if (this.snapping) {
       L.px = v.x - v.vx * CHASE_LAG; L.pz = v.z - v.vz * CHASE_LAG;
@@ -300,15 +344,18 @@ export class CameraRig implements CameraApi {
       L.px = damp(L.px, v.x + v.vx * lead, CHASE_RATE, dt);
       L.pz = damp(L.pz, v.z + v.vz * lead, CHASE_RATE, dt);
     }
-    L.py = this.to(L.py, v.y + v.spec.height * 0.55 + 0.3, 7, dt);
+    const top = v.y + v.spec.height * 0.55 + 0.3;
+    L.py = this.to(L.py, top, lerp(7, 1.3, this.air), dt);
+    // However high the jump or long the fall, the car stays in the picture.
+    L.py = clamp(L.py, top - 3.2, top + 1.7);
     L.yaw = this.yaw; L.pitch = this.pitch;
     // A bus needs far more room than a hatchback to show the road around it.
-    L.dist = this.to(L.dist, (3.3 + v.spec.length * 0.92) * ZOOM[this.zoom], 5, dt);
+    L.dist = this.to(L.dist, (3.3 + v.spec.length * 0.92) * ZOOM[this.zoom] * (1 + 0.25 * this.air), 5, dt);
     L.lift = 0.085;
     // Look up the road, farther the faster; behind the car when the view faces backward.
     const ahead = (1.6 + Math.min(sp, 45) * 0.07) * Math.cos(angleDiff(v.h, this.yaw));
     L.ax = Math.sin(v.h) * ahead; L.az = Math.cos(v.h) * ahead;
-    L.fov = this.to(L.fov, 60 + 16 * Math.pow(clamp01((sp - 5) / 50), 0.85), 2.5, dt);
+    L.fov = this.to(L.fov, 60 + 16 * Math.pow(clamp01((sp - 5) / 50), 0.85) + 4 * this.air, 2.5, dt);
     const flatOut = smooth((sp / v.spec.topSpeed - 0.8) / 0.2);
     this.rumble = this.to(this.rumble, v.onGround ? flatOut : flatOut * 0.3, 4, dt);
   }
@@ -353,15 +400,39 @@ export class CameraRig implements CameraApi {
     const p = this.game.player.person;
     const py = p.y + SHOULDER * p.look.height, want = FOOT_DIST * ZOOM[this.zoom];
     let best = h, room = 0;
-    for (let i = 0; i < 8; i++) {
-      // 0, +45, -45, +90, -90 ... 180 degrees.
-      const yaw = h + Math.ceil(i / 2) * (Math.PI / 4) * (i % 2 ? 1 : -1);
+    for (let i = 0; i < 16; i++) {
+      // 0, -22, +22, -45, +45 ... 180 degrees.
+      const yaw = h + Math.ceil(i / 2) * (Math.PI / 8) * (i % 2 ? -1 : 1);
       const r = this.reach(p.x, py, p.z, yaw, FOOT_PITCH, want);
-      if (r > want * 0.95) return wrapAngle(yaw);
+      // Straight behind her is worth a shorter boom: it is the view the level
+      // was laid out for, and the camera eases back out as soon as she moves.
+      if (r > want * (i ? 0.95 : 0.38)) return wrapAngle(yaw);
       if (r > room) { room = r; best = yaw; }
     }
     return wrapAngle(best);
   }
+
+  /** Is a tree, a lamp post or the like standing between the lens and a point? Thin props do not stop the boom, so this is only asked when it matters. */
+  private blocked(x: number, y: number, z: number): boolean {
+    const c = this.game.camera.position;
+    this.bx0 = c.x; this.bz0 = c.z; this.bx1 = x; this.bz1 = z;
+    this.by0 = c.y; this.by1 = y;
+    this.bHit = false;
+    const half = Math.hypot(x - c.x, z - c.z) * 0.5;
+    this.game.col.forProps((x + c.x) * 0.5, (z + c.z) * 0.5, half + 1, this.propTest);
+    return this.bHit;
+  }
+  private bx0 = 0; private by0 = 0; private bz0 = 0; private bx1 = 0; private by1 = 0; private bz1 = 0; private bHit = false;
+  // A field, so forProps gets the same function every time instead of a fresh closure.
+  private propTest = (o: Prop): void => {
+    if (!o.alive || o.h < 1) return;
+    const dx = this.bx1 - this.bx0, dz = this.bz1 - this.bz0;
+    const t = ((o.x - this.bx0) * dx + (o.z - this.bz0) * dz) / (dx * dx + dz * dz || 1);
+    // Not the last stretch: a post right beside her is not in front of her.
+    if (t < 0.05 || t > 0.85 || lerp(this.by0, this.by1, t) > o.h) return;
+    const ex = this.bx0 + dx * t - o.x, ez = this.bz0 + dz * t - o.z, w = o.r + 0.3;
+    if (ex * ex + ez * ez < w * w) this.bHit = true;
+  };
 
   private place(dt: number): void {
     const g = this.game, cam = g.camera, O = this.out, L = this.live, F = this.from;
@@ -396,20 +467,55 @@ export class CameraRig implements CameraApi {
     } else if (this.mode !== 'title') {
       limit = this.reach(O.px, O.py, O.pz, O.yaw, O.pitch, O.dist);
     }
+    const foot = this.mode === 'foot' && e >= 1;
     const pull = O.dist - limit;
-    this.squeeze = pull >= this.squeeze || this.snapping ? pull : damp(this.squeeze, pull, 4, dt);
+    let soft = pull;
+    if (foot && !this.snapping) {
+      // Feelers either side of the boom: a wall the view is about to swing into
+      // starts drawing the camera in before it gets there, so turning past a
+      // corner is a slide inward and not a jump of a meter and a half.
+      for (let i = 0; i < 4; i++) {
+        const a = (i < 2 ? 0.17 : 0.34) * (i % 2 ? 1 : -1);
+        const r = this.reach(O.px, O.py, O.pz, O.yaw + a, O.pitch, O.dist);
+        soft = Math.max(soft, (O.dist - r) * (i < 2 ? 0.7 : 0.38));
+      }
+    }
+    // The wall itself pulls the camera in at once; the feelers quickly; and it is let back out slowly.
+    if (pull >= this.squeeze || this.snapping) this.squeeze = pull;
+    else this.squeeze = Math.max(pull, damp(this.squeeze, soft, soft > this.squeeze ? 14 : 4, dt));
     const d = O.dist - this.squeeze;
 
     const cp = Math.cos(O.pitch);
     const cx = O.px - Math.sin(O.yaw) * cp * d, cz = O.pz - Math.cos(O.yaw) * cp * d;
     let cy = O.py + Math.sin(O.pitch) * d;
+    // Close in front of a shopfront the lens is under its awning, and the top of
+    // the picture is the underside of one. Awnings are not in the collision
+    // world, so: with a wall that close on any side, the camera keeps to head height.
+    let duck = 0;
+    if (foot && cy > O.py + 0.3) {
+      for (let i = 0; i < 8 && !duck; i++) {
+        const a = i * (Math.PI / 4);
+        if (g.col.pointBlocked(cx + Math.sin(a) * AWNING, cz + Math.cos(a) * AWNING, cy)) duck = 1;
+      }
+    }
+    this.duck = this.snapping ? duck : damp(this.duck, duck, 6, dt);
+    const head = O.py + 0.3;
+    if (cy > head) cy = lerp(cy, head, this.duck);
+    // No room behind her at all: go up and look over her cap, rather than sit
+    // inside her head (or, as it used to, inside the wall). A car gets the same
+    // treatment in proportion, and is looked at over its roof.
+    const tight = foot ? 1 - smooth((d - 0.3) / (TIGHT - 0.3)) : 0;
+    const hop = foot ? tight * 0.62 : this.mode === 'drive' ? clamp01(this.squeeze / Math.max(O.dist, 1)) * 1.3 : 0;
+    if (hop > 0 && !g.col.pointBlocked(cx, cz, cy + hop)) cy += hop;
     // The ground (and the sea) lift it straight up, and let it settle back gently.
     const need = Math.max(0, Math.max(groundAt(cx, cz), WATER_Y) + FLOOR - cy);
     this.raise = need >= this.raise || this.snapping ? need : damp(this.raise, need, 5, dt);
     cy += this.raise;
 
     cam.position.set(cx, cy, cz);
-    cam.lookAt(O.px + O.ax, O.py + O.lift * d, O.pz + O.az);
+    // Over her head there is nothing to look at but the way she is facing.
+    const fwd = tight * 2.6;
+    cam.lookAt(O.px + O.ax + Math.sin(O.yaw) * fwd, O.py + O.lift * d + tight * 0.12, O.pz + O.az + Math.cos(O.yaw) * fwd);
 
     const hit = this.trauma * this.trauma, hum = this.rumble;
     if (hit > 0.0004 || hum > 0.002) {
@@ -427,8 +533,8 @@ export class CameraRig implements CameraApi {
     if (Math.abs(cam.fov - O.fov) > 0.02) { cam.fov = O.fov; cam.updateProjectionMatrix(); }
     this.focus.set(O.px, O.py, O.pz);
     if (this.mode === 'title') Object.assign(this.titleOut, O);
-    // Backed into a corner the lens ends up inside her head; better to see through her than into her.
+    // Only if even the view over her cap had no room (a ceiling) is the lens in her head; better to see through her than into her.
     // Only a flag: this runs after the people are drawn, so the player applies it at the start of the next frame.
-    this.tooClose = this.mode === 'foot' && d < 0.9;
+    this.tooClose = this.mode === 'foot' && d < 0.9 && cy < O.py + 0.3;
   }
 }

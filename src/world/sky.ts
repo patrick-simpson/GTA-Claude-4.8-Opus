@@ -7,8 +7,11 @@
 //
 // The one rule that makes the island sit in its sky: the fog colour and the
 // dome's horizon band are the same number. Far geometry fades to `fog.color`;
-// the dome fades to the same uniform below a few degrees of elevation. Both go
-// through the same tone mapping, so there is no seam to find.
+// the dome fades to the same uniform below a few degrees of elevation. three
+// mixes fog in AFTER tone mapping, though, and the dome is tone mapped like any
+// other surface, so the number handed to the fog is the dome's one put through
+// the exposure and the tone curve by hand (see faceFog). Skip that and the two
+// agree at noon and part company at night, as a ruler line along the horizon.
 
 import * as THREE from 'three';
 import type { Game } from '../core/game';
@@ -36,18 +39,22 @@ interface KeyDef {
 }
 
 const NIGHT: Omit<KeyDef, 'h'> = {
-  zen: 0x0a1326, mid: 0x13233f, hor: 0x1d4852, glow: 0x1d4852, glowAmt: 0,
+  zen: 0x0a1326, mid: 0x13233f, hor: 0x183542, glow: 0x183542, glowAmt: 0,
   sun: 0xffffff, sunI: 0, disc: 0xffd27a, discI: 0,
   hemiSky: 0x4a6da6, hemiGnd: 0x1e2c3c, hemiI: 1.05,
-  fog: 1.15, exposure: 1.22, cloudLit: 0x2c4660, cloudShade: 0x101c30,
+  fog: 1.1, exposure: 1.22, cloudLit: 0x2c4660, cloudShade: 0x101c30,
 };
 const DAY: Omit<KeyDef, 'h'> = {
-  zen: 0x4f9ccd, mid: 0x93c8de, hor: 0xa9dbd0, glow: 0xdaeedd, glowAmt: 0.5,
+  zen: 0x4f9ccd, mid: 0x93c8de, hor: 0xe1e0cb, glow: 0xf1ead2, glowAmt: 0.5,
   sun: 0xfff3dc, sunI: 3.1, disc: 0xfffbe6, discI: 6,
   hemiSky: 0xa9cfe8, hemiGnd: 0xb3ab98, hemiI: 1.75,
   fog: 1, exposure: 1, cloudLit: 0xfdf8ea, cloudShade: 0xa9c4cf,
 };
 
+// The fill light (hemiI) is deliberately held up through sunset and let go
+// afterwards: the sun's key fades faster than the eye expects, and without the
+// overlap the street is darker at half past seven than at midnight.
+//
 // No purple anywhere. Evening runs blue -> cream -> mustard -> vermilion, and
 // the way down to night goes through sage and teal rather than violet, which
 // is why dusk has so many keys: a straight blend from orange to navy is mud.
@@ -58,19 +65,19 @@ const KEYS: KeyDef[] = [
     h: 5.5, zen: 0x1b2d4c, mid: 0x47697b, hor: 0x8f958c, glow: 0xe89e74, glowAmt: 0.95,
     sun: 0xffb27a, sunI: 0, disc: 0xffd9a0, discI: 1,
     hemiSky: 0x6f8fb2, hemiGnd: 0x4a4038, hemiI: 1.15,
-    fog: 1.5, exposure: 1.15, cloudLit: 0xe2a383, cloudShade: 0x2c425a,
+    fog: 2.05, exposure: 1.15, cloudLit: 0xe2a383, cloudShade: 0x2c425a,
   },
   { // sunrise: cream and peach sea fog
     h: 6.3, zen: 0x6497ad, mid: 0xf0dcb8, hor: 0xf3c7a0, glow: 0xf7a56c, glowAmt: 0.9,
     sun: 0xffc48e, sunI: 1.9, disc: 0xfff0c4, discI: 1.1,
     hemiSky: 0xd6cdbb, hemiGnd: 0xa08a70, hemiI: 1.55,
-    fog: 1.7, exposure: 1.05, cloudLit: 0xfde3c0, cloudShade: 0xc79a86,
+    fog: 2.3, exposure: 1.05, cloudLit: 0xfde3c0, cloudShade: 0xc79a86,
   },
   { // the cream hour
     h: 7.5, zen: 0x66a8c8, mid: 0xcfe4da, hor: 0xf2e8cf, glow: 0xfcebc6, glowAmt: 0.7,
     sun: 0xffe2b8, sunI: 2.7, disc: 0xfff8dc, discI: 2.5,
     hemiSky: 0xbcd6de, hemiGnd: 0xb3a78e, hemiI: 1.7,
-    fog: 1.45, exposure: 1, cloudLit: 0xfff6e2, cloudShade: 0xb9c9c8,
+    fog: 1.95, exposure: 1, cloudLit: 0xfff6e2, cloudShade: 0xb9c9c8,
   },
   { h: 9.5, ...DAY },
   { h: 16, ...DAY },
@@ -83,32 +90,32 @@ const KEYS: KeyDef[] = [
   { // golden hour: mustard under a band of cream
     h: 18.6, zen: 0x4c8fb8, mid: 0xf3e2b0, hor: 0xf0b244, glow: 0xee8433, glowAmt: 0.9,
     sun: 0xffbe6a, sunI: 2.5, disc: 0xfff0b8, discI: 1.15,
-    hemiSky: 0x9fbccd, hemiGnd: 0xc49a5e, hemiI: 1.5,
+    hemiSky: 0x9fbccd, hemiGnd: 0xc49a5e, hemiI: 1.58,
     fog: 1.1, exposure: 1.03, cloudLit: 0xfdd58c, cloudShade: 0xb97a56,
   },
   { // sunset: vermilion
     h: 19.5, zen: 0x27496e, mid: 0xe0a95e, hor: 0xdf7a42, glow: 0xee5a2c, glowAmt: 1,
     sun: 0xff8a4e, sunI: 1.3, disc: 0xffd27a, discI: 1.05,
-    hemiSky: 0x7d93ad, hemiGnd: 0x9a6a4a, hemiI: 1.3,
-    fog: 1.1, exposure: 1.08, cloudLit: 0xf2884a, cloudShade: 0x3a4b5c,
+    hemiSky: 0x7d93ad, hemiGnd: 0x9a6a4a, hemiI: 1.62,
+    fog: 1.1, exposure: 1.1, cloudLit: 0xf2884a, cloudShade: 0x3a4b5c,
   },
   { // the band above the horizon cools to sage while the horizon still burns
     h: 19.8, zen: 0x1a3358, mid: 0x8fae8c, hor: 0xd98e52, glow: 0xe85a2c, glowAmt: 1,
     sun: 0xff8a4e, sunI: 0, disc: 0xffd27a, discI: 1,
-    hemiSky: 0x6f8aad, hemiGnd: 0x6a5648, hemiI: 1.2,
-    fog: 1.1, exposure: 1.12, cloudLit: 0xd9764a, cloudShade: 0x2a3550,
+    hemiSky: 0x6f8aad, hemiGnd: 0x6a5648, hemiI: 1.43,
+    fog: 1.1, exposure: 1.14, cloudLit: 0xd9764a, cloudShade: 0x2a3550,
   },
   { // teal over sage, one ember left in the west
     h: 20.1, zen: 0x13254a, mid: 0x3d7f86, hor: 0x7d9a7c, glow: 0xc9603a, glowAmt: 0.9,
     sun: 0xff8a4e, sunI: 0, disc: 0xffd27a, discI: 0,
-    hemiSky: 0x5d7ba6, hemiGnd: 0x3a3c44, hemiI: 1.12,
+    hemiSky: 0x5d7ba6, hemiGnd: 0x3a3c44, hemiI: 1.3,
     fog: 1.1, exposure: 1.18, cloudLit: 0x8a6a5a, cloudShade: 0x18284a,
   },
   { // dusk
     h: 20.45, zen: 0x0f1c36, mid: 0x1d4160, hor: 0x2f6e74, glow: 0x8a5a44, glowAmt: 0.6,
     sun: 0xff8a4e, sunI: 0, disc: 0xffd27a, discI: 0,
-    hemiSky: 0x52729f, hemiGnd: 0x263040, hemiI: 1.08,
-    fog: 1.12, exposure: 1.2, cloudLit: 0x3f4f62, cloudShade: 0x121f36,
+    hemiSky: 0x52729f, hemiGnd: 0x263040, hemiI: 1.14,
+    fog: 1.1, exposure: 1.2, cloudLit: 0x3f4f62, cloudShade: 0x121f36,
   },
   { h: 21.2, ...NIGHT },
   { h: 24, ...NIGHT },
@@ -154,9 +161,9 @@ function weatherParams(w: Weather, drawDist: number): Float32Array {
   const vis = (m: number): number => 1.73 / m;
   switch (w) {
     case 'clear':
-      p.set([0.3, 1, 1, 1, 1, 1, 0, 0.055, 0, 0, 0, 1]); break;
+      p.set([0.3, 1, 1, 1, 1, 1, 0, 0.075, 0, 0, 0, 1]); break;
     case 'overcast':
-      p.set([1, 0.22, 1.12, 0.3, 0.86, 1.25, 0, 0.12, 0.15, 0, 0.1, 0]); break;
+      p.set([1, 0.27, 1.14, 0.5, 0.9, 1.25, 0, 0.12, 0.15, 0, 0.1, 0]); break;
     case 'fog':
       p.set([0.5, 0.3, 1.05, 0.55, 1, 1, vis(150), 3, 1, 0, 0.3, 0]); break;
     case 'rain':
@@ -292,6 +299,10 @@ void main() {
   float thick = smoothstep(th, th + 0.42, n);
   float lit = smoothstep(0.3, 0.7, 0.62 - thick * 0.55 + (n - nSun) * 4.5);
   vec3 ccol = mix(uCloudShade, uCloudLit, lit);
+  // A closed deck has no edges for the light to catch, so it gets its shape
+  // from long soft bands instead: paler where the lid is thin.
+  float band = texture2D(uNoise, cuv * vec2(0.03, 0.085) + uWind * 0.5 + 0.37).g * 0.75 + n * 0.25;
+  ccol = mix(ccol, mix(uCloudShade * 0.8, uCloudLit, smoothstep(0.36, 0.64, band)), smoothstep(0.6, 1.0, uCover) * 0.9);
   ccol += uHaloCol * m8 * (1.0 - thick) * 0.6;
   float streak = texture2D(uNoise, vec2(cuv.x * 0.013 + cuv.y * 0.006, cuv.y * 0.075 - cuv.x * 0.02) + uWind * 0.35).g;
   float cirrus = smoothstep(0.5, 0.86, streak) * uCirrus * 0.5;
@@ -342,13 +353,14 @@ void main() {
   float sp = 0.8 + 0.1 * floor(seed.x * 5.0);
   vec3 rel = mod(position + uOff * sp - cameraPosition, uBox) - 0.5 * uBox;
   vec3 axis = normalize(uFall);
-  float len = 0.7 + 0.9 * seed.y;
+  float len = 0.45 + 0.55 * seed.y;
   float dist = length(rel);
-  // Never thinner than about a pixel, or distant streaks sparkle.
-  float wid = max(0.011, dist * 0.0011);
+  // Width grows with distance so a streak is about two pixels wherever it is:
+  // thinner and far ones sparkle, a fixed width and near ones are bars.
+  float wid = max(0.0035, dist * 0.0011);
   vec3 side = normalize(cross(axis, rel));
   vec3 p = cameraPosition + rel - axis * len * uv.y + side * wid * (uv.x - 0.5) * 2.0;
-  vA = step(seed.z, uAmount) * smoothstep(0.5 * uBox.x, 0.3 * uBox.x, dist) * smoothstep(0.6, 2.5, dist)
+  vA = step(seed.z, uAmount) * smoothstep(0.5 * uBox.x, 0.3 * uBox.x, dist) * smoothstep(1.6, 4.5, dist)
      * (1.0 - abs(uv.y - 0.5) * 1.4);
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
 }`;
@@ -405,12 +417,35 @@ function makeNoise(): THREE.DataTexture {
 }
 
 const LUMA_R = 0.2126, LUMA_G = 0.7152, LUMA_B = 0.0722;
-/** Overcast and rain wash the colour out of the sky toward a cool grey, then dim it. */
-function wash(c: THREE.Color, sat: number, dim: number): void {
+/**
+ * Overcast and rain wash the colour out toward grey, then dim it. The sky's
+ * grey is cool; the light's is warm (bone), or brick and terracotta under a
+ * lid of cloud turn to mud.
+ */
+function wash(c: THREE.Color, sat: number, dim: number, warm = false): void {
   const l = c.r * LUMA_R + c.g * LUMA_G + c.b * LUMA_B;
-  c.r = lerp(l * 0.95, c.r, sat) * dim;
+  c.r = lerp(l * (warm ? 1.07 : 0.95), c.r, sat) * dim;
   c.g = lerp(l, c.g, sat) * dim;
-  c.b = lerp(l * 1.04, c.b, sat) * dim;
+  c.b = lerp(l * (warm ? 0.86 : 1.04), c.b, sat) * dim;
+}
+
+/**
+ * three's NeutralToneMapping on the CPU, exposure included. Fog is mixed into
+ * every material after its tone mapping, so the fog colour has to be given
+ * already mapped to land on the same value as the dome's horizon.
+ */
+function toneMap(c: THREE.Color, exposure: number): void {
+  let r = c.r * exposure, g = c.g * exposure, b = c.b * exposure;
+  const x = Math.min(r, g, b);
+  const off = x < 0.08 ? x - 6.25 * x * x : 0.04;
+  r -= off; g -= off; b -= off;
+  const peak = Math.max(r, g, b), start = 0.76;
+  if (peak >= start) {
+    const d = 1 - start, np = 1 - d * d / (peak + d - start), k = np / peak;
+    const m = 1 - 1 / (0.15 * (peak - np) + 1);
+    r = lerp(r * k, np, m); g = lerp(g * k, np, m); b = lerp(b * k, np, m);
+  }
+  c.setRGB(r, g, b);
 }
 
 // ── Sky ──────────────────────────────────────────────────────────────────────
@@ -472,6 +507,7 @@ export class Sky implements SkyApi {
   private readonly fogFlat = new THREE.Color();
   private glowAmt = 0;
   private fogTint = 0;
+  private exposure = 1;
   private readonly sunAz = new THREE.Vector2(1, 0);
   private readonly viewAz = new THREE.Vector2(0, 1);
 
@@ -554,7 +590,7 @@ export class Sky implements SkyApi {
     scene.fog = this.fog;
 
     // ── Rain ──
-    const n = Math.round(2600 * lerp(0.5, 1, quality.density));
+    const n = Math.round(5600 * lerp(0.5, 1, quality.density));
     const rr = new RNG(31);
     const pos = new Float32Array(n * 12), seed = new Float32Array(n * 12), uv = new Float32Array(n * 8);
     const idx = new Uint16Array(n * 6);
@@ -575,7 +611,7 @@ export class Sky implements SkyApi {
     rg.setIndex(new THREE.BufferAttribute(idx, 1));
     this.rainU = {
       uOff: { value: this.rainOff }, uBox: { value: RAIN_BOX }, uFall: { value: new THREE.Vector3(2.4, -21, 1.1) },
-      uAmount: num(), uColor: col(), uOpacity: num(0.4),
+      uAmount: num(), uColor: col(), uOpacity: num(0.26),
     };
     this.rain = new THREE.Mesh(rg, new THREE.ShaderMaterial({
       uniforms: this.rainU, vertexShader: RAIN_VERT, fragmentShader: RAIN_FRAG,
@@ -678,13 +714,14 @@ export class Sky implements SkyApi {
     const p = this.pal;
     p.mix(keys[i], keys[i + 1], clamp01((h - KEYS[i].h) / (KEYS[i + 1].h - KEYS[i].h)));
 
-    const sat = w[W.sat], dim = w[W.dim];
+    // Cloud over a lit town is never black: at night the lid keeps more of its light than it does by day.
+    const sat = w[W.sat], dim = lerp(w[W.dim], Math.pow(w[W.dim], 0.4), dark);
     wash(p.zen, sat, dim); wash(p.mid, sat, dim); wash(p.hor, sat, dim); wash(p.glow, sat, dim);
     wash(p.cloudLit, lerp(sat, 1, 0.3), lerp(dim, 1, 0.25)); wash(p.cloudShade, sat, dim * lerp(0.8, 1, sat));
-    wash(p.hemiSky, lerp(sat, 1, 0.4), 1); wash(p.hemiGnd, lerp(sat, 1, 0.4), 1);
+    wash(p.hemiSky, lerp(sat, 1, 0.4), 1, true); wash(p.hemiGnd, lerp(sat, 1, 0.4), 1, true);
     // A full deck has no sunlit tops to show from below. Without this an overcast
     // sky reads as white clouds on a grey sky rather than as a lid.
-    p.cloudLit.lerp(p.cloudShade, 0.72 * smooth((w[W.cover] - 0.55) / 0.45));
+    p.cloudLit.lerp(p.cloudShade, 0.5 * smooth((w[W.cover] - 0.55) / 0.45));
 
     (u.uZen.value as THREE.Color).copy(p.zen);
     (u.uMid.value as THREE.Color).copy(p.mid);
@@ -695,7 +732,7 @@ export class Sky implements SkyApi {
     (u.uCloudShade.value as THREE.Color).copy(p.cloudShade);
     u.uCover.value = w[W.cover];
     u.uCirrus.value = w[W.cirrus];
-    u.uHaze.value = w[W.haze] * lerp(1, 1.5, clamp01(p.fog - 1));
+    u.uHaze.value = w[W.haze] * lerp(1, 1.5, clamp01((p.fog - 1.1) * 1.1));
     u.uTime.value = this.clock;
     // Clouds cross the sky in a few minutes; faster and the eye reads it as a time-lapse.
     (u.uWind.value as THREE.Vector2).set((this.clock * 0.0021) % 1, (this.clock * 0.0008) % 1);
@@ -725,8 +762,11 @@ export class Sky implements SkyApi {
     this.horGlow.copy(p.glow);
     this.glowAmt = p.glowAmt;
     this.fogTint = w[W.tint];
-    // 1.9 / drawDist leaves about 3% of the scene at the draw distance.
-    this.fog.density = Math.max(1.9 / q.drawDist * p.fog * w[W.fogMul], w[W.dens]);
+    // 1.4 / drawDist leaves about 14% of the scene at the draw distance on a
+    // clear afternoon: enough air to hide the far edge, thin enough that the
+    // skyline still has its shape from the breakwater. Mornings are thicker.
+    this.fog.density = Math.max(1.4 / q.drawDist * p.fog * w[W.fogMul], w[W.dens]);
+    this.exposure = p.exposure;
     this.faceFog(g.camera);
 
     // ── Lights ──
@@ -766,7 +806,7 @@ export class Sky implements SkyApi {
       o.z = (o.z + fall.z * dt) % (RAIN_BOX.z * 10);
       this.rainU.uAmount.value = rain;
       // Streaks are a paler cut of the fog, so they read against dark walls and vanish against the sky.
-      (this.rainU.uColor.value as THREE.Color).copy(this.fog.color).lerp(this.c1.setRGB(0.85, 0.88, 0.86), 0.35)
+      (this.rainU.uColor.value as THREE.Color).copy(u.uFog.value as THREE.Color).lerp(this.c1.setRGB(0.85, 0.88, 0.86), 0.35)
         .multiplyScalar(lerp(1.5, 2.6, dark));
     }
     if (rain > 0.02) this._wet = Math.min(1, this._wet + dt * rain / 25);
@@ -786,9 +826,9 @@ export class Sky implements SkyApi {
     // Looking straight down there is no "way": keep the last one.
     if (l > 0.05) this.viewAz.set(fx / l, fz / l);
     const toSun = 0.5 + 0.5 * (this.viewAz.x * this.sunAz.x + this.viewAz.y * this.sunAz.y);
-    const c = this.fog.color;
+    const c = this.uniforms.uFog.value as THREE.Color;
     c.lerpColors(this.horBase, this.horGlow, this.glowAmt * toSun * toSun * toSun).lerp(this.fogFlat, this.fogTint);
-    (this.uniforms.uFog.value as THREE.Color).copy(c);
+    toneMap(this.fog.color.copy(c), this.exposure);
   }
 
   /** Centre the shadow box on the action and snap it to whole shadow texels, so edges do not crawl as the camera moves. */

@@ -70,6 +70,18 @@ const hooks = {
       ? null
       : { pos: new THREE.Vector3(x, y, z), target: new THREE.Vector3(tx, ty, tz) };
   },
+  /**
+   * Hold every CSS animation at a fraction of its run, so a stamp or toast can be photographed
+   * from the frozen harness (they run on the wall clock). No argument lets them play again.
+   */
+  seekUi(fraction?: number): void {
+    for (const a of document.getAnimations()) {
+      if (fraction === undefined) { a.play(); continue; }
+      const end = Number(a.effect?.getComputedTiming().endTime ?? 0);
+      a.pause();
+      a.currentTime = end * fraction;
+    }
+  },
   info(): Record<string, unknown> {
     const p = game.player, r = game.renderer.info;
     return {
@@ -81,6 +93,7 @@ const hooks = {
       place: game.plan.placeName(p.x, p.z), street: game.plan.streetAt(p.x, p.z),
       hour: +game.sky.hour.toFixed(2), night: +game.sky.night.toFixed(2), weather: game.sky.weather,
       vehicles: game.vehicles.list.length, people: game.people.list.length,
+      traffic: game.vehicles.list.reduce((n, v) => n + (v.driver === 'ai' ? 1 : 0), 0),
       calls: r.render.calls, tris: r.render.triangles, geometries: r.memory.geometries, textures: r.memory.textures,
       quality: game.quality.name,
     };

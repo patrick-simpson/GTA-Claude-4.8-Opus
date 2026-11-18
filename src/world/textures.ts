@@ -467,18 +467,20 @@ function makeNoise(): Noise {
 
 // ── Roads ────────────────────────────────────────────────────────────────────
 
-const ASPHALT = '#58595b', ROAD_YELLOW = '#e3b23c', ROAD_WHITE = '#e8e3d6';
+// Sun-faded and warm, well above real asphalt: the road is the biggest shape in every street-level
+// frame and building shadows already take it down a long way, so a true charcoal reads as a black slab.
+const ASPHALT = '#918c82', ROAD_YELLOW = '#e2a622', ROAD_WHITE = '#ebe5d6';
 
 /** The asphalt mix shared by roads and intersections, so they meet without a change of tone. */
 function asphaltBase(c: Ctx, w: number, h: number, nz: Noise, seed: number): RNG {
   const r = new RNG(seed);
   c.fillStyle = ASPHALT; c.fillRect(0, 0, w, h);
-  wash(c, w, h, nz.blotch, 0.08, 'overlay', 2);
-  wash(c, w, h, nz.cloud, 0.09, 'overlay');
-  wash(c, w, h, nz.grain, 0.3, 'overlay');
+  wash(c, w, h, nz.blotch, 0.05, 'overlay', 2);
+  wash(c, w, h, nz.cloud, 0.06, 'overlay');
+  wash(c, w, h, nz.grain, 0.26, 'overlay');
   // Aggregate: pale stones and dark pits showing through the worn binder.
   for (let i = Math.round((w * h) / 650); i > 0; i--) {
-    c.fillStyle = r.chance(0.6) ? grey(205, r.range(0.1, 0.32)) : grey(20, r.range(0.12, 0.35));
+    c.fillStyle = r.chance(0.6) ? grey(225, r.range(0.1, 0.3)) : grey(40, r.range(0.1, 0.28));
     c.fillRect(r.next() * w, r.next() * h, r.range(1, 2.6), r.range(1, 2.6));
   }
   return r;
@@ -490,14 +492,14 @@ function asphaltWear(c: Ctx, w: number, h: number, r: RNG, pxm: number, patches:
   for (let i = 0; i < patches; i++) {
     const pw = r.range(0.9, 2.2) * pxm, ph = r.range(1.2, 3.2) * pxm, x = r.next() * w, y = r.next() * h;
     wrapped(c, w, h, () => {
-      c.fillStyle = ink(0.17); c.fillRect(x, y, pw, ph);
-      c.strokeStyle = ink(0.3); c.lineWidth = Math.max(1.5, pxm * 0.03); c.strokeRect(x, y, pw, ph);
+      c.fillStyle = ink(0.08); c.fillRect(x, y, pw, ph);
+      c.strokeStyle = ink(0.2); c.lineWidth = Math.max(1.5, pxm * 0.03); c.strokeRect(x, y, pw, ph);
     });
   }
   for (let i = 0; i < cracks; i++) {
     const sealed = i % 3 === 0;
     const pts = crackPath(r, r.next() * w, r.next() * h, r.range(0, TAU_), r.int(7, 16), pxm * 0.28);
-    c.strokeStyle = ink(sealed ? 0.55 : 0.42); c.lineWidth = Math.max(1, pxm * (sealed ? 0.045 : 0.014));
+    c.strokeStyle = ink(sealed ? 0.42 : 0.34); c.lineWidth = Math.max(1, pxm * (sealed ? 0.045 : 0.014));
     wrapped(c, w, h, () => strokePts(c, pts));
   }
 }
@@ -518,12 +520,12 @@ function roadCanvas(nz: Noise, seed: number, widthM: number, W: number, lanes: n
   };
   for (const side of [-1, 1]) {
     for (const l of lanes) {
-      band(side * (l - 0.82), 0.45, 0.26); band(side * (l + 0.82), 0.45, 0.26);  // tire paths
-      band(side * l, 0.3, 0.1);                                                // the oil drip line between them
+      band(side * (l - 0.82), 0.45, 0.085); band(side * (l + 0.82), 0.45, 0.085);  // tire paths
+      band(side * l, 0.3, 0.05);                                               // the oil drip line between them
     }
     // Gutter grime against the curb.
     const g = c.createLinearGradient(X(side * (widthM / 2 - 0.9)), 0, X(side * widthM / 2), 0);
-    g.addColorStop(0, ink(0)); g.addColorStop(1, ink(0.3));
+    g.addColorStop(0, ink(0)); g.addColorStop(1, ink(0.14));
     c.fillStyle = g; c.fillRect(Math.min(X(side * (widthM / 2 - 0.9)), X(side * widthM / 2)), 0, 0.9 * px, H);
   }
   // Oil stains where cars park.
@@ -532,7 +534,7 @@ function roadCanvas(nz: Noise, seed: number, widthM: number, W: number, lanes: n
     const x = X(r.sign() * (park + r.range(-0.5, 0.5))), y = r.next() * H, rad = r.range(0.15, 0.4) * px;
     wrapped(c, W, H, () => {
       const g = c.createRadialGradient(x, y, 0, x, y, rad);
-      g.addColorStop(0, ink(0.34)); g.addColorStop(1, ink(0));
+      g.addColorStop(0, ink(0.26)); g.addColorStop(1, ink(0));
       c.fillStyle = g; c.fillRect(x - rad, y - rad, rad * 2, rad * 2);
     }, false, true);
   }

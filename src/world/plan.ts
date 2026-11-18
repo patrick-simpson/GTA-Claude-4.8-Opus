@@ -110,9 +110,11 @@ export const RAMPS: Ramp[] = [
   { x: -120, z: 452, h: Math.PI / 2, len: 9, width: 6, height: 2.6 },     // beach
   { x: 505, z: 345, h: Math.PI, len: 10, width: 7, height: 3 },           // container yard
   { x: 150, z: -150, h: Math.PI / 2, len: 9, width: 6, height: 2.4 },     // over the park pond
-  { x: -540, z: -70, h: 0, len: 9, width: 6, height: 2.4 },               // arena lot
-  { x: -430, z: 300, h: -Math.PI / 2, len: 10, width: 7, height: 3 },     // cannery
-  { x: 0, z: 588, h: 0, len: 8, width: 7, height: 2.2 },                  // pier
+  // A low kicker: the lot is 84 m deep, and a full-size ramp put every landing into the shopfronts across Ledger St.
+  { x: -540, z: -86, h: 0, len: 8, width: 6, height: 1.6 },               // arena lot
+  { x: -430, z: 296.6, h: -Math.PI / 2, len: 10, width: 6, height: 3 },   // cannery: in the roadway, clear of the curb at z 300
+  // Far enough down the pier that the tow truck the game starts you in (57 mph here, 40 m of air) clears the end.
+  { x: 0, z: 626, h: 0, len: 8, width: 7, height: 2.2 },                  // pier
   { x: XS[5], z: -744, h: Math.PI, len: 14, width: 18, height: 3.4 },     // the end of the bridge
 ];
 
@@ -120,7 +122,8 @@ function rampHeight(x: number, z: number): number {
   let best = 0;
   for (const r of RAMPS) {
     const dx = x - r.x, dz = z - r.z;
-    if (dx * dx + dz * dz > 150) continue;
+    // Cheap reject, sized per ramp: a fixed radius cut the top and the edges off the 18 m bridge ramp.
+    if (dx * dx + dz * dz > r.len * r.len + r.width * r.width * 0.25 + 1) continue;
     const s = Math.sin(r.h), c = Math.cos(r.h);
     const along = dx * s + dz * c;      // 0 at the low lip, len at the tall end
     const side = dx * -c + dz * s;
@@ -128,6 +131,16 @@ function rampHeight(x: number, z: number): number {
     best = Math.max(best, (along / r.len) * r.height);
   }
   return best;
+}
+
+/** True in the corridor a ramp is used along: 70 m of run-up, 60 m of landing, a little wider than the ramp. */
+function inRampLane(x: number, z: number): boolean {
+  for (const r of RAMPS) {
+    const dx = x - r.x, dz = z - r.z, s = Math.sin(r.h), c = Math.cos(r.h);
+    const along = dx * s + dz * c;
+    if (along > -70 && along < r.len + 60 && Math.abs(dx * -c + dz * s) < r.width / 2 + 2) return true;
+  }
+  return false;
 }
 
 /** Block footprints, filled in by CityPlan, so groundAt() can raise them by a curb. */
@@ -292,6 +305,8 @@ export class CityPlan {
       for (let s = start; s < end; s += 6.6) {
         for (const side of [-1, 1]) {
           if (!rng.chance(0.2)) continue;
+          // Nobody parks in the run-up to a stunt ramp, or where the car comes down.
+          if (inRampLane(e.horiz ? A.x + s : A.x - side * off, e.horiz ? A.z + side * off : A.z + s)) continue;
           // side +1 = the lane travelling a->b (which keeps to the right of travel).
           // Travelling +X the right-hand side is +Z; travelling +Z it is -X.
           if (e.horiz) this.parking.push({ x: A.x + s, z: A.z + side * off, h: side > 0 ? Math.PI / 2 : -Math.PI / 2 });
