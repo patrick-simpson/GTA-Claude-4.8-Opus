@@ -14,8 +14,11 @@ import type { WorldPart } from '../core/api';
 import type { CityMaterials } from './materials';
 import type { Prop, PropKind } from './collide';
 import { Batch } from './batch';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { MARKS, TILE_M } from './textures';
 import { signalState } from './signals';
+import { CELL, Cover, EXTRA, TreeField, loadFlora, floraMaterial, type Planting } from './floraAssets';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RNG, TAU, clamp, hash2, noise2, smooth } from '../core/util';
 import {
   AVE_HW, BREAKWATER, BRIDGE, CURB, PIER, RAMPS, SIDEWALK, WATER_Y, XS, ZS,
@@ -156,74 +159,164 @@ class Inst {
 // ── Small models ─────────────────────────────────────────────────────────────
 // All face +Z and stand on y = 0.
 
+/**
+ * Street furniture is turned and bevelled rather than boxed: lathe profiles for anything a foundry
+ * or a spinning shop would make, swept tubes for arms, rounded boxes for sheet-metal cabinets.
+ * Every part carries its own roughness and metalness (`aPbr`), so one material and one draw call
+ * hold painted steel, galvanised pipe, cast iron and timber side by side.
+ */
+class Parts {
+  private pos: number[] = []; private nor: number[] = []; private col: number[] = []; private pbr: number[] = []; private idx: number[] = [];
+
+  /** Pour a geometry in: scaled, turned (Euler x, y, z) and moved. The geometry is consumed. */
+  add(g: THREE.BufferGeometry, hex: number, rough: number, metal: number, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1): this {
+    PM.compose(PV.set(x, y, z), PQ.setFromEuler(PE.set(rx, ry, rz)), PS.set(sx, sy, sz));
+    PN.getNormalMatrix(PM);
+    const p = g.getAttribute('position'), n = g.getAttribute('normal'), base = this.pos.length / 3;
+    COL.setHex(hex);
+    for (let i = 0; i < p.count; i++) {
+      PV.fromBufferAttribute(p, i).applyMatrix4(PM);
+      this.pos.push(PV.x, PV.y, PV.z);
+      PV.fromBufferAttribute(n, i).applyMatrix3(PN).normalize();
+      this.nor.push(PV.x, PV.y, PV.z);
+      this.col.push(COL.r, COL.g, COL.b);
+      this.pbr.push(rough, metal);
+    }
+    const ix = g.index;
+    if (ix) for (let i = 0; i < ix.count; i++) this.idx.push(base + ix.getX(i));
+    else for (let i = 0; i < p.count; i++) this.idx.push(base + i);
+    g.dispose();
+    return this;
+  }
+
+  /** A turned part: radius, height pairs from the bottom up. */
+  lathe(profile: number[], seg: number, hex: number, rough: number, metal: number, x = 0, y = 0, z = 0): this {
+    const pts: THREE.Vector2[] = [];
+    for (let i = 0; i < profile.length; i += 2) pts.push(new THREE.Vector2(Math.max(profile[i], 0.0005), profile[i + 1]));
+    return this.add(new THREE.LatheGeometry(pts, seg), hex, rough, metal, x, y, z);
+  }
+
+  box(w: number, h: number, d: number, x: number, y: number, z: number, hex: number, rough: number, metal: number, rx = 0): this {
+    return this.add(new THREE.BoxGeometry(w, h, d), hex, rough, metal, x, y, z, rx);
+  }
+
+  build(): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.setAttribute('aPbr', new THREE.Float32BufferAttribute(this.pbr, 2));
+    g.setIndex(this.idx);
+    return g;
+  }
+}
+const PM = new THREE.Matrix4(), PN = new THREE.Matrix3(), PV = new THREE.Vector3(), PQ = new THREE.Quaternion(), PE = new THREE.Euler(), PS = new THREE.Vector3();
+
+/**
+ * What the furniture is drawn with. On the physically based shelf it reads roughness and metalness
+ * per vertex; on the cheap shelf (phones, `?pbr=0`) it is the plain two-sided paint and `aPbr` is ignored.
+ */
+function propMaterial(mats: CityMaterials): THREE.Material {
+  if (!mats.pbr) return mats.flatDouble;
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, fog: true, envMapIntensity: 0.55 });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'attribute vec2 aPbr;\nvarying vec2 vPbr;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vPbr = aPbr;');
+    sh.fragmentShader = 'varying vec2 vPbr;\n' + sh.fragmentShader
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = vPbr.x;')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = vPbr.y;');
+  };
+  return m;
+}
+
+// Finishes: [roughness, metalness].
+const PAINTED = [0.5, 0.3], GALV = [0.46, 0.85], IRON = [0.62, 0.35], TIMBER = [0.82, 0], ENAMEL = [0.42, 0.15];
+const STEEL = 0x9aa1a6;
+
 function lampGeo(): THREE.BufferGeometry {
-  const b = new Batch();
-  b.cyl(0, 0, 0, 0.2, 0.15, 0.7, INK, 6);
-  b.cyl(0, 0.7, 0, 0.1, 0.07, 5.9, INK, 6);
-  b.box(0, 6.5, 1.0, 0.09, 0.09, 2.2, INK, 0, 7);
-  b.box(0, 6.37, 2.05, 0.46, 0.16, 0.95, INK, 0, 7);
-  b.box(0, 6.32, 2.05, 0.32, 0.05, 0.75, 0xf6e7b4, 0, 6);
-  return b.toGeometry();
+  const p = new Parts(), [r, m] = PAINTED;
+  p.lathe([0.2, 0, 0.2, 0.07, 0.15, 0.13, 0.125, 0.7, 0.1, 0.78, 0.085, 0.82], 6, INK, r, m);
+  p.add(new THREE.CylinderGeometry(0.06, 0.085, 5.5, 6, 1, true), INK, r, m, 0, 3.57, 0);
+  // A swan neck out over the road, and a cobra head with its lens underneath.
+  const neck = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 6.25, 0), new THREE.Vector3(0, 6.62, 0.35), new THREE.Vector3(0, 6.68, 1.1), new THREE.Vector3(0, 6.52, 1.72)]);
+  p.add(new THREE.TubeGeometry(neck, 5, 0.045, 4, false), INK, r, m);
+  p.add(new THREE.SphereGeometry(1, 7, 3), INK, 0.42, m, 0, 6.46, 2.05, 0, 0, 0, 0.24, 0.1, 0.5);
+  p.add(new THREE.CircleGeometry(1, 8), 0xf6e7b4, 0.25, 0, 0, 6.352, 2.1, Math.PI / 2, 0, 0, 0.16, 0.34, 1);
+  return p.build();
 }
 const LAMP_REACH = 2.05, LAMP_H = 6.3;
 
 /** Mast with an arm reaching `arm` meters to the model's right (-X), a head hanging from its tip and one on the pole. */
 function signalGeo(arm: number): THREE.BufferGeometry {
-  const b = new Batch(), body = 0xd9930f;
-  b.cyl(0, 0, 0, 0.22, 0.17, 0.6, INK, 6);
-  b.cyl(0, 0.6, 0, 0.12, 0.09, 5.6, INK, 6);
-  b.box(-arm / 2, 5.95, 0, arm + 0.12, 0.12, 0.12, INK, 0, 7);
-  b.box(-arm, HEAD_Y[0], 0, 0.46, 1.25, 0.3, body, 0, 7);
-  b.box(0, HEAD_Y[1], 0.24, 0.46, 1.25, 0.3, body, 0, 7);
-  return b.toGeometry();
+  const p = new Parts(), [r, m] = [0.5, 0.45], body = 0xd9930f;
+  p.lathe([0.24, 0, 0.24, 0.06, 0.17, 0.12, 0.15, 0.55, 0.12, 0.62], 6, STEEL, r, m);
+  p.add(new THREE.CylinderGeometry(0.09, 0.12, 5.6, 6, 1, true), STEEL, r, m, 0, 3.42, 0);
+  p.add(new THREE.CylinderGeometry(0.05, 0.075, arm + 0.1, 5, 1, false), STEEL, r, m, -(arm + 0.1) / 2, 5.95, 0, 0, 0, Math.PI / 2);
+  const heads: [number, number, number][] = [[-arm, HEAD_Y[0], 0], [0, HEAD_Y[1], 0.24]];
+  for (const [x, y0, z] of heads) {
+    p.box(0.46, 1.25, 0.3, x, y0 + 0.625, z, body, ENAMEL[0], ENAMEL[1]);
+    // A hood over each lamp, open underneath.
+    for (let l = 0; l < 3; l++) {
+      p.add(new THREE.CylinderGeometry(0.18, 0.18, 0.22, 4, 1, true, Math.PI / 2, Math.PI), 0x20242c, 0.6, 0.2, x, y0 + 1.0 - l * 0.375, z + 0.26, Math.PI / 2);
+    }
+  }
+  return p.build();
 }
 const HEAD_Y = [4.8, 2.7], HEAD_Z = [0.165, 0.405];
 
 function hydrantGeo(): THREE.BufferGeometry {
-  const b = new Batch();
-  b.cyl(0, 0, 0, 0.21, 0.21, 0.07, 0xb9432a, 6);
-  b.cyl(0, 0.07, 0, 0.15, 0.13, 0.5, VERM, 6, false);
-  b.cyl(0, 0.57, 0, 0.16, 0.06, 0.16, BONE, 6);
-  b.box(0, 0.3, 0, 0.46, 0.11, 0.11, VERM, 0, 7);
-  b.box(0, 0.29, 0.13, 0.13, 0.13, 0.12, BONE, 0, 7);
-  return b.toGeometry();
+  const p = new Parts(), [r, m] = IRON;
+  p.lathe([0.2, 0, 0.2, 0.05, 0.14, 0.09, 0.13, 0.5, 0.165, 0.52, 0.165, 0.56, 0.13, 0.58, 0.11, 0.67, 0.045, 0.74, 0.04, 0.8, 0, 0.8], 7, VERM, r, m);
+  p.add(new THREE.CylinderGeometry(0.055, 0.055, 0.4, 5, 1, true), VERM, r, m, 0, 0.36, 0, 0, 0, Math.PI / 2);
+  for (const s of [-1, 1]) p.add(new THREE.CylinderGeometry(0.068, 0.068, 0.05, 5), BONE, r, m, s * 0.215, 0.36, 0, 0, 0, Math.PI / 2);
+  p.add(new THREE.CylinderGeometry(0.075, 0.075, 0.2, 6, 1, true), VERM, r, m, 0, 0.33, 0.1, Math.PI / 2);
+  p.add(new THREE.CylinderGeometry(0.088, 0.088, 0.05, 6), BONE, r, m, 0, 0.33, 0.215, Math.PI / 2);
+  return p.build();
 }
 function binGeo(): THREE.BufferGeometry {
-  const b = new Batch();
-  b.cyl(0, 0, 0, 0.27, 0.33, 0.9, TEAL, 8, false);
-  b.cyl(0, 0.62, 0, 0.325, 0.335, 0.1, BONE, 8, false);
-  b.cyl(0, 0.9, 0, 0.36, 0.36, 0.07, INK, 8);
-  return b.toGeometry();
+  const p = new Parts(), [r, m] = PAINTED;
+  // Up the outside, over the rolled rim and back down the inside to a dark floor.
+  p.lathe([0.25, 0, 0.27, 0.03, 0.33, 0.86, 0.36, 0.88, 0.36, 0.93, 0.31, 0.95, 0.3, 0.62], 8, TEAL, r, m);
+  p.lathe([0.318, 0.585, 0.336, 0.59, 0.336, 0.7, 0.33, 0.705], 8, BONE, r, m);
+  p.add(new THREE.CircleGeometry(0.3, 8), 0x15171c, 0.9, 0, 0, 0.62, 0, -Math.PI / 2);
+  return p.build();
 }
 function mailboxGeo(): THREE.BufferGeometry {
-  const b = new Batch(), blue = 0x27457a;
-  b.box(0, 0, 0, 0.42, 0.3, 0.42, 0x16203a, 0, 4);
-  b.box(0, 0.3, 0, 0.54, 0.72, 0.5, blue, 0, 5);
-  b.box(0, 1.02, 0, 0.54, 0.1, 0.36, blue, 0, 5);
-  b.box(0, 0.66, 0.255, 0.4, 0.12, 0.02, BONE, 0, 7);
-  return b.toGeometry();
+  const p = new Parts(), blue = 0x27457a, [r, m] = ENAMEL;
+  for (const sx of [-0.2, 0.2]) p.box(0.05, 0.32, 0.4, sx, 0.16, 0, 0x16203a, r, m);
+  p.add(new RoundedBoxGeometry(0.54, 0.64, 0.5, 1, 0.03), blue, r, m, 0, 0.62, 0);
+  // The barrel top, its axis across the box.
+  p.add(new THREE.CylinderGeometry(0.25, 0.25, 0.54, 8, 1, false, 0, Math.PI), blue, r, m, 0, 0.93, 0, 0, 0, Math.PI / 2);
+  p.box(0.4, 0.12, 0.02, 0, 0.66, 0.255, BONE, 0.6, 0);
+  p.box(0.3, 0.03, 0.03, 0, 0.99, 0.235, 0x16203a, 0.4, 0.6);
+  return p.build();
 }
 function benchGeo(): THREE.BufferGeometry {
-  const b = new Batch(), wood = 0xa8744a;
-  b.box(-0.7, 0, 0, 0.07, 0.42, 0.5, INK, 0, 5);
-  b.box(0.7, 0, 0, 0.07, 0.42, 0.5, INK, 0, 5);
-  b.box(0, 0.42, 0.02, 1.7, 0.07, 0.5, wood, 0, 7);
-  b.box(0, 0.6, -0.23, 1.7, 0.4, 0.06, wood, 0, 7);
-  return b.toGeometry();
+  const p = new Parts(), wood = 0xa8744a, [r, m] = TIMBER, [ir, im] = IRON;
+  for (let i = 0; i < 4; i++) p.box(1.7, 0.035, 0.105, 0, 0.44, -0.17 + i * 0.125, wood, r, m);
+  for (let i = 0; i < 2; i++) p.box(1.7, 0.15, 0.03, 0, 0.64 + i * 0.2, -0.25 - i * 0.032, wood, r, m, -0.16);
+  for (const x of [-0.72, 0.72]) {
+    p.box(0.05, 0.44, 0.05, x, 0.22, 0.22, INK, ir, im);
+    p.box(0.05, 0.98, 0.05, x, 0.49, -0.27, INK, ir, im, -0.1);
+    p.box(0.05, 0.05, 0.54, x, 0.4, -0.01, INK, ir, im);
+    p.box(0.07, 0.04, 0.52, x, 0.66, -0.01, INK, ir, im);
+    p.box(0.04, 0.24, 0.04, x, 0.54, 0.22, INK, ir, im);
+  }
+  return p.build();
 }
 function postGeo(): THREE.BufferGeometry {
-  const b = new Batch();
-  b.cyl(0, 0, 0, 0.05, 0.05, 2.7, INK, 5);
-  b.box(0, 2.0, 0.07, 0.52, 0.62, 0.04, MUST, 0, 7);
-  b.box(0, 2.4, 0.075, 0.52, 0.12, 0.04, INK, 0, 7);
-  return b.toGeometry();
+  const p = new Parts(), [r, m] = GALV;
+  p.lathe([0.09, 0, 0.09, 0.02, 0.045, 0.05, 0.04, 2.7, 0, 2.72], 6, STEEL, r, m);
+  p.box(0.52, 0.62, 0.035, 0, 2.03, 0.06, MUST, ENAMEL[0], ENAMEL[1]);
+  p.box(0.52, 0.13, 0.04, 0, 2.46, 0.06, INK, ENAMEL[0], ENAMEL[1]);
+  return p.build();
 }
 function newsGeo(): THREE.BufferGeometry {
-  const b = new Batch();
-  b.box(0, 0, 0, 0.34, 0.14, 0.3, 0x333333, 0, 4);
-  b.box(0, 0.14, 0, 0.46, 0.9, 0.4, 0xffffff, 0, 5);
-  b.box(0, 0.6, 0.205, 0.34, 0.32, 0.02, 0x2a2a2a, 0, 7);
-  return b.toGeometry();
+  const p = new Parts(), [r, m] = ENAMEL;
+  p.box(0.34, 0.14, 0.3, 0, 0.07, 0, 0x333333, 0.7, 0.3);
+  p.add(new RoundedBoxGeometry(0.46, 0.9, 0.4, 1, 0.03), 0xffffff, r, m, 0, 0.59, 0);
+  p.box(0.34, 0.32, 0.02, 0, 0.76, 0.2, 0x1c2026, 0.12, 0);
+  p.box(0.09, 0.14, 0.03, 0.15, 0.46, 0.2, 0x8c9096, 0.4, 0.9);
+  return p.build();
 }
 
 /** One canopy mass: a lumpy faceted ball, darker underneath. Tinted per instance. */
@@ -272,6 +365,32 @@ function palmGeo(): THREE.BufferGeometry {
   return b.toGeometry();
 }
 
+/** A boulder: a welded, lumpy ball with smooth normals. Scaled, turned and tinted per instance. */
+function rockGeo(): THREE.BufferGeometry {
+  const ico = new THREE.IcosahedronGeometry(1, 1);
+  ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
+  const g = mergeVertices(ico);
+  const p = g.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const k = 0.74 + 0.5 * hash2(Math.round(x * 31) + Math.round(z * 17) * 7, Math.round(y * 29));
+    p.setXYZ(i, x * k, y * k, z * k);
+  }
+  g.computeVertexNormals();
+  return new Parts().add(g, 0xffffff, 0.93, 0).build();
+}
+
+/** A bleached log with one broken limb, lying along x. */
+function driftGeo(): THREE.BufferGeometry {
+  const p = new Parts(), hex = 0xc9c0ae;
+  const spine = new THREE.CatmullRomCurve3([new THREE.Vector3(-1.6, 0.1, 0), new THREE.Vector3(-0.5, 0.15, 0.14), new THREE.Vector3(0.6, 0.12, -0.1), new THREE.Vector3(1.6, 0.17, 0.06)]);
+  p.add(new THREE.TubeGeometry(spine, 6, 0.1, 6, false), hex, 0.92, 0);
+  p.add(new THREE.SphereGeometry(0.1, 6, 3), hex, 0.92, 0, -1.6, 0.1, 0);
+  p.add(new THREE.SphereGeometry(0.1, 6, 3), hex, 0.92, 0, 1.6, 0.17, 0.06);
+  p.add(new THREE.CylinderGeometry(0.025, 0.06, 0.8, 5), hex, 0.92, 0, 0.35, 0.42, 0.12, 0.5, 0, -0.6);
+  return p.build();
+}
+
 // ── The sea ──────────────────────────────────────────────────────────────────
 
 const SEA_VERT = /* glsl */ `
@@ -289,6 +408,16 @@ void main() {
 // islandSD() is plan.ts's coastline, ported, so the shallows and the foam line
 // follow the real shore without baking a map. Wave slopes come from the shared
 // noise tile: it is mip-mapped, so far water flattens itself instead of sparkling.
+const SHORE_SD = /* glsl */ `
+float shoreSD(vec2 p) {
+  p -= vec2(0.0, -5.0);
+  vec2 q = abs(p) - vec2(540.0, 365.0);
+  float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - 140.0;
+  float th = atan(p.y, p.x);
+  return sd + 13.0 * sin(th * 5.0 + 1.3) + 8.0 * sin(th * 11.0 + 0.4) + 4.0 * sin(th * 23.0);
+}
+`;
+
 const SEA_FRAG = /* glsl */ `
 uniform float uTime, uNight;
 uniform vec3 uLight, uShallow, uDeep, uShallowN, uDeepN, uFoam, uGlint;
@@ -349,11 +478,14 @@ void main() {
   float s = sd + 5.5 + (n - 0.5) * 4.0;
   float edge = 1.0 - smoothstep(0.8, 2.8, s + sin(t * 0.6 + n * 6.2832) * 1.1);
   float bands = smoothstep(0.84, 0.97, sin(s * 0.4 - t * 0.75 + n * 9.0) * 0.5 + 0.5) * (1.0 - smoothstep(3.0, 30.0, s));
-  float foam = clamp(edge + bands * 0.65, 0.0, 1.0);
+  float lace = 0.5 + 0.5 * smoothstep(0.3, 0.62, texture2D(uNoise, p / 8.0 + vec2(t * 0.012, -t * 0.009)).r);
+  float foam = clamp(edge * lace + bands * 0.65 * lace, 0.0, 1.0);
+  // The swash: 0 on dry sand, 1 once properly afloat. It breathes with the same slow wave as the foam line.
+  float swash = smoothstep(-1.4, 1.6, s + sin(t * 0.6 + n * 6.2832) * 1.1);
   col = mix(col, uFoam * (1.0 - 0.72 * uNight), foam * 0.92);
 
   // Clear over the sand, opaque once the bottom is out of sight.
-  float alpha = max(mix(0.4, 1.0, smoothstep(-6.0, 55.0, sd)), foam);
+  float alpha = max(mix(0.3, 1.0, smoothstep(-6.0, 55.0, sd)), foam * 0.9) * swash;
   gl_FragColor = vec4(col, alpha);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -384,6 +516,9 @@ const LEAF: Record<Species, number[]> = {
   cypress: [0x355e4b, 0x3f6b55],
   palm: [0x6f9a50, 0x82aa5a],
 };
+
+/** The leaf pictures are pale and the crowns shade themselves, so the old flat-shaded leaf colours go on a little brighter. */
+const LEAF_GAIN = 1.2;
 
 // Furniture kinds, in the order of their instanced meshes.
 const HYDRANT = 0, BIN = 1, MAILBOX = 2, BENCH = 3, POST = 4, NEWS = 5;
@@ -424,6 +559,13 @@ class Ground implements WorldPart {
   // One canopy mesh, one trunk mesh and one palm crown serve every species.
   private trunks: Inst; private blobs: Inst; private palms: Inst;
   private lamps: Inst;
+  private propMat!: THREE.Material;
+  private sandMat: THREE.MeshStandardMaterial | null = null;
+  /** Small things drawn only within `lim` meters of their bounding sphere: a bin at 300 m is a pixel, but it is still a draw call and triangles. */
+  private nearOnly: { o: THREE.Object3D; c: THREE.Vector3; r: number; lim: number }[] = [];
+  /** Every tree again, as the Blender models want it: drawn by `field` once models/flora.glb has loaded. */
+  private planted: Planting = { kind: [], m: [], c: [] };
+  private field: TreeField | null = null;
   private furn: Inst[];
   private slotKind: number[] = [];
   private slotIdx: number[] = [];
@@ -451,9 +593,12 @@ class Ground implements WorldPart {
     this.trunks = new Inst(trunkGeo(), flat, REGION);
     this.blobs = new Inst(blobGeo(), flat, REGION);
     this.palms = new Inst(palmGeo(), mats.flatDouble, REGION);
-    this.lamps = new Inst(lampGeo(), flat, REGION);
-    this.furn = [hydrantGeo(), binGeo(), mailboxGeo(), benchGeo(), postGeo(), newsGeo()].map((g) => new Inst(g, flat));
+    this.propMat = propMaterial(mats);
+    this.lamps = new Inst(lampGeo(), this.propMat, REGION);
+    // Bucketed by region like the lamps: the models have real triangle counts now, and far ones should be culled.
+    this.furn = [hydrantGeo(), binGeo(), mailboxGeo(), benchGeo(), postGeo(), newsGeo()].map((g) => new Inst(g, this.propMat, REGION));
 
+    if (game.quality.name !== 'low') this.toneGrass();
     this.terrain();
     this.sea();
     this.surfaces();
@@ -462,22 +607,22 @@ class Ground implements WorldPart {
     this.streetLamps();
     this.furniture();
     this.trees();
+    this.finish();
 
     this.lamps.build(this.root, true);
     this.trunks.build(this.root, true);
     this.blobs.build(this.root, true);
     this.palms.build(this.root, true);
     // Knee-high props are not worth a place in the shadow pass.
-    for (const f of this.furn) f.build(this.root, false);
+    for (const f of this.furn) { f.build(this.root, false); this.hideFar(f.meshes, 150); }
     this.lights();
     this.claims.clear();
 
     const earlier = game.col.onBreak;
     game.col.onBreak = (p, vx, vz) => {
       if (p.slot >= 0 && this.slotProp[p.slot] === p) {
-        const mesh = this.furn[this.slotKind[p.slot]].meshes[0];
-        mesh.setMatrixAt(this.slotIdx[p.slot], ZERO);
-        mesh.instanceMatrix.needsUpdate = true;
+        const mesh = this.furn[this.slotKind[p.slot]].meshAt(p.x, p.z);
+        if (mesh) { mesh.setMatrixAt(this.slotIdx[p.slot], ZERO); mesh.instanceMatrix.needsUpdate = true; }
       }
       const f = this.felled.get(p);
       if (f) this.fell(p, f, vx, vz);
@@ -487,6 +632,31 @@ class Ground implements WorldPart {
 
     this.setNight(mats.night);
     this.update(0);
+
+    // Phones keep the simple trees. `?flora=0` keeps them anywhere, for comparing.
+    if (game.quality.name !== 'low' && new URLSearchParams(location.search).get('flora') !== '0') {
+      void loadFlora().then((geo) => { if (geo) this.plantFlora(geo); });
+    }
+  }
+
+  /** The tree models have arrived: draw them and retire the stand-ins. Collision never changes. */
+  private plantFlora(geo: Map<string, THREE.BufferGeometry>): void {
+    const p = this.planted;
+    // Whatever places.ts asked for (courtyard trees and planting) joins the same field.
+    const all: Planting = { kind: p.kind.concat(EXTRA.kind), m: p.m.concat(EXTRA.m), c: p.c.concat(EXTRA.c) };
+    this.field = new TreeField(this.root, geo, all, this.game.quality.drawDist);
+    for (const inst of [this.trunks, this.blobs, this.palms]) for (const m of inst.meshes) { this.root.remove(m); m.dispose(); }
+    this.planted = { kind: [], m: [], c: [] };
+    this.field.update(this.game.camera);
+  }
+
+  /** Record the matrix in M as one model of `kind`, its leaves tinted `hex`. */
+  private plant(kind: string, hex: number, gain = 1): void {
+    const p = this.planted;
+    p.kind.push(kind);
+    for (let i = 0; i < 16; i++) p.m.push(M.elements[i]);
+    COL.setHex(hex);
+    p.c.push(COL.r * gain, COL.g * gain, COL.b * gain);
   }
 
   /**
@@ -522,6 +692,16 @@ class Ground implements WorldPart {
     this.root.add(m);
   }
 
+  private hideFar(meshes: readonly THREE.Mesh[], lim: number): void {
+    for (const m of meshes) {
+      const inst = m as THREE.InstancedMesh;
+      let sp: THREE.Sphere | null;
+      if (inst.isInstancedMesh) { inst.computeBoundingSphere(); sp = inst.boundingSphere; }
+      else { m.geometry.computeBoundingSphere(); sp = m.geometry.boundingSphere; }
+      if (sp) this.nearOnly.push({ o: m, c: sp.center.clone(), r: sp.radius, lim });
+    }
+  }
+
   private claim(x: number, z: number, r: number): boolean {
     const cx = Math.floor(x / 8), cz = Math.floor(z / 8);
     for (let i = cx - 1; i <= cx + 1; i++) for (let j = cz - 1; j <= cz + 1; j++) {
@@ -545,10 +725,12 @@ class Ground implements WorldPart {
     const STEP = 8, X0 = -784, Z0 = -608, NX = 196, NZ = 151;
     const pos = new Float32Array((NX + 1) * (NZ + 1) * 3), col = new Float32Array(pos.length);
     const uv = new Float32Array((NX + 1) * (NZ + 1) * 2), sds = new Float32Array((NX + 1) * (NZ + 1));
+    // 1 on sand above the waterline, 0 on grass and on the sea floor: the terrain material's cue.
+    const sandy = new Float32Array((NX + 1) * (NZ + 1));
 
     // Tints over the sand texture, by distance from the coast (negative = inland).
     const stops: [number, THREE.Color][] = ([
-      [-86, 0x9db074], [-66, 0xc6c98a], [-54, 0xffffff], [-13, 0xf6ecd2], [-6.5, 0xa8936b],
+      [-86, 0x9db074], [-66, 0xc6c98a], [-54, 0xffffff], [-13, 0xf6ecd2], [-4, 0xe4d6b6],
       [2, 0x9fbda0], [26, 0x4f8d86], [80, 0x1c4458],
     ] as [number, number][]).map(([d, hex]) => [d, new THREE.Color(hex)]);
     const dry = new THREE.Color(0xb7b377), lush = new THREE.Color(0x859b5f), c = new THREE.Color();
@@ -572,6 +754,7 @@ class Ground implements WorldPart {
         const a = stops[k], b = stops[k + 1];
         c.copy(a[1]).lerp(b[1], smooth((s - a[0]) / (b[0] - a[0])));
         if (s < -60) c.lerp(n2 > 0.5 ? dry : lush, Math.abs(n2 - 0.5) * 1.3 * smooth((-60 - s) / 20));
+        sandy[v] = clamp((s + 66) / 12, 0, 1) * (1 - clamp(base / 6, 0, 1));
         const g = 0.94 + 0.12 * n2;
         col[v * 3] = c.r * g; col[v * 3 + 1] = c.g * g; col[v * 3 + 2] = c.b * g;
       }
@@ -592,9 +775,10 @@ class Ground implements WorldPart {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute('aSand', new THREE.BufferAttribute(sandy, 1));
     geo.setIndex(idx);
     geo.computeVertexNormals();
-    const m = new THREE.Mesh(geo, this.mats.sand);
+    const m = new THREE.Mesh(geo, this.terrainMaterial());
     m.receiveShadow = true;
     m.matrixAutoUpdate = false;
     this.root.add(m);
@@ -730,7 +914,7 @@ class Ground implements WorldPart {
   private signals(): void {
     const plan = this.plan;
     const ARM = [5.0, 7.25];   // street: head over the one lane; avenue: over the line between the two
-    const masts = ARM.map((a) => new Inst(signalGeo(a), this.mats.flat));
+    const masts = ARM.map((a) => new Inst(signalGeo(a), this.propMat, REGION));
     const bulbM: number[] = [];
 
     for (const n of plan.nodes) {
@@ -764,7 +948,7 @@ class Ground implements WorldPart {
         this.sigHoriz.push(e.horiz);
       }
     }
-    for (const m of masts) m.build(this.root, true);
+    for (const m of masts) { m.build(this.root, true); this.hideFar(m.meshes, 330); }
 
     const count = this.sigNode.length;
     this.sigLast = new Int8Array(count).fill(-1);
@@ -774,7 +958,7 @@ class Ground implements WorldPart {
     }
     if (!count) return;
     // Unlit material: a signal lamp is its own light, day or night.
-    const bulbs = new THREE.InstancedMesh(new THREE.CircleGeometry(0.15, 6), new THREE.MeshBasicMaterial({ fog: true }), count * 6);
+    const bulbs = new THREE.InstancedMesh(new THREE.CircleGeometry(0.15, 12), new THREE.MeshBasicMaterial({ fog: true }), count * 6);
     bulbs.instanceMatrix.array.set(bulbM);
     bulbs.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 18), 3);
     bulbs.matrixAutoUpdate = false;
@@ -980,7 +1164,9 @@ class Ground implements WorldPart {
   private tree(sp: Species, x: number, z: number, rng: RNG): void {
     // Sunk a hand's width so no trunk hovers over the terrain's six-centimeter drop.
     const y = groundAt(x, z) - 0.1, k = rng.range(0.85, 1.18), leaf = LEAF[sp];
+    let tint = -1;
     const blob = (dx: number, dy: number, dz: number, r: number, ry: number, hex: number): void => {
+      if (tint < 0) tint = hex;
       xf(x + dx, y + dy, z + dz, rng.range(0, TAU), r, ry, r);
       this.blobs.add(x, z, hex, rng.range(0.9, 1.08));
     };
@@ -991,10 +1177,15 @@ class Ground implements WorldPart {
       const h = rng.range(0, TAU), lean = rng.range(0.02, 0.11);
       xf(x, y, z, h, tr, th, tr, lean);
       this.trunks.add(x, z, bark);
+      // The modelled trunk is 8 m tall and stretched to this palm's height.
+      xf(x, y, z, h, 1, th / 8, 1, lean);
+      this.plant('palmtrunk', 0xffffff);
       // Top of the leaning trunk.
       const top = th * Math.sin(lean);
       xf(x + Math.sin(h) * top, y + th * Math.cos(lean), z + Math.cos(h) * top, rng.range(0, TAU), k, k, k, lean);
-      this.palms.add(x, z, rng.pick(leaf), rng.range(0.9, 1.05));
+      const hex = rng.pick(leaf);
+      this.palms.add(x, z, hex, rng.range(0.9, 1.05));
+      this.plant('palmcrown', hex, LEAF_GAIN);
     } else if (sp === 'cypress') {
       th = 1.4; tr = 0.2; bark = 0x5a4334;
       const hex = rng.pick(leaf);
@@ -1021,13 +1212,179 @@ class Ground implements WorldPart {
       // The trunk runs a little way into the canopy so no gap opens between them.
       xf(x, y, z, a, tr, th + 0.9, tr);
       this.trunks.add(x, z, bark);
+      xf(x, y, z, a, k * (sp === 'plane' ? 0.88 : 1));
+      this.plant(sp, tint, LEAF_GAIN);
     }
     this.game.col.addProp(x, z, tr + 0.08, y + 8, 'tree', false);
+  }
+
+  // ── Finishing the land ─────────────────────────────────────────────────────
+
+  /**
+   * The terrain's own copy of the sand material. Sand is pulled pale and warm (the shared sand
+   * paint goes khaki under the sky's teal fill), and the strip the sea reaches is dark and glossy:
+   * that band is worked out per pixel from the coastline itself, so it is a clean line and not
+   * the eight-meter smear vertex colours gave.
+   */
+  private terrainMaterial(): THREE.Material {
+    const m = this.mats.sand.clone() as THREE.MeshStandardMaterial;
+    // The per-pixel tide line is for medium and high; phones get the paler sand and nothing else.
+    const wet = this.game.quality.name === 'low' ? 'float wetS = 0.0;' : `
+          float sdS = shoreSD( vShore ) + 2.2 * sin( vShore.x * 0.09 + vShore.y * 0.05 ) + 1.3 * sin( vShore.y * 0.21 - vShore.x * 0.13 );
+          float wetS = smoothstep( -15.5, -9.0, sdS ) * vSand;
+          diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 0.6, 0.55, 0.48 ), wetS );`;
+    m.onBeforeCompile = (sh) => {
+      sh.vertexShader = 'attribute float aSand;\nvarying float vSand;\nvarying vec2 vShore;\n'
+        + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vSand = aSand; vShore = position.xz;');
+      sh.fragmentShader = 'varying float vSand;\nvarying vec2 vShore;\n' + SHORE_SD + sh.fragmentShader
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          float sLum = dot( diffuseColor.rgb, vec3( 0.3, 0.55, 0.15 ) );
+          diffuseColor.rgb = mix( diffuseColor.rgb, sLum * mix( vec3( 0.92, 1.0, 0.72 ), vec3( 1.13, 1.0, 0.8 ), vSand ), 0.3 + 0.42 * vSand );
+          ${wet}`)
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( roughnessFactor, 0.3, wetS );');
+    };
+    this.sandMat = m;
+    return m;
+  }
+
+  /** Lawns everywhere get broad dry and lush patches, so a park is not one flat green. World-anchored, so it never swims. */
+  private toneGrass(): void {
+    const noise = this.mats.tex.noise;
+    this.mats.grass.onBeforeCompile = (sh) => {
+      sh.uniforms.uTone = { value: noise };
+      sh.vertexShader = 'varying vec2 vTone;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vTone = ( modelMatrix * vec4( position, 1.0 ) ).xz;');
+      sh.fragmentShader = 'uniform sampler2D uTone;\nvarying vec2 vTone;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        {
+          float ta = texture2D( uTone, vTone / 113.0 ).r, tb = texture2D( uTone, vTone / 29.0 ).g, tc = texture2D( uTone, vTone / 6.0 ).r;
+          float tk = clamp( 0.5 + ( ta - 0.5 ) * 2.4 + ( tb - 0.5 ) * 1.3, 0.0, 1.0 );
+          diffuseColor.rgb *= mix( vec3( 1.14, 1.05, 0.76 ), vec3( 0.76, 0.9, 0.8 ), tk ) * ( 0.9 + 0.2 * tc );
+        }`);
+    };
+  }
+
+  /** Tufts, flowers and dune grass; shrubs in the scrub; rocks and driftwood along the shore and at the breakwater's foot. */
+  private finish(): void {
+    const rng = new RNG(3301), den = this.den, col = this.game.col;
+    const cover = this.game.quality.name === 'low' ? null : new Cover(REGION);
+    const gy = (x: number, z: number): number => groundAt(x, z) - 0.05;
+    const grass = (x: number, z: number, s = 1): void => {
+      const w = rng.range(0.55, 0.9) * s, h = rng.range(0.32, 0.58) * s, a = rng.range(0, TAU), sh = rng.range(0.78, 1.05);
+      cover?.tuft(x, gy(x, z), z, CELL.grass, w, h, a, sh);
+    };
+    const flower = (x: number, z: number): void => {
+      const w = rng.range(0.6, 0.85), h = rng.range(0.45, 0.7), a = rng.range(0, TAU);
+      cover?.tuft(x, gy(x, z), z, CELL.flowers, w, h, a, 1);
+    };
+    const dune = (x: number, z: number): void => {
+      const w = rng.range(0.8, 1.25), h = rng.range(0.75, 1.3), a = rng.range(0, TAU), sh = rng.range(0.85, 1.05);
+      cover?.tuft(x, terrainAt(x, z) - 0.1, z, CELL.dune, w, h, a, sh, 3);
+    };
+
+    // Mercy Park: rough grass in drifts, flower beds either side of the promenade.
+    for (let i = 0; i < 1700 * den; i++) {
+      const x = rng.range(90, 300), z = rng.range(-212, -28);
+      if (keepOut(x, z) || noise2(x * 0.06 + 3, z * 0.06) < 0.42) continue;
+      grass(x, z);
+    }
+    for (let x = 92; x < 300; x += 7) for (const side of [-1, 1]) {
+      const cx = x + rng.range(-2, 2), cz = -120 + side * rng.range(7.5, 10.5), n = rng.int(6, 11), want = rng.next() < 0.55;
+      if (!want || keepOut(cx, cz)) continue;
+      for (let k = 0; k < n; k++) {
+        const a = rng.range(0, TAU), r = rng.range(0, 2.2), px = cx + Math.cos(a) * r, pz = cz + Math.sin(a) * r;
+        flower(px, pz);
+        if (k % 2) grass(px + 0.4, pz - 0.3);
+      }
+    }
+
+    // Gull Heights: the strip of lawn behind the sidewalk is never mown to the edge.
+    for (const b of this.plan.blocks) {
+      if (b.district !== 'suburb') continue;
+      this.eachSide(b, (len, at) => {
+        for (let s = 2; s < len - 2; s += rng.range(1.2, 2.6)) {
+          const d = SIDEWALK + rng.range(0.3, 1.5), roll = rng.next();
+          const [x, z] = at(s, d);
+          if (roll < 0.3 * den) grass(x, z, 0.8);
+          else if (roll < 0.34 * den) for (let k = 0; k < 4; k++) flower(x + rng.range(-0.7, 0.7), z + rng.range(-0.7, 0.7));
+        }
+      });
+    }
+
+    // Outside the streets: tussocks and shrubs in the scrub, dune grass on dry sand.
+    for (let i = 0; i < 20000 * den; i++) {
+      const x = rng.range(-760, 760), z = rng.range(-590, 560), roll = rng.next();
+      if ((x > XW - 3 && x < XE + 3 && z > ZN - 3 && z < ZSO + 3) || keepOut(x, z)) continue;
+      // The working waterfront is not a nature reserve.
+      if (x > XE - 5 && z > 150) continue;
+      const sd = islandSD(x, z), n = noise2(x * 0.045, z * 0.045 + 7);
+      const sand = sd + 44 * smooth((z - 250) / 150) > -62;
+      if (!sand) {
+        if (n < 0.4 || roll > 0.6) continue;
+        grass(x, z, 1.25);
+        if (roll < 0.04) {
+          xf(x, gy(x, z), z, rng.range(0, TAU), rng.range(0.9, 1.7));
+          this.plant('shrub', rng.pick(LEAF.oak), LEAF_GAIN);
+        }
+      } else if (sd < -17 && n > 0.43) {
+        // On Low Tide Beach only along the top, under the seawall: the rest is for towels.
+        if (z > ZSO && sd > -74) continue;
+        for (let k = rng.int(5, 9); k > 0; k--) dune(x + rng.range(-2.2, 2.2), z + rng.range(-2.2, 2.2));
+      }
+    }
+    if (cover) this.hideFar(cover.build(this.root), 160);
+
+    // Stone and timber. Its own dice, so the phone preset (no ground cover) has the same rocks in the same places.
+    const R = new RNG(3302);
+    const rocks = new Inst(rockGeo(), this.propMat, REGION), logs = new Inst(driftGeo(), this.propMat, REGION);
+    const GREY = [0x8a857a, 0x7a766c, 0x9a9488, 0x6f6d66];
+    const rock = (x: number, y: number, z: number, s: number): void => {
+      E.set(R.range(-0.3, 0.3), R.range(0, TAU), R.range(-0.3, 0.3), 'YXZ');
+      M.compose(P.set(x, y, z), Q.setFromEuler(E), S.set(s * R.range(0.8, 1.3), s * R.range(0.55, 0.9), s * R.range(0.8, 1.3)));
+      rocks.add(x, z, R.pick(GREY), R.range(0.85, 1.05));
+    };
+    for (let i = 0; i < 10000; i++) {
+      const x = R.range(-760, 760), z = R.range(-590, 560), roll = R.next();
+      const sd = islandSD(x, z);
+      if (sd < -32 || sd > -3 || keepOut(x, z)) continue;
+      // Not on the swimming beach and not along the docks.
+      if ((z > ZSO - 30 && x > -390 && x < 340) || (x > 540 && z > 140)) continue;
+      if (sd > -15) {
+        for (let k = R.int(1, 3); k > 0; k--) {
+          const s = R.range(0.35, 1.0) * (roll < 0.15 ? 1.9 : 1), rx = x + R.range(-2, 2), rz = z + R.range(-2, 2);
+          const y = Math.max(terrainAt(rx, rz), WATER_Y - 0.6) - s * 0.25;
+          rock(rx, y, rz, s);
+          if (s > 1.2) col.addBoxC(rx, rz, s * 1.5, s * 1.5, y + s * 0.6, y - 2);
+        }
+      } else if (roll < 0.22) {
+        E.set(0, R.range(0, TAU), R.range(-0.05, 0.05), 'YXZ');
+        M.compose(P.set(x, terrainAt(x, z) - 0.04, z), Q.setFromEuler(E), S.setScalar(R.range(0.7, 1.5)));
+        logs.add(x, z, 0xffffff, R.range(0.8, 1.05));
+      }
+    }
+    // Armour stone along both flanks of the breakwater and round its head.
+    const bw = BREAKWATER;
+    for (let x = bw.x0 + 8; x < bw.x1 + 2; x += R.range(1.5, 2.5)) for (const side of [-1, 1]) {
+      const s = R.range(0.9, 1.7), z = side < 0 ? bw.z0 - R.range(0.3, 1.6) : bw.z1 + R.range(0.3, 1.6);
+      rock(x, WATER_Y - 0.15 + R.range(-0.2, 0.25), z, s);
+    }
+    for (let z = bw.z0 - 1; z < bw.z1 + 1; z += 1.9) rock(bw.x1 + R.range(0.5, 1.8), WATER_Y - 0.1, z, R.range(1.0, 1.7));
+    rocks.build(this.root, false);
+    logs.build(this.root, false);
+    this.hideFar(rocks.meshes, 420); this.hideFar(logs.meshes, 200);
   }
 
   // ── Per frame ──────────────────────────────────────────────────────────────
 
   update(dt: number): void {
+    const env = (this.mats.flat as THREE.MeshStandardMaterial).envMap, pm = this.propMat as THREE.MeshStandardMaterial;
+    if (pm !== this.mats.flatDouble && pm.envMap !== env) pm.envMap = env;
+    if (this.sandMat && this.sandMat.envMap !== env) this.sandMat.envMap = env;
+    const cp = this.game.camera.getWorldPosition(P);
+    for (const n of this.nearOnly) n.o.visible = cp.distanceTo(n.c) - n.r < n.lim;
+    if (this.field) {
+      this.field.update(this.game.camera);
+      const fm = floraMaterial();
+      if (fm.envMap !== env) fm.envMap = env;
+    }
     const u = this.seaU;
     u.uTime.value += dt;
     // The sky is built after the world, so it may not be there yet.

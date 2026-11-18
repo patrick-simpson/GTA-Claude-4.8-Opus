@@ -14,7 +14,8 @@ import type { AtlasRect, SignAtlas } from './textures';
 import { CONTAINER_UV, FENCE_UV, TILE_M } from './textures';
 import { Batch } from './batch';
 import type { Colliders } from './collide';
-import { CURB, WATER_Y, ZS, groundAt, islandSD } from './plan';
+import { CURB, SIDEWALK, WATER_Y, ZS, groundAt, islandSD } from './plan';
+import { plantExtra } from './floraAssets';
 import { RNG, TAU, lerp } from '../core/util';
 
 const INK = 0x14213d, BONE = 0xf2e8cf, VERM = 0xe4572e, MUST = 0xf0a202, TEAL = 0x2a9d8f;
@@ -833,6 +834,89 @@ function buildHarbor(K: Kit): void {
   for (const x of [S.x0 + 4, S.x1 - 4]) beam(f, x, DK, S.z - S.hb, x + (x < 450 ? -8 : 8), 0.6, 505.1, 0.12, BONE);
 }
 
+// ── Strand block interiors ───────────────────────────────────────────────────
+
+/**
+ * Behind its shop rows a Strand block was one bare slab of planking. Each core is now tiled with
+ * pads, and every pad that is clear of buildings and parking courts becomes a planted bed, a row
+ * of painted stalls or a paved court under trees. The trees, shrubs and hedges are requests to the
+ * ground's tree field (plantExtra), so they arrive with the Blender models; phones get a clipped
+ * green block in the beds instead.
+ */
+function buildStrandCores(K: Kit): void {
+  K.place('strand');
+  const rng = new RNG(8841), plan = K.game.plan, col = K.col, f = K.f, low = K.game.quality.name === 'low';
+  const GREEN = [0x6f9a50, 0x82aa5a, 0x5e8b4b, 0x7f9c54], SOIL = 0x4d3c2c, Y = CURB + 0.05;
+  const free = (x0: number, z0: number, x1: number, z1: number): boolean => {
+    let ok = true;
+    col.forBoxes((x0 + x1) / 2, (z0 + z1) / 2, Math.hypot(x1 - x0, z1 - z0) / 2 + 2, (b) => {
+      if (b.x0 < x1 + 1 && b.x1 > x0 - 1 && b.z0 < z1 + 1 && b.z1 > z0 - 1 && b.y0 < 4) ok = false;
+    });
+    return ok;
+  };
+  const tree = (kind: string, x: number, y: number, z: number): void => {
+    const h = rng.range(0, TAU), hex = rng.pick(GREEN);
+    if (kind === 'palm') {
+      const th = rng.range(6, 8.5);
+      plantExtra('palmtrunk', x, y, z, h, 1, 0xffffff, 1, th / 8);
+      plantExtra('palmcrown', x, y + th, z, h + 1, rng.range(0.85, 1.05), hex);
+    } else plantExtra(kind, x, y, z, h, rng.range(0.6, 0.8), hex);
+    col.addProp(x, z, 0.3, y + 8, 'tree', false);
+  };
+  const PW = 13, PD = 9, GAP = 3;
+  for (const blk of plan.blocks) {
+    if (blk.district !== 'strand') continue;
+    const r = blk.rect, m = SIDEWALK + 16.5;
+    const c = { x0: r.x0 + m, x1: r.x1 - m, z0: r.z0 + m, z1: r.z1 - m }, W = c.x1 - c.x0, D = c.z1 - c.z0;
+    if (W < PW + 1 || D < PD + 1) continue;
+    const courts = plan.lots.filter((l) => l.block === blk.id && l.interior).map((l) => l.rect);
+    const nx = Math.floor((W + GAP) / (PW + GAP)), nz = Math.floor((D + GAP) / (PD + GAP));
+    const sx = (W - nx * PW) / (nx + 1), sz = (D - nz * PD) / (nz + 1);
+    for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+      const x0 = c.x0 + sx + i * (PW + sx), z0 = c.z0 + sz + j * (PD + sz), x1 = x0 + PW, z1 = z0 + PD;
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, roll = rng.next();
+      if (courts.some((q) => q.x0 < x1 + 1 && q.x1 > x0 - 1 && q.z0 < z1 + 1 && q.z1 > z0 - 1) || !free(x0, z0, x1, z1)) continue;
+      if (roll < 0.4) {
+        // A raised bed: stone kerb, dark soil, a hedge down each long side, shrubs between and a palm or two.
+        f.box(cx, CURB, cz, PW - 1, 0.5, PD - 1, STONE, 0, 5);
+        f.floor(x0 + 0.85, z0 + 0.85, x1 - 0.85, z1 - 0.85, CURB + 0.51, SOIL);
+        col.addBoxC(cx, cz, PW - 1, PD - 1, CURB + 0.5);
+        if (low) f.box(cx, CURB + 0.5, cz, PW - 2.4, 0.6, PD - 2.4, 0x4f7a45, 0, 5);
+        for (let hx = x0 + 1.9; hx < x1 - 1.6; hx += 2) for (const hz of [z0 + 1.25, z1 - 1.25]) plantExtra('hedge', hx, CURB + 0.5, hz, 0, 1, 0x5e8b4b);
+        for (let k = 0; k < 8; k++) plantExtra('shrub', rng.range(x0 + 1.8, x1 - 1.8), CURB + 0.45, rng.range(z0 + 2.2, z1 - 2.2), rng.range(0, TAU), rng.range(0.9, 1.5), rng.pick(GREEN));
+        tree('palm', cx - 3 + rng.range(-0.6, 0.6), CURB + 0.45, cz + rng.range(-0.8, 0.8));
+        if (rng.chance(0.6)) tree('palm', cx + 3 + rng.range(-0.6, 0.6), CURB + 0.45, cz + rng.range(-0.8, 0.8));
+      } else if (roll < 0.72) {
+        // Parking: asphalt, painted stalls with wheel stops, and a hedge in a kerbed strip along the back.
+        f.floor(x0, z0, x1, z1, Y, 0x55585b);
+        for (let s = x0 + 0.5; s < x1 - 0.3; s += 2.4) {
+          K.decal.floor(s - 0.06, z0 + 0.5, s + 0.06, z0 + 5.5, Y, 0xe6e0d0);
+          if (s + 2.4 < x1 - 0.3) f.box(s + 1.2, Y, z0 + 1.0, 1.7, 0.13, 0.22, CONCRETE, 0, 5);
+        }
+        f.box(cx, CURB, z1 - 0.7, PW, 0.32, 1.2, STONE, 0, 5);
+        f.floor(x0 + 0.2, z1 - 1.1, x1 - 0.2, z1 - 0.3, CURB + 0.33, SOIL);
+        col.addBoxC(cx, z1 - 0.7, PW, 1.2, CURB + 0.32);
+        if (low) f.box(cx, CURB + 0.32, z1 - 0.7, PW - 0.6, 0.7, 0.7, 0x4f7a45, 0, 5);
+        for (let hx = x0 + 1.2; hx < x1 - 0.9; hx += 2) plantExtra('hedge', hx, CURB + 0.3, z1 - 0.7, 0, 1, 0x5e8b4b);
+      } else {
+        // A cobbled court: a tree in a pit at each corner, a planted tub in the middle, benches facing it.
+        wfloor(K.cobble, x0, z0, x1, z1, Y, 0xffffff, TILE_M.cobble);
+        const kind = rng.chance(0.5) ? 'plane' : 'maple';
+        for (const tx of [x0 + 2.2, x1 - 2.2]) for (const tz of [z0 + 2, z1 - 2]) {
+          K.decal.floor(tx - 0.7, tz - 0.7, tx + 0.7, tz + 0.7, Y, 0x3a2e24);
+          tree(kind, tx, CURB, tz);
+        }
+        f.cyl(cx, Y, cz, 1.05, 1.2, 0.62, TERRA, 12, false);
+        f.cyl(cx, Y + 0.5, cz, 1.08, 1.08, 0.04, SOIL, 12);
+        col.addProp(cx, cz, 1.25, 1.1, 'bench', false);
+        for (let k = 0; k < 3; k++) plantExtra('shrub', cx + rng.range(-0.4, 0.4), Y + 0.5, cz + rng.range(-0.4, 0.4), rng.range(0, TAU), rng.range(0.8, 1.1), rng.pick(GREEN));
+        bench(K, cx, z0 + 1.1, 0);
+        bench(K, cx, z1 - 1.1, Math.PI);
+      }
+    }
+  }
+}
+
 // ── Out on the water ─────────────────────────────────────────────────────────
 
 /** Walk out from the middle of the island along bearing th (0 = east, PI/2 = south) until the coast is `sd` meters behind. */
@@ -907,6 +991,7 @@ export function buildPlaces(game: Game, mats: CityMaterials, parent: THREE.Group
   buildBeach(K);
   buildHarbor(K);
   buildRocks(K);
+  buildStrandCores(K);
 
   // Lamp faces share one material whose glow setNight() turns up. Warm, a touch brighter than the sodium street lamps.
   const lampMat = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffdf9a, emissiveIntensity: 0 });
@@ -952,6 +1037,22 @@ export function buildPlaces(game: Game, mats: CityMaterials, parent: THREE.Group
   };
   float(boatMesh, boats, 0.12);
   float(buoyMesh, buoys, 0.1);
+
+  // Boats hauled out above the tide line on the east shore, bows inland, heeled over on their bilges.
+  {
+    const ths = [-0.46, -0.37, -0.3, -0.17, -0.06, 0.04, 0.12, 0.2], tints = [0xf2e8cf, 0x58b3a4, 0xea8262, 0xf3c14e, 0xdfe7e2, 0x6c8fb0];
+    const hauled = new THREE.InstancedMesh(boatGeometry(), mats.flat, ths.length), c = new THREE.Color();
+    ths.forEach((th, i) => {
+      const p = offshore(th, -19 - (i % 3) * 4), y = groundAt(p.x, p.z);
+      E.set(rng.range(-0.03, 0.05), Math.atan2(-p.x, -(p.z + 5)) + rng.range(-0.6, 0.6), (i % 2 ? 1 : -1) * rng.range(0.17, 0.27));
+      hauled.setMatrixAt(i, M.compose(P.set(p.x, y + 0.62, p.z), Qn.setFromEuler(E), Sc.setScalar(rng.range(0.85, 1.1))));
+      hauled.setColorAt(i, c.setHex(tints[i % tints.length]));
+      game.col.addBoxC(p.x, p.z, 3.2, 3.2, y + 1.6);
+    });
+    hauled.castShadow = true; hauled.receiveShadow = true;
+    hauled.frustumCulled = false;
+    group.add(hauled);
+  }
 
   return {
     update(dt: number): void {

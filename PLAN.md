@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 53% done)
+## Where things stand (about 57% done)
 
 **Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
@@ -61,6 +61,26 @@ pause card shows it already).
    lighting, integration and writing.
 3. **The site is at gta.doofus.live** (the owner moved it from gtaopus).
 
+### Realistic rework, step (d) foliage, furniture, land: pushed Nov 18, about 5:20 PM ET
+
+`tools/blender/flora.py` -> `public/models/flora.glb` (plane, maple, oak, cypress,
+palm, shrub, hedge; leaf cards, two levels of detail), loaded by
+`src/world/floraAssets.ts` and drawn by `TreeField` in `ground.ts`. Street
+furniture rebuilt as rounded models in code. Land: pale beach sand with a wet
+tide band, a soft foam shoreline, the east coast dressed (dune grass, driftwood,
+rocks, hauled-out boats), Strand block cores filled with beds, stalls and courts,
+lawn variation and ground cover. `?flora=0` switches the trees back.
+Owed: trees cost roughly 2-4 ms in tree-heavy views at high (leaf-card overdraw);
+leaf cards read as cards within 5 m; one model per species so rows repeat;
+hydrant, mailbox, bin, post, news box and palms were never inspected close up;
+Gull Heights verge tufts may sit on driveways; Strand cores are still mostly
+paving; lawn variation patches `mats.grass` at runtime and belongs in
+materials.ts. Distant haze (sky.ts): thin fog with camera height, cap fog amount
+near 0.8, cool the far colour.
+
+**The realistic rework's first pass is complete** (materials and post, cars,
+people, foliage and land). Each has a list of improvements above. Next: the
+rest of M2, then the add-on lands.
 ### Realistic rework, step (c) people: pushed Nov 18, about 5:00 PM ET
 
 `tools/blender/people.py` builds two skinned bodies (`public/models/person_f.glb`,
