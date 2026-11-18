@@ -14,7 +14,7 @@ multi-agent fan-outs.
 
 ## Where things stand (about 40% done)
 
-**Milestone 1, the first playable, is live** at gtaopus.doofus.live (switched over
+**Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
 eleven vehicles and drive the whole island, by keyboard, gamepad or phone, through
 a full day and night with weather. Next up is a test-and-polish pass on M1 (list
