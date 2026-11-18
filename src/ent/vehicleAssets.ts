@@ -32,7 +32,9 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { VehicleKind } from './vehicleSpecs';
 
 /** Kinds with a file in public/models. Keep in step with that folder. */
-export const GLB_KINDS: readonly VehicleKind[] = ['sedan'];
+export const GLB_KINDS: readonly VehicleKind[] = [
+  'sedan', 'hatch', 'coupe', 'muscle', 'sports', 'pickup', 'van', 'taxi', 'tow', 'bus', 'cruiser',
+];
 
 export interface VehicleLod {
   paint: THREE.BufferGeometry;

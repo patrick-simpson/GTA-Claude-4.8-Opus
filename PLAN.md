@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 45% done)
+## Where things stand (about 50% done)
 
 **Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
@@ -67,7 +67,7 @@ pause card shows it already).
 `public/models/<kind>.glb` with two levels of detail, a wheel, named materials and
 baked shading. `src/ent/vehicleAssets.ts` loads them after boot; **add each new
 kind to `GLB_KINDS` there** or the game keeps drawing the old procedural shape.
-The sedan is live. The other ten are being modelled. Known: the distance model's
+All eleven vehicles are Blender models and live (pushed about 4:40 PM ET). Modeller's own verdict: smooth and correct in silhouette, but lamps are flat panels, bumpers read as separate tubs, the bus doors are slabs, and there are no badges or shut-lines on tailgates; those are the next car improvements. Known: the distance model's
 lamps are mangled by decimation (phones see it up close), paint reads satin
 rather than glossy, lamp glow sprites sit slightly off the lenses, `?glb=0`
 switches the Blender models off.
