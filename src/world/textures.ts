@@ -106,7 +106,15 @@ export interface Textures {
   glow: THREE.Texture;
   /** 256 px tileable noise for shaders (linear, not sRGB): R soft blotches, G finer blotches, B per-pixel grain. */
   noise: THREE.Texture;
+  /**
+   * The physically based twins of a colour map, keyed by that map: a tangent-space normal map and an
+   * ORM sheet (G roughness, B metalness), both with the colour map's UVs. Empty on the low preset.
+   */
+  pbr: Map<THREE.Texture, Pbr>;
 }
+
+/** Normal map plus roughness (G) and metalness (B), same UVs as the colour map they were derived from. */
+export interface Pbr { normal: THREE.Texture; orm: THREE.Texture }
 
 /** Meters covered by one repeat of each tiling texture (uv = meters / TILE_M.x). */
 export const TILE_M = {
@@ -449,6 +457,123 @@ function done(cv: HTMLCanvasElement, repeat: boolean | 'u' = false, aniso = 4, d
   return finish(cv, repeat, aniso, data);
 }
 
+// ── Physically based twins ───────────────────────────────────────────────────
+// Every surface gets a normal map and a roughness / metalness sheet made from the
+// canvas it was painted on, so the relief can never drift off the picture. Height
+// is the paint's own luminance (mortar, cracks, joints and pits are already the
+// dark parts; crowns of ribs and tiles the light ones), run through a Sobel filter.
+// Three things the luminance cannot know are handled apart:
+//   * glass: found by its colour (the dark teal every pane is painted with). It is
+//     pushed back into the wall, made flat and near-mirror smooth, and brightened in
+//     the colour map, because a metallic surface shows its colour only as the tint
+//     of what it reflects. Smooth glass in a rough wall is most of what makes a
+//     building read as real.
+//   * roughness that is not about brightness (tire paths, tar, road paint): the
+//     painter leaves a grey sheet in EXTRA and it is used as drawn.
+//   * panes that do not sit quite flat (curtain walls): a tilt sheet in EXTRA.
+
+interface PbrSpec {
+  /** Normal strength: slope of the normal per unit of height change across one texel. */
+  bump: number;
+  /** Roughness at the sheet's mean brightness. */
+  rough: number;
+  /** How much rougher the dark parts are than the light ones (pits and joints hold dirt). */
+  roughK?: number;
+  metal?: number;
+  /** Look for window glass by colour. */
+  glass?: boolean;
+  /** Normal map size relative to the colour canvas. */
+  scale?: number;
+  /** Clip height this far above the mean: paint is bright but it is not a kerb. */
+  cap?: number;
+}
+
+/** Sheets a painter drew by hand for derive(): `rough` grey = roughness; `tilt` R, G = normal offset around 128, alpha = where. */
+const EXTRA = new WeakMap<HTMLCanvasElement, { rough?: HTMLCanvasElement; tilt?: HTMLCanvasElement }>();
+
+const GLASS_GAIN = 1.8, GLASS_ROUGH = 0.07, GLASS_METAL = 0.85;
+/** Every pane in the game is painted between GLASS_HI and GLASS_LO or the factory's grey-teal: blue over red, and dark. */
+const isGlass = (r: number, g: number, b: number): boolean => b >= g - 2 && b - r > 18 && r + g + b < 380;
+
+function pixels(src: HTMLCanvasElement, w: number, h: number): Uint8ClampedArray {
+  if (src.width === w && src.height === h) return (src.getContext('2d') as Ctx).getImageData(0, 0, w, h).data;
+  const [cv, c] = canvas(w, h);
+  c.drawImage(src, 0, 0, w, h);
+  return c.getImageData(0, 0, w, h).data;
+}
+
+function derive(cv: HTMLCanvasElement, s: PbrSpec, repeat: boolean | 'u'): { normal: HTMLCanvasElement; orm: HTMLCanvasElement } {
+  const k = s.scale ?? 1, w = Math.max(4, Math.round(cv.width * k)), h = Math.max(4, Math.round(cv.height * k)), n = w * h;
+  const d = pixels(cv, w, h), ex = EXTRA.get(cv);
+  const rr = ex?.rough ? pixels(ex.rough, w, h) : null, tt = ex?.tilt ? pixels(ex.tilt, w, h) : null;
+  const H = new Float32Array(n), glass = new Uint8Array(n);
+  let mean = 0, cnt = 0;
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    if (d[p + 3] < 8) { H[i] = -1; continue; }       // a gap in an atlas
+    const L = (d[p] * 0.299 + d[p + 1] * 0.587 + d[p + 2] * 0.114) / 255;
+    H[i] = L; mean += L; cnt++;
+    if (s.glass && isGlass(d[p], d[p + 1], d[p + 2])) glass[i] = 1;
+  }
+  mean /= Math.max(1, cnt);
+
+  const [ov, o] = canvas(w, h), oi = o.createImageData(w, h), od = oi.data;
+  const top = mean + (s.cap ?? 1), pit = Math.max(0, mean - 0.24), rk = s.roughK ?? 0.3, metal = (s.metal ?? 0) * 255;
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    const L = H[i];
+    let rough: number, m = metal;
+    if (glass[i]) { rough = GLASS_ROUGH; m = GLASS_METAL * 255; H[i] = pit; }
+    else if (L < 0) { rough = s.rough; H[i] = mean; }
+    else {
+      rough = rr ? rr[p] / 255 : s.rough + rk * (mean - L);
+      if (L > top) H[i] = top;
+    }
+    od[p] = 255; od[p + 1] = Math.max(10, Math.min(255, rough * 255)); od[p + 2] = m; od[p + 3] = 255;
+  }
+  o.putImageData(oi, 0, 0);
+
+  const [nv, c] = canvas(w, h), ni = c.createImageData(w, h), nd = ni.data;
+  const wu = repeat !== false, wv = repeat === true, bump = s.bump * 0.125;
+  for (let y = 0; y < h; y++) {
+    const y0 = (y > 0 ? y - 1 : wv ? h - 1 : 0) * w, y1 = y * w, y2 = (y < h - 1 ? y + 1 : wv ? 0 : h - 1) * w;
+    for (let x = 0; x < w; x++) {
+      const xm = x > 0 ? x - 1 : wu ? w - 1 : 0, xp = x < w - 1 ? x + 1 : wu ? 0 : w - 1;
+      const a = H[y0 + xm], b = H[y0 + x], cc = H[y0 + xp], e = H[y1 + xm], f = H[y1 + xp], g = H[y2 + xm], hh = H[y2 + x], ii = H[y2 + xp];
+      // Canvas rows run down and v runs up, so the v slope changes sign.
+      let nx = -((cc + 2 * f + ii) - (a + 2 * e + g)) * bump, ny = ((g + 2 * hh + ii) - (a + 2 * b + cc)) * bump;
+      const p = (y1 + x) * 4;
+      if (tt && tt[p + 3] > 128) { nx += (tt[p] - 128) / 127; ny += (tt[p + 1] - 128) / 127; }
+      const inv = 127 / Math.sqrt(nx * nx + ny * ny + 1);
+      nd[p] = 128 + nx * inv; nd[p + 1] = 128 + ny * inv; nd[p + 2] = 128 + inv; nd[p + 3] = 255;
+    }
+  }
+  c.putImageData(ni, 0, 0);
+
+  if (s.glass) {
+    const fc = cv.getContext('2d') as Ctx, fi = fc.getImageData(0, 0, cv.width, cv.height), fd = fi.data;
+    for (let p = 0; p < fd.length; p += 4) {
+      if (fd[p + 3] > 8 && isGlass(fd[p], fd[p + 1], fd[p + 2])) { fd[p] *= GLASS_GAIN; fd[p + 1] *= GLASS_GAIN; fd[p + 2] *= GLASS_GAIN; }
+    }
+    fc.putImageData(fi, 0, 0);
+  }
+
+  // Roughness changes slowly: half the normal map's size is plenty.
+  if (w < 512) return { normal: nv, orm: ov };
+  const [hv, hc] = canvas(w / 2, h / 2);
+  hc.drawImage(ov, 0, 0, w / 2, h / 2);
+  return { normal: nv, orm: hv };
+}
+
+/** A grey roughness sheet at half the size of a w x h canvas, drawn in that canvas's own pixel coordinates. */
+function roughSheet(w: number, h: number, nz: Noise, base: number): [HTMLCanvasElement, Ctx] {
+  const [rv, rc] = canvas(w / 2, h / 2);
+  rc.scale(0.5, 0.5);
+  rc.fillStyle = grey(base); rc.fillRect(0, 0, w, h);
+  // Broad patches a little smoother than the rest: dry they hardly show, wet they are where the sky lies in the road.
+  wash(rc, w, h, nz.blotch, 0.42, 'overlay', 2);
+  wash(rc, w, h, nz.cloud, 0.3, 'overlay');
+  return [rv, rc];
+}
+
 /** Transparent tile of scattered opaque flecks: rubbed over fresh paint with 'destination-out' it wears it away. */
 function wearTile(seed: number, size = 256): HTMLCanvasElement {
   const [cv, c] = canvas(size, size);
@@ -487,13 +612,19 @@ function asphaltBase(c: Ctx, w: number, h: number, nz: Noise, seed: number): RNG
 }
 
 /** Patches of newer asphalt, hairline cracks and tar-sealed ones. `pxm` = pixels per meter. */
-function asphaltWear(c: Ctx, w: number, h: number, r: RNG, pxm: number, patches: number, cracks: number): void {
+function asphaltWear(c: Ctx, w: number, h: number, r: RNG, pxm: number, patches: number, cracks: number, rc: Ctx | null = null): void {
   c.lineCap = 'round'; c.lineJoin = 'round';
+  if (rc) { rc.lineCap = 'round'; rc.lineJoin = 'round'; }
   for (let i = 0; i < patches; i++) {
     const pw = r.range(0.9, 2.2) * pxm, ph = r.range(1.2, 3.2) * pxm, x = r.next() * w, y = r.next() * h;
     wrapped(c, w, h, () => {
       c.fillStyle = ink(0.08); c.fillRect(x, y, pw, ph);
       c.strokeStyle = ink(0.2); c.lineWidth = Math.max(1.5, pxm * 0.03); c.strokeRect(x, y, pw, ph);
+    });
+    // A newer patch is closer-grained than the road round it, and its sealed edge is tar.
+    if (rc) wrapped(rc, w, h, () => {
+      rc.fillStyle = grey(196, 0.85); rc.fillRect(x, y, pw, ph);
+      rc.strokeStyle = grey(96); rc.lineWidth = Math.max(2.5, pxm * 0.035); rc.strokeRect(x, y, pw, ph);
     });
   }
   for (let i = 0; i < cracks; i++) {
@@ -501,6 +632,7 @@ function asphaltWear(c: Ctx, w: number, h: number, r: RNG, pxm: number, patches:
     const pts = crackPath(r, r.next() * w, r.next() * h, r.range(0, TAU_), r.int(7, 16), pxm * 0.28);
     c.strokeStyle = ink(sealed ? 0.42 : 0.34); c.lineWidth = Math.max(1, pxm * (sealed ? 0.045 : 0.014));
     wrapped(c, w, h, () => strokePts(c, pts));
+    if (rc && sealed) { rc.strokeStyle = grey(84); rc.lineWidth = Math.max(2.5, pxm * 0.05); wrapped(rc, w, h, () => strokePts(rc, pts)); }
   }
 }
 const TAU_ = Math.PI * 2;
@@ -513,6 +645,13 @@ function roadCanvas(nz: Noise, seed: number, widthM: number, W: number, lanes: n
   const H = 1024, [cv, c] = canvas(W, H), px = W / widthM, py = H / TILE_M.street;
   const r = asphaltBase(c, W, H, nz, seed);
   const X = (m: number): number => W / 2 + m * px;
+  // Roughness, drawn beside the colour: open aggregate, then everything traffic and crews have done to it.
+  const [rv, rc] = roughSheet(W, H, nz, 232);
+  const polish = (m: number, halfM: number, v: number, a: number): void => {
+    const g = rc.createLinearGradient(X(m - halfM), 0, X(m + halfM), 0);
+    g.addColorStop(0, grey(v, 0)); g.addColorStop(0.5, grey(v, a)); g.addColorStop(1, grey(v, 0));
+    rc.fillStyle = g; rc.fillRect(X(m - halfM), 0, halfM * 2 * px, H);
+  };
   const band = (m: number, halfM: number, a: number): void => {
     const g = c.createLinearGradient(X(m - halfM), 0, X(m + halfM), 0);
     g.addColorStop(0, ink(0)); g.addColorStop(0.5, ink(a)); g.addColorStop(1, ink(0));
@@ -522,6 +661,8 @@ function roadCanvas(nz: Noise, seed: number, widthM: number, W: number, lanes: n
     for (const l of lanes) {
       band(side * (l - 0.82), 0.45, 0.085); band(side * (l + 0.82), 0.45, 0.085);  // tire paths
       band(side * l, 0.3, 0.05);                                               // the oil drip line between them
+      polish(side * (l - 0.82), 0.55, 140, 0.8); polish(side * (l + 0.82), 0.55, 140, 0.8);   // tires polish the stone
+      polish(side * l, 0.3, 110, 0.4);
     }
     // Gutter grime against the curb.
     const g = c.createLinearGradient(X(side * (widthM / 2 - 0.9)), 0, X(side * widthM / 2), 0);
@@ -537,8 +678,13 @@ function roadCanvas(nz: Noise, seed: number, widthM: number, W: number, lanes: n
       g.addColorStop(0, ink(0.26)); g.addColorStop(1, ink(0));
       c.fillStyle = g; c.fillRect(x - rad, y - rad, rad * 2, rad * 2);
     }, false, true);
+    wrapped(rc, W, H, () => {
+      const g = rc.createRadialGradient(x, y, 0, x, y, rad);
+      g.addColorStop(0, grey(60, 0.9)); g.addColorStop(1, grey(60, 0));
+      rc.fillStyle = g; rc.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    }, false, true);
   }
-  asphaltWear(c, W, H, r, px, 3, 7);
+  asphaltWear(c, W, H, r, px, 3, 7, rc);
 
   // Paint goes on its own layer so it can be worn through before it lands on the asphalt.
   const [pv, p] = canvas(W, H);
@@ -553,13 +699,19 @@ function roadCanvas(nz: Noise, seed: number, widthM: number, W: number, lanes: n
   wash(p, W, H, nz.wear, 0.75, 'destination-out');
   wash(p, W, H, nz.wear, 0.5, 'destination-out', 2);
   c.globalAlpha = 0.92; c.drawImage(pv, 0, 0); c.globalAlpha = 1;
+  // Road paint is the glossiest thing on the street, exactly where it has not worn through.
+  p.globalCompositeOperation = 'source-in'; p.fillStyle = grey(104); p.fillRect(0, 0, W, H);
+  rc.drawImage(pv, 0, 0);
+  EXTRA.set(cv, { rough: rv });
   return cv;
 }
 
 function asphaltCanvas(nz: Noise): HTMLCanvasElement {
   const [cv, c] = canvas(512, 512);
   const r = asphaltBase(c, 512, 512, nz, 31);
-  asphaltWear(c, 512, 512, r, 512 / TILE_M.asphalt, 2, 5);
+  const [rv, rc] = roughSheet(512, 512, nz, 232);
+  asphaltWear(c, 512, 512, r, 512 / TILE_M.asphalt, 2, 5, rc);
+  EXTRA.set(cv, { rough: rv });
   return cv;
 }
 
@@ -923,6 +1075,14 @@ const litCol = (cell: Cell, k: number): string => (cell.lit ? lum(cell.tint, cel
 function facadePair(draw: (c: Ctx, glow: boolean) => void): [HTMLCanvasElement, HTMLCanvasElement] {
   const [cv, c] = canvas(1024, 1024);
   draw(c, false);
+  // Weather: every floor line sheds a little dirt down the wall below it. Streaks stop short of the
+  // next floor or the sheet's edge, so any cell can still sit above any other.
+  const gr = new RNG(109);
+  for (let i = 0; i < 90; i++) {
+    const x = gr.next() * 1024, y = gr.int(0, 7) * 128 + gr.range(-6, 30), len = gr.range(24, 92), wd = gr.range(3, 13);
+    c.fillStyle = vgrad(c, y, y + len, `rgba(58,50,40,${gr.range(0.05, 0.14)})`, 'rgba(58,50,40,0)');
+    c.fillRect(x, y, wd, len);
+  }
   // Half size is plenty for light, and the same drawing code guarantees it lines up.
   const [gv, g] = canvas(512, 512);
   g.fillStyle = '#000'; g.fillRect(0, 0, 512, 512);
@@ -938,7 +1098,10 @@ function eachCell(cells: Cell[], fn: (x: number, y: number, cell: Cell, i: numbe
 /** 0: curtain wall. Two panes a bay over an opaque spandrel panel, pale mullions. */
 function glassFacade(nz: Noise): [HTMLCanvasElement, HTMLCanvasElement] {
   const cells = cellGrid(101, 0.14, OFFICE, 0.02, true);
-  return facadePair((c, glow) => {
+  // No two panes of a curtain wall sit in quite the same plane, which is why a real tower's
+  // reflection of the sky breaks up pane by pane instead of lying across it like a poster.
+  const [tv, t] = canvas(1024, 1024);
+  const pair = facadePair((c, glow) => {
     const set = painter(c, glow);
     set('#dcdedb'); c.fillRect(0, 0, 1024, 1024);
     eachCell(cells, (x, y, cell) => {
@@ -947,6 +1110,10 @@ function glassFacade(nz: Noise): [HTMLCanvasElement, HTMLCanvasElement] {
       for (let k = 0; k < 2; k++) {
         const px = x + 4 + k * 61, py = y + 5, pw = 59, ph = 88;
         pane(c, set, px, py, pw, ph, cell);
+        if (!glow) {
+          t.fillStyle = rgba(128 + (hashShade(x * 3.1 + y * 0.7 + k * 19) - 0.5) * 11, 128 + (hashShade(x * 1.3 + y * 2.9 + k * 7) - 0.5) * 9, 255);
+          t.fillRect(px - 1, py - 1, pw + 2, ph + 2);
+        }
         // Blinds on a few bays only; on every bay they turn the tower into a patchwork.
         if (cell.blind && cell.kind > 0.6) { set('rgba(214,212,200,0.85)', litCol(cell, 0.55)); c.fillRect(px, py, pw, ph * cell.blind * 0.6); }
         if (!glow) {
@@ -957,6 +1124,8 @@ function glassFacade(nz: Noise): [HTMLCanvasElement, HTMLCanvasElement] {
     });
     if (!glow) wash(c, 1024, 1024, nz.cloud, 0.14, 'overlay', 4);
   });
+  EXTRA.set(pair[0], { tilt: tv });
+  return pair;
 }
 
 function brickTile(): HTMLCanvasElement {
@@ -1679,13 +1848,31 @@ export async function makeTextures(q: Quality): Promise<Textures> {
   shrinkBy = q.name === 'low' ? 0.5 : 1;
   const nz = makeNoise(), ground = q.name === 'low' ? 4 : 8;
 
-  const facade = [glassFacade, brickFacade, stuccoFacade, metalFacade].map((f) => {
+  // Phones keep the flat paint: no normal or roughness sheets are made at all. `?pbr=0` does the
+  // same on any preset, which is the honest A/B for what these maps cost.
+  const flat = q.name === 'low' || new URLSearchParams(location.search).get('pbr') === '0';
+  const pbr = new Map<THREE.Texture, Pbr>();
+  const surf = (cv: HTMLCanvasElement, repeat: boolean | 'u', aniso: number, spec: PbrSpec): THREE.Texture => {
+    // derive() runs first: it brightens the glass in the colour canvas.
+    const twins = flat ? null : derive(cv, spec, repeat);
+    const t = done(cv, repeat, aniso);
+    if (twins) pbr.set(t, { normal: finish(twins.normal, repeat, aniso, true), orm: finish(twins.orm, repeat, Math.min(aniso, 4), true) });
+    return t;
+  };
+
+  const FSPEC: PbrSpec[] = [
+    { bump: 3, rough: 0.5, roughK: 0.2, glass: true, cap: 0.12 },
+    { bump: 6, rough: 0.9, roughK: 0.35, glass: true, cap: 0.14 },
+    { bump: 3.5, rough: 0.88, roughK: 0.3, glass: true, cap: 0.12 },
+    { bump: 7, rough: 0.52, roughK: 0.5, metal: 0.35, glass: true },
+  ];
+  const facade = [glassFacade, brickFacade, stuccoFacade, metalFacade].map((f, i) => {
     const [cv, gv] = f(nz);
-    return { map: done(cv, true, 4), glow: done(gv, true, 2) };
+    return { map: surf(cv, true, 4, FSPEC[i]), glow: done(gv, true, 2) };
   });
 
   const k = kitAtlas();
-  const kit: KitAtlas = { tex: done(k.cv, false, 4), glow: done(k.glow, false, 2), ...lookup('kit', k.rects, k.names) };
+  const kit: KitAtlas = { tex: surf(k.cv, false, 4, { bump: 3, rough: 0.72, roughK: 0.25, glass: true, scale: 0.5 }), glow: done(k.glow, false, 2), ...lookup('kit', k.rects, k.names) };
 
   const s = signAtlas(nz);
   const signs: SignAtlas = {
@@ -1703,21 +1890,21 @@ export async function makeTextures(q: Quality): Promise<Textures> {
   const marks: Atlas = { tex: done(marksCanvas(nz), 'u', ground), ...lookup('mark', markRects, Object.keys(MARK_PX)) };
 
   return {
-    facade, kit, signs, marks,
-    street: done(roadCanvas(nz, 21, 12, 1024, [1.75], [3.5], []), true, ground),
-    avenue: done(roadCanvas(nz, 22, 20, 2048, [1.8, 5.2], [7], [3.5]), true, ground),
-    asphalt: done(asphaltCanvas(nz), true, ground),
-    sidewalk: done(sidewalkCanvas(nz), true, ground),
-    grass: done(grassCanvas(nz), true, ground),
-    sand: done(sandCanvas(nz), true, ground),
-    wood: done(woodCanvas(nz), true, ground),
-    cobble: done(cobbleCanvas(nz), true, ground),
-    roofGravel: done(gravelCanvas(nz), true, 4),
-    roofTile: done(roofTileCanvas(nz), true, 4),
-    shingle: done(shingleCanvas(nz), true, 4),
-    corrugated: done(corrugatedCanvas(nz), true, 4),
-    container: done(containerCanvas(nz), 'u', 4),
-    ramp: done(rampCanvas(nz), true, ground),
+    facade, kit, signs, marks, pbr,
+    street: surf(roadCanvas(nz, 21, 12, 1024, [1.75], [3.5], []), true, ground, { bump: 5, rough: 0.92, cap: 0.08 }),
+    avenue: surf(roadCanvas(nz, 22, 20, 2048, [1.8, 5.2], [7], [3.5]), true, ground, { bump: 5, rough: 0.92, cap: 0.08, scale: 0.5 }),
+    asphalt: surf(asphaltCanvas(nz), true, ground, { bump: 5, rough: 0.92 }),
+    sidewalk: surf(sidewalkCanvas(nz), true, ground, { bump: 4, rough: 0.86, roughK: 0.4 }),
+    grass: surf(grassCanvas(nz), true, ground, { bump: 3, rough: 0.95, roughK: 0.1 }),
+    sand: surf(sandCanvas(nz), true, ground, { bump: 3.5, rough: 0.96, roughK: 0.1 }),
+    wood: surf(woodCanvas(nz), true, ground, { bump: 4, rough: 0.8, roughK: 0.4 }),
+    cobble: surf(cobbleCanvas(nz), true, ground, { bump: 5, rough: 0.74, roughK: 0.6 }),
+    roofGravel: surf(gravelCanvas(nz), true, 4, { bump: 5, rough: 0.97, roughK: 0.1 }),
+    roofTile: surf(roofTileCanvas(nz), true, 4, { bump: 3, rough: 0.78, roughK: 0.3 }),
+    shingle: surf(shingleCanvas(nz), true, 4, { bump: 4, rough: 0.92, roughK: 0.2 }),
+    corrugated: surf(corrugatedCanvas(nz), true, 4, { bump: 8, rough: 0.5, roughK: 0.5, metal: 0.5 }),
+    container: surf(containerCanvas(nz), 'u', 4, { bump: 6, rough: 0.52, roughK: 0.45, metal: 0.2 }),
+    ramp: surf(rampCanvas(nz), true, ground, { bump: 2, rough: 0.6, roughK: 0.3 }),
     fence: done(fenceCanvas(), 'u', 4),
     glow: done(glowCanvas(), false, 1),
     noise: done(noiseCanvas(), true, 1, true),

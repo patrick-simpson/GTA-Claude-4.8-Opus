@@ -61,6 +61,21 @@ pause card shows it already).
    lighting, integration and writing.
 3. **The site is at gta.doofus.live** (the owner moved it from gtaopus).
 
+### Realistic rework, step (a): pushed Nov 18, about 12:05 PM ET
+
+City surfaces are physically based on medium and high (`materials.ts`, with normal
+and roughness maps derived in `textures.ts`; glass reflects the sky; roads go
+glossy in rain), and `src/core/post.ts` adds ambient occlusion, bloom, one
+tone-map and a light grade. Low (phones) keeps the old cheap path. `?pbr=0` and
+`?post=0` switch each off for comparison; `tools/pbr-bench.mjs` measures.
+Honest state: the gain is modest so far (clearest on glass towers and at night),
+and it costs roughly 9 ms a frame downtown at 1080p on Iris Xe. Owed: remove the
+teal cast on shadowed roads (`ENV` in materials.ts or the hemisphere light),
+retune AO and bloom against the new materials, try FXAA instead of MSAA on the
+scene target (saves about 2-3 ms), fade the sun-shadow box edge so it can be
+tightened, weathering on surfaces other than facades. Steps (b) cars, (c) people
+and (d) foliage and building depth are not started; those are where "low-poly"
+actually goes away.
 ### Test-and-fix round after M1 (pushed Nov 18, about 11:45 AM ET)
 
 Eight testers, nine fixers, one integration gate. Now in: `src/sim/ambient.ts`, a

@@ -766,6 +766,11 @@ export class Sky implements SkyApi {
     // clear afternoon: enough air to hide the far edge, thin enough that the
     // skyline still has its shape from the breakwater. Mornings are thicker.
     this.fog.density = Math.max(1.4 / q.drawDist * p.fog * w[W.fogMul], w[W.dens]);
+    // Through the post pipeline fog is mixed into linear light, before the tone
+    // map and the sRGB encode instead of after them, and the same density reads
+    // about an eighth thicker on dark walls. Thin it to keep the distances the
+    // weather table was tuned for.
+    if (g.post?.enabled) this.fog.density *= 0.88;
     this.exposure = p.exposure;
     this.faceFog(g.camera);
 
@@ -828,7 +833,11 @@ export class Sky implements SkyApi {
     const toSun = 0.5 + 0.5 * (this.viewAz.x * this.sunAz.x + this.viewAz.y * this.sunAz.y);
     const c = this.uniforms.uFog.value as THREE.Color;
     c.lerpColors(this.horBase, this.horGlow, this.glowAmt * toSun * toSun * toSun).lerp(this.fogFlat, this.fogTint);
-    toneMap(this.fog.color.copy(c), this.exposure);
+    // Through the post pipeline nothing is tone mapped until the composite, fog
+    // included, so there the fog wants the dome's raw colour and the two are
+    // mapped together.
+    this.fog.color.copy(c);
+    if (!this.game.post?.enabled) toneMap(this.fog.color, this.exposure);
   }
 
   /** Centre the shadow box on the action and snap it to whole shadow texels, so edges do not crawl as the camera moves. */

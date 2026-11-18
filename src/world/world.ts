@@ -52,6 +52,9 @@ export class World implements WorldApi {
   }
 
   update(dt: number): void {
+    // Both are no-ops until the value moves: rain soaks the ground, and the sky re-bakes its reflection map now and then.
+    this.mats.setWet(this.game.sky?.wet ?? 0);
+    this.mats.setEnv(this.game.scene.environment);
     for (const p of this.parts) p.update?.(dt);
   }
 

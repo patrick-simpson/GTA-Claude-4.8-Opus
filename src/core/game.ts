@@ -19,6 +19,7 @@ import { Hud } from '../ui/hud';
 import { TouchUI } from '../ui/touch';
 import { Cheats } from './cheats';
 import { Ambient } from '../sim/ambient';
+import { Post } from './post';
 
 const PRESETS: Record<Quality['name'], Quality> = {
   low: { name: 'low', pixelRatio: 1.5, antialias: false, shadows: false, shadowSize: 1024, drawDist: 520, density: 0.5 },
@@ -46,6 +47,8 @@ export class Game {
   readonly plan = new CityPlan();
   readonly col = new Colliders();
   readonly quality: Quality = pickQuality();
+  /** Ambient occlusion, bloom, the tone map and the grade. Null on the `low` preset and with `?post=0`: a plain render straight to the canvas. */
+  readonly post: Post | null;
 
   world!: World;
   sky!: Sky;
@@ -78,9 +81,14 @@ export class Game {
 
   constructor(readonly canvas: HTMLCanvasElement) {
     const q = this.quality;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: q.antialias, powerPreference: 'high-performance' });
+    // `low` is the phone preset and pays nothing for post-processing. `?post=0` is the before picture, for comparing.
+    const post = q.name !== 'low' && new URLSearchParams(location.search).get('post') !== '0';
+    // With post on, the scene is antialiased in its own target; the canvas only ever receives one full-screen triangle.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: q.antialias && !post, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, q.pixelRatio));
     this.renderer.setSize(innerWidth, innerHeight, false);
+    // A frame is several render() calls now; count them all, not just the last pass.
+    this.renderer.info.autoReset = false;
     this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     // The sky owns tone mapping and exposure; it changes them through the day.
@@ -88,12 +96,15 @@ export class Game {
     this.camera.position.set(0, 120, 520);
     this.input = new Input(canvas);
     this.input.setEnabled(false);
+    this.post = post ? new Post(this) : null;
+    this.post?.setSize(innerWidth, innerHeight, this.renderer.getPixelRatio());
     addEventListener('resize', () => this.resize());
   }
 
   private resize(): void {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, this.quality.pixelRatio));
     this.renderer.setSize(innerWidth, innerHeight, false);
+    this.post?.setSize(innerWidth, innerHeight, this.renderer.getPixelRatio());
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
   }
@@ -225,7 +236,12 @@ export class Game {
       this.camera.position.copy(this.view.pos);
       this.camera.lookAt(this.view.target);
     }
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.info.reset();
+    if (this.post?.enabled) this.post.render();
+    else {
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   /** Start the real-time loop. */
