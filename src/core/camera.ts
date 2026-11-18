@@ -65,6 +65,8 @@ export class CameraRig implements CameraApi {
   yaw = 0;
   pitch = FOOT_PITCH;
   readonly focus = new THREE.Vector3();
+  /** True while a wall has pushed the lens into the player's head. The player hides her while it is set. */
+  tooClose = false;
 
   private mode: Mode = 'title';
   /** What the current mode wants, what the last mode left behind, and the blend of the two that is on screen. */
@@ -210,7 +212,7 @@ export class CameraRig implements CameraApi {
         // at the lens: turning then would turn her controls with it, in a circle.
         const k = smooth((this.lookIdle - FOOT_HOLD) / 1.5) * Math.min(p.speed / 4.3, 1.3);
         const off = angleDiff(this.yaw, per.h);
-        if (Math.abs(off) < 2.4) this.yaw = wrapAngle(this.yaw + off * (1 - Math.exp(-1.1 * k * dt)));
+        if (Math.abs(off) < 2.4) this.yaw = wrapAngle(this.yaw + off * (1 - Math.exp(-0.75 * k * dt)));
         this.pitch = damp(this.pitch, FOOT_PITCH, 0.5 * k, dt);
       }
     }
@@ -426,6 +428,7 @@ export class CameraRig implements CameraApi {
     this.focus.set(O.px, O.py, O.pz);
     if (this.mode === 'title') Object.assign(this.titleOut, O);
     // Backed into a corner the lens ends up inside her head; better to see through her than into her.
-    else if (this.mode === 'foot' && d < 0.9) g.player.person.visible = false;
+    // Only a flag: this runs after the people are drawn, so the player applies it at the start of the next frame.
+    this.tooClose = this.mode === 'foot' && d < 0.9;
   }
 }

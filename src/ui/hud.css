@@ -147,6 +147,7 @@
   font-size: 2em;
   line-height: 0.9;
   letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 .hud-pips { display: flex; gap: 0.5em; }
 .hud-pip { display: block; width: 1.55em; height: 2.2em; overflow: visible; }
@@ -335,7 +336,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 11%;
+  top: 15%;
   display: flex;
   justify-content: center;
 }
@@ -459,9 +460,10 @@
 .hud-keys-hd b {
   font-family: var(--f-head);
   font-weight: 900;
-  font-size: 2em;
+  font-size: 1.75em;
   line-height: 0.9;
   letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 .hud-keys-hd .hud-lbl { opacity: 0.6; }
 .hud-keys-row {
@@ -559,8 +561,9 @@
 /* ── Touch layout ──────────────────────────────────────────────────────── */
 
 /* Thumbs own the lower corners and the pause key owns the top right one
-   (see touch.css), so the radar moves up, the cash slip steps left of the
-   pause key, and the speed ticket sits beside the cash instead of under a thumb. */
+   (see touch.css). So the radar moves to the top left with the speed ticket
+   beside it, and the right column (cash, heat, one notice) steps left of the
+   pause key and stays in the upper half. */
 #hud.touch .hud-frame {
   top: max(10px, env(safe-area-inset-top));
   right: max(14px, env(safe-area-inset-right));
@@ -570,36 +573,38 @@
 #hud.touch .hud-radar { top: 0; bottom: auto; width: 13.6em; height: 13.6em; }
 #hud.touch .hud-right { right: 58px; gap: 0.55em; }
 #hud.touch .hud-cash { min-width: 12.5em; padding: 0.35em 0.7em 0.38em 0.8em; }
+/* The label goes so a "+ $480" cannot widen the slip. */
+#hud.touch .hud-cash-top { justify-content: flex-end; min-height: 1.2em; }
+#hud.touch .hud-cash-top .hud-lbl { display: none; }
 #hud.touch .hud-amt { font-size: 2.3em; }
+#hud.touch .hud-heat { padding: 0.3em 0.7em; }
+#hud.touch .hud-heat-word { font-size: 1.7em; }
+#hud.touch .hud-pip { width: 1.3em; height: 1.85em; }
 #hud.touch .hud-drive {
   top: 0;
   bottom: auto;
-  right: calc(58px + 13.6em);
+  left: 14.8em;
+  right: auto;
   flex-direction: column-reverse;
+  align-items: flex-start;
   gap: 0.5em;
 }
 #hud.touch .hud-speed { width: 10.4em; padding: 0.35em 0.7em 0.45em; }
 #hud.touch .hud-speed-hd span:last-child { display: none; }
 #hud.touch .hud-mph { font-size: 3.5em; }
 #hud.touch .hud-mph-unit { font-size: 1.5em; }
-#hud.touch .hud-vname { font-size: 1.8em; }
-#hud.touch .hud-objective { max-width: 26em; }
+#hud.touch .hud-vname { font-size: 1.6em; transform: translateX(-1.2em); }
+#hud.touch .hud-vname.on { transform: none; }
+#hud.touch .hud-objective { max-width: 24em; padding: 0.4em 0.9em 0.45em; }
 #hud.touch .hud-objective .hud-lbl { display: none; }
-/* Notices drop from the top middle: every edge of a phone already has an owner. */
-#hud.touch .hud-toasts {
-  position: fixed;
-  top: calc(max(10px, env(safe-area-inset-top)) + 4.4em);
-  left: 50%;
-  width: 24em;
-  margin-left: -12em;
-  align-items: stretch;
-  gap: 0.45em;
-}
-#hud.touch .hud-toast { width: auto; transform: translateY(-1.6em); }
-#hud.touch .hud-toast.in { transform: none; }
-#hud.touch .hud-toast:nth-last-child(n + 3) { display: none; }
-#hud.touch .hud-place { top: 27%; }
-#hud.touch .hud-place-t { font-size: 5.2em; }
+#hud.touch .hud-objective-tx { font-size: 1.4em; }
+/* Room for one notice above the thumb: the newest. */
+#hud.touch .hud-toast { width: 18.5em; padding: 0.35em 0.7em 0.45em; }
+#hud.touch .hud-toast:nth-last-child(n + 2) { display: none; }
+#hud.touch .hud-toast-tx { font-size: 1.25em; }
+/* Below the notice and between the thumbs: the one clear patch on a small phone. */
+#hud.touch .hud-place { top: 44%; }
+#hud.touch .hud-place-t { font-size: 4.6em; }
 #hud.touch .hud-stamp-t { font-size: 7.4em; }
 #hud.touch .hud-hint { bottom: 0; }
 #hud.touch .hud-kc { display: none; }

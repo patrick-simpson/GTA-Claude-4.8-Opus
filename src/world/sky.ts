@@ -90,7 +90,7 @@ const KEYS: KeyDef[] = [
     h: 19.5, zen: 0x27496e, mid: 0xe0a95e, hor: 0xdf7a42, glow: 0xee5a2c, glowAmt: 1,
     sun: 0xff8a4e, sunI: 1.3, disc: 0xffd27a, discI: 1.05,
     hemiSky: 0x7d93ad, hemiGnd: 0x9a6a4a, hemiI: 1.3,
-    fog: 1.1, exposure: 1.08, cloudLit: 0xf2884a, cloudShade: 0x4a4658,
+    fog: 1.1, exposure: 1.08, cloudLit: 0xf2884a, cloudShade: 0x3a4b5c,
   },
   { // the band above the horizon cools to sage while the horizon still burns
     h: 19.8, zen: 0x1a3358, mid: 0x8fae8c, hor: 0xd98e52, glow: 0xe85a2c, glowAmt: 1,
@@ -682,6 +682,9 @@ export class Sky implements SkyApi {
     wash(p.zen, sat, dim); wash(p.mid, sat, dim); wash(p.hor, sat, dim); wash(p.glow, sat, dim);
     wash(p.cloudLit, lerp(sat, 1, 0.3), lerp(dim, 1, 0.25)); wash(p.cloudShade, sat, dim * lerp(0.8, 1, sat));
     wash(p.hemiSky, lerp(sat, 1, 0.4), 1); wash(p.hemiGnd, lerp(sat, 1, 0.4), 1);
+    // A full deck has no sunlit tops to show from below. Without this an overcast
+    // sky reads as white clouds on a grey sky rather than as a lid.
+    p.cloudLit.lerp(p.cloudShade, 0.72 * smooth((w[W.cover] - 0.55) / 0.45));
 
     (u.uZen.value as THREE.Color).copy(p.zen);
     (u.uMid.value as THREE.Color).copy(p.mid);

@@ -1,0 +1,176 @@
+/* The title card. A poster in two pieces: the picture on top, the navy band
+   with the lettering under it. While the world loads both are opaque; once it
+   is ready the picture slides up and the band stays as the lower third. */
+
+#title {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: clamp(8.6px, calc(0.9vh + 0.35vw), 22px);
+  font-family: var(--f-text);
+  color: var(--bone);
+  cursor: default;
+}
+#title.ready { pointer-events: auto; cursor: pointer; }
+#title.leave { pointer-events: none; }
+#title.gone { display: none; }
+
+/* ── Picture ───────────────────────────────────────────────────────────── */
+
+.tt-pic {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  background: var(--bone);
+  transition: transform 0.95s cubic-bezier(0.7, 0, 0.2, 1);
+  will-change: transform;
+}
+.tt-art { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* A printer's keyline just inside the trim. */
+.tt-pic::after {
+  content: '';
+  position: absolute;
+  inset: 1.1em 1.3em 0;
+  border: 2px solid var(--ink);
+  border-bottom: 0;
+  opacity: 0.85;
+}
+.tt-tab {
+  position: absolute;
+  top: calc(1.1em + max(0px, env(safe-area-inset-top)));
+  left: calc(1.3em + max(0px, env(safe-area-inset-left)));
+  right: calc(1.3em + max(0px, env(safe-area-inset-right)));
+  display: flex;
+  justify-content: space-between;
+  gap: 2em;
+  padding: 0.7em 1em;
+  color: var(--ink);
+  font-family: var(--f-mono);
+  font-weight: 500;
+  font-size: 0.92em;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* One em past its own height, so the keyline's last pixel clears the screen too. */
+#title.ready .tt-pic { transform: translateY(-102%); }
+
+/* ── Band ──────────────────────────────────────────────────────────────── */
+
+.tt-band {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 1em max(2.4em, env(safe-area-inset-right)) max(1.3em, env(safe-area-inset-bottom)) max(2.4em, env(safe-area-inset-left));
+  background: var(--ink);
+  border-top: 0.5em solid var(--vermilion);
+  transition: transform 0.36s cubic-bezier(0.6, 0, 0.9, 0.4), opacity 0.3s linear 0.06s;
+}
+#title.leave .tt-band { transform: translateY(104%); opacity: 0; }
+
+.tt-over {
+  display: flex;
+  align-items: center;
+  gap: 1.1em;
+  font-family: var(--f-mono);
+  font-weight: 500;
+  font-size: 1.05em;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--mustard);
+}
+.tt-over i { flex: 1 1 auto; height: 2px; background: var(--bone); opacity: 0.35; }
+.tt-over span:last-child { color: var(--bone); opacity: 0.7; }
+
+.tt-name {
+  margin: 0.06em 0 0 -0.02em;
+  font-family: var(--f-head);
+  font-weight: 900;
+  /* Sized so the thirteen letters run the full measure at 16:9 and never
+     take more than a quarter of a short phone. */
+  font-size: min(16vw, 28.5vh);
+  line-height: 0.83;
+  letter-spacing: 0.012em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tt-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2.5em;
+  margin-top: 0.8em;
+  padding-top: 0.75em;
+  border-top: 2px solid var(--vermilion);
+}
+.tt-copy { min-width: 0; }
+.tt-tag { margin: 0; font-weight: 500; font-size: 1.75em; line-height: 1.1; }
+.tt-credit { margin: 0.4em 0 0; font-size: 1.08em; letter-spacing: 0.02em; opacity: 0.62; }
+
+/* Loading rule and the call to action share one slot and trade places. */
+.tt-slot { position: relative; flex: 0 0 22em; height: 3.6em; }
+.tt-load, .tt-go { position: absolute; right: 0; bottom: 0; width: 100%; transition: opacity 0.3s linear; }
+.tt-load-tx {
+  margin-bottom: 0.6em;
+  font-family: var(--f-mono);
+  font-weight: 500;
+  font-size: 1em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: right;
+  white-space: nowrap;
+}
+.tt-rule { height: 4px; background: rgba(242, 232, 207, 0.22); }
+.tt-rule i {
+  display: block;
+  height: 100%;
+  background: var(--mustard);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform 0.25s linear;
+}
+.tt-go {
+  opacity: 0;
+  text-align: right;
+  font-family: var(--f-head);
+  font-weight: 900;
+  font-size: 3.1em;
+  line-height: 0.9;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--mustard);
+}
+#title.ready .tt-load { opacity: 0; }
+#title.ready .tt-go { opacity: 1; transition-delay: 0.5s; }
+/* A lamp, not a pulse: on, off. */
+#title.ready .tt-go span { animation: tt-blink 1.5s steps(1, end) 1.4s infinite; }
+@keyframes tt-blink { 0%, 100% { opacity: 1; } 68% { opacity: 0.25; } }
+
+.tt-go-tap { display: none; }
+body.touch .tt-go-key { display: none; }
+body.touch .tt-go-tap { display: inline; }
+@media (pointer: coarse) {
+  .tt-go-key { display: none; }
+  .tt-go-tap { display: inline; }
+}
+
+/* A phone on its side: the band must leave more than half the screen to the city. */
+@media (max-height: 480px) and (min-aspect-ratio: 1/1) {
+  .tt-name { font-size: min(16vw, 22vh); }
+  .tt-foot { margin-top: 0.6em; padding-top: 0.55em; }
+}
+
+/* Portrait and other narrow sheets: the footer stacks and the lettering wraps. */
+@media (max-aspect-ratio: 1/1) {
+  .tt-name { white-space: normal; font-size: min(27vw, 20vh); }
+  .tt-foot { flex-direction: column; align-items: stretch; gap: 1.2em; }
+  .tt-slot { flex-basis: auto; }
+  .tt-tab span:last-child, .tt-over span:last-child { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-pic { transition-duration: 0.01s; }
+  #title.ready .tt-go span { animation: none; }
+}

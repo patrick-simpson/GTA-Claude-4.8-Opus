@@ -526,6 +526,7 @@ export class Hud implements HudApi {
   private placeHeld = 0;
   private placeT = 0;
   private flip = false;
+  private instant = false;
 
   private toasts: Toast[] = [];
   private serial = 4070;
@@ -680,6 +681,8 @@ export class Hud implements HudApi {
   update(dt: number): void {
     const g = this.game;
     if (g.state !== this.state) this.syncState();
+    // A frozen clock means a test is about to take a picture: drop the fade.
+    if (g.frozen !== this.instant) { this.instant = g.frozen; this.root.classList.toggle('instant', g.frozen); }
     if (this.state === 'loading' || this.state === 'title') return;
     const live = this.state === 'play';
     const p = g.player;
@@ -766,8 +769,6 @@ export class Hud implements HudApi {
     if (st === was) return;
     this.state = st;
     const shown = st === 'play' || st === 'paused';
-    // Tests freeze the clock and screenshot straight away, so they get no fade.
-    this.root.classList.toggle('instant', g.frozen);
     this.root.classList.toggle('off', !shown);
     this.pauseEl.classList.toggle('on', st === 'paused');
     if (st === 'paused') {

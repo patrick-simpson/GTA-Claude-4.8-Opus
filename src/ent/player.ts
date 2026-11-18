@@ -19,7 +19,8 @@ const SWIM = 1.7, SWIM_FAST = 2.6;
 // Over twice real gravity. A 1.1 m hop at 9.8 hangs for a full second and
 // reads as the moon; at 22 it is over in 0.63 s and reads as a jump.
 const GRAVITY = 22;
-const JUMP_V = Math.sqrt(2 * GRAVITY * 1.1);
+// Aimed a little high: stepped at 60 Hz the arc tops out about 6 cm short of the formula.
+const JUMP_V = Math.sqrt(2 * GRAVITY * 1.16);
 /** Tallest rise in the ground she walks straight up: curbs, ramp lips, deck edges. */
 const STEP_UP = 0.5;
 /** Collision boxes lower than this are stairs, not walls (see advance()). */
@@ -217,8 +218,8 @@ export class Player implements PlayerApi {
     if (this.health <= 0 && this.mode !== 'dead') this.die();
     if (this.safeT > 0) this.safeT -= dt;
     if (this.nagT > 0) this.nagT -= dt;
-    // The camera hides her when it is squeezed inside her head; every frame starts by undoing that.
-    if (this.mode !== 'drive') this.person.visible = true;
+    // Squeezed against a wall the camera ends up inside her head; it says so, and she steps out of the picture.
+    if (this.mode !== 'drive') this.person.visible = !this.game.cam.tooClose;
 
     switch (this.mode) {
       case 'foot': this.onFoot(dt); break;
