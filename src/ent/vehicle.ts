@@ -24,6 +24,7 @@ import type { Vehicle, VehicleControls, VehiclesApi } from '../core/api';
 import { RNG, clamp, clamp01, damp, smooth } from '../core/util';
 import { SPECS, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
 import { vehicleModel, wheelGeometry, type VehicleModel } from './vehicleModels';
+import { loadVehicleAssets, type VehicleAsset } from './vehicleAssets';
 import { BRIDGE, groundAt, terrainAt, WATER_Y } from '../world/plan';
 import type { Box, Prop } from '../world/collide';
 
@@ -74,16 +75,47 @@ const _cullCam = new THREE.PerspectiveCamera(), _pv = new THREE.Matrix4(), _frus
 /** The sun's shadow box is 130 m across and follows the camera's focus; cars within this of the focus are drawn into it. */
 const SHADOW_R2 = 95 * 95, WHEEL_R2 = 320 * 320;
 
+/** Blender models swap to their simpler level past LOD_OUT and back inside LOD_IN; the gap stops a car at the line flickering. */
+const LOD_IN2 = 58 * 58, LOD_OUT2 = 64 * 64;
+
+type Part = [geo: THREE.BufferGeometry, mat: THREE.Material, cast: boolean];
+
+/** What one draw set is made of. Kept so the set can be rebuilt larger. */
+interface SetParts {
+  paint: Part;
+  others: Part[];
+  wheel: Part;
+  /** The geometry whose lamp lenses take a per-instance glow, if any. */
+  lampGeo: THREE.BufferGeometry | null;
+}
+
+/** One kind at one level of detail: the body meshes, which share a matrix buffer, and its wheels. */
+interface DrawSet {
+  parts: SetParts;
+  /** Paint first. */
+  body: THREE.InstancedMesh[];
+  wheels: THREE.InstancedMesh;
+  mats: Float32Array;
+  cols: Float32Array;
+  wmats: Float32Array;
+  /** Per instance: head lamp glow, tail lamp glow. */
+  lamps: Float32Array | null;
+  lampAttr: THREE.InstancedBufferAttribute | null;
+  cap: number; wcap: number;
+  n: number; nw: number;
+  /** How many of the n instances (and nw wheels), counted from the front, are close enough to cast a shadow into view. */
+  near: number; nwNear: number;
+}
+
 interface KindBatch {
   kind: VehicleKind;
+  /** The procedural model: the fallback, and the source of whatever a file does not say. */
+  proc: VehicleModel;
+  /** What the rest of the game reads. Replaced when the kind's file arrives. */
   model: VehicleModel;
-  paint: THREE.InstancedMesh;
-  trim: THREE.InstancedMesh;
-  glass: THREE.InstancedMesh;
+  /** One set, or [near, far] for a Blender model above the low preset. */
+  sets: DrawSet[];
   cap: number;
-  n: number;
-  /** How many of the n instances, counted from the front, are close enough to cast a shadow into view. */
-  near: number;
 }
 
 class Car implements Vehicle {
@@ -149,6 +181,8 @@ class Car implements Vehicle {
   shown = -1; cr = 1; cg = 1; cb = 1;
   readonly mat = new Float32Array(16);
   readonly wmat: Float32Array;
+  /** Which level of detail it was last drawn at. */
+  lod = 0;
 
   constructor(readonly id: number, readonly spec: VehicleSpec, readonly batch: KindBatch) {
     this.hl = spec.length / 2;
@@ -335,6 +369,27 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
   mat.customProgramCacheKey = () => key;
 }
 
+/**
+ * Everything on a Blender car that is neither paint nor glass, in one draw call:
+ * roughness and metalness ride on each vertex (aPbr.xy) instead of on the
+ * material, and the lamp lenses (aPbr.z = 1 head, 2 tail) glow by their own
+ * baked colour times a per-instance level (aLamp). Wheels use it too; they have
+ * no aLamp, which reads as zero.
+ */
+function detailMaterial(): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, envMapIntensity: 1.2 });
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'attribute vec3 aPbr;\nattribute vec2 aLamp;\nvarying vec3 vPbr;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      '#include <begin_vertex>\nvPbr = vec3(aPbr.xy, aPbr.z > 1.5 ? aLamp.y : aPbr.z > 0.5 ? aLamp.x : 0.0);');
+    sh.fragmentShader = 'varying vec3 vPbr;\n' + sh.fragmentShader
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vPbr.x;')
+      .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vPbr.y;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vPbr.z;');
+  };
+  mat.customProgramCacheKey = () => 'cardetail';
+  return mat;
+}
+
 /** Instanced quads with our own attributes: one draw call for every lamp in town. */
 class Sprites {
   readonly mesh: THREE.Mesh;
@@ -399,10 +454,11 @@ export class Vehicles implements VehiclesApi {
   private trimMat: THREE.MeshStandardMaterial;
   private glassMat: THREE.MeshStandardMaterial;
   private glassTintMat: THREE.MeshStandardMaterial;
-  private wheels: THREE.InstancedMesh;
-  private wheelCap = 512;
-  private wheelsNear = 0;
-  private wheelsAll = 0;
+  /** The Blender models' materials, shared by every kind. */
+  private bodyMat: THREE.Material;
+  private detailMat: THREE.MeshStandardMaterial;
+  private paneMat: THREE.MeshStandardMaterial;
+  private assets = new Map<VehicleKind, VehicleAsset>();
   private wheelGeo: THREE.BufferGeometry;
   private wheelMat: THREE.MeshStandardMaterial;
   private glow: Sprites;
@@ -445,7 +501,18 @@ export class Vehicles implements VehiclesApi {
     sheen(this.glassTintMat, this.sky, 'glass', 0.04, 0.75, 0.2, 0.44);
     this.wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.15, roughness: 0.75 });
     this.wheelGeo = wheelGeometry();
-    this.wheels = this.makeWheels(this.wheelCap);
+    // Phones keep the cheap paint: a clearcoat is a second specular lobe on every pixel of every car.
+    const low = game.quality.name === 'low';
+    const coat = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.5, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.3 });
+    sheen(coat, this.sky, 'coat', 0, 0.3, 0.1, 0);
+    this.bodyMat = low ? this.paintMat : coat;
+    this.detailMat = detailMaterial();
+    // Near glass lets a little of the cabin through. Far glass and phones use the opaque tinted one.
+    this.paneMat = this.glassTintMat.clone();
+    this.paneMat.transparent = true; this.paneMat.opacity = 0.82;
+    sheen(this.paneMat, this.sky, 'glass', 0.04, 0.75, 0.2, 0.44);
+    // ?glb=0 keeps every kind procedural, for comparing.
+    if (new URLSearchParams(location.search).get('glb') !== '0') void loadVehicleAssets((a) => this.adopt(a));
     this.glow = new Sprites(1024, GLOW_VS, glowTexture(), 6);
     this.pool = new Sprites(96, POOL_VS, poolTexture(), 5);
     this.shadow = new Sprites(160, GROUND_VS, shadowTexture(), 2, new THREE.Color(0x0b1322));
@@ -1230,61 +1297,113 @@ export class Vehicles implements VehiclesApi {
   private batch(kind: VehicleKind): KindBatch {
     let b = this.batches.get(kind);
     if (b) return b;
-    const model = vehicleModel(kind);
-    const cap = Math.max(8, Math.ceil(SPECS[kind].common * 8));
-    b = { kind, model, cap, n: 0, near: 0, paint: null!, trim: null!, glass: null! };
-    this.makeMeshes(b);
+    const proc = vehicleModel(kind);
     // How far up its pane each glass vertex is, for the sheen's gradient: the top of a windshield shows sky, the bottom the dash.
-    const gp = model.glass.getAttribute('position');
-    if (gp && !model.glass.hasAttribute('aSky')) {
+    const gp = proc.glass.getAttribute('position');
+    if (gp && !proc.glass.hasAttribute('aSky')) {
       let lo = Infinity, hi = -Infinity;
       for (let i = 0; i < gp.count; i++) { const y = gp.getY(i); if (y < lo) lo = y; if (y > hi) hi = y; }
       const sky = new Float32Array(gp.count);
       for (let i = 0; i < gp.count; i++) sky[i] = hi > lo ? (gp.getY(i) - lo) / (hi - lo) : 0.5;
-      model.glass.setAttribute('aSky', new THREE.BufferAttribute(sky, 1));
+      proc.glass.setAttribute('aSky', new THREE.BufferAttribute(sky, 1));
     }
+    b = { kind, proc, model: proc, sets: [], cap: Math.max(8, Math.ceil(SPECS[kind].common * 8)) };
+    this.dress(b);
     this.batches.set(kind, b);
     this.batchList.push(b);
     return b;
   }
 
-  private makeMeshes(b: KindBatch): void {
-    const scene = this.game.scene, shadows = this.game.quality.shadows;
-    const make = (geo: THREE.BufferGeometry, mat: THREE.Material): THREE.InstancedMesh => {
-      const m = new THREE.InstancedMesh(geo, mat, b.cap);
-      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  /** A kind's file has arrived: from the next frame its cars are drawn from it. */
+  private adopt(a: VehicleAsset): void {
+    this.assets.set(a.kind, a);
+    const b = this.batches.get(a.kind);
+    if (!b) return;
+    this.dress(b);
+    for (const c of this.cars) if (c.batch === b) { c.stale = true; c.lod = 0; }
+  }
+
+  /** (Re)build a kind's draw sets: from its file if that is here, else from the procedural model. */
+  private dress(b: KindBatch): void {
+    for (const s of b.sets) { b.cap = Math.max(b.cap, s.cap); this.dropSet(s); }
+    const a = this.assets.get(b.kind), p = b.proc;
+    const list: SetParts[] = [];
+    if (a) {
+      const low = this.game.quality.name === 'low', l0 = a.lods[0];
+      // The file says where its lamps are; the wheel centers, seat and beacon it does not carry come from the spec.
+      b.model = {
+        paint: l0.paint, trim: l0.detail ?? p.trim, glass: l0.glass ?? p.glass, wheels: p.wheels,
+        head: a.head.length ? a.head : p.head, tail: a.tail.length ? a.tail : p.tail,
+        beacon: a.beacon ?? p.beacon, seat: a.seat ?? p.seat,
+      };
+      const lods = low ? [a.lods[1]] : a.lods;
+      lods.forEach((l, i) => {
+        const others: Part[] = [];
+        // Bumpers and mirrors add nothing to the shadow the shell already throws.
+        if (l.detail) others.push([l.detail, this.detailMat, false]);
+        if (l.glass) others.push([l.glass, i === 0 && !low ? this.paneMat : this.glassTintMat, true]);
+        list.push({
+          paint: [l.paint, this.bodyMat, true], others,
+          wheel: l.wheel ? [l.wheel, this.detailMat, true] : [this.wheelGeo, this.wheelMat, true], lampGeo: l.detail,
+        });
+      });
+    } else {
+      b.model = p;
+      list.push({
+        paint: [p.paint, this.paintMat, true],
+        others: [[p.trim, this.trimMat, true], [p.glass, p.glass.hasAttribute('color') ? this.glassTintMat : this.glassMat, true]],
+        wheel: [this.wheelGeo, this.wheelMat, true], lampGeo: null,
+      });
+    }
+    b.sets = list.map((parts) => {
+      const s: DrawSet = {
+        parts, body: [], wheels: null!, mats: null!, cols: null!, wmats: null!, lamps: null, lampAttr: null,
+        cap: b.cap, wcap: b.cap * p.wheels.length, n: 0, nw: 0, near: 0, nwNear: 0,
+      };
+      this.fillSet(s);
+      return s;
+    });
+  }
+
+  private fillSet(s: DrawSet): void {
+    const scene = this.game.scene, shadows = this.game.quality.shadows, q = s.parts;
+    const dyn = (a: Float32Array, n: number): THREE.InstancedBufferAttribute => new THREE.InstancedBufferAttribute(a, n).setUsage(THREE.DynamicDrawUsage);
+    s.mats = new Float32Array(s.cap * 16); s.cols = new Float32Array(s.cap * 3); s.wmats = new Float32Array(s.wcap * 16);
+    const bodyMats = dyn(s.mats, 16);
+    const make = (part: Part, wheel: boolean): THREE.InstancedMesh => {
+      const m = new THREE.InstancedMesh(part[0], part[1], 0);
+      m.instanceMatrix = wheel ? dyn(s.wmats, 16) : bodyMats;
       // Instances are spread over the whole island; culling is done by hand in sync().
       m.frustumCulled = false;
-      m.castShadow = shadows; m.receiveShadow = shadows;
+      m.castShadow = shadows && part[2]; m.receiveShadow = shadows;
       m.count = 0;
-      m.onBeforeShadow = () => { m.count = b.near; };
-      m.onAfterShadow = () => { m.count = b.n; };
+      m.onBeforeShadow = () => { m.count = wheel ? s.nwNear : s.near; };
+      m.onAfterShadow = () => { m.count = wheel ? s.nw : s.n; };
       scene.add(m);
       return m;
     };
-    b.paint = make(b.model.paint, this.paintMat);
-    b.paint.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(b.cap * 3), 3).setUsage(THREE.DynamicDrawUsage);
-    b.trim = make(b.model.trim, this.trimMat);
-    b.glass = make(b.model.glass, b.model.glass.hasAttribute('color') ? this.glassTintMat : this.glassMat);
+    s.body = [make(q.paint, false), ...q.others.map((o) => make(o, false))];
+    s.body[0].instanceColor = dyn(s.cols, 3);
+    s.wheels = make(q.wheel, true);
+    if (q.lampGeo) {
+      s.lamps = new Float32Array(s.cap * 2);
+      s.lampAttr = dyn(s.lamps, 2);
+      q.lampGeo.setAttribute('aLamp', s.lampAttr);
+    }
   }
 
-  private grow(b: KindBatch): void {
-    for (const m of [b.paint, b.trim, b.glass]) { this.game.scene.remove(m); m.dispose(); }
-    b.cap *= 2;
-    this.makeMeshes(b);
+  private dropSet(s: DrawSet): void {
+    for (const m of [...s.body, s.wheels]) { this.game.scene.remove(m); m.dispose(); }
   }
 
-  private makeWheels(cap: number): THREE.InstancedMesh {
-    const shadows = this.game.quality.shadows;
-    const m = new THREE.InstancedMesh(this.wheelGeo, this.wheelMat, cap);
-    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    m.frustumCulled = false;
-    m.castShadow = shadows; m.receiveShadow = shadows;
-    m.count = 0;
-    m.onBeforeShadow = () => { m.count = this.wheelsNear; };
-    m.onAfterShadow = () => { m.count = this.wheelsAll; };
-    this.game.scene.add(m);
-    return m;
+  /** Growing replaces the meshes and their buffers, so carry over what this frame has already written. */
+  private growSet(s: DrawSet): void {
+    const { mats, cols, wmats, lamps } = s;
+    this.dropSet(s);
+    s.cap *= 2; s.wcap *= 2;
+    this.fillSet(s);
+    s.mats.set(mats); s.cols.set(cols); s.wmats.set(wmats);
+    if (lamps && s.lamps) s.lamps.set(lamps);
   }
 
   /** Rebuild one car's cached matrices: the body on its springs, and each wheel on the ground under its corner. */
@@ -1319,10 +1438,8 @@ export class Vehicles implements VehiclesApi {
     const cam = game.view ? game.view.pos : game.camera.position;
     const far = game.quality.drawDist * 0.7, far2 = far * far;
     const glow = this.glow, pool = this.pool, shadow = this.shadow;
-    for (const b of this.batchList) b.n = 0;
+    for (const b of this.batchList) for (const s of b.sets) { s.n = 0; s.nw = 0; }
     glow.n = 0; pool.n = 0; shadow.n = 0;
-    let nw = 0;
-    let wheelArr = this.wheels.instanceMatrix.array as Float32Array;
 
     // Two passes so the cars near enough to throw a shadow into view come first in every buffer: the shadow pass
     // then draws only that head of the list (see makeMeshes), and everything farther is culled against the view.
@@ -1347,29 +1464,20 @@ export class Vehicles implements VehiclesApi {
       }
       if (c.stale) this.pose(c);
       const b = c.batch;
-      if (b.n >= b.cap) this.growKeeping(b);
-      const i = b.n++;
-      (b.paint.instanceMatrix.array as Float32Array).set(c.mat, i * 16);
-      (b.trim.instanceMatrix.array as Float32Array).set(c.mat, i * 16);
-      (b.glass.instanceMatrix.array as Float32Array).set(c.mat, i * 16);
-      if (c.color !== c.shown) { _col.setHex(c.color); c.cr = _col.r; c.cg = _col.g; c.cb = _col.b; c.shown = c.color; }
-      const ca = b.paint.instanceColor!.array as Float32Array;
-      ca[i * 3] = c.cr; ca[i * 3 + 1] = c.cg; ca[i * 3 + 2] = c.cb;
-
-      // Past a few hundred meters a wheel is a pixel in the shade of its arch.
-      if (d3 < WHEEL_R2) {
-        const nWheels = c.wmat.length / 16;
-        if (nw + nWheels > this.wheelCap) {
-          const old = this.wheels;
-          this.wheelCap *= 2;
-          this.wheels = this.makeWheels(this.wheelCap);
-          (this.wheels.instanceMatrix.array as Float32Array).set((old.instanceMatrix.array as Float32Array).subarray(0, nw * 16));
-          game.scene.remove(old); old.dispose();
-          wheelArr = this.wheels.instanceMatrix.array as Float32Array;
-        }
-        wheelArr.set(c.wmat, nw * 16);
-        nw += nWheels;
+      let s = b.sets[0];
+      if (b.sets.length > 1) {
+        if (d3 > (c.lod ? LOD_IN2 : LOD_OUT2)) { c.lod = 1; s = b.sets[1]; } else c.lod = 0;
       }
+      if (s.n >= s.cap) this.growSet(s);
+      const i = s.n++;
+      s.mats.set(c.mat, i * 16);
+      if (c.color !== c.shown) { _col.setHex(c.color); c.cr = _col.r; c.cg = _col.g; c.cb = _col.b; c.shown = c.color; }
+      s.cols[i * 3] = c.cr; s.cols[i * 3 + 1] = c.cg; s.cols[i * 3 + 2] = c.cb;
+      // The lenses themselves light up; the glow sprites in lamps() are the halo round them.
+      if (s.lamps) { s.lamps[i * 2] = c.lights ? 2.2 : 0; s.lamps[i * 2 + 1] = c.braking ? 3.5 : c.lights ? 0.9 : 0; }
+
+      // Past a few hundred meters a wheel is a pixel in the shade of its arch. (wcap is cap times the wheels per car, so these always fit.)
+      if (d3 < WHEEL_R2) { s.wmats.set(c.wmat, s.nw * 16); s.nw += c.wmat.length / 16; }
 
       // The dark under the car. The sun's shadow does this at noon; at dusk, at night and with shadows off nothing
       // else does, and the car floats. It stays behind when the car leaves the ground.
@@ -1383,29 +1491,20 @@ export class Vehicles implements VehiclesApi {
 
       if ((c.lights || c.braking || c.reversing) && d2 < 62500) this.lamps(c, dx, dz, Math.sqrt(d2), night);
     }
-    if (pass === 0) { for (const b of this.batchList) b.near = b.n; this.wheelsNear = nw; }
+    if (pass === 0) for (const b of this.batchList) for (const s of b.sets) { s.near = s.n; s.nwNear = s.nw; }
     }
 
-    for (const b of this.batchList) {
-      const on = b.n > 0;
-      b.paint.count = b.trim.count = b.glass.count = b.n;
-      b.paint.visible = b.trim.visible = b.glass.visible = on;
+    for (const b of this.batchList) for (const s of b.sets) {
+      const on = s.n > 0;
+      for (const m of s.body) { m.count = s.n; m.visible = on; }
+      s.wheels.count = s.nw; s.wheels.visible = s.nw > 0;
       if (!on) continue;
-      b.paint.instanceMatrix.needsUpdate = b.trim.instanceMatrix.needsUpdate = b.glass.instanceMatrix.needsUpdate = true;
-      b.paint.instanceColor!.needsUpdate = true;
+      s.body[0].instanceMatrix.needsUpdate = true;
+      s.body[0].instanceColor!.needsUpdate = true;
+      if (s.lampAttr) s.lampAttr.needsUpdate = true;
+      if (s.nw) s.wheels.instanceMatrix.needsUpdate = true;
     }
-    this.wheels.count = this.wheelsAll = nw;
-    this.wheels.visible = nw > 0;
-    this.wheels.instanceMatrix.needsUpdate = true;
     glow.flush(); pool.flush(); shadow.flush();
-  }
-
-  /** Growing replaces the meshes, so carry over what this frame has already written. */
-  private growKeeping(b: KindBatch): void {
-    const pm = b.paint.instanceMatrix.array as Float32Array, pc = b.paint.instanceColor!.array as Float32Array;
-    this.grow(b);
-    for (const m of [b.paint, b.trim, b.glass]) (m.instanceMatrix.array as Float32Array).set(pm);
-    (b.paint.instanceColor!.array as Float32Array).set(pc);
   }
 
   /** Glow sprites at the lamp positions. They only show from the side they shine toward. */

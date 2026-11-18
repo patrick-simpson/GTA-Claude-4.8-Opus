@@ -61,6 +61,25 @@ pause card shows it already).
    lighting, integration and writing.
 3. **The site is at gta.doofus.live** (the owner moved it from gtaopus).
 
+### Realistic rework, step (b) cars: first one pushed Nov 18, about 4:10 PM ET
+
+`tools/blender/cars.py` builds vehicles in Blender (headless) and exports
+`public/models/<kind>.glb` with two levels of detail, a wheel, named materials and
+baked shading. `src/ent/vehicleAssets.ts` loads them after boot; **add each new
+kind to `GLB_KINDS` there** or the game keeps drawing the old procedural shape.
+The sedan is live. The other ten are being modelled. Known: the distance model's
+lamps are mangled by decimation (phones see it up close), paint reads satin
+rather than glossy, lamp glow sprites sit slightly off the lenses, `?glb=0`
+switches the Blender models off.
+
+### Owner request, Nov 18: land
+
+After the realistic rework: (1) finish the parts of the island that still look
+like works in progress (empty paved cores in Strand blocks, bare east-coast sand
+flats, olive beach sand, distant haze); (2) then start on add-on lands: new
+territory beyond the island. The Perpetual Bridge points at a mainland to the
+north, which is the natural first one. Order: cars, people, foliage and land
+finishing, the rest of M2, then add-on lands.
 ### Realistic rework, step (a): pushed Nov 18, about 12:05 PM ET
 
 City surfaces are physically based on medium and high (`materials.ts`, with normal
