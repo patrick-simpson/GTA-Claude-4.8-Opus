@@ -529,7 +529,7 @@ class Builder {
     strip(s, s + 0.07, y, y + 2.4); strip(s + 1.2, s + 1.27, y, y + 2.4); strip(s, s + 1.27, y + 2.4, y + 2.47);
     lbox(b, f, s + 0.63, 0.08, y, 1.5, 0.16, 0.06, 0x8c877c, 5);
     this.signBoard(f, 'room-404', s + 1.6, y + 1.45, 0.62, 0.04, false);
-    this.site('room404', { ...f, ox: PX(f, s + 0.6, 0) - f.tx * f.len / 2, oz: PZ(f, s + 0.6, 0) - f.tz * f.len / 2 }, L404.side = this.lastSide(f));
+    this.site('room404', { ...f, ox: PX(f, s + 0.6, 0) - f.tx * f.len / 2, oz: PZ(f, s + 0.6, 0) - f.tz * f.len / 2 }, this.lastSide(f));
   }
 
   private lastSide(f: Frame): number { return f.nz < 0 ? 0 : f.nx > 0 ? 1 : f.nz > 0 ? 2 : 3; }

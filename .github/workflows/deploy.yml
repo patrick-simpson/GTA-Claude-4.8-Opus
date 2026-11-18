@@ -23,14 +23,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare deploy artifact
-        run: |
-          mkdir -p _site
-          cp index.html _site/index.html
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Type-checks, then bundles into dist/. If this fails nothing is deployed
+      # and the site keeps serving the last good build.
+      - run: npm run build
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: dist
 
       - uses: actions/deploy-pages@v4
         id: deployment

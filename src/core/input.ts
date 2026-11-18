@@ -92,7 +92,10 @@ export class Input {
 
   setEnabled(on: boolean): void {
     this.enabled = on;
-    if (!on) { this.held.clear(); this.pressed.clear(); this.keys.clear(); }
+    // Presses are dropped when switching on as well: the key that dismissed the title card
+    // (Enter, more often than not) is otherwise still waiting here and puts her in the truck.
+    this.pressed.clear();
+    if (!on) { this.held.clear(); this.keys.clear(); }
   }
 
   private onKey(e: KeyboardEvent, down: boolean): void {

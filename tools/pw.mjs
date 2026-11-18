@@ -29,7 +29,7 @@ const freePort = () => new Promise((resolve, reject) => {
 
 /**
  * @param {object} [o]
- * @param {string}  [o.page='play.html']  Page to open, relative to the repo root (a scratch harness page works too).
+ * @param {string}  [o.page='index.html']  Page to open, relative to the repo root (a scratch harness page works too).
  * @param {boolean} [o.dist=false]        Serve the production build in dist/ instead of the source.
  * @param {boolean} [o.mobile=false]      Phone-sized touch context (landscape 844x390, device scale 2).
  * @param {number}  [o.width=1280] @param {number} [o.height=720]
@@ -39,7 +39,7 @@ const freePort = () => new Promise((resolve, reject) => {
  * @param {number}  [o.timeout=90000]
  */
 export async function boot(o = {}) {
-  const { page: pagePath = 'play.html', dist = false, mobile = false, query = '', start = true, wait = true, timeout = 90000 } = o;
+  const { page: pagePath = 'index.html', dist = false, mobile = false, query = '', start = true, wait = true, timeout = 90000 } = o;
   const width = o.width ?? (mobile ? 844 : 1280), height = o.height ?? (mobile ? 390 : 720);
   const port = await freePort();
   let server;
@@ -68,7 +68,6 @@ export async function boot(o = {}) {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e.stack || e)));
   page.on('requestfailed', (r) => errors.push('request failed: ' + r.url()));
-  // After the live-site switch the build's entry is index.html; before it, play.html.
   const file = dist && !fs.existsSync(path.join(ROOT, 'dist', pagePath)) ? '' : pagePath;
   const url = `http://127.0.0.1:${port}/${file}${query ? '?' + query : ''}`;
   await page.goto(url, { waitUntil: 'load', timeout });

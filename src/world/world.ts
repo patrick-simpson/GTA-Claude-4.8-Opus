@@ -17,6 +17,8 @@ export class World implements WorldApi {
   readonly group = new THREE.Group();
   mats!: CityMaterials;
   private parts: WorldPart[] = [];
+  /** How many collision boxes existed after each builder ran (ground, buildings, landmarks, places): lets a test say whose box is in the road. */
+  readonly boxMarks: number[] = [];
 
   constructor(private game: Game) {
     this.group.name = 'world';
@@ -31,12 +33,16 @@ export class World implements WorldApi {
     this.mats = makeMaterials(tex, g.quality);
     await step(0.2, 'Pouring streets');
     this.parts.push(buildGround(g, this.mats, this.group));
+    this.boxMarks.push(g.col.allBoxes.length);
     await step(0.5, 'Raising the skyline');
     this.parts.push(buildBuildings(g, this.mats, this.group));
+    this.boxMarks.push(g.col.allBoxes.length);
     await step(0.8, 'Inflating one very large duck');
     this.parts.push(buildLandmarks(g, this.mats, this.group));
+    this.boxMarks.push(g.col.allBoxes.length);
     await step(0.92, 'Mowing Mercy Park');
     this.parts.push(buildPlaces(g, this.mats, this.group));
+    this.boxMarks.push(g.col.allBoxes.length);
     await step(1, 'Sweeping up');
   }
 

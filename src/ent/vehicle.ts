@@ -59,6 +59,9 @@ const _q = new THREE.Quaternion(), _qg = new THREE.Quaternion(), _qw = new THREE
 const _p = new THREE.Vector3(), _s = new THREE.Vector3(), _one = new THREE.Vector3(1, 1, 1);
 const _m = new THREE.Matrix4();
 const _col = new THREE.Color();
+const _cullCam = new THREE.PerspectiveCamera(), _pv = new THREE.Matrix4(), _frustum = new THREE.Frustum(), _sphere = new THREE.Sphere();
+/** The sun's shadow box is 130 m across and follows the camera's focus; cars within this of the focus are drawn into it. */
+const SHADOW_R2 = 95 * 95, WHEEL_R2 = 320 * 320;
 
 interface KindBatch {
   kind: VehicleKind;
@@ -68,6 +71,8 @@ interface KindBatch {
   glass: THREE.InstancedMesh;
   cap: number;
   n: number;
+  /** How many of the n instances, counted from the front, are close enough to cast a shadow into view. */
+  near: number;
 }
 
 class Car implements Vehicle {
@@ -281,6 +286,8 @@ export class Vehicles implements VehiclesApi {
   private glassTintMat: THREE.MeshStandardMaterial;
   private wheels: THREE.InstancedMesh;
   private wheelCap = 512;
+  private wheelsNear = 0;
+  private wheelsAll = 0;
   private wheelGeo: THREE.BufferGeometry;
   private wheelMat: THREE.MeshStandardMaterial;
   private glow: Sprites;
@@ -902,7 +909,7 @@ export class Vehicles implements VehiclesApi {
     if (b) return b;
     const model = vehicleModel(kind);
     const cap = Math.max(8, Math.ceil(SPECS[kind].common * 8));
-    b = { kind, model, cap, n: 0, paint: null!, trim: null!, glass: null! };
+    b = { kind, model, cap, n: 0, near: 0, paint: null!, trim: null!, glass: null! };
     this.makeMeshes(b);
     this.batches.set(kind, b);
     this.batchList.push(b);
@@ -918,6 +925,8 @@ export class Vehicles implements VehiclesApi {
       m.frustumCulled = false;
       m.castShadow = shadows; m.receiveShadow = shadows;
       m.count = 0;
+      m.onBeforeShadow = () => { m.count = b.near; };
+      m.onAfterShadow = () => { m.count = b.n; };
       scene.add(m);
       return m;
     };
@@ -940,6 +949,8 @@ export class Vehicles implements VehiclesApi {
     m.frustumCulled = false;
     m.castShadow = shadows; m.receiveShadow = shadows;
     m.count = 0;
+    m.onBeforeShadow = () => { m.count = this.wheelsNear; };
+    m.onAfterShadow = () => { m.count = this.wheelsAll; };
     this.game.scene.add(m);
     return m;
   }
@@ -981,10 +992,27 @@ export class Vehicles implements VehiclesApi {
     let nw = 0;
     let wheelArr = this.wheels.instanceMatrix.array as Float32Array;
 
+    // Two passes so the cars near enough to throw a shadow into view come first in every buffer: the shadow pass
+    // then draws only that head of the list (see makeMeshes), and everything farther is culled against the view.
+    // The frustum is a frame old (the camera moves after the cars do), so it is taken with a wider lens.
+    const focus = game.cam ? game.cam.focus : cam;
+    if (game.view) { game.camera.position.copy(game.view.pos); game.camera.lookAt(game.view.target); }
+    game.camera.updateMatrixWorld();
+    _cullCam.fov = Math.min(150, game.camera.fov + 30); _cullCam.aspect = game.camera.aspect;
+    _cullCam.updateProjectionMatrix();
+    _pv.multiplyMatrices(_cullCam.projectionMatrix, game.camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_pv);
+    for (let pass = 0; pass < 2; pass++) {
     for (let k = 0; k < this.cars.length; k++) {
       const c = this.cars[k];
-      const dx = cam.x - c.x, dz = cam.z - c.z, d2 = dx * dx + dz * dz;
-      if (d2 > far2) continue;
+      const fx = focus.x - c.x, fz = focus.z - c.z, near = fx * fx + fz * fz < SHADOW_R2;
+      if (near !== (pass === 0)) continue;
+      const dx = cam.x - c.x, dz = cam.z - c.z, dy = cam.y - c.y, d2 = dx * dx + dz * dz, d3 = d2 + dy * dy;
+      if (d3 > far2) continue;
+      if (!near) {
+        _sphere.center.set(c.x, c.y + 1, c.z); _sphere.radius = c.spec.length * 0.5 + 1.5;
+        if (!_frustum.intersectsSphere(_sphere)) continue;
+      }
       if (c.stale) this.pose(c);
       const b = c.batch;
       if (b.n >= b.cap) this.growKeeping(b);
@@ -996,19 +1024,24 @@ export class Vehicles implements VehiclesApi {
       const ca = b.paint.instanceColor!.array as Float32Array;
       ca[i * 3] = c.cr; ca[i * 3 + 1] = c.cg; ca[i * 3 + 2] = c.cb;
 
-      const nWheels = c.wmat.length / 16;
-      if (nw + nWheels > this.wheelCap) {
-        const old = this.wheels;
-        this.wheelCap *= 2;
-        this.wheels = this.makeWheels(this.wheelCap);
-        (this.wheels.instanceMatrix.array as Float32Array).set((old.instanceMatrix.array as Float32Array).subarray(0, nw * 16));
-        game.scene.remove(old); old.dispose();
-        wheelArr = this.wheels.instanceMatrix.array as Float32Array;
+      // Past a few hundred meters a wheel is a pixel in the shade of its arch.
+      if (d3 < WHEEL_R2) {
+        const nWheels = c.wmat.length / 16;
+        if (nw + nWheels > this.wheelCap) {
+          const old = this.wheels;
+          this.wheelCap *= 2;
+          this.wheels = this.makeWheels(this.wheelCap);
+          (this.wheels.instanceMatrix.array as Float32Array).set((old.instanceMatrix.array as Float32Array).subarray(0, nw * 16));
+          game.scene.remove(old); old.dispose();
+          wheelArr = this.wheels.instanceMatrix.array as Float32Array;
+        }
+        wheelArr.set(c.wmat, nw * 16);
+        nw += nWheels;
       }
-      wheelArr.set(c.wmat, nw * 16);
-      nw += nWheels;
 
       if ((c.lights || c.braking || c.reversing) && d2 < 62500) this.lamps(c, dx, dz, Math.sqrt(d2), night);
+    }
+    if (pass === 0) { for (const b of this.batchList) b.near = b.n; this.wheelsNear = nw; }
     }
 
     for (const b of this.batchList) {
@@ -1019,7 +1052,7 @@ export class Vehicles implements VehiclesApi {
       b.paint.instanceMatrix.needsUpdate = b.trim.instanceMatrix.needsUpdate = b.glass.instanceMatrix.needsUpdate = true;
       b.paint.instanceColor!.needsUpdate = true;
     }
-    this.wheels.count = nw;
+    this.wheels.count = this.wheelsAll = nw;
     this.wheels.visible = nw > 0;
     this.wheels.instanceMatrix.needsUpdate = true;
     glow.flush(); pool.flush();

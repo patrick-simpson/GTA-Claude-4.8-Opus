@@ -12,48 +12,78 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 15% done)
+## Where things stand (about 40% done)
 
-Written and type-checking clean (`npx tsc --noEmit`):
-
-| File | What it is |
-| --- | --- |
-| `src/core/util.ts` | Math helpers, seeded random numbers, and the world conventions (read its header first) |
-| `src/core/input.ts` | Keyboard, mouse, gamepad and touch feeding one action map |
-| `src/world/plan.ts` | The city as data: street grid, intersections, blocks, lots, parking spots, island shape, ground height (`groundAt`), ramps, pier, breakwater, unfinished bridge, route-finding |
-| `src/world/collide.ts` | Static collision: building boxes and street-prop circles in a grid, with push-out, ray casts and line of sight |
-| `src/world/batch.ts` | Merges thousands of boxes and quads into a few big meshes, split into chunks |
-
-**M1 is in progress (started Nov 17, 2026, 6:30 PM ET).** The backbone is written;
-the pieces that plug into it are being built:
+**Milestone 1, the first playable, is live** at gtaopus.doofus.live (switched over
+Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
+eleven vehicles and drive the whole island, by keyboard, gamepad or phone, through
+a full day and night with weather. Next up is a test-and-polish pass on M1 (list
+below), then M2.
 
 | File | What it is |
 | --- | --- |
 | `src/core/api.ts` | The contracts: what every subsystem promises the others. Read this before touching anything |
-| `src/core/game.ts` | The `Game` object, quality presets, events, and the frame order |
+| `src/core/game.ts` | The `Game` object, quality presets, events, the frame order, and `game.systems` (a plug-in slot for later milestones) |
 | `src/main.ts` | Entry point and the `window.__game` test hooks |
-| `src/core/cheats.ts` | Typed cheat words (easter egg) |
-| `src/ent/vehicleSpecs.ts` | The eleven vehicles: names, sizes, handling numbers |
-| `src/world/world.ts`, `signals.ts` | Assembles the world from its builders; traffic-signal timing |
-| `play.html`, `src/ui/base.css` | The new page. It is called `play.html` until the switch-over, when it becomes `index.html` |
-| `tools/pw.mjs`, `tools/shot.mjs` | Test harness: boots the game in headless Chromium and takes screenshots (`node tools/shot.mjs shots/a.png --at -30,285 --hour 14`) |
+| `src/core/util.ts`, `input.ts`, `camera.ts`, `cheats.ts` | Helpers and conventions; keyboard, mouse, gamepad and touch as one action map; the third-person and chase camera; typed cheat words |
+| `src/world/plan.ts`, `collide.ts`, `batch.ts`, `signals.ts` | The city as data; static collision; geometry batching; traffic-signal timing |
+| `src/world/textures.ts`, `materials.ts` | Every canvas texture (facades, roads, the sign atlas with all the pun shops) and the shared materials |
+| `src/world/ground.ts`, `buildings.ts`, `landmarks.ts`, `places.ts`, `world.ts` | Terrain, sea, roads, lamps, signals, trees, props; every building; pier, Ferris wheel, lighthouse, bridge, ramps, duck; park, arena, billboards, beach, harbor; and the file that assembles them |
+| `src/world/sky.ts` | Sky dome, sun and moon, clouds, fog, weather, lights and shadows, tone mapping, the game clock |
+| `src/ent/vehicleSpecs.ts`, `vehicleModels.ts`, `vehicle.ts` | The roster, the car bodies, and the driving physics and drawing |
+| `src/ent/character.ts`, `player.ts` | People as animated box-limb figures; Dess on foot and at the wheel |
+| `src/ui/hud.ts`, `title.ts`, `touch.ts` (+ CSS) | Radar, readouts, stamps, toasts, pause card; title card; touch controls |
+| `tools/pw.mjs`, `tools/shot.mjs` | Test harness: boots the game in headless Chromium and takes screenshots (`node tools/shot.mjs shots/a.png --at -340,291.8,1.5708 --drive sports --keys KeyW --steps 260`) |
+| `next/` | Staging folder for later-milestone modules written ahead of time. Empty so far apart from its README |
 
-Still to come for M1 (the tree does not build until these exist):
-`world/textures.ts`, `materials.ts`, `ground.ts`, `buildings.ts`, `landmarks.ts`,
-`places.ts`, `sky.ts`, `ent/vehicleModels.ts`, `vehicle.ts`, `character.ts`,
-`player.ts`, `core/camera.ts`, `ui/hud.ts`, `title.ts`, `touch.ts`.
+Easter eggs already in: the giant rubber duck, Gerald the seagull, the 3 AM UFO,
+the "Room 404" door, typed cheat words, the pun shop signs, the WDOOF billboard.
+Still owed: the pause-menu stat "Mistakes made: 0*" belongs to the M4 menu (the M1
+pause card shows it already).
 
-### The live site is deliberately untouched
+### How M1 was checked, and what was not
 
-`index.html` and `.github/workflows/deploy.yml` are still the **old prototype**
-(a self-contained page; the workflow just copies it). Every push to any branch
-redeploys to gtaopus.doofus.live, so they stay as they are until the new game is
-playable. At the first playable milestone, in one commit:
+Checked on the production build: type-check and build clean; boots with zero
+console errors on desktop and the phone preset; 119 to 180 draw calls and 0.5 to
+0.8 million triangles; a scripted walk, get-in, drive, steer, get-out; the bridge
+jump into the sea and the swim back; collision audit (no building on a road, no
+overlap between builders); drawn surfaces against `groundAt()` on the pier, bridge
+and breakwater.
 
-1. Replace `index.html` with the Vite entry page (`<canvas id="c">`, HUD root, `<script type="module" src="/src/main.ts">`).
-2. Move `CNAME` to `public/CNAME` so the build copies it.
-3. Change the deploy job steps to: `actions/checkout@v4`, `actions/setup-node@v4` (node 22, `cache: npm`), `npm ci`, `npm run build`, `actions/upload-pages-artifact@v3` with `path: dist`, `actions/deploy-pages@v4`. Keep the triggers and permissions as they are.
-4. Run `npm run build` locally and smoke-test `dist` before pushing.
+Not yet checked (this is the next job, before M2): an independent test pass. The
+testers' briefs are written and ready in the session's workflow script; they
+cover first impression, art by day and night, landmarks, vehicle looks, driving
+feel, on foot, HUD, touch, performance and two code reviews.
+
+Known problems from integration:
+- The opening camera is side-on to Dess with a palm trunk mid-frame.
+- From very far away the island is nearly lost in haze (fog is tuned for street level).
+- Dess is almost black at night and against a sunset: no fill light on people.
+- The quick-reference card sometimes shows half-faded; the district stamp can be stale after a teleport.
+- The cannery ramp straddles a curb, so one half sits 0.16 m higher.
+- Some Gull Heights yard details have no collision; the "BRIDGE OUT" sign overlaps a signal pole.
+- The JS bundle is one 800 kB chunk. Nothing has been measured on a real phone.
+- Not exercised: gamepad, pointer lock, real touch hardware, death and respawn in the full game.
+
+### How to work on this without wasting the owner's credit
+
+The owner's plan has a 5-hour usage window, and it is the real constraint. Two
+runs died to it: a dozen agents at once emptied the window in about 20 minutes
+and killed everything in flight. What worked:
+- Tell every builder to get a complete first version onto disk early, then improve it in place. A cut-off then loses little.
+- Cap look-and-improve rounds (two) and screenshots (about ten) per agent.
+- One integrator with a fresh context, after the builders, is cheap and effective.
+- Commit and push after every stage, even when the tree does not build: before the switch-over that was harmless; now use a branch or keep `main` building.
+- Do not run later-milestone work alongside the current milestone: it competes for the same window.
+
+### Deployment
+
+Every push to any branch runs `.github/workflows/deploy.yml`: `npm ci`,
+`npm run build`, publish `dist/`. If the build fails nothing is deployed and the
+site keeps the last good build, so **`main` must always pass `npm run build`**.
+GitHub Pages is set to deploy from GitHub Actions (it was "deploy from branch"
+until the switch-over, which would have served the raw source page). The custom
+domain comes from the Pages setting and from `public/CNAME`.
 
 ## Tech decisions
 
@@ -97,7 +127,7 @@ Original wording for fail states (for example "CLOCKED OUT" and "BOOKED").
 
 ## Remaining work, in order (push to `main` after each)
 
-**M1 — First playable (then switch the live site over)**
+**M1 — First playable (DONE; test-and-polish pass still owed)**
 - `world/textures.ts`: canvas textures. Four facade styles (8x8 windows each, color + night-glow map), street and avenue surfaces with lane lines matching the traffic lanes (street lanes at ±1.75 m; avenue lanes at ±1.8 and ±5.2 m), a sign atlas, glow sprite.
 - `world/buildings.ts`: per-district generators that fill each lot and register collision boxes: towers, mid-rises with shopfronts, rowhouses, houses with yards, warehouses, container stacks, boardwalk shops.
 - `world/world.ts`: terrain mesh from `terrainAt` (drop it 6 cm on land to avoid flicker against roads), roads, crosswalks, sidewalks, lamps with additive light pools, traffic lights (26 s cycle: 10 green, 2.5 yellow, 0.5 all-red per axis, offset by `node.phase`), instanced trees and props, park, arena, pier, lighthouse, bridge, ramps, water shader, `setNight(n)`.

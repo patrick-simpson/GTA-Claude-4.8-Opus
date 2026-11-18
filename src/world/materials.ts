@@ -125,8 +125,10 @@ export class CityMaterials {
     this.night = n;
     // Windows come on a little ahead of full dark, the way a town does at dusk.
     const w = smooth(n * 1.35);
-    for (const f of this.facade) f.emissiveIntensity = w * 1.05;
-    this.kit.emissiveIntensity = w * 0.95;
+    // Levels are for the sky's night exposure (1.22): at the paint shop's 1.05 / 0.95 a shop window
+    // beside the camera burned out to a blank cream card and lost the shelves drawn in it.
+    for (const f of this.facade) f.emissiveIntensity = w * 0.92;
+    this.kit.emissiveIntensity = w * 0.66;
     this.sign.emissiveIntensity = n * 0.32;
     this.glow.opacity = smooth(n * 1.2);
     // An invisible material costs no draw calls, so lamps are free by day.
