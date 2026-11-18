@@ -1,13 +1,16 @@
 // Entry point: fonts, the title card, the game, and the hooks tests drive it with.
+//
+// The font imports have no .css extension on purpose: the packages' export map
+// adds it, and Vite fails to resolve the path when it is written out.
 
-import '@fontsource/big-shoulders-display/latin-700.css';
-import '@fontsource/big-shoulders-display/latin-900.css';
-import '@fontsource/barlow-semi-condensed/latin-400.css';
-import '@fontsource/barlow-semi-condensed/latin-500.css';
-import '@fontsource/barlow-semi-condensed/latin-600.css';
-import '@fontsource/ibm-plex-mono/latin-400.css';
-import '@fontsource/ibm-plex-mono/latin-500.css';
-import '@fontsource/ibm-plex-mono/latin-600.css';
+import '@fontsource/big-shoulders-display/latin-700';
+import '@fontsource/big-shoulders-display/latin-900';
+import '@fontsource/barlow-semi-condensed/latin-400';
+import '@fontsource/barlow-semi-condensed/latin-500';
+import '@fontsource/barlow-semi-condensed/latin-600';
+import '@fontsource/ibm-plex-mono/latin-400';
+import '@fontsource/ibm-plex-mono/latin-500';
+import '@fontsource/ibm-plex-mono/latin-600';
 import './ui/base.css';
 
 import * as THREE from 'three';

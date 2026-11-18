@@ -55,6 +55,8 @@ export class Game {
   hud!: Hud;
   touchUI!: TouchUI;
   private cheats!: Cheats;
+  /** Systems from later milestones plug in here until they earn a named slot. Updated after the world, while running. */
+  readonly systems: { update(dt: number): void }[] = [];
 
   state: GameState = 'loading';
   /** Simulated seconds since the world was built. Stops while paused. */
@@ -203,6 +205,7 @@ export class Game {
       this.vehicles.update(dt);
       this.people.update(dt);
       this.world.update(dt);
+      for (const s of this.systems) s.update(dt);
     }
     this.cam.update(running ? dt : 0);
     if (running) {

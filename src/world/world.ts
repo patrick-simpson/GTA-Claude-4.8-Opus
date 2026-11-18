@@ -10,6 +10,7 @@ import { makeMaterials, type CityMaterials } from './materials';
 import { buildGround } from './ground';
 import { buildBuildings } from './buildings';
 import { buildLandmarks } from './landmarks';
+import { buildPlaces } from './places';
 import { signalState } from './signals';
 
 export class World implements WorldApi {
@@ -32,8 +33,10 @@ export class World implements WorldApi {
     this.parts.push(buildGround(g, this.mats, this.group));
     await step(0.5, 'Raising the skyline');
     this.parts.push(buildBuildings(g, this.mats, this.group));
-    await step(0.85, 'Inflating one very large duck');
+    await step(0.8, 'Inflating one very large duck');
     this.parts.push(buildLandmarks(g, this.mats, this.group));
+    await step(0.92, 'Mowing Mercy Park');
+    this.parts.push(buildPlaces(g, this.mats, this.group));
     await step(1, 'Sweeping up');
   }
 

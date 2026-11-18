@@ -1,0 +1,231 @@
+/* Touch controls: flat stamped keys in the Harbor Authority paperwork style.
+   Square corners, a 2 px bone rule, ink fill; a pressed key inverts. */
+
+#touch {
+  /* One thumb unit. Everything is sized from it so a 375 px tall phone and a
+     tablet get the same proportions; 56 px is the smallest key a thumb finds. */
+  --u: clamp(56px, 16vmin, 88px);
+  --g: 10px;
+  --sl: max(14px, env(safe-area-inset-left));
+  --sr: max(14px, env(safe-area-inset-right));
+  --st: max(10px, env(safe-area-inset-top));
+  --sb: max(12px, env(safe-area-inset-bottom));
+  display: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+#touch.show { display: block; }
+
+/* ── Zones (invisible) ─────────────────────────────────────────────────── */
+
+.t-zone {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+}
+.t-stickzone { left: 0; width: 40%; top: 33.333%; bottom: 0; }
+.t-lookzone { left: 40%; right: 0; top: 0; bottom: 0; }
+#touch.paused .t-zone { display: none; }
+
+/* ── Stick ─────────────────────────────────────────────────────────────── */
+
+/* At rest it waits, faint, where a left thumb naturally falls, so a new
+   player can see there is a stick at all; it jumps to the thumb on contact. */
+.t-stick {
+  position: absolute;
+  left: calc(var(--sl) + var(--u) * 1.75);
+  bottom: calc(var(--sb) + var(--u) * 1.45);
+  width: calc(var(--u) * 1.9);
+  height: calc(var(--u) * 1.9);
+  transform: translate(-50%, 50%);
+  border: 2px solid var(--bone);
+  border-radius: 50%;
+  background: rgba(20, 33, 61, 0.3);
+  opacity: 0.4;
+  pointer-events: none;
+}
+.t-stick.live {
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  background: rgba(20, 33, 61, 0.55);
+  opacity: 1;
+}
+#touch.paused .t-stick { display: none; }
+
+/* Compass ticks, as on a chart rose. Driving only steers, so north and south go. */
+.t-tick { position: absolute; background: var(--bone); }
+.t-tick.n, .t-tick.s { left: 50%; width: 2px; height: 9px; margin-left: -1px; }
+.t-tick.e, .t-tick.w { top: 50%; height: 2px; width: 9px; margin-top: -1px; }
+.t-tick.n { top: 5px; }
+.t-tick.s { bottom: 5px; }
+.t-tick.e { right: 5px; }
+.t-tick.w { left: 5px; }
+#touch.drive .t-tick.n, #touch.drive .t-tick.s { display: none; }
+#touch.drive .t-tick.e, #touch.drive .t-tick.w { width: 15px; }
+
+.t-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--u) * 0.8);
+  height: calc(var(--u) * 0.8);
+  margin: calc(var(--u) * -0.4) 0 0 calc(var(--u) * -0.4);
+  border: 2px solid var(--bone);
+  border-radius: 50%;
+  background: rgba(20, 33, 61, 0.55);
+  will-change: transform;
+}
+.t-stick.live .t-knob { background: var(--bone); border-color: var(--ink); }
+/* At the rim on foot the stick is holding sprint: say so with the one warm colour. */
+.t-stick.rim { border-color: var(--mustard); }
+
+/* ── Keys ──────────────────────────────────────────────────────────────── */
+
+.t-key {
+  position: absolute;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 3px;
+  pointer-events: auto;
+  touch-action: none;
+  border: 2px solid var(--bone);
+  border-radius: 0;
+  background: rgba(20, 33, 61, 0.55);
+  /* A hairline of ink outside the rule keeps the key readable against cream fog. */
+  box-shadow: 0 0 0 1px rgba(20, 33, 61, 0.45);
+  color: var(--bone);
+  font-family: var(--f-head);
+  font-weight: 900;
+  font-size: calc(var(--u) * 0.36);
+  line-height: 1;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* The form-box number in the corner, as on a customs declaration. */
+.t-key::before {
+  content: attr(data-box);
+  position: absolute;
+  left: 5px;
+  top: 4px;
+  font-family: var(--f-mono);
+  font-weight: 500;
+  font-size: 9px;
+  letter-spacing: 0;
+  opacity: 0.7;
+}
+.t-key.on { background: var(--bone); color: var(--ink); }
+.t-key svg { display: block; width: calc(var(--u) * 0.46); height: calc(var(--u) * 0.46); }
+.t-key small {
+  font-size: calc(var(--u) * 0.2);
+  letter-spacing: 0.1em;
+}
+
+#touch.foot .t-key.foot,
+#touch.drive .t-key.drive,
+.t-key.always { display: flex; }
+#touch.paused .t-key:not(.always) { display: none; }
+/* Beats the layout rules above: GET IN exists only beside a car. */
+#touch .t-key.t-getin.gone { display: none; }
+
+/* Driving: pedals along the bottom edge, growing toward the right thumb.
+   The cluster is kept as narrow as thumbs allow: the car sits bottom-centre. */
+.t-gas {
+  right: var(--sr);
+  bottom: var(--sb);
+  width: calc(var(--u) * 1.6);
+  height: calc(var(--u) * 2.1);
+  font-size: calc(var(--u) * 0.5);
+}
+.t-brake {
+  right: calc(var(--sr) + var(--u) * 1.6 + var(--g));
+  bottom: var(--sb);
+  width: calc(var(--u) * 1.4);
+  height: calc(var(--u) * 2.1);
+  font-size: calc(var(--u) * 0.4);
+}
+.t-hand, .t-horn {
+  right: calc(var(--sr) + var(--u) * 3 + var(--g) * 2);
+  width: calc(var(--u) * 1.3);
+  height: calc(var(--u) * 1.05 - var(--g) / 2);
+}
+.t-hand { bottom: var(--sb); font-size: calc(var(--u) * 0.27); line-height: 0.95; text-align: center; }
+.t-horn { bottom: calc(var(--sb) + var(--u) * 1.05 + var(--g) / 2); }
+.t-exit, .t-cam {
+  bottom: calc(var(--sb) + var(--u) * 2.1 + var(--g));
+  height: var(--u);
+}
+.t-exit {
+  right: calc(var(--sr) + var(--u) * 1.6 + var(--g));
+  width: calc(var(--u) * 1.4);
+}
+.t-cam { right: var(--sr); width: calc(var(--u) * 1.6); }
+
+/* On foot: JUMP under the right thumb, GET IN where EXIT's column is. */
+.t-jump {
+  right: calc(var(--sr) + var(--u) * 0.25);
+  bottom: calc(var(--sb) + var(--u) * 0.35);
+  width: calc(var(--u) * 1.7);
+  height: calc(var(--u) * 1.7);
+  font-size: calc(var(--u) * 0.46);
+}
+.t-getin {
+  right: calc(var(--sr) + var(--u) * 1.95 + var(--g));
+  bottom: calc(var(--sb) + var(--u) * 1.15);
+  width: calc(var(--u) * 1.6);
+  height: calc(var(--u) * 1.15);
+  border-color: var(--mustard);
+}
+.t-getin.on { border-color: var(--bone); }
+
+.t-pause {
+  right: var(--sr);
+  top: var(--st);
+  width: 48px;
+  height: 48px;
+}
+.t-pause::before { content: none; }
+/* The visible key stays small; the thumb gets the corner around it too. */
+.t-pause::after { content: ''; position: absolute; inset: -12px; }
+.t-pause svg { width: 20px; height: 20px; }
+.t-pause .t-play { display: none; }
+#touch.paused .t-pause .t-play { display: block; }
+#touch.paused .t-pause .t-bars { display: none; }
+
+/* ── Portrait notice ───────────────────────────────────────────────────── */
+
+.t-rotate {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: calc(var(--st) + 64px);
+  transform: translateX(-50%);
+  padding: 9px 14px 10px;
+  border: 2px solid var(--bone);
+  background: rgba(20, 33, 61, 0.8);
+  color: var(--bone);
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.t-rotate b {
+  display: block;
+  font-family: var(--f-head);
+  font-weight: 900;
+  font-size: 19px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.t-rotate span {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--f-text);
+  font-size: 13px;
+  opacity: 0.85;
+}
+@media (orientation: portrait) {
+  .t-rotate { display: block; }
+}

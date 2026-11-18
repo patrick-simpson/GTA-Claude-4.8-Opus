@@ -1,0 +1,661 @@
+// Dess: on foot, in the water, at the wheel, and the moments in between.
+//
+// On foot she is a circle with a height. Each frame the input becomes a wanted
+// velocity relative to the camera, the circle is moved and pushed out of walls
+// and cars, and the ground under the new spot decides what happens next: a
+// small rise is stepped up, a tall one is a wall, a small drop is stepped down,
+// a big one is a fall, and deep water is a swim. Everything else in this file
+// (doors, bail-outs, the hospital) is a short scripted move on top of that.
+
+import type { Game } from '../core/game';
+import type { Look, Person, PlayerApi, Vehicle } from '../core/api';
+import type { Box } from '../world/collide';
+import { clamp, clamp01, damp, dampAngle, headingOf, lerp, money, smooth } from '../core/util';
+import { WATER_Y, groundAt } from '../world/plan';
+
+const RADIUS = 0.35;
+const WALK = 1.8, JOG = 4.3, SPRINT = 7;
+const SWIM = 1.7, SWIM_FAST = 2.6;
+// Over twice real gravity. A 1.1 m hop at 9.8 hangs for a full second and
+// reads as the moon; at 22 it is over in 0.63 s and reads as a jump.
+const GRAVITY = 22;
+const JUMP_V = Math.sqrt(2 * GRAVITY * 1.1);
+/** Tallest rise in the ground she walks straight up: curbs, ramp lips, deck edges. */
+const STEP_UP = 0.5;
+/** Collision boxes lower than this are stairs, not walls (see advance()). */
+const STEP_BOX = 0.3;
+/** Ground farther than this below her feet is a fall, not a step down. */
+const DROP = 0.4;
+/** How far under the surface her feet hang while she swims: head and shoulders stay out. */
+const FLOAT = 1.3;
+const SWIM_Y = WATER_Y - FLOAT;
+/** Gap between her and a car body at which the door is within reach. */
+const REACH = 3.2;
+/** Leaving a car faster than this is a bail-out, not an exit. */
+const BAIL_SPEED = 6;
+/** Landing speed (m/s) where it starts to hurt: a drop of about 3.8 m, just more than the tallest ramp. */
+const HARD_LANDING = 13;
+/** The start point, and where Mercy General sends her home to: block (5, 6), south sidewalk. */
+const HOME = [5, 6, 2, 0.45] as const;
+
+// Navy coveralls (one piece, so top and bottom match), work boots, vermilion cap.
+const DESS: Look = {
+  skin: 0x9c6b4a, hair: 0x2b1d17, top: 0x14213d, bottom: 0x14213d, shoes: 0x3b2a20,
+  hat: 0xe4572e, height: 1, build: 1.02,
+};
+
+const NAGS = [
+  'The Harbor Authority has not approved swimming to the mainland.',
+  'Mainland swims require Form 12-B, a witness and a lifeguard. You have none of these.',
+  'The mainland is farther than it looks. It is also not hiring.',
+  'The tide has filed an objection. Turning back.',
+];
+const LAST_WORDS = [
+  'Shift ended early.',
+  'Please hold for Mercy General.',
+  'The harbor wins this round.',
+  'Paperwork to follow.',
+];
+
+type Mode = 'foot' | 'enter' | 'drive' | 'leave' | 'hoist' | 'tumble' | 'dead';
+
+export class Player implements PlayerApi {
+  readonly person: Person;
+  health = 100;
+  armor = 0;
+  money = 250;
+  heat = 0;
+  swimming = false;
+  nearVehicle: Vehicle | null = null;
+
+  private mode: Mode = 'foot';
+  /** The vehicle she is seated in. */
+  private car: Vehicle | null = null;
+  /** The vehicle she is walking to the door of. */
+  private goal: Vehicle | null = null;
+  private side: -1 | 1 = -1;
+
+  private vx = 0; private vy = 0; private vz = 0;
+  private grounded = true;
+  private airT = 0;
+  /** Jump presses are remembered for a moment, and so is the ground after she leaves it. */
+  private jumpBuf = 0; private coyote = 0;
+  private wet = false;
+
+  // Scripted moves (door, step out, climb out of the water): a timer and two end points.
+  private t = 0; private dur = 1;
+  private fx = 0; private fy = 0; private fz = 0;
+  private tx = 0; private ty = 0; private tz = 0;
+
+  /** Set by advance(): the car she touched, and the ledge that stopped her. */
+  private bumped: Vehicle | null = null;
+  private ledge = false; private ledgeX = 0; private ledgeY = 0; private ledgeZ = 0;
+  private pushT = 0;
+  private restT = 0;
+  /** Seconds during which cars cannot knock her down (just left one, just got up). */
+  private safeT = 0;
+  /** Out-of-bounds: seconds left of being steered home, toast cool-down, which line is next. */
+  private turnT = 0; private nagT = 0; private nag = 0;
+  private deaths = 0;
+
+  // Scratch values, so nothing is allocated per frame.
+  private p = { x: 0, z: 0 };
+  private door = { x: 0, z: 0 };
+  private qx = 0; private qy = 0; private qz = 0; private qTop = 0;
+
+  constructor(private game: Game) {
+    this.person = game.people.spawn(0, 0, 0, DESS);
+    this.person.health = this.health;
+  }
+
+  get vehicle(): Vehicle | null { return this.car; }
+  get x(): number { return this.car ? this.car.x : this.person.x; }
+  get y(): number { return this.car ? this.car.y : this.person.y; }
+  get z(): number { return this.car ? this.car.z : this.person.z; }
+  get h(): number { return this.car ? this.car.h : this.person.h; }
+  get speed(): number {
+    return this.car ? Math.hypot(this.car.vx, this.car.vz) : Math.hypot(this.vx, this.vz);
+  }
+
+  // ── Public controls ────────────────────────────────────────────────────────
+
+  teleport(x: number, z: number, h?: number): void {
+    if (this.car) this.release(this.car);
+    this.goal = null;
+    this.put(x, z, h ?? this.person.h);
+  }
+
+  enter(v: Vehicle, instant = false): void {
+    if (this.car === v) return;
+    if (this.car) this.release(this.car);
+    if (instant) { this.seat(v); return; }
+    if (this.mode !== 'foot' || this.swimming) return;
+    const per = this.person, d = this.door;
+    // The nearer door, not always the driver's: running through the hood to
+    // reach the far side looks worse than sliding across the seats would.
+    v.doorPos(-1, d);
+    const left = Math.hypot(d.x - per.x, d.z - per.z);
+    v.doorPos(1, d);
+    const right = Math.hypot(d.x - per.x, d.z - per.z);
+    this.side = left <= right + 0.4 ? -1 : 1;
+    this.goal = v;
+    this.mode = 'enter';
+    this.t = 0;
+    this.dur = clamp(Math.min(left, right) / 4.5, 0.3, 0.6);
+    this.fx = per.x; this.fz = per.z;
+    this.nearVehicle = null;
+  }
+
+  exit(): void {
+    if (this.mode === 'enter') { this.mode = 'foot'; this.goal = null; return; }
+    const v = this.car;
+    if (!v) return;
+    const per = this.person, p = this.p;
+    const sp = Math.hypot(v.vx, v.vz);
+    this.pickExit(v);
+    const outX = p.x, outZ = p.z;
+    this.release(v);
+    per.x = outX; per.z = outZ; per.h = v.h;
+    this.safeT = 1;
+
+    const g = this.support(outX, outZ, v.y + STEP_UP);
+    if (v.sunk || g < SWIM_Y) {
+      // The car is on its way to the bottom; she surfaces beside it.
+      per.y = SWIM_Y; this.swimming = true; this.grounded = false; this.wet = true;
+      this.mode = 'foot';
+      this.game.emit('splash', { x: outX, z: outZ, big: false });
+      return;
+    }
+    if (sp > BAIL_SPEED) {
+      // Out of a moving car: she keeps its speed, minus whatever the road takes.
+      let ox = outX - v.x, oz = outZ - v.z;
+      const ol = Math.hypot(ox, oz) || 1;
+      ox /= ol; oz /= ol;
+      per.y = Math.max(v.y, g);
+      this.damage(4 + (sp - BAIL_SPEED) * 1.5);
+      this.knockDown(v.vx * 0.92 + ox * 1.6, v.vz * 0.92 + oz * 1.6, v.onGround ? 2.2 : v.vy);
+      this.game.cam.shake(clamp(sp / 40, 0.15, 0.6));
+      return;
+    }
+    if (g < v.y - DROP) {
+      // Parked on the edge of something: no step out, just the drop.
+      per.y = v.y; this.grounded = false; this.vy = 0; this.mode = 'foot';
+      return;
+    }
+    // A short step away from the door instead of appearing a meter out.
+    per.y = g; this.grounded = true;
+    this.mode = 'leave';
+    this.t = 0; this.dur = 0.22;
+    this.tx = outX; this.ty = g; this.tz = outZ;
+    this.fx = lerp(outX, v.x, 0.3); this.fy = g; this.fz = lerp(outZ, v.z, 0.3);
+    per.x = this.fx; per.z = this.fz;
+  }
+
+  /** Take damage: armor first, then health. Death is noticed on the next update. */
+  damage(amount: number): void {
+    if (amount <= 0 || this.mode === 'dead') return;
+    const a = Math.min(this.armor, amount);
+    this.armor -= a;
+    this.health = Math.max(0, this.health - (amount - a));
+  }
+
+  /** Throw her to the ground with a velocity. She slides to a stop and gets up on her own. */
+  knockDown(vx: number, vz: number, vy = 2.2): void {
+    if (this.car || this.mode === 'dead') return;
+    this.vx = vx; this.vz = vz;
+    if (vy > 0 || !this.grounded) { this.vy = vy; this.grounded = false; }
+    this.mode = 'tumble';
+    this.goal = null;
+    this.restT = 0;
+    this.nearVehicle = null;
+  }
+
+  // ── Frame ──────────────────────────────────────────────────────────────────
+
+  update(dt: number): void {
+    // Anyone may write `health`; whoever brought it to zero, this is where it counts.
+    if (this.health <= 0 && this.mode !== 'dead') this.die();
+    if (this.safeT > 0) this.safeT -= dt;
+    if (this.nagT > 0) this.nagT -= dt;
+    // The camera hides her when it is squeezed inside her head; every frame starts by undoing that.
+    if (this.mode !== 'drive') this.person.visible = true;
+
+    switch (this.mode) {
+      case 'foot': this.onFoot(dt); break;
+      case 'enter': this.toDoor(dt); break;
+      case 'drive': this.driving(); break;
+      case 'leave': case 'hoist': this.scripted(dt); break;
+      case 'tumble': this.tumbling(dt); break;
+      case 'dead': this.lying(dt); break;
+    }
+    this.person.health = this.health;
+  }
+
+  private onFoot(dt: number): void {
+    const g = this.game, inp = g.input, per = this.person;
+
+    let mx = inp.moveX, my = inp.moveY;
+    let m = Math.hypot(mx, my);
+    if (m > 1) { mx /= m; my /= m; m = 1; }
+    // Camera-relative: forward on the stick is away from the lens.
+    const yaw = g.cam.yaw, s = Math.sin(yaw), c = Math.cos(yaw);
+    let wx = s * my - c * mx, wz = c * my + s * mx;
+    let sprint = inp.down('sprint');
+    if (this.turnT > 0) {
+      // Past the edge of the map the tide does the steering for a couple of seconds.
+      this.turnT -= dt;
+      const l = Math.hypot(per.x, per.z) || 1;
+      wx = -per.x / l; wz = -per.z / l; m = 1; sprint = true;
+    }
+
+    let want: number;
+    if (this.swimming) {
+      want = (sprint ? SWIM_FAST : SWIM) * m;
+    } else {
+      // A light push on the stick is a walk; past 60% it ramps up to the jog.
+      want = m <= 0.6 ? WALK * (m / 0.6) : lerp(WALK, sprint ? SPRINT : JOG, (m - 0.6) / 0.4);
+      // Wading: the deeper the water, the slower the legs.
+      if (this.wet) want *= 1 - 0.6 * clamp01((WATER_Y - per.y) / FLOAT);
+    }
+    const rate = this.swimming ? 3.5 : this.grounded ? (m > 0.05 ? 11 : 15) : 2;
+    const k = m > 1e-4 ? want / m : 0;
+    this.vx = damp(this.vx, wx * k, rate, dt);
+    this.vz = damp(this.vz, wz * k, rate, dt);
+    if (m > 0.05) per.h = dampAngle(per.h, headingOf(wx, wz), this.swimming ? 5 : this.grounded ? 13 : 7, dt);
+
+    if (inp.hit('jump')) this.jumpBuf = 0.12; else this.jumpBuf -= dt;
+    if (this.grounded) this.coyote = 0.1; else this.coyote -= dt;
+    if (this.jumpBuf > 0 && this.coyote > 0 && !this.swimming && per.y > WATER_Y - 0.6) {
+      this.vy = JUMP_V;
+      this.grounded = false;
+      this.jumpBuf = 0; this.coyote = 0; this.airT = 0;
+    }
+
+    const landed = this.advance(dt);
+    if (landed > HARD_LANDING) {
+      const hurt = (landed - HARD_LANDING) * 5.5;
+      this.damage(hurt);
+      g.cam.shake(clamp(hurt / 60, 0.12, 0.7));
+      if (hurt > 20) this.knockDown(this.vx * 0.6, this.vz * 0.6, 0);
+    }
+
+    // A car that drives into her knocks her over; one she walks into is just a wall.
+    const car = this.bumped;
+    if (car && this.safeT <= 0 && this.mode === 'foot') {
+      let nx = per.x - car.x, nz = per.z - car.z;
+      const nl = Math.hypot(nx, nz) || 1;
+      nx /= nl; nz /= nl;
+      const closing = (car.vx - this.vx) * nx + (car.vz - this.vz) * nz;
+      if (closing > 4) {
+        this.damage((closing - 3) * 3.2);
+        this.knockDown(car.vx * 0.8 + nx * 2, car.vz * 0.8 + nz * 2, 2.6);
+        g.cam.shake(clamp(closing / 30, 0.15, 0.7));
+      }
+    }
+
+    // Swimming into the side of a deck: lean on it for a moment (or jump) and she climbs out.
+    // Without this, falling off the end of the pier is a four-minute swim to the beach.
+    if (this.swimming && this.ledge && m > 0.3 && this.ledgeY - WATER_Y < 1.5 && this.mode === 'foot') {
+      this.pushT += dt;
+      if (this.pushT > 0.25 || inp.hit('jump')) this.hoist();
+    } else {
+      this.pushT = 0;
+    }
+
+    this.fence();
+    if (this.mode !== 'foot') return;
+
+    const sp = Math.hypot(this.vx, this.vz);
+    per.speed = sp;
+    if (this.swimming) per.pose = 'swim';
+    else if (!this.grounded) {
+      // Stepping off a curb is airborne for a frame or two; that is not worth a pose.
+      if (this.vy > 0) per.pose = 'jump';
+      else if (this.airT > 0.12) per.pose = 'fall';
+    } else per.pose = sp < 0.25 ? 'stand' : sp < 3 ? 'walk' : 'run';
+
+    this.nearVehicle = this.swimming || !this.grounded ? null : this.findVehicle();
+    if (this.nearVehicle && inp.hit('enter')) {
+      inp.eat('enter');
+      this.enter(this.nearVehicle);
+    }
+  }
+
+  /**
+   * Move by the current velocity and settle the height. Handles walls, cars,
+   * steps, ledges, gravity and water. Returns the downward speed of a landing
+   * on solid ground this frame, else 0.
+   */
+  private advance(dt: number): number {
+    const per = this.person, p = this.p, g = this.game;
+    const ox = per.x, oz = per.z;
+    p.x = ox + this.vx * dt;
+    p.z = oz + this.vz * dt;
+    // Feet are passed a little high on purpose: boxes up to STEP_BOX tall then
+    // do not push her away, and support() below lets her step onto them.
+    let hit = g.col.resolveCircle(p, RADIUS, per.y + STEP_BOX);
+    this.bumped = g.vehicles.resolveCircle(p, RADIUS, per.y);
+    if (this.bumped) hit = true;
+
+    // A rise too tall to step up is a wall. Each axis is tried on its own so
+    // she slides along it instead of sticking to it.
+    const limit = per.y + (this.grounded ? STEP_UP : 0.25);
+    let gy = this.support(p.x, p.z, per.y);
+    this.ledge = false;
+    if (gy > limit) {
+      this.ledge = true; this.ledgeX = p.x; this.ledgeY = gy; this.ledgeZ = p.z;
+      const gx = this.support(p.x, oz, per.y), gz = this.support(ox, p.z, per.y);
+      if (gx <= limit && (gz > limit || Math.abs(p.x - ox) >= Math.abs(p.z - oz))) { p.z = oz; gy = gx; }
+      else if (gz <= limit) { p.x = ox; gy = gz; }
+      else { p.x = ox; p.z = oz; gy = this.support(ox, oz, per.y); }
+      hit = true;
+    }
+    if (hit && dt > 0) {
+      // Report the speed she actually made, so she does not run on the spot against a wall.
+      const ax = (p.x - ox) / dt, az = (p.z - oz) / dt;
+      if (ax * ax + az * az < this.vx * this.vx + this.vz * this.vz) { this.vx = ax; this.vz = az; }
+    }
+    per.x = p.x; per.z = p.z;
+
+    const fallV = this.vy;
+    let landed = 0;
+    if (this.swimming) {
+      if (gy >= SWIM_Y) {
+        // The seabed has come up to meet her feet: wade from here.
+        this.swimming = false; this.grounded = true; this.vy = 0; per.y = gy;
+      } else {
+        // A soft spring to the floating depth, so a dive bobs back up instead of stopping dead.
+        this.vy += ((SWIM_Y - per.y) * 30 - this.vy * 9) * dt;
+        per.y += this.vy * dt;
+      }
+    } else if (this.grounded) {
+      if (gy < SWIM_Y) { this.swimming = true; this.grounded = false; this.vy = 0; }
+      else if (gy < per.y - DROP) { this.grounded = false; this.vy = 0; this.airT = 0; }
+      // Eased rather than snapped, so a curb is a step and not a jolt in the camera.
+      else per.y = Math.abs(gy - per.y) < 0.004 ? gy : Math.max(damp(per.y, gy, 26, dt), gy - 0.22);
+    } else {
+      this.vy -= GRAVITY * dt;
+      per.y += this.vy * dt;
+      this.airT += dt;
+      if (gy < SWIM_Y) {
+        if (per.y <= SWIM_Y) { this.swimming = true; this.vy *= 0.3; }
+      } else if (per.y <= gy) {
+        landed = -this.vy;
+        per.y = gy; this.vy = 0; this.grounded = true; this.airT = 0;
+      }
+    }
+
+    const wet = gy < WATER_Y - 0.35 && per.y < WATER_Y - 0.25;
+    if (wet && !this.wet) g.emit('splash', { x: per.x, z: per.z, big: fallV < -4 });
+    this.wet = wet;
+    return landed;
+  }
+
+  /** Height of what she would stand on at (x, z): the ground, or the top of a box her feet could reach. */
+  private support(x: number, z: number, y: number): number {
+    this.qx = x; this.qy = y; this.qz = z;
+    this.qTop = groundAt(x, z);
+    this.game.col.forBoxes(x, z, 0.05, this.boxTop);
+    return this.qTop;
+  }
+  // A field, not a method, so forBoxes gets the same function every frame instead of a fresh closure.
+  private boxTop = (b: Box): void => {
+    if (this.qx > b.x0 && this.qx < b.x1 && this.qz > b.z0 && this.qz < b.z1
+      && b.y1 <= this.qy + STEP_UP && b.y1 > this.qTop) this.qTop = b.y1;
+  };
+
+  /** Keep her inside the map: a hard stop at the line, and a firm turn for home before it. */
+  private fence(): void {
+    const per = this.person, b = this.game.plan.bounds, M = 40;
+    if (per.x > b.x0 + M && per.x < b.x1 - M && per.z > b.z0 + M && per.z < b.z1 - M) return;
+    per.x = clamp(per.x, b.x0 + 2, b.x1 - 2);
+    per.z = clamp(per.z, b.z0 + 2, b.z1 - 2);
+    if (this.turnT > 0) return;
+    this.turnT = 2.5;
+    if (this.nagT <= 0) {
+      this.nagT = 12;
+      this.game.hud.toast(NAGS[this.nag++ % NAGS.length], 5);
+    }
+  }
+
+  private hoist(): void {
+    const per = this.person;
+    let dx = this.ledgeX - per.x, dz = this.ledgeZ - per.z;
+    const l = Math.hypot(dx, dz) || 1;
+    dx /= l; dz /= l;
+    const tx = this.ledgeX + dx * 0.5, tz = this.ledgeZ + dz * 0.5;
+    const top = this.support(tx, tz, this.ledgeY);
+    if (Math.abs(top - this.ledgeY) > 0.3 || this.game.col.pointBlocked(tx, tz, top + 0.9)) return;
+    this.mode = 'hoist';
+    this.t = 0; this.dur = 0.7;
+    this.fx = per.x; this.fy = per.y; this.fz = per.z;
+    this.tx = tx; this.ty = top; this.tz = tz;
+    this.vx = this.vy = this.vz = 0;
+    this.pushT = 0;
+    per.h = headingOf(dx, dz);
+  }
+
+  /** The step out of a car and the climb out of the water: a timed move between two points. */
+  private scripted(dt: number): void {
+    const per = this.person;
+    this.t += dt;
+    const k = clamp01(this.t / this.dur);
+    if (this.mode === 'hoist') {
+      // Up first, then over the edge.
+      const over = smooth((k - 0.35) / 0.65);
+      per.y = lerp(this.fy, this.ty, smooth(k / 0.7));
+      per.x = lerp(this.fx, this.tx, over); per.z = lerp(this.fz, this.tz, over);
+      per.pose = 'jump'; per.speed = 0;
+    } else {
+      const a = smooth(k);
+      per.x = lerp(this.fx, this.tx, a); per.z = lerp(this.fz, this.tz, a); per.y = this.ty;
+      per.pose = 'walk'; per.speed = 2;
+    }
+    if (k < 1) return;
+    this.mode = 'foot';
+    this.grounded = true; this.swimming = false; this.wet = false;
+    this.vx = this.vy = this.vz = 0;
+  }
+
+  // ── Vehicles ───────────────────────────────────────────────────────────────
+
+  /** Closest car whose bodywork (not its center: a bus is long) is within reach. */
+  private findVehicle(): Vehicle | null {
+    const per = this.person, list = this.game.vehicles.list;
+    let best: Vehicle | null = null, bd = REACH;
+    for (let i = 0; i < list.length; i++) {
+      const v = list[i];
+      if (v.sunk) continue;
+      const dx = per.x - v.x, dz = per.z - v.z;
+      const far = REACH + v.hl + v.hw;
+      if (dx * dx + dz * dz > far * far || Math.abs(v.y - per.y) > 2.5) continue;
+      const s = Math.sin(v.h), c = Math.cos(v.h);
+      const along = Math.abs(dx * s + dz * c) - v.hl, across = Math.abs(dz * s - dx * c) - v.hw;
+      const d = Math.hypot(Math.max(along, 0), Math.max(across, 0));
+      if (d < bd) { bd = d; best = v; }
+    }
+    return best;
+  }
+
+  private listed(v: Vehicle): boolean { return this.game.vehicles.list.indexOf(v) >= 0; }
+
+  private toDoor(dt: number): void {
+    const per = this.person, v = this.goal, d = this.door;
+    if (!v || v.sunk || !this.listed(v)) { this.mode = 'foot'; this.goal = null; return; }
+    this.t += dt;
+    // The door is asked for every frame: the car may still be rolling.
+    v.doorPos(this.side, d);
+    const k = smooth(this.t / this.dur);
+    const run = Math.hypot(d.x - this.fx, d.z - this.fz);
+    per.x = lerp(this.fx, d.x, k);
+    per.z = lerp(this.fz, d.z, k);
+    per.y = damp(per.y, Math.max(groundAt(per.x, per.z), per.y - 0.5), 20, dt);
+    // Run at the door, then turn to face the car for the last few steps.
+    const face = k < 0.6 && run > 0.5 ? headingOf(d.x - this.fx, d.z - this.fz) : headingOf(v.x - d.x, v.z - d.z);
+    per.h = dampAngle(per.h, face, 14, dt);
+    per.speed = run / this.dur;
+    per.pose = per.speed < 0.4 ? 'stand' : per.speed < 3 ? 'walk' : 'run';
+    if (run > 9) { this.mode = 'foot'; this.goal = null; return; }   // it drove off without her
+    if (this.t >= this.dur) this.seat(v);
+  }
+
+  private seat(v: Vehicle): void {
+    const per = this.person;
+    this.car = v;
+    this.goal = null;
+    this.mode = 'drive';
+    v.driver = 'player';
+    // Hidden rather than sat inside: the roof of the lowest car is below her cap.
+    per.visible = false;
+    per.pose = 'sit';
+    per.speed = 0;
+    per.x = v.x; per.y = v.y; per.z = v.z; per.h = v.h;
+    this.vx = this.vy = this.vz = 0;
+    this.swimming = false; this.wet = false; this.grounded = true;
+    this.nearVehicle = null;
+    this.game.emit('enter', { vehicle: v });
+  }
+
+  private driving(): void {
+    const v = this.car!, inp = this.game.input, per = this.person, c = v.ctl;
+    if (v.sunk || !this.listed(v) || inp.eat('enter')) { this.exit(); return; }
+    c.steer = inp.moveX;
+    // A gamepad's triggers win over its stick; keys and touch pedals arrive as moveY.
+    c.accel = inp.padActive && inp.padTrig !== 0 ? inp.padTrig : inp.moveY;
+    c.handbrake = inp.down('jump') || inp.down('handbrake');
+    c.horn = inp.down('horn');
+    // Kept with the car so anything that reads the person (the map, the camera) is never stale.
+    per.x = v.x; per.y = v.y; per.z = v.z; per.h = v.h;
+  }
+
+  /** Hand the car back: nobody at the wheel, pedals up. */
+  private release(v: Vehicle): void {
+    v.driver = null;
+    v.ctl.accel = 0; v.ctl.steer = 0; v.ctl.handbrake = false; v.ctl.horn = false;
+    this.car = null;
+    this.person.visible = true;
+    this.game.emit('exit', { vehicle: v });
+  }
+
+  /** Leaves the place to get out in this.p: driver's door, passenger door, behind, in front. */
+  private pickExit(v: Vehicle): void {
+    const p = this.p, s = Math.sin(v.h), c = Math.cos(v.h), back = v.hl + 0.9;
+    v.doorPos(-1, p);
+    if (this.clear(p, v)) return;
+    v.doorPos(1, p);
+    if (this.clear(p, v)) return;
+    p.x = v.x - s * back; p.z = v.z - c * back;
+    if (this.clear(p, v)) return;
+    p.x = v.x + s * back; p.z = v.z + c * back;
+    if (this.clear(p, v)) return;
+    // Boxed in on every side. Take the driver's door anyway; the walls will push her somewhere.
+    v.doorPos(-1, p);
+  }
+
+  /** Could she stand at p after getting out of v? May nudge p away from a lamp post. */
+  private clear(p: { x: number; z: number }, v: Vehicle): boolean {
+    const col = this.game.col;
+    const g = groundAt(p.x, p.z);
+    if (g > v.y + 0.7) return false;
+    const feet = g > v.y - DROP ? g : v.y;
+    const x0 = p.x, z0 = p.z;
+    col.resolveCircle(p, RADIUS, feet + STEP_BOX);
+    const moved = (p.x - x0) * (p.x - x0) + (p.z - z0) * (p.z - z0);
+    if (moved > 0.36 || col.pointBlocked(p.x, p.z, feet + 0.9)) return false;
+    // A fence between the seat and the spot counts, however free the spot itself is.
+    if (!col.lineOfSight(v.x, feet + 0.9, v.z, p.x, feet + 0.9, p.z)) return false;
+    const list = this.game.vehicles.list;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (o === v || Math.abs(o.y - v.y) > 2) continue;
+      const dx = p.x - o.x, dz = p.z - o.z;
+      const s = Math.sin(o.h), c = Math.cos(o.h);
+      if (Math.abs(dx * s + dz * c) < o.hl + 0.3 && Math.abs(dz * s - dx * c) < o.hw + 0.3) return false;
+    }
+    return true;
+  }
+
+  // ── Down, out, and back ────────────────────────────────────────────────────
+
+  /** Sliding along the road after a bail-out or a knock: no control until she has stopped. */
+  private slide(dt: number): number {
+    const sp = Math.hypot(this.vx, this.vz);
+    if (this.swimming) {
+      this.vx = damp(this.vx, 0, 3, dt); this.vz = damp(this.vz, 0, 3, dt);
+    } else if (this.grounded && sp > 0) {
+      // Road rash: a steady scrub plus a share of the speed, so fast slides do not go on forever.
+      const k = Math.max(0, sp - (7 + sp * 0.7) * dt) / sp;
+      this.vx *= k; this.vz *= k;
+    }
+    const before = Math.hypot(this.vx, this.vz);
+    const landed = this.advance(dt);
+    const after = Math.hypot(this.vx, this.vz);
+    // Meeting a wall mid-slide hurts in proportion to the speed it took away.
+    if (before - after > 5) this.damage((before - after - 5) * 1.5);
+    if (landed > HARD_LANDING) this.damage((landed - HARD_LANDING) * 5.5);
+    this.person.speed = after;
+    return after;
+  }
+
+  private tumbling(dt: number): void {
+    const per = this.person;
+    const sp = this.slide(dt);
+    this.fence();
+    if (this.swimming) { this.mode = 'foot'; per.pose = 'swim'; return; }   // the water breaks the fall
+    per.pose = 'down';
+    if (this.grounded && sp < 0.6) this.restT += dt; else this.restT = 0;
+    if (this.restT > 0.7 && this.health > 0) {
+      this.mode = 'foot';
+      this.vx = this.vz = 0;
+      this.safeT = 0.6;
+    }
+  }
+
+  private die(): void {
+    const g = this.game;
+    if (this.car) this.exit();
+    this.mode = 'dead';
+    this.goal = null;
+    this.nearVehicle = null;
+    this.health = 0;
+    this.t = 0;
+    this.person.visible = true;
+    g.hud.stamp('CLOCKED OUT', LAST_WORDS[this.deaths++ % LAST_WORDS.length]);
+  }
+
+  private lying(dt: number): void {
+    this.slide(dt);
+    this.person.pose = this.swimming ? 'swim' : 'down';
+    this.t += dt;
+    if (this.t < 3) return;
+
+    const g = this.game, home = g.plan.sidewalkPoint(...HOME);
+    this.put(home.x, home.z, home.h);
+    this.health = 100;
+    this.heat = 0;
+    const bill = Math.floor(this.money * 0.1);
+    this.money -= bill;
+    g.hud.toast(bill > 0
+      ? `Mercy General billed you ${money(bill)}. They validated parking.`
+      : 'Mercy General found nothing to bill. They validated parking anyway.', 6);
+    g.cam.snap();
+  }
+
+  /** Stand her at ground level at (x, z), or afloat if that is open water. */
+  private put(x: number, z: number, h: number): void {
+    const per = this.person;
+    const g = groundAt(x, z);
+    per.x = x; per.z = z; per.h = h;
+    this.swimming = g < SWIM_Y;
+    per.y = this.swimming ? SWIM_Y : g;
+    this.wet = g < WATER_Y - 0.35;
+    this.grounded = !this.swimming;
+    this.vx = this.vy = this.vz = 0;
+    this.airT = 0; this.jumpBuf = 0; this.turnT = 0;
+    this.mode = 'foot';
+    this.nearVehicle = null;
+    per.visible = true;
+    per.pose = this.swimming ? 'swim' : 'stand';
+    per.speed = 0;
+  }
+}
