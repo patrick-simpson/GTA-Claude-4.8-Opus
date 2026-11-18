@@ -2,9 +2,21 @@
 // person (the player code, later the pedestrian AI) writes x, y, z, h, pose and
 // speed, and everything seen on screen is worked out here from those.
 //
-// Everyone in the city is one InstancedMesh: a single soft-edged box drawn up
-// to 23 times per person, each with its own matrix, colour and taper. That is
-// one draw call for the crowd (two with the shadow pass) however many there are.
+// People are skinned meshes modelled in Blender (tools/blender/people.py, read
+// by characterAssets.ts): two bodies, two levels of detail each, so the whole
+// crowd is at most four draw calls (eight with the shadow pass) however many
+// there are. three.js cannot skin per instance, so this file does it: every
+// frame each visible person gets one row of a float texture holding their 19
+// bone matrices (three texels each, a 3x4) and their palette (one texel a
+// part: colour, and alpha 0 to fold a part away, which is how one mesh carries
+// every haircut, both sleeve lengths, shorts and the cap). The vertex shader
+// reads two bones a vertex from that row. A SkinnedMesh per person was the
+// alternative and costs a draw call, a skeleton update and a uniform upload
+// each; this costs one texture upload for everybody.
+//
+// Until the files arrive, and for good if they do not, everyone is drawn the
+// old way, which is still here: one InstancedMesh of a soft-edged box drawn up
+// to 23 times per person, each with its own matrix, colour and taper.
 //
 // Animation is procedural. Each pose is a function that fills a small array of
 // joint angles ("channels"); a pose change cross-fades from a snapshot of
@@ -21,6 +33,7 @@ import type { Look, PeopleApi, Person, Pose } from '../core/api';
 import type { Game } from '../core/game';
 import { RNG, TAU, clamp, clamp01, damp, hash2, lerp, smooth } from '../core/util';
 import { WATER_Y, groundAt } from '../world/plan';
+import { BONES, PARTS, loadPeople, type BodyKind, type PersonAsset } from './characterAssets';
 
 export type HairCut = 'crop' | 'bob' | 'tail' | 'bun' | 'bald';
 
@@ -37,9 +50,19 @@ export interface StyledLook extends Look {
   shorts?: boolean;
   /** Cap worn brim-backwards. */
   capBack?: boolean;
+  /** Which body. Default: by haircut (bob, tail and bun are the woman's shape). */
+  body?: BodyKind;
 }
 
 const MAX_PEOPLE = 160;
+// One row of the crowd texture: the bones, three texels each, then the palette.
+const PAL0 = BONES.length * 3;
+const TEX_W = PAL0 + PARTS.length;
+/** Nearer than this a person is the full model. The phone preset keeps that for whoever the camera is on. */
+const LOD_DIST = 26, LOD_DIST_LOW = 7;
+const bone = (n: (typeof BONES)[number]): number => BONES.indexOf(n);
+const B_HIPS = bone('hips'), B_SPINE = bone('spine'), B_CHEST = bone('chest'), B_NECK = bone('neck'), B_HEAD = bone('head');
+const B_ARM = [bone('shoulder_l'), bone('shoulder_r')], B_LEG = [bone('thigh_l'), bone('thigh_r')];
 const MAX_PARTS = 23;
 const DRAW_DIST = 220;
 /** Past this the eyes, hands, neck and hat brim are smaller than a pixel and are left out. */
@@ -104,6 +127,10 @@ class Body implements Person {
   readonly swagger: number;
   readonly rgb = new Float32Array(21);
   lookKey = NaN;
+  /** Skinned people: colour and visibility of every part, and which body. */
+  readonly pal = new Float32Array(PARTS.length * 4);
+  palFor: Look | null = null;
+  kind = 0;
 
   constructor(readonly id: number, public look: Look) {
     this.seed = (Math.imul(id, 2654435761) >>> 0) % 9973;
@@ -181,6 +208,50 @@ function part(
   OUT_C[c] = rgb[ci]; OUT_C[c + 1] = rgb[ci + 1]; OUT_C[c + 2] = rgb[ci + 2];
   OUT_S[OUT_N * 2] = tx; OUT_S[OUT_N * 2 + 1] = tz;
   OUT_N++;
+}
+
+/** Move frame `m` from joint `a` to joint `b` of the rest skeleton, the sideways part widened by `wx`. */
+function hop(m: Float64Array, J: Float32Array, a: number, b: number, wx: number): void {
+  move(m, (J[b * 3] - J[a * 3]) * wx, J[b * 3 + 1] - J[a * 3 + 1], J[b * 3 + 2] - J[a * 3 + 2]);
+}
+
+/**
+ * Write bone `b`'s skinning matrix into a texture row at `o`: frame `m`, widened
+ * by (gx, gz) about its own joint, times the joint's inverse rest position. Stored by rows.
+ */
+function put(D: Float32Array, o: number, J: Float32Array, b: number, m: Float64Array, gx: number, gz: number): void {
+  const jx = J[b * 3], jy = J[b * 3 + 1], jz = J[b * 3 + 2];
+  o += b * 12;
+  for (let r = 0; r < 3; r++) {
+    const x = m[r] * gx, y = m[4 + r], z = m[8 + r] * gz;
+    D[o] = x; D[o + 1] = y; D[o + 2] = z; D[o + 3] = m[12 + r] - (x * jx + y * jy + z * jz);
+    o += 4;
+  }
+}
+
+/** The crowd shader: skin from the row texture, tint by the palette, fold hidden parts to a point. */
+function skinned(tex: THREE.DataTexture, lit: boolean): (shader: { vertexShader: string; uniforms: Record<string, THREE.IUniform> }) => void {
+  return (shader) => {
+    shader.uniforms.uPeople = { value: tex };
+    let v = shader.vertexShader.replace('#include <common>', `#include <common>
+attribute vec4 aSkin;
+attribute float aRow;
+uniform highp sampler2D uPeople;
+vec4 pcM0, pcM1, pcM2, pcPal;
+void pcFetch() {
+  int r = int(aRow + 0.5), a = int(aSkin.x + 0.5) * 3, b = int(aSkin.y + 0.5) * 3;
+  pcM0 = mix(texelFetch(uPeople, ivec2(b, r), 0), texelFetch(uPeople, ivec2(a, r), 0), aSkin.z);
+  pcM1 = mix(texelFetch(uPeople, ivec2(b + 1, r), 0), texelFetch(uPeople, ivec2(a + 1, r), 0), aSkin.z);
+  pcM2 = mix(texelFetch(uPeople, ivec2(b + 2, r), 0), texelFetch(uPeople, ivec2(a + 2, r), 0), aSkin.z);
+  pcPal = texelFetch(uPeople, ivec2(${PAL0} + int(aSkin.w + 0.5), r), 0);
+}`);
+    if (lit) {
+      v = v.replace('#include <color_vertex>', 'pcFetch();\n#include <color_vertex>\nvColor.rgb *= pcPal.rgb;')
+        .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nobjectNormal = vec3(dot(pcM0.xyz, objectNormal), dot(pcM1.xyz, objectNormal), dot(pcM2.xyz, objectNormal));');
+    }
+    shader.vertexShader = v.replace('#include <begin_vertex>',
+      (lit ? '' : 'pcFetch();\n') + 'vec4 pcP = vec4(position, 1.0);\nvec3 transformed = vec3(dot(pcM0, pcP), dot(pcM1, pcP), dot(pcM2, pcP)) * pcPal.a;');
+  };
 }
 
 // ── Pose helpers ──────────────────────────────────────────────────────────────
@@ -594,6 +665,15 @@ export class People implements PeopleApi {
   private lastBottom = -1;
   private lastHair = -1;
 
+  // The skinned crowd. Empty until the models have loaded.
+  private assets: PersonAsset[] = [];
+  /** One mesh per body and level of detail: index = body * 2 + lod. */
+  private readonly skins: THREE.Mesh[] = [];
+  private readonly rows: THREE.InstancedBufferAttribute[] = [];
+  private readonly counts: number[] = [];
+  private readonly data = new Float32Array(TEX_W * MAX_PEOPLE * 4);
+  private readonly tex = new THREE.DataTexture(this.data, TEX_W, MAX_PEOPLE, THREE.RGBAFormat, THREE.FloatType);
+
   constructor(private readonly game: Game) {
     const max = MAX_PEOPLE * MAX_PARTS;
     const geo = partGeometry(0.16);
@@ -621,6 +701,44 @@ export class People implements PeopleApi {
     this.mesh.count = 0;
     this.mesh.visible = false;
     game.scene.add(this.mesh);
+
+    // `?people=0` keeps the box people, for comparing the two.
+    if (new URLSearchParams(location.search).get('people') !== '0') {
+      void loadPeople().then((a) => { if (a) this.adopt(a); });
+    }
+  }
+
+  private adopt(assets: PersonAsset[]): void {
+    const low = this.game.quality.name === 'low';
+    // The phone preset lights them per vertex; the rest get the city's own physically based shading.
+    const mat = low
+      ? new THREE.MeshLambertMaterial({ vertexColors: true })
+      : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
+    mat.onBeforeCompile = skinned(this.tex, true);
+    const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+    depth.onBeforeCompile = skinned(this.tex, false);
+    for (const a of assets) {
+      for (let lod = 0; lod < 2; lod++) {
+        const src = a.lods[lod], g = new THREE.InstancedBufferGeometry();
+        g.setIndex(src.getIndex());
+        for (const n of ['position', 'normal', 'color', 'aSkin']) g.setAttribute(n, src.getAttribute(n));
+        const row = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PEOPLE), 1);
+        row.setUsage(THREE.DynamicDrawUsage);
+        g.setAttribute('aRow', row);
+        g.instanceCount = 0;
+        const m = new THREE.Mesh(g, mat);
+        m.name = `people_${a.kind}${lod}`;
+        m.customDepthMaterial = depth;
+        m.castShadow = true;
+        m.receiveShadow = true;
+        // Vertices are placed by the shader, anywhere on the island.
+        m.frustumCulled = false;
+        m.visible = false;
+        this.game.scene.add(m);
+        this.skins.push(m); this.rows.push(row); this.counts.push(0);
+      }
+    }
+    this.assets = assets;
   }
 
   spawn(x: number, z: number, h: number, look?: Look): Person {
@@ -666,11 +784,14 @@ export class People implements PeopleApi {
       height: 0.92 + 0.16 * (rng.next() + rng.next()) / 2,
       build: 0.9 + 0.25 * (rng.next() + rng.next()) / 2,
       cut,
-      beard: (cut === 'crop' || cut === 'bald') && rng.chance(0.3),
+      beard: false,
       shortSleeves: rng.chance(0.55),
       shorts: rng.chance(0.22),
       capBack: hat !== null && rng.chance(0.15),
     };
+    // Long hair is nearly always the woman's body; a crop is either; the beard goes with the man's.
+    look.body = cut === 'bald' ? 'm' : rng.chance(cut === 'crop' ? 0.25 : 0.9) ? 'f' : 'm';
+    look.beard = look.body === 'm' && (cut === 'crop' || cut === 'bald') && rng.chance(0.3);
     return look;
   }
 
@@ -691,21 +812,41 @@ export class People implements PeopleApi {
     OUT_N = 0;
     const room = MAX_PEOPLE * MAX_PARTS - MAX_PARTS;
 
+    const skinned = this.assets.length > 0;
+    const lod2 = (g.quality.name === 'low' ? LOD_DIST_LOW : LOD_DIST) ** 2;
+    let row = 0;
+    for (let i = 0; i < this.counts.length; i++) this.counts[i] = 0;
+
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i];
       const dx = b.x - eye.x, dy = b.y - eye.y, dz = b.z - eye.z;
       const d2 = dx * dx + dy * dy + dz * dz;
       // Behind the camera still counts for 25 m: their shadows fall into view, and the
       // camera read here is a frame old.
-      const seen = b.visible && d2 < far2 && dx * FWD.x + dy * FWD.y + dz * FWD.z > -25 && OUT_N <= room;
+      const seen = b.visible && d2 < far2 && dx * FWD.x + dy * FWD.y + dz * FWD.z > -25 && OUT_N <= room && row < MAX_PEOPLE;
       if (!seen) {
         // Whatever happened off screen has finished happening by the time they are seen again.
         if (b.shown !== b.pose) { b.shown = b.pose; b.blend = 1; b.poseT = 10; }
         continue;
       }
       this.animate(b, dt);
-      this.draw(b, d2 > detail2);
+      if (skinned) {
+        this.palette(b);
+        const m = b.kind * 2 + (d2 > lod2 ? 1 : 0);
+        (this.rows[m].array as Float32Array)[this.counts[m]++] = row;
+        this.skin(b, row++, this.assets[b.kind].joints);
+      } else {
+        this.draw(b, d2 > detail2);
+      }
     }
+
+    for (let i = 0; i < this.skins.length; i++) {
+      const n = this.counts[i], r = this.rows[i];
+      (this.skins[i].geometry as THREE.InstancedBufferGeometry).instanceCount = n;
+      this.skins[i].visible = n > 0;
+      if (n > 0) { r.clearUpdateRanges(); r.addUpdateRange(0, n); r.needsUpdate = true; }
+    }
+    if (row > 0) this.tex.needsUpdate = true;
 
     const n = OUT_N;
     this.mesh.count = n;
@@ -768,6 +909,135 @@ export class People implements PeopleApi {
       COLOR.setHex(hex[i]);
       b.rgb[i * 3] = COLOR.r; b.rgb[i * 3 + 1] = COLOR.g; b.rgb[i * 3 + 2] = COLOR.b;
     }
+  }
+
+  /** Colour and visibility of every part of a skinned body, and which body it is. Redone only when the look is replaced. */
+  private palette(b: Body): void {
+    if (b.palFor === b.look) return;
+    b.palFor = b.look;
+    const L = b.look as StyledLook, pal = b.pal;
+    const cut: HairCut = L.cut ?? 'tail';
+    const body: BodyKind = L.body ?? (cut === 'bob' || cut === 'tail' || cut === 'bun' ? 'f' : 'm');
+    b.kind = Math.max(0, this.assets.findIndex((a) => a.kind === body));
+    const hat = L.hat !== null, long = L.shortSleeves === false, shorts = L.shorts === true;
+    for (let i = 0; i < PARTS.length; i++) {
+      const p = PARTS[i];
+      let hex = L.skin, on = true, k = 1;
+      switch (p) {
+        case 'skin': break;
+        case 'arm_bare': on = !long; break;
+        case 'leg_bare': on = shorts; break;
+        case 'top': hex = L.top; break;
+        case 'top_long': hex = L.top; on = long; break;
+        case 'bottom': hex = L.bottom; break;
+        case 'bottom_long': hex = L.bottom; on = !shorts; break;
+        case 'shoes': hex = L.shoes; break;
+        case 'hair': hex = L.hair; on = cut !== 'bald'; break;
+        case 'hair_bob': hex = L.hair; on = cut === 'bob'; break;
+        case 'hair_tail': hex = L.hair; on = cut === 'tail'; break;
+        case 'hair_bun': hex = L.hair; on = cut === 'bun' && !hat; break;
+        case 'beard': hex = L.hair; on = L.beard === true; break;
+        case 'hat': hex = L.hat ?? 0; on = hat; break;
+        case 'brim_f': hex = L.hat ?? 0; on = hat && !L.capBack; break;
+        case 'brim_b': hex = L.hat ?? 0; on = hat && L.capBack === true; break;
+        case 'eye': hex = EYE; break;
+        case 'eyewhite': hex = 0xd9d4c8; break;
+        case 'brow': hex = L.hair; k = 0.6; break;
+        case 'lip': k = 0.62; break;
+      }
+      COLOR.setHex(hex);
+      const warm = p === 'lip' ? 0.8 : 1;
+      pal[i * 4] = COLOR.r * k; pal[i * 4 + 1] = COLOR.g * k * warm; pal[i * 4 + 2] = COLOR.b * k * warm;
+      pal[i * 4 + 3] = on ? 1 : 0;
+    }
+  }
+
+  /**
+   * One person's row of the crowd texture: the same chain of frames draw() hangs
+   * its boxes on, now one per bone of the file's skeleton, with the spine's and
+   * neck's turns shared between two joints each and the collar bones lifting
+   * when an arm goes up.
+   */
+  private skin(b: Body, row: number, J: Float32Array): void {
+    const c = b.cur, D = this.data, o = row * TEX_W * 4;
+    const L = b.look, k = L.height, W = L.build;
+    // Build widens the trunk most, its depth less, the limbs least: a broad person is not a stretched one.
+    const wide = 1 + (W - 1) * 0.8, deep = 1 + (W - 1) * 0.6, limb = 1 + (W - 1) * 0.45;
+    D.set(b.pal, o + PAL0 * 4);
+
+    const P = M_PELVIS;
+    const sh = Math.sin(b.h) * k, ch = Math.cos(b.h) * k;
+    P[0] = ch; P[1] = 0; P[2] = -sh; P[3] = 0;
+    P[4] = 0; P[5] = k; P[6] = 0; P[7] = 0;
+    P[8] = sh; P[9] = 0; P[10] = ch; P[11] = 0;
+    P[12] = b.x; P[13] = lerp(b.y, WATER_Y, c[WATER]); P[14] = b.z; P[15] = 1;
+    rotX(P, c[TIP]);
+    move(P, c[RX], HIP + c[RY], c[RZ]);
+    rotY(P, c[YAW]);
+    rotX(P, c[PITCH]);
+    rotZ(P, c[ROLL]);
+    put(D, o, J, B_HIPS, P, wide, deep);
+
+    const F = M_LIMB;
+    for (let i = 0; i < 2; i++) {
+      const s = i ? -1 : 1, j = i * 4, t = B_LEG[i];
+      F.set(P);
+      hop(F, J, B_HIPS, t, wide);
+      rotZ(F, s * c[LAB + j]);
+      rotX(F, -c[LSW + j]);
+      put(D, o, J, t, F, limb, limb);
+      hop(F, J, t, t + 1, 1);
+      rotX(F, c[LKN + j]);
+      put(D, o, J, t + 1, F, limb, limb);
+      hop(F, J, t + 1, t + 2, 1);
+      rotX(F, c[LFT + j]);
+      put(D, o, J, t + 2, F, 1, 1);
+    }
+
+    const T = M_TORSO;
+    T.set(P);
+    hop(T, J, B_HIPS, B_SPINE, 1);
+    rotY(T, c[TWIST] * 0.4);
+    rotX(T, c[LEAN] * 0.5);
+    rotZ(T, c[SROLL] * 0.5);
+    put(D, o, J, B_SPINE, T, wide, deep);
+    hop(T, J, B_SPINE, B_CHEST, 1);
+    rotY(T, c[TWIST] * 0.6);
+    rotX(T, c[LEAN] * 0.5);
+    rotZ(T, c[SROLL] * 0.5);
+    put(D, o, J, B_CHEST, T, wide, deep * (1 + 0.03 * c[BREATH]));
+
+    for (let i = 0; i < 2; i++) {
+      const s = i ? -1 : 1, j = i * 3, a = B_ARM[i];
+      F.set(T);
+      hop(F, J, B_CHEST, a, wide);
+      // The collar bone follows an arm raised past the horizontal.
+      rotZ(F, s * clamp((Math.max(Math.abs(c[ASW + j]), c[AAB + j]) - 0.9) * 0.3, 0, 0.35));
+      put(D, o, J, a, F, 1, 1);
+      hop(F, J, a, a + 1, wide);
+      // Abduct first, then swing: an arm raised overhead stays out to its own side.
+      rotX(F, -c[ASW + j]);
+      rotZ(F, s * c[AAB + j]);
+      put(D, o, J, a + 1, F, limb, limb);
+      hop(F, J, a + 1, a + 2, 1);
+      rotX(F, -c[AEL + j]);
+      put(D, o, J, a + 2, F, limb, limb);
+      hop(F, J, a + 2, a + 3, 1);
+      // A hand hangs a little curled in toward the leg, not in line with the forearm.
+      rotZ(F, -s * 0.12);
+      put(D, o, J, a + 3, F, 1, 1);
+    }
+
+    hop(T, J, B_CHEST, B_NECK, 1);
+    rotY(T, c[HYAW] * 0.35);
+    rotX(T, c[HPITCH] * 0.4);
+    rotZ(T, c[HROLL] * 0.4);
+    put(D, o, J, B_NECK, T, 1, 1);
+    hop(T, J, B_NECK, B_HEAD, 1);
+    rotY(T, c[HYAW] * 0.65);
+    rotX(T, c[HPITCH] * 0.6);
+    rotZ(T, c[HROLL] * 0.6);
+    put(D, o, J, B_HEAD, T, 1, 1);
   }
 
   private draw(b: Body, far: boolean): void {

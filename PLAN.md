@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 50% done)
+## Where things stand (about 53% done)
 
 **Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
@@ -61,6 +61,22 @@ pause card shows it already).
    lighting, integration and writing.
 3. **The site is at gta.doofus.live** (the owner moved it from gtaopus).
 
+### Realistic rework, step (c) people: pushed Nov 18, about 5:00 PM ET
+
+`tools/blender/people.py` builds two skinned bodies (`public/models/person_f.glb`,
+`person_m.glb`, 19 bones, two levels of detail); `src/ent/characterAssets.ts`
+loads them and `character.ts` skins the whole crowd in the vertex shader from one
+bone texture (4 draw calls). The old box people remain as the fallback until the
+files load (`?people=0` forces them). Honest state: people at 5 m and beyond, and
+in motion; smooth mannequins up close. Next, in order: a modelled face and head
+with separate skin and cloth roughness; clothes with their own silhouette
+(collar, jacket, skirt) and a cloth detail texture; a gait pass (feet drift
+about a tenth of body travel when running, and the player has no walk, only a
+jog); fingers. Not verified: seated pose inside a car, the fall and knocked-down
+poses, night, a real phone (the crowd texture is RGBA32F).
+Note for tests: models load after boot, so `tools/shot.mjs` taken immediately
+shows the old cars and people; wait a few seconds of real time first
+(`scratch/distwait.mjs` shows how).
 ### Realistic rework, step (b) cars: first one pushed Nov 18, about 4:10 PM ET
 
 `tools/blender/cars.py` builds vehicles in Blender (headless) and exports
