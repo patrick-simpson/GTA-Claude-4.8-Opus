@@ -101,6 +101,9 @@ interface DrawSet {
   wheels: THREE.InstancedMesh;
   mats: Float32Array;
   cols: Float32Array;
+  /** Per instance: dust, 0 to 1 (the paint shader's aDirt). */
+  dirt: Float32Array;
+  dirtAttr: THREE.InstancedBufferAttribute | null;
   wmats: Float32Array;
   /** Per instance: head, tail, brake, reverse; then left indicator, right indicator, daytime strip. */
   lamps: Float32Array | null;
@@ -199,8 +202,13 @@ class Car implements Vehicle {
   nearest = -1;
   /** Indicator: +1 left, -1 right, and when (game seconds) it cancels. */
   turn = 0; turnEnd = 0;
+  /** How dusty it is, 0 showroom to 1 back from the quarry: fixed for the car's life, from its id. */
+  dirt = 0;
 
   constructor(readonly id: number, readonly spec: VehicleSpec, readonly batch: KindBatch) {
+    // Most cars are clean enough; a few have not seen a hose this year.
+    const h = Math.abs(Math.sin(id * 127.1 + 311.7) * 43758.5453) % 1;
+    this.dirt = h * h * (spec.kind === 'bolt' ? 0.3 : 0.9);
     this.hl = spec.length / 2;
     this.hw = spec.width / 2;
     this.rad = Math.hypot(this.hl, this.hw);
@@ -370,11 +378,24 @@ void main() {
  * top of the pane. Without it the glass is a black hole whenever the
  * environment is dim, and paint is matte plastic.
  */
-function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number, gloss = 0, pane = false): void {
+function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number, gloss = 0, pane = false, dirt = false): void {
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uSky = sky;
     if (grad > 0) sh.vertexShader = 'attribute float aSky;\nvarying float vSky;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvSky = aSky;');
-    sh.fragmentShader = 'uniform vec3 uSky;\n' + (grad > 0 ? 'varying float vSky;\n' : '') + sh.fragmentShader.replace('#include <opaque_fragment>', `{
+    // Dust: a per-car amount (aDirt), thin over the whole body and thick along the sills where the road throws it.
+    // It dulls the colour toward road dust, roughens the base and takes the lacquer's shine away with it.
+    if (dirt) {
+      sh.vertexShader = 'attribute float aDirt;\nvarying float vDirt;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+        '#include <begin_vertex>\nvDirt = aDirt * (0.2 + 0.8 * (1.0 - smoothstep(0.25, 1.0, position.y)));');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.26, 0.2), vDirt * 0.55);')
+        .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+        material.roughness = mix(material.roughness, 0.95, vDirt * 0.8);
+        #ifdef USE_CLEARCOAT
+          material.clearcoat *= 1.0 - vDirt * 0.85;
+        #endif`);
+    }
+    sh.fragmentShader = 'uniform vec3 uSky;\n' + (grad > 0 ? 'varying float vSky;\n' : '') + (dirt ? 'varying float vDirt;\n' : '') + sh.fragmentShader.replace('#include <opaque_fragment>', `{
       float sF = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
       float sUp = max(inverseTransformDirection(normal, viewMatrix).y, 0.0);
       outgoingLight += uSky * (${base.toFixed(3)} + ${fres.toFixed(3)} * sF * sF * sF + ${up.toFixed(3)} * sUp${grad > 0 ? ` + ${grad.toFixed(3)} * vSky * vSky` : ''});
@@ -383,7 +404,7 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
       // the horizon is drawn in here: bright just above the line, cut off sharply below it.
       vec3 sR = inverseTransformDirection(reflect(-normalize(vViewPosition), normalize(normal)), viewMatrix);
       float sH = smoothstep(-0.035, 0.0, sR.y) * (1.0 - smoothstep(0.0, 0.42, sR.y));
-      outgoingLight += uSky * sH * ${gloss.toFixed(3)} * (0.22 + 1.6 * sF * sF);` : ''}
+      outgoingLight += uSky * sH * ${gloss.toFixed(3)} * (0.22 + 1.6 * sF * sF)${dirt ? ' * (1.0 - vDirt * 0.85)' : ''};` : ''}
       ${pane ? `
       // A pane is clear where you look through it squarely and a mirror where you do not.
       diffuseColor.a = min(1.0, diffuseColor.a + 0.75 * sF * sF + 0.5 * vSky * vSky * diffuseColor.a);` : ''}
@@ -525,7 +546,7 @@ export class Vehicles implements VehiclesApi {
 
   constructor(private game: Game) {
     this.paintMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.35, roughness: 0.3, envMapIntensity: 1.3 });
-    sheen(this.paintMat, this.sky, 'paint', 0, 0.3, 0.1, 0);
+    sheen(this.paintMat, this.sky, 'paint', 0, 0.3, 0.1, 0, 0, false, true);
     this.trimMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.7 });
     // Ink navy lifted toward the sea. Near-black metal showed only what the environment gave it, which by day was nothing.
     this.glassMat = new THREE.MeshStandardMaterial({ color: 0x1d3a52, metalness: 0.3, roughness: 0.15, envMapIntensity: 1.6 });
@@ -539,7 +560,7 @@ export class Vehicles implements VehiclesApi {
     const low = game.quality.name === 'low';
     // Metallic base under a hard lacquer: the base is left fairly rough (flake scatters), the coat is what shines.
     const coat = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.025, envMapIntensity: 1.7 });
-    sheen(coat, this.sky, 'coat', 0, 0.3, 0.1, 0, 0.55);
+    sheen(coat, this.sky, 'coat', 0, 0.3, 0.1, 0, 0.55, false, true);
     this.bodyMat = low ? this.paintMat : coat;
     this.detailMat = detailMaterial();
     this.detailMat.envMapIntensity = 1.6;
@@ -1399,7 +1420,7 @@ export class Vehicles implements VehiclesApi {
     }
     b.sets = list.map((parts) => {
       const s: DrawSet = {
-        parts, body: [], wheels: null!, mats: null!, cols: null!, wmats: null!, lamps: null, lamps2: null, lampAttr: null, lampAttr2: null,
+        parts, body: [], wheels: null!, mats: null!, cols: null!, dirt: null!, dirtAttr: null, wmats: null!, lamps: null, lamps2: null, lampAttr: null, lampAttr2: null,
         cap: b.cap, wcap: b.cap * p.wheels.length, n: 0, nw: 0, near: 0, nwNear: 0,
       };
       this.fillSet(s);
@@ -1426,6 +1447,8 @@ export class Vehicles implements VehiclesApi {
     };
     s.body = [make(q.paint, false), ...q.others.map((o) => make(o, false))];
     s.body[0].instanceColor = dyn(s.cols, 3);
+    s.dirt = new Float32Array(s.cap); s.dirtAttr = dyn(s.dirt, 1);
+    q.paint[0].setAttribute('aDirt', s.dirtAttr);
     s.wheels = make(q.wheel, true);
     if (q.lampGeo) {
       s.lamps = new Float32Array(s.cap * 4); s.lamps2 = new Float32Array(s.cap * 3);
@@ -1440,11 +1463,11 @@ export class Vehicles implements VehiclesApi {
 
   /** Growing replaces the meshes and their buffers, so carry over what this frame has already written. */
   private growSet(s: DrawSet): void {
-    const { mats, cols, wmats, lamps, lamps2 } = s;
+    const { mats, cols, wmats, lamps, lamps2, dirt } = s;
     this.dropSet(s);
     s.cap *= 2; s.wcap *= 2;
     this.fillSet(s);
-    s.mats.set(mats); s.cols.set(cols); s.wmats.set(wmats);
+    s.mats.set(mats); s.cols.set(cols); s.wmats.set(wmats); s.dirt.set(dirt);
     if (lamps && s.lamps) s.lamps.set(lamps);
     if (lamps2 && s.lamps2) s.lamps2.set(lamps2);
   }
@@ -1527,12 +1550,14 @@ export class Vehicles implements VehiclesApi {
       s.mats.set(c.mat, i * 16);
       if (c.color !== c.shown) { _col.setHex(c.color); c.cr = _col.r; c.cg = _col.g; c.cb = _col.b; c.shown = c.color; }
       s.cols[i * 3] = c.cr; s.cols[i * 3 + 1] = c.cg; s.cols[i * 3 + 2] = c.cb;
+      s.dirt[i] = c.wreck ? 0.7 : c.dirt;
       // The lenses themselves light up; the glow sprites in lamps() are the halo round them.
       if (s.lamps && s.lamps2) {
         const L = s.lamps, L2 = s.lamps2;
         L[i * 4] = c.lights ? 2.2 : 0;
         L[i * 4 + 1] = b.sections ? (c.lights ? 1.1 : 0) : c.braking ? 3.5 : c.lights ? 0.9 : 0;
-        L[i * 4 + 2] = c.braking ? 3.6 : 0;
+        // One lens does both jobs on most cars: the brake section glows dimly with the tail lamps and flares when braking.
+        L[i * 4 + 2] = c.braking ? 3.6 : c.lights ? 0.8 : 0;
         L[i * 4 + 3] = c.reversing ? 2.6 : 0;
         // Indicators: on while a driver holds a real turn at town speed, and for a moment after, like a stalk that cancels late.
         if (c.driver !== null && Math.abs(c.ctl.steer) > 0.45 && c.vx * c.vx + c.vz * c.vz < 170) { c.turn = c.ctl.steer > 0 ? -1 : 1; c.turnEnd = this.time + 1.3; }
@@ -1566,6 +1591,7 @@ export class Vehicles implements VehiclesApi {
       if (!on) continue;
       s.body[0].instanceMatrix.needsUpdate = true;
       s.body[0].instanceColor!.needsUpdate = true;
+      if (s.dirtAttr) s.dirtAttr.needsUpdate = true;
       if (s.lampAttr) s.lampAttr.needsUpdate = true;
       if (s.lampAttr2) s.lampAttr2.needsUpdate = true;
       if (s.nw) s.wheels.instanceMatrix.needsUpdate = true;

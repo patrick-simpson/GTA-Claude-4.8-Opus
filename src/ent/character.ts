@@ -33,33 +33,49 @@ import type { Look, PeopleApi, Person, Pose } from '../core/api';
 import type { Game } from '../core/game';
 import { RNG, TAU, clamp, clamp01, damp, hash2, lerp, smooth } from '../core/util';
 import { WATER_Y, groundAt } from '../world/plan';
-import { BONES, PARTS, loadPeople, type BodyKind, type PersonAsset } from './characterAssets';
+import { BONES, MORPHS, PARTS, loadPeople, type BodyKind, type PersonAsset } from './characterAssets';
 
-export type HairCut = 'crop' | 'bob' | 'tail' | 'bun' | 'bald';
+export type HairCut = 'crop' | 'part' | 'long' | 'bob' | 'tail' | 'bun' | 'curls' | 'afro' | 'bald';
+export type TopKind = 'tee' | 'shirt' | 'hoodie' | 'jacket' | 'coverall' | 'dress';
+export type BottomKind = 'trousers' | 'jeans' | 'shorts' | 'skirt';
+export type HatKind = 'cap' | 'beanie' | 'brim';
 
 /**
  * A Look with the optional details randomLook() adds. A plain Look works
- * everywhere; it gets the defaults (pony tail, rolled sleeves, long trousers).
+ * everywhere and gets defaults: top and bottom the same colour is a one-piece
+ * (coveralls, boots, pony tail: Dess); anything else is a uniform shirt and
+ * trousers on the man's body.
  */
 export interface StyledLook extends Look {
   cut?: HairCut;
-  beard?: boolean;
-  /** Forearms bare. Default true. */
-  shortSleeves?: boolean;
-  /** Shins bare. Default false. */
-  shorts?: boolean;
+  beard?: boolean | 'stubble';
+  topKind?: TopKind;
+  bottomKind?: BottomKind;
+  shoeKind?: 'sneakers' | 'boots';
+  hatKind?: HatKind;
   /** Cap worn brim-backwards. */
   capBack?: boolean;
-  /** Which body. Default: by haircut (bob, tail and bun are the woman's shape). */
+  glasses?: boolean;
+  bag?: boolean;
+  /** Which of FACES. */
+  face?: number;
+  /** Which body. Default: by haircut (long, tail and bun are the woman's shape). */
   body?: BodyKind;
 }
 
 const MAX_PEOPLE = 160;
 // One row of the crowd texture: the bones, three texels each, then the palette.
 const PAL0 = BONES.length * 3;
-const TEX_W = PAL0 + PARTS.length;
+/** After the palette: four texels of morph weights (face, face and eyes, left hand, right hand). */
+const MOR0 = PAL0 + PARTS.length;
+const TEX_W = MOR0 + 4;
+const NLOD = 3;
+/** How many people at once may be the full model. */
+const NEAR = 8, NEAR_LOW = 2;
 /** Nearer than this a person is the full model. The phone preset keeps that for whoever the camera is on. */
-const LOD_DIST = 26, LOD_DIST_LOW = 7;
+const LOD_DIST = 11, LOD_DIST_LOW = 3.5;
+/** Past this a person is the crowd model: no face, no fingers. */
+const LOD2_DIST = 38, LOD2_DIST_LOW = 9;
 const bone = (n: (typeof BONES)[number]): number => BONES.indexOf(n);
 const B_HIPS = bone('hips'), B_SPINE = bone('spine'), B_CHEST = bone('chest'), B_NECK = bone('neck'), B_HEAD = bone('head');
 const B_ARM = [bone('shoulder_l'), bone('shoulder_r')], B_LEG = [bone('thigh_l'), bone('thigh_r')];
@@ -131,8 +147,13 @@ class Body implements Person {
   lookKey = NaN;
   /** Skinned people: colour and visibility of every part, and which body. */
   readonly pal = new Float32Array(PARTS.length * 4);
+  /** Morph weights as the shader reads them: jaw nose brow age | blink lookx looky - | left hand fist wheel gun - | right hand. */
+  readonly mor = new Float32Array(16);
+  /** Written by whoever seats them: on a bench instead of at a wheel. */
+  bench = false;
   palFor: Look | null = null;
   kind = 0;
+  face = 0;
 
   constructor(readonly id: number, public look: Look) {
     this.seed = (Math.imul(id, 2654435761) >>> 0) % 9973;
@@ -231,14 +252,21 @@ function put(D: Float32Array, o: number, J: Float32Array, b: number, m: Float64A
   }
 }
 
-/** The crowd shader: skin from the row texture, tint by the palette, fold hidden parts to a point. */
-function skinned(tex: THREE.DataTexture, lit: boolean): (shader: { vertexShader: string; uniforms: Record<string, THREE.IUniform> }) => void {
+/**
+ * The crowd shader: skin from the row texture, tint by the palette, fold hidden parts to a point.
+ * `morph` adds the nearest level's five shape slots; `pbr` gives every surface class its own response.
+ */
+function skinned(tex: THREE.DataTexture, lit: boolean, morph: boolean, pbr: boolean): (shader: { vertexShader: string; fragmentShader: string; uniforms: Record<string, THREE.IUniform> }) => void {
   return (shader) => {
     shader.uniforms.uPeople = { value: tex };
     let v = shader.vertexShader.replace('#include <common>', `#include <common>
 attribute vec4 aSkin;
+attribute vec3 aInfo;
 attribute float aRow;
+${morph ? 'attribute vec3 aM0;\nattribute vec3 aM1;\nattribute vec3 aM2;\nattribute vec3 aM3;\nattribute vec3 aM4;' : ''}
 uniform highp sampler2D uPeople;
+varying float vCls;
+varying vec3 vBind;
 vec4 pcM0, pcM1, pcM2, pcPal;
 void pcFetch() {
   int r = int(aRow + 0.5), a = int(aSkin.x + 0.5) * 3, b = int(aSkin.y + 0.5) * 3;
@@ -248,11 +276,45 @@ void pcFetch() {
   pcPal = texelFetch(uPeople, ivec2(${PAL0} + int(aSkin.w + 0.5), r), 0);
 }`);
     if (lit) {
-      v = v.replace('#include <color_vertex>', 'pcFetch();\n#include <color_vertex>\nvColor.rgb *= pcPal.rgb;')
+      v = v.replace('#include <color_vertex>', 'pcFetch();\n#include <color_vertex>\nvColor.rgb *= mix(pcPal.rgb, vec3(1.0), aInfo.y);\nvCls = aInfo.x;\nvBind = position;')
         .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nobjectNormal = vec3(dot(pcM0.xyz, objectNormal), dot(pcM1.xyz, objectNormal), dot(pcM2.xyz, objectNormal));');
     }
+    const shape = morph ? `vec3 pcQ = position;
+{
+  int r = int(aRow + 0.5), g = int(aInfo.z + 0.5);
+  vec4 f0 = texelFetch(uPeople, ivec2(${MOR0}, r), 0), f1 = texelFetch(uPeople, ivec2(${MOR0 + 1}, r), 0);
+  vec4 wa = f0; float wb = f1.x;
+  if (g == 1) { wa = vec4(0.0, 0.0, f0.z, f1.y); wb = f1.z; }
+  else if (g > 1) { wa = texelFetch(uPeople, ivec2(${MOR0} + g, r), 0); wb = 0.0; }
+  pcQ += aM0 * wa.x + aM1 * wa.y + aM2 * wa.z + aM3 * wa.w + aM4 * wb;
+}
+vec4 pcP = vec4(pcQ, 1.0);` : 'vec4 pcP = vec4(position, 1.0);';
     shader.vertexShader = v.replace('#include <begin_vertex>',
-      (lit ? '' : 'pcFetch();\n') + 'vec4 pcP = vec4(position, 1.0);\nvec3 transformed = vec3(dot(pcM0, pcP), dot(pcM1, pcP), dot(pcM2, pcP)) * pcPal.a;');
+      (lit ? '' : 'pcFetch();\n') + shape + '\nvec3 transformed = vec3(dot(pcM0, pcP), dot(pcM1, pcP), dot(pcM2, pcP)) * pcPal.a;');
+    if (!pbr) return;
+    // Skin, cloth, leather, rubber, hair, metal, eye, plastic: each its own roughness; cloth gets a
+    // soft sheen at grazing angles and skin a warmer shadow side, which is as much subsurface as this can afford.
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vCls;\nvarying vec3 vBind;')
+      // Up close cloth has a weave and skin is not one flat colour. Both fade out before they can shimmer.
+      .replace('#include <color_fragment>', `#include <color_fragment>
+int pcC = int(vCls + 0.5);
+float pcNear = 1.0 - smoothstep(0.35, 1.2, fwidth(vBind.y) * 1100.0);
+vec2 pcW = vec2(sin(vBind.x * 1100.0 + vBind.z * 700.0), sin(vBind.y * 1100.0));
+if (pcC == 1) diffuseColor.rgb *= 1.0 + 0.07 * pcNear * pcW.x * pcW.y + 0.035 * sin(vBind.y * 31.0 + 2.0 * sin(vBind.x * 17.0 + vBind.z * 13.0));
+else if (pcC == 0) diffuseColor.rgb *= vec3(1.0, 0.985, 0.975) + vec3(0.03, 0.045, 0.045) * sin(vBind.y * 23.0 + 3.0 * sin(vBind.x * 41.0 + vBind.z * 29.0));`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+if (pcC == 1) normal = normalize(normal + 0.10 * pcNear * vec3(pcW.x, pcW.y, 0.0));`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+roughnessFactor = pcC == 0 ? 0.56 : pcC == 1 ? 0.93 : pcC == 2 ? 0.46 : pcC == 3 ? 0.78 : pcC == 4 ? 0.52 : pcC == 5 ? 0.32 : pcC == 6 ? 0.06 : 0.28;`)
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nif (pcC == 5) metalnessFactor = 1.0;')
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+float pcRim = pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 3.0);
+if (pcC == 1) { reflectedLight.indirectDiffuse *= 1.0 + 0.7 * pcRim; reflectedLight.directDiffuse *= 1.0 + 0.4 * pcRim; }
+else if (pcC == 0) { reflectedLight.indirectDiffuse *= vec3(1.14, 1.0, 0.9); reflectedLight.directDiffuse *= vec3(1.0) + vec3(0.22, 0.05, 0.0) * pcRim; }
+else if (pcC == 4) { reflectedLight.indirectDiffuse *= 1.0 + 0.5 * pcRim; }
+// Eyes are wet and catch light from everywhere: without this they are two dark holes under any hat.
+else if (pcC == 6) { reflectedLight.indirectDiffuse += diffuseColor.rgb * 0.22 * (0.25 + reflectedLight.indirectDiffuse); }`);
   };
 }
 
@@ -541,7 +603,33 @@ function down(b: Body, o: Float32Array): void {
   }
 }
 
+/** On a bench: thighs level, shins down, back against the slats, hands in the lap. */
+function sitBench(b: Body, o: Float32Array): void {
+  o.fill(0);
+  const t = b.t, breath = Math.sin(t * 1.5), s = b.seed;
+  const pitch = -0.12;
+  o[RY] = -HIP + 0.1;
+  o[PITCH] = pitch;
+  o[LEAN] = 0.06 - 0.012 * breath;
+  o[HPITCH] = 0.08 + 0.08 * (drift(t * 0.2, s + 5) * 2 - 1);
+  o[HYAW] = 0.5 * (drift(t * 0.25, s + 11) * 2 - 1);
+  // One foot a little ahead of the other; nobody sits square.
+  const fwd = hash2(s, 3) < 0.5 ? 0 : 4;
+  for (let i = 0; i < 2; i++) {
+    const l = i * 4, ahead = l === fwd ? 1 : 0;
+    o[LSW + l] = 1.5 + pitch; o[LKN + l] = 1.5 - 0.3 * ahead; o[LAB + l] = 0.12;
+    // Sole flat on the ground whatever the knee is doing.
+    o[LFT + l] = -pitch + o[LSW + l] - o[LKN + l] + (ahead ? 0.05 : 0);
+    const k = i * 3;
+    o[ASW + k] = 0.42 + 0.02 * Math.sin(t * 0.7 + i * 2);
+    o[AAB + k] = -0.02;
+    o[AEL + k] = 1.05;
+  }
+  o[BREATH] = breath;
+}
+
 function sit(b: Body, o: Float32Array): void {
+  if (b.bench) { sitBench(b, o); return; }
   o.fill(0);
   const t = b.t, breath = Math.sin(t * 1.5);
   const pitch = -0.2;
@@ -671,7 +759,14 @@ const TOPS = [0xf2e8cf, 0x2a9d8f, 0xf0a202, 0xe4572e, 0x14213d, 0x8a9a6b, 0x9c4a
 const BOTTOMS = [0x3d5a80, 0x2b3c5a, 0x6f8fae, 0xb8a57a, 0x9a8c68, 0x2b2d33, 0x45474d];
 const SHOES = [0x2b2d33, 0x2b2d33, 0x5a3a26, 0x7a5236, 0xf2e8cf, 0x14213d, 0xe4572e];
 const HATS = [0x14213d, 0xe4572e, 0xf0a202, 0x2a9d8f, 0xf2e8cf, 0x8a9a6b, 0x9c4a3c];
-const CUTS: HairCut[] = ['crop', 'crop', 'crop', 'crop', 'bob', 'bob', 'tail', 'tail', 'bun', 'bald'];
+const CUTS_F: HairCut[] = ['long', 'long', 'tail', 'tail', 'bun', 'part', 'curls', 'afro', 'crop'];
+const CUTS_M: HairCut[] = ['crop', 'crop', 'crop', 'part', 'part', 'curls', 'afro', 'bald', 'bald'];
+const TOPS_F: TopKind[] = ['tee', 'tee', 'shirt', 'hoodie', 'jacket', 'dress', 'dress'];
+const TOPS_M: TopKind[] = ['tee', 'tee', 'shirt', 'shirt', 'hoodie', 'jacket', 'jacket'];
+const IRIS = [0x3a2414, 0x3a2414, 0x4a2e18, 0x2a1a10, 0x5a6a48, 0x4a6a8a, 0x6a5a3a];
+/** jaw, nose, brow, age: the faces the one head is pulled into. The last is Dess: nobody's twin, and tired. */
+const FACES = [[0, 0, 0, 0], [0.8, 0.5, 0.7, 0], [-0.8, -0.6, -0.4, 0], [0.3, 0.9, 0.2, 1], [-0.4, 0.6, -0.7, 0.55], [0.9, -0.5, 0.3, 0.3], [-0.2, 0.2, 0.9, 0.8], [0.5, -0.8, -0.5, 0], [0.15, -0.15, 0.2, 0.4]];
+const DESS_FACE = FACES.length - 1;
 
 // ── The people ───────────────────────────────────────────────────────────────
 
@@ -694,10 +789,11 @@ export class People implements PeopleApi {
 
   // The skinned crowd. Empty until the models have loaded.
   private assets: PersonAsset[] = [];
-  /** One mesh per body and level of detail: index = body * 2 + lod. */
+  /** One mesh per body and level of detail: index = body * NLOD + lod. */
   private readonly skins: THREE.Mesh[] = [];
   private readonly rows: THREE.InstancedBufferAttribute[] = [];
   private readonly counts: number[] = [];
+  private readonly near = new Float64Array(NEAR);
   private readonly data = new Float32Array(TEX_W * MAX_PEOPLE * 4);
   private readonly tex = new THREE.DataTexture(this.data, TEX_W, MAX_PEOPLE, THREE.RGBAFormat, THREE.FloatType);
 
@@ -738,22 +834,32 @@ export class People implements PeopleApi {
   private adopt(assets: PersonAsset[]): void {
     const low = this.game.quality.name === 'low';
     // The phone preset lights them per vertex; the rest get the city's own physically based shading.
-    const mat = low
-      ? new THREE.MeshLambertMaterial({ vertexColors: true })
-      : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
-    mat.onBeforeCompile = skinned(this.tex, true);
+    const make = (morph: boolean): THREE.Material => {
+      const m = low
+        ? new THREE.MeshLambertMaterial({ vertexColors: true })
+        : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
+      m.onBeforeCompile = skinned(this.tex, true, morph, !low);
+      // Both closures print the same source, which is all three compares by default.
+      m.customProgramCacheKey = () => `people${morph ? 1 : 0}${low ? 0 : 1}`;
+      return m;
+    };
+    const mats = [make(false), make(true)];
     const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-    depth.onBeforeCompile = skinned(this.tex, false);
+    depth.onBeforeCompile = skinned(this.tex, false, false, false);
+    depth.customProgramCacheKey = () => 'people-depth';
+    const names = ['position', 'normal', 'color', 'aSkin', 'aInfo'];
     for (const a of assets) {
-      for (let lod = 0; lod < 2; lod++) {
-        const src = a.lods[lod], g = new THREE.InstancedBufferGeometry();
+      for (let lod = 0; lod < NLOD; lod++) {
+        const src = a.lods[Math.min(lod, a.lods.length - 1)], g = new THREE.InstancedBufferGeometry();
+        const morph = src.hasAttribute('aM0');
         g.setIndex(src.getIndex());
-        for (const n of ['position', 'normal', 'color', 'aSkin']) g.setAttribute(n, src.getAttribute(n));
+        for (const n of names) g.setAttribute(n, src.getAttribute(n));
+        if (morph) for (let k = 0; k < MORPHS; k++) g.setAttribute(`aM${k}`, src.getAttribute(`aM${k}`));
         const row = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PEOPLE), 1);
         row.setUsage(THREE.DynamicDrawUsage);
         g.setAttribute('aRow', row);
         g.instanceCount = 0;
-        const m = new THREE.Mesh(g, mat);
+        const m = new THREE.Mesh(g, mats[morph ? 1 : 0]);
         m.name = `people_${a.kind}${lod}`;
         m.customDepthMaterial = depth;
         m.castShadow = true;
@@ -793,13 +899,17 @@ export class People implements PeopleApi {
     while (HAIRS[hair] === HAIRS[this.lastHair]) hair = rng.int(0, HAIRS.length - 1);
     this.lastTop = top; this.lastBottom = bottom; this.lastHair = hair;
 
-    const cut = rng.pick(CUTS);
+    const body: BodyKind = rng.chance(0.5) ? 'f' : 'm';
+    const f = body === 'f';
+    const cut = rng.pick(f ? CUTS_F : CUTS_M);
     let hat: number | null = null;
-    if (rng.chance(0.34)) {
+    if (rng.chance(cut === 'afro' || cut === 'bun' ? 0.08 : 0.3)) {
       hat = rng.pick(HATS);
       // A cap the colour of the shirt under it reads as a uniform.
       while (hat === TOPS[top]) hat = rng.pick(HATS);
     }
+    const topKind = rng.pick(f ? TOPS_F : TOPS_M);
+    const hatKind: HatKind = rng.chance(0.55) ? 'cap' : rng.chance(0.55) ? 'beanie' : 'brim';
     const look: StyledLook = {
       skin: rng.pick(SKINS),
       hair: HAIRS[hair],
@@ -808,17 +918,17 @@ export class People implements PeopleApi {
       shoes: rng.pick(SHOES),
       hat,
       // Two rolls averaged: most people are near the middle, a few are tall or small.
-      height: 0.92 + 0.16 * (rng.next() + rng.next()) / 2,
+      height: (f ? 0.9 : 0.95) + 0.14 * (rng.next() + rng.next()) / 2,
       build: 0.9 + 0.25 * (rng.next() + rng.next()) / 2,
-      cut,
-      beard: false,
-      shortSleeves: rng.chance(0.55),
-      shorts: rng.chance(0.22),
-      capBack: hat !== null && rng.chance(0.15),
+      cut, body, topKind, hatKind,
+      bottomKind: rng.chance(0.2) ? 'shorts' : f && rng.chance(0.2) ? 'skirt' : rng.chance(0.5) ? 'jeans' : 'trousers',
+      shoeKind: rng.chance(0.68) ? 'sneakers' : 'boots',
+      beard: !f && rng.chance(0.38) ? (rng.chance(0.5) ? true : 'stubble') : false,
+      capBack: rng.chance(0.15),
+      glasses: rng.chance(0.16),
+      bag: rng.chance(0.16),
+      face: rng.int(0, FACES.length - 2),
     };
-    // Long hair is nearly always the woman's body; a crop is either; the beard goes with the man's.
-    look.body = cut === 'bald' ? 'm' : rng.chance(cut === 'crop' ? 0.25 : 0.9) ? 'f' : 'm';
-    look.beard = look.body === 'm' && (cut === 'crop' || cut === 'bald') && rng.chance(0.3);
     return look;
   }
 
@@ -840,9 +950,26 @@ export class People implements PeopleApi {
     const room = MAX_PEOPLE * MAX_PARTS - MAX_PARTS;
 
     const skinned = this.assets.length > 0;
-    const lod2 = (g.quality.name === 'low' ? LOD_DIST_LOW : LOD_DIST) ** 2;
+    const low = g.quality.name === 'low';
+    const lod2 = (low ? LOD_DIST_LOW : LOD_DIST) ** 2, lod3 = (low ? LOD2_DIST_LOW : LOD2_DIST) ** 2;
     let row = 0;
     for (let i = 0; i < this.counts.length; i++) this.counts[i] = 0;
+    // The full model carries every garment and haircut, so its vertex cost is several people's. Only the
+    // nearest few get it; in a packed crowd the rest are the middle model, which at that range looks the same.
+    const near = this.near, nNear = low ? NEAR_LOW : NEAR;
+    near.fill(Infinity);
+    if (skinned) {
+      for (let i = 0; i < this.bodies.length; i++) {
+        const b = this.bodies[i];
+        if (!b.visible) continue;
+        const dx = b.x - eye.x, dy = b.y - eye.y, dz = b.z - eye.z, d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 >= lod2 || d2 >= near[nNear - 1] || dx * FWD.x + dy * FWD.y + dz * FWD.z < -1) continue;
+        let j = nNear - 1;
+        while (j > 0 && near[j - 1] > d2) { near[j] = near[j - 1]; j--; }
+        near[j] = d2;
+      }
+    }
+    const nearCut = near[nNear - 1];
 
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i];
@@ -859,7 +986,7 @@ export class People implements PeopleApi {
       this.animate(b, dt);
       if (skinned) {
         this.palette(b);
-        const m = b.kind * 2 + (d2 > lod2 ? 1 : 0);
+        const m = b.kind * NLOD + (d2 > lod3 ? 2 : d2 > lod2 || d2 > nearCut ? 1 : 0);
         (this.rows[m].array as Float32Array)[this.counts[m]++] = row;
         this.skin(b, row++, this.assets[b.kind].joints);
       } else {
@@ -898,7 +1025,9 @@ export class People implements PeopleApi {
     }
     b.t += dt;
     b.poseT += dt;
-    b.gaitSpeed = damp(b.gaitSpeed, b.speed, 12, dt);
+    // A short person's legs are short too: the same ground speed is a quicker gait, or the feet slide by the difference.
+    const hk = b.look.height || 1;
+    b.gaitSpeed = damp(b.gaitSpeed, b.speed / hk, 12, dt);
     // The two bands overlap so a seabed hovering at the line does not flicker between gaits.
     const wading = b.y < WATER_Y - WADE_DEPTH - (b.wading ? -0.08 : 0.08);
     if (wading !== b.wading) {
@@ -907,7 +1036,7 @@ export class People implements PeopleApi {
     }
     if (b.shown === 'walk' || b.shown === 'run') {
       // Wading keeps its cadence from the real speed, so the short wading stride just slips a little in the water.
-      b.phase += (b.speed * dt) / strideLen(b.gaitSpeed, b.shown === 'run' && !b.wading) * (b.wading ? 0.7 : 1);
+      b.phase += (b.speed / hk * dt) / strideLen(b.gaitSpeed, b.shown === 'run' && !b.wading) * (b.wading ? 0.7 : 1);
       b.phase -= Math.floor(b.phase);
     } else if (b.shown === 'swim') {
       // A slow tick even when still, so treading water keeps moving.
@@ -925,6 +1054,22 @@ export class People implements PeopleApi {
       cur.set(TGT);
     }
     if (b.aim > 0.004 && b.shown !== 'down' && b.shown !== 'swim') aimOver(b, cur);
+
+    // The face is this person's own; the eyes blink and wander; the hands close on whatever the body is doing.
+    const m = b.mor, F = FACES[b.face] ?? FACES[0];
+    for (let i = 0; i < 4; i++) m[i] = F[i] + 0.3 * (hash2(b.seed, 40 + i) - 0.5);
+    const bt = (b.t * 0.29 + b.seed * 0.137) % 1;
+    const lying = b.shown === 'down';
+    m[4] = lying ? 0.9 : bt < 0.04 ? Math.sin(Math.PI * bt / 0.04) : 0.12 * F[3];
+    const still = b.shown === 'stand' || b.shown === 'sit' ? 1 : 0.35;
+    m[5] = damp(m[5], still * 0.9 * (drift(b.t * 0.37, b.seed + 21) * 2 - 1), 14, dt);
+    m[6] = damp(m[6], still * 0.5 * (drift(b.t * 0.31, b.seed + 22) * 2 - 1), 14, dt);
+    const aim = lying || b.shown === 'swim' ? 0 : smooth(b.aim);
+    const wheel = b.shown === 'sit' && !b.bench ? 1 : 0;
+    const fist = b.shown === 'run' && !b.wading ? 0.75 : b.shown === 'jump' || b.shown === 'fall' ? 0 : b.shown === 'walk' ? 0.15 : 0.05;
+    const r = 1 - Math.exp(-10 * dt);
+    m[8] += (fist * (1 - wheel) * (b.aimTwo ? 1 - aim : 1) - m[8]) * r; m[9] += (Math.max(wheel, b.aimTwo ? aim * 0.8 : 0) - m[9]) * r; m[10] = 0;
+    m[12] += (fist * (1 - wheel) * (1 - aim) - m[12]) * r; m[13] += (wheel * (1 - aim) - m[13]) * r; m[14] += (aim - m[14]) * r;
   }
 
   private colors(b: Body): void {
@@ -944,38 +1089,62 @@ export class People implements PeopleApi {
     if (b.palFor === b.look) return;
     b.palFor = b.look;
     const L = b.look as StyledLook, pal = b.pal;
-    const cut: HairCut = L.cut ?? 'tail';
-    const body: BodyKind = L.body ?? (cut === 'bob' || cut === 'tail' || cut === 'bun' ? 'f' : 'm');
+    // A plain Look: one colour head to foot is the coveralls (Dess); otherwise a uniform.
+    const plain = L.cut === undefined && L.topKind === undefined;
+    const onePiece = plain && L.top === L.bottom;
+    let cut: HairCut = L.cut ?? (onePiece ? 'tail' : 'crop');
+    if (cut === 'bob') cut = 'long';
+    const body: BodyKind = L.body ?? (plain ? (onePiece ? 'f' : 'm') : cut === 'long' || cut === 'tail' || cut === 'bun' ? 'f' : 'm');
     b.kind = Math.max(0, this.assets.findIndex((a) => a.kind === body));
-    const hat = L.hat !== null, long = L.shortSleeves === false, shorts = L.shorts === true;
+    const top: TopKind = L.topKind ?? (onePiece ? 'coverall' : 'shirt');
+    const bottom: BottomKind = top === 'coverall' ? 'trousers' : L.bottomKind ?? 'trousers';
+    const shoes = L.shoeKind ?? 'boots';
+    const hat = L.hat !== null, hk: HatKind = L.hatKind ?? 'cap';
+    const bare = bottom === 'shorts' || bottom === 'skirt' || top === 'dress';
+    // Under a hat the big cuts are tucked in: the close crop shows at the sides instead.
+    const shown = hat && (cut === 'part' || cut === 'curls' || cut === 'afro' || cut === 'bun') ? 'crop' : cut;
+    b.face = L.face ?? (onePiece ? DESS_FACE : b.seed % (FACES.length - 1));
     for (let i = 0; i < PARTS.length; i++) {
       const p = PARTS[i];
       let hex = L.skin, on = true, k = 1;
       switch (p) {
-        case 'skin': break;
-        case 'arm_bare': on = !long; break;
-        case 'leg_bare': on = shorts; break;
-        case 'top': hex = L.top; break;
-        case 'top_long': hex = L.top; on = long; break;
-        case 'bottom': hex = L.bottom; break;
-        case 'bottom_long': hex = L.bottom; on = !shorts; break;
-        case 'shoes': hex = L.shoes; break;
-        case 'hair': hex = L.hair; on = cut !== 'bald'; break;
-        case 'hair_bob': hex = L.hair; on = cut === 'bob'; break;
-        case 'hair_tail': hex = L.hair; on = cut === 'tail'; break;
-        case 'hair_bun': hex = L.hair; on = cut === 'bun' && !hat; break;
-        case 'beard': hex = L.hair; on = L.beard === true; break;
-        case 'hat': hex = L.hat ?? 0; on = hat; break;
-        case 'brim_f': hex = L.hat ?? 0; on = hat && !L.capBack; break;
-        case 'brim_b': hex = L.hat ?? 0; on = hat && L.capBack === true; break;
-        case 'eye': hex = EYE; break;
+        case 'head': case 'body': break;
+        case 'arm': on = top === 'tee' || top === 'dress'; break;
+        case 'leg': on = bare; break;
         case 'eyewhite': hex = 0xd9d4c8; break;
+        case 'iris': hex = IRIS[b.seed % IRIS.length]; break;
         case 'brow': hex = L.hair; k = 0.6; break;
-        case 'lip': k = 0.62; break;
+        // Under an open jacket: a pale tee, or a dark one if the jacket is pale.
+        case 'tee': on = top === 'tee' || top === 'jacket'; hex = top === 'tee' ? L.top : (L.top >> 16) > 0xb0 ? 0x2b2d33 : 0xe6e0d0; break;
+        case 'shirt': case 'hoodie': case 'jacket': case 'coverall': case 'dress': hex = L.top; on = top === p; break;
+        case 'trousers': case 'jeans': case 'shorts': case 'skirt': hex = L.bottom; on = bottom === p && top !== 'dress'; break;
+        case 'sneakers': case 'boots': hex = L.shoes; on = shoes === p; break;
+        case 'hair_crop': hex = L.hair; on = shown === 'crop'; break;
+        case 'hair_part': hex = L.hair; on = shown === 'part'; break;
+        case 'hair_long': hex = L.hair; on = shown === 'long'; break;
+        case 'hair_tail': hex = L.hair; on = shown === 'tail'; break;
+        case 'hair_bun': hex = L.hair; on = shown === 'bun'; break;
+        case 'hair_curls': hex = L.hair; on = shown === 'curls'; break;
+        case 'hair_afro': hex = L.hair; on = shown === 'afro'; break;
+        case 'hair_bald': hex = L.hair; on = shown === 'bald'; break;
+        case 'beard': hex = L.hair; on = L.beard === true; break;
+        case 'stubble': hex = L.hair; on = L.beard === 'stubble'; break;
+        case 'cap': hex = L.hat ?? 0; on = hat && hk === 'cap'; break;
+        case 'peak_f': hex = L.hat ?? 0; on = hat && hk === 'cap' && !L.capBack; break;
+        case 'peak_b': hex = L.hat ?? 0; on = hat && hk === 'cap' && L.capBack === true; break;
+        case 'beanie': hex = L.hat ?? 0; on = hat && hk === 'beanie'; break;
+        case 'brimhat': hex = L.hat ?? 0; on = hat && hk === 'brim'; break;
+        case 'glasses': hex = 0x17171c; on = L.glasses === true; break;
+        case 'bag': hex = [0x5a3a26, 0x2b2d33, 0x8a6a3a, 0x3d5a80][b.seed % 4]; on = L.bag === true; break;
+        // The belt is cut to go outside the coveralls; every other top hangs over where one would be.
+        case 'belt': hex = 0x2a1c12; on = top === 'coverall'; break;
       }
       COLOR.setHex(hex);
-      const warm = p === 'lip' ? 0.8 : 1;
-      pal[i * 4] = COLOR.r * k; pal[i * 4 + 1] = COLOR.g * k * warm; pal[i * 4 + 2] = COLOR.b * k * warm;
+      pal[i * 4] = COLOR.r * k; pal[i * 4 + 1] = COLOR.g * k; pal[i * 4 + 2] = COLOR.b * k;
+      if (p === 'stubble') {
+        // Stubble is skin with the hair's colour coming through it.
+        pal[i * 4] = lerp(pal[0], pal[i * 4], 0.45); pal[i * 4 + 1] = lerp(pal[1], pal[i * 4 + 1], 0.45); pal[i * 4 + 2] = lerp(pal[2], pal[i * 4 + 2], 0.45);
+      }
       pal[i * 4 + 3] = on ? 1 : 0;
     }
   }
@@ -992,6 +1161,7 @@ export class People implements PeopleApi {
     // Build widens the trunk most, its depth less, the limbs least: a broad person is not a stretched one.
     const wide = 1 + (W - 1) * 0.8, deep = 1 + (W - 1) * 0.6, limb = 1 + (W - 1) * 0.45;
     D.set(b.pal, o + PAL0 * 4);
+    D.set(b.mor, o + MOR0 * 4);
 
     const P = M_PELVIS;
     const sh = Math.sin(b.h) * k, ch = Math.cos(b.h) * k;
@@ -1074,8 +1244,8 @@ export class People implements PeopleApi {
     const L = b.look as StyledLook;
     const k = L.height, W = L.build;
     const cut: HairCut = L.cut ?? 'tail';
-    const sleeve = L.shortSleeves === false ? C_TOP : C_SKIN;
-    const shin = L.shorts ? C_SKIN : C_BOTTOM;
+    const sleeve = L.topKind === 'tee' ? C_SKIN : C_TOP;
+    const shin = L.bottomKind === 'shorts' || L.bottomKind === 'skirt' ? C_SKIN : C_BOTTOM;
 
     // Root: feet spot, heading, height. Then out to the pelvis.
     const P = M_PELVIS;

@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 73% done)
+## Where things stand (about 79% done)
 
 **Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
@@ -88,6 +88,27 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Pushed Nov 19, about 11:35 AM ET: Tepid Falls complete, cars all-out pass one
+
+- **Mainland part 2 is done and live** (`mainlandBuildings.ts`, `mainlandPlaces.ts`):
+  Lower Main (incl. the picture house "The Hesitation"), The Stacks, Loom Row with
+  the Threadbare mill, Quorum Square and Postponement Hall, the Exact Change
+  Footbridge, Dithers College, the depot, Thruway exits and Idle Hands truck stop,
+  Fort Reluctance, Lake Indecision; easter egg: a duckling at the lip of the dam.
+  Owed: college spire hidden from the landing and faint from the bridge; smokestack
+  lettering low contrast; porches are solid; rain, fog, medium preset unchecked.
+- **Cars, all-out pass one** (`tools/blender/cars.py`, all twelve re-exported):
+  three levels of detail (LOD0 12-16k triangles for the nearest four cars, LOD1,
+  LOD2), lamps with bowls and sectioned lenses that light independently (head,
+  tail, brake, reverse, indicator, daytime), plates, emblems and scripts, tread,
+  calipers, undersides, fuller interiors behind half-transparent glass, real bus
+  doors, per-car dirt. The Bolt is reworked (kink, split tall tail lamps, roof
+  rails, two-tone alloys). Car files went from 4.6 MB to 11.9 MB.
+  Owed: no UVs or baked normal/roughness maps at all (step 7 of the brief); LOD0
+  is far below the 40-60k asked for; bumpers still separate sections; mirrors and
+  handles boxy; reflections show sky only; Bolt's face still generic, wheels not
+  twin-spoke; many kinds never inspected close up in the game.
+- Queue: people all-out (running), flora and props all-out (next), then M4.
 ### Owner requests, Nov 19 morning
 
 - **A 2017 Chevy Bolt, black** (kind `bolt`): the one real car, by explicit request;
