@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 70% done)
+## Where things stand (about 73% done)
 
 **Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
@@ -88,6 +88,29 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### The mainland, part 1 (land, bridge, streets): pushed Nov 19, about 2:30 AM ET
+
+The mainland town is **Tepid Falls** (Waterville-inspired, all names invented):
+the Muddle River with Threadbare Dam, Dithers Hill (college), Lake Indecision,
+the Thruway, Sidetrack Yard, Lesser Tepid across the Exact Change Footbridge.
+Data in `src/world/mainland.ts` (`SITES`, `EXTRA_LOTS`, `HILL`, `RAIL`, `DECKS`);
+the plan's nodes, edges and blocks now carry `land` (0 island, 1 mainland), and
+the 801 mainland lots are in `plan.mainlandLots` (empty until part 2).
+`src/world/progress.ts`: the bridge is built in 8 spans (250 to 950 points each,
+4,800 in all; a dollar at the Bridge Completion Fund box at the bridge foot is a
+point, driving trickles 1 point per 60 m, `progress.add(points)` for missions),
+then four town stages (mills and Lesser Tepid; Main St, square, yard; college
+and The Stacks; exits and lake) behind construction barriers. Test with
+`?bridge=8&stage=4` or `__game.bridge(n)` / `__game.stage(n)`.
+The full layout table with coordinates is in the part 1 report, summarised in
+`tools/briefs/mainland-2-buildings.md`.
+Owed: every mainland lot is empty (part 2); the mill pond is drawn 1.2 m above
+sea level but swimming still uses WATER_Y (`waterLevelAt` is exported, unused);
+at 7 spans a fast car can jump the last gap; trees are island species (no pine or
+birch yet); no mist at the falls; police station and release point are island
+only; night, rain and phone were not checked on the mainland; "Start over" does
+NOT reset bridge progress (deliberate for now: Backspace is also the unstick
+key; ask the owner).
 ### M3 "Trouble": pushed Nov 19, about 1:35 AM ET
 
 `src/sim/police.ts`, `policeAir.ts`: heat only rises for crimes someone could

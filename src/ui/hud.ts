@@ -12,8 +12,10 @@ import type { GameState, HudApi, Vehicle, Weather } from '../core/api';
 import { MPH, RNG, TAU, clamp, clamp01, damp } from '../core/util';
 import {
   BREAKWATER, BRIDGE, LIGHTHOUSE, PIER, PIER_HEAD, RAMPS, WATER_Y, ZS,
-  islandSD, terrainAt, type CityPlan, type District, type Rect,
+  bridgeEndZ, islandSD, terrainAt, type CityPlan, type District, type Rect,
 } from '../world/plan';
+import { COAST, DAM_Z, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MZS, RAIL, RIVER_HW, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, riverX, streamX, tribZ } from '../world/mainland';
+import { progress } from '../world/progress';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f', SAGE = '#8a9a6b';
 // Chart tints. Land is the buff of a paper chart and the sea is left as bare
@@ -25,6 +27,9 @@ const LAND = '#ead8ab', BUILT = '#dfca98', SAND = '#f8f0dc', SHOAL = '#d2e2d0', 
 const WASH: Record<District, string> = {
   downtown: '#c6cac0', midtown: '#e6c67c', oldtown: '#dba486', suburb: '#cdd6a2', industrial: '#c2ab84',
   port: '#b4cfc4', strand: '#f2cda6', park: SAGE, arena: BUILT,
+  // Tepid Falls: brick for the mills, buff for Main Street, greens for the hill and the square.
+  mill: '#d9a48a', main: '#d6ccb4', square: SAGE, stacks: '#e3d49a', college: '#c3d2a0', yard: '#c9bca0', exits: '#d4d2c2',
+  lake: LAND, sister: LAND,
 };
 
 // ── The chart ────────────────────────────────────────────────────────────────
@@ -35,20 +40,22 @@ const WASH: Record<District, string> = {
  * the coast wobbles only with the angle around it, so every ray crosses each
  * curve exactly once.
  */
-function ring(f: (x: number, z: number) => number, n = 720): Float32Array {
+function ring(f: (x: number, z: number) => number, n = 720, ox = 0, oz = -5, reach = 1400): Float32Array {
   const out = new Float32Array(n * 2);
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU, cx = Math.cos(a), cz = Math.sin(a);
-    let lo = 0, hi = 1400;
+    let lo = 0, hi = reach;
     for (let k = 0; k < 22; k++) {
       const m = (lo + hi) / 2;
-      if (f(cx * m, -5 + cz * m) < 0) lo = m; else hi = m;
+      if (f(ox + cx * m, oz + cz * m) < 0) lo = m; else hi = m;
     }
-    out[i * 2] = cx * lo;
-    out[i * 2 + 1] = -5 + cz * lo;
+    out[i * 2] = ox + cx * lo;
+    out[i * 2 + 1] = oz + cz * lo;
   }
   return out;
 }
+/** The same curve round the mainland, whose coast wobbles with the angle about its own middle. Most of it is off the top of the chart. */
+const mring = (level: number): Float32Array => ring((x, z) => coastSD(x, z) - level, 720, COAST.cx, COAST.cz, 2200);
 
 function trace(c: CanvasRenderingContext2D, pts: Float32Array): void {
   c.beginPath();
@@ -81,12 +88,16 @@ function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   trace(c, ring((x, z) => islandSD(x, z) - 46));
   c.fillStyle = SHOAL;
   c.fill();
+  trace(c, mring(46));
+  c.fill();
   c.strokeStyle = TEAL;
   const lines: [number, number, number][] = [[16, 2.4, 0.85], [46, 2.2, 0.75], [86, 1.9, 0.55], [136, 1.7, 0.4]];
   for (const [level, w, alpha] of lines) {
-    trace(c, ring((x, z) => islandSD(x, z) - level));
     c.lineWidth = w;
     c.globalAlpha = alpha;
+    trace(c, ring((x, z) => islandSD(x, z) - level));
+    c.stroke();
+    trace(c, mring(level));
     c.stroke();
   }
   // Open sea: short hatch strokes, scattered.
@@ -98,7 +109,7 @@ function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   for (let z = b.z0 + 24, row = 0; z < b.z1; z += 42, row++) {
     for (let x = b.x0 + (row % 2 ? 50 : 14); x < b.x1 - 30; x += 72) {
       const jx = rng.range(-16, 16), jz = rng.range(-12, 12), len = rng.range(14, 30);
-      if (!rng.chance(0.6) || islandSD(x + jx, z + jz) < 160) continue;
+      if (!rng.chance(0.6) || islandSD(x + jx, z + jz) < 160 || coastSD(x + jx, z + jz) < 160) continue;
       c.moveTo(x + jx, z + jz);
       c.lineTo(x + jx + len, z + jz);
     }
@@ -133,6 +144,8 @@ function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   c.lineWidth = 2.8;
   c.stroke();
 
+  mainlandChart(c);
+
   // City blocks. Mercy Park is sage; the port and the arena get a hatch.
   for (const blk of plan.blocks) {
     const r = blk.rect, w = r.x1 - r.x0, d = r.z1 - r.z0;
@@ -157,6 +170,8 @@ function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
     c.restore();
   }
 
+  hillChart(c);
+
   // Decks over the water.
   c.strokeStyle = INK;
   box(c, PIER, PLANK, 2.6);
@@ -171,23 +186,35 @@ function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   for (const pass of [1, 2, 3]) {
     for (const e of plan.edges) {
       const A = plan.nodes[e.a], B = plan.nodes[e.b];
+      if (e.deck) continue;
       if (pass === 1 && e.lanes === 1) road(A.x, A.z, B.x, B.z, 7, INK, 'square');
       if (pass === 2 && e.lanes === 2) road(A.x, A.z, B.x, B.z, 13, INK, 'square');
       if (pass === 3 && e.lanes === 2) road(A.x, A.z, B.x, B.z, 2, LAND, 'butt');
     }
   }
-  // The Perpetual Bridge: drawn as built, then as promised.
-  road(BRIDGE.x, ZS[0], BRIDGE.x, BRIDGE.z1, 13, INK, 'butt');
-  road(BRIDGE.x, ZS[0], BRIDGE.x, BRIDGE.z1, 2, BONE, 'butt');
-  road(BRIDGE.x - 13, BRIDGE.z1, BRIDGE.x + 13, BRIDGE.z1, 6, VERMILION, 'butt');
-  c.setLineDash([11, 9]);
-  c.globalAlpha = 0.55;
-  road(BRIDGE.x, BRIDGE.z1 - 14, BRIDGE.x, BRIDGE.z1 - 120, 3.2, INK, 'butt');
-  c.globalAlpha = 1;
+  // The Perpetual Bridge: drawn as built, then as promised. The chart is redrawn whenever a span is added.
+  const bz = bridgeEndZ(), landing = MZS[MZS.length - 1] + 6;
+  road(BRIDGE.x, ZS[0], BRIDGE.x, progress.complete ? landing : bz, 13, INK, 'butt');
+  road(BRIDGE.x, ZS[0], BRIDGE.x, progress.complete ? landing : bz, 2, BONE, 'butt');
+  if (!progress.complete) {
+    road(BRIDGE.x - 13, bz, BRIDGE.x + 13, bz, 6, VERMILION, 'butt');
+    c.setLineDash([11, 9]);
+    c.globalAlpha = 0.55;
+    road(BRIDGE.x, bz - 14, BRIDGE.x, landing, 3.2, INK, 'butt');
+    c.globalAlpha = 1;
+    c.setLineDash([]);
+  }
+  // The railway, and the footbridge to Lesser Tepid.
+  c.setLineDash([12, 5]);
+  road(RAIL.x0, RAIL.z, RAIL.x1, RAIL.z, 3.4, INK, 'butt');
   c.setLineDash([]);
+  road(FOOTBRIDGE.x0 - 70, FOOTBRIDGE_Z, FOOTBRIDGE.x1 + 270, FOOTBRIDGE_Z, 2.2, INK, 'butt');
+  road(FOOTBRIDGE.x0, FOOTBRIDGE_Z, FOOTBRIDGE.x1, FOOTBRIDGE_Z, 5, INK, 'butt');
 
   // Stunt ramps: a mustard wedge pointing the way you leave the ground.
   for (const r of RAMPS) {
+    // The bridge's ramp is put away once the road goes through.
+    if (r.x > 9000) continue;
     const fx = Math.sin(r.h), fz = Math.cos(r.h), sx = -fz, sz = fx, hw = r.width * 0.9;
     c.beginPath();
     c.moveTo(r.x + fx * (r.len + 5), r.z + fz * (r.len + 5));
@@ -233,6 +260,59 @@ function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   // An anchorage off Dock Seven.
   anchor(c, 742, 418, 24);
   return cv;
+}
+
+/** Tepid Falls' land and water: buff above a sand line, the river, its brook, the stream and the lake in shoal green, the hill in form lines. */
+function mainlandChart(c: CanvasRenderingContext2D): void {
+  const shore = mring(-5.5);
+  trace(c, shore);
+  c.fillStyle = SAND;
+  c.fill();
+  trace(c, mring(-26));
+  c.fillStyle = LAND;
+  c.fill();
+  trace(c, shore);
+  c.strokeStyle = INK;
+  c.lineWidth = 2.8;
+  c.stroke();
+
+  // Fresh water: every course once in ink, a little wider, then again in water, so the banks come out as fine lines.
+  const courses: { w: number; pts: [number, number][] }[] = [];
+  const river: [number, number][] = [], brook: [number, number][] = [], stream: [number, number][] = [];
+  for (let z = -2340; z <= -976; z += 12) if (coastSD(riverX(z), z) < 4) river.push([riverX(z), z]);
+  for (let x = riverX(-1530); x <= 1020; x += 12) if (coastSD(x, tribZ(x)) < 4) brook.push([x, tribZ(x)]);
+  for (let z = STREAM_Z0; z <= -976; z += 12) if (coastSD(streamX(z), z) < 4) stream.push([streamX(z), z]);
+  courses.push({ w: RIVER_HW * 2, pts: river }, { w: TRIB_HW * 2, pts: brook }, { w: STREAM_HW * 2, pts: stream });
+  c.lineCap = 'butt';
+  for (const pass of [0, 1]) {
+    c.strokeStyle = c.fillStyle = pass ? SHOAL : INK;
+    for (const k of courses) {
+      c.lineWidth = k.w + (pass ? 0 : 5);
+      c.beginPath();
+      k.pts.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])));
+      c.stroke();
+    }
+    c.beginPath();
+    c.ellipse(LAKE.x, LAKE.z, LAKE.a + (pass ? 0 : 2.5), LAKE.b + (pass ? 0 : 2.5), 0, 0, TAU);
+    c.fill();
+  }
+  // Threadbare Dam: one stroke of ink across the river.
+  c.strokeStyle = INK;
+  c.lineWidth = 6;
+  c.beginPath(); c.moveTo(riverX(DAM_Z) - RIVER_HW - 8, DAM_Z); c.lineTo(riverX(DAM_Z) + RIVER_HW + 8, DAM_Z); c.stroke();
+}
+
+/** Form lines for Dithers Hill, drawn over the campus wash. */
+function hillChart(c: CanvasRenderingContext2D): void {
+  c.strokeStyle = INK;
+  c.lineWidth = 1.6;
+  c.globalAlpha = 0.35;
+  for (const d of [14, 40, 66, 92]) {
+    c.beginPath();
+    c.roundRect(HILL.x0 + d, HILL.z0 + d, HILL.x1 - HILL.x0 - 2 * d, HILL.z1 - HILL.z0 - 2 * d, Math.max(4, HILL.band - d));
+    c.stroke();
+  }
+  c.globalAlpha = 1;
 }
 
 function rose(c: CanvasRenderingContext2D, x: number, z: number, r: number): void {
@@ -315,6 +395,13 @@ class Radar {
     const h = this.half.getContext('2d') as CanvasRenderingContext2D;
     h.imageSmoothingQuality = 'high';
     h.drawImage(this.full, 0, 0, this.half.width, this.half.height);
+    // A new span is a new chart: rare, and a few tens of milliseconds.
+    progress.onChange((what) => {
+      if (what !== 'bridge') return;
+      this.full = drawChart(plan, this.s);
+      h.clearRect(0, 0, this.half.width, this.half.height);
+      h.drawImage(this.full, 0, 0, this.half.width, this.half.height);
+    });
   }
 
   /** Match the backing store to the CSS box. Reads layout, so call it only after a resize. */
@@ -512,6 +599,15 @@ const WEATHER_WORD: Record<Weather, string> = { clear: 'Fair', overcast: 'Overca
 /** What goes under a place name where there is no street to name. */
 const OFF_GRID: Record<string, string> = {
   'Calamity Sound': 'No streets. Swim.',
+  'The Budget Gap': 'Unfunded. Swim.',
+  'Tepid Landing': 'Welcome, more or less',
+  'The Far Shore': 'Scenery, mostly',
+  'The Muddle River': 'Cold. Moving.',
+  'Sidle Brook': 'Mind the current',
+  'Afterthought Stream': 'Barely on the chart',
+  'Lake Indecision': 'Depth: undecided',
+  'Lesser Tepid': 'Across the footbridge',
+  'Indecision Township': 'Out past the streets',
   'Pelican Pier': 'Mind the gulls',
   'The Perpetual Bridge': 'Completion date pending',
   'Last Light Breakwater': 'End of the line',
@@ -839,6 +935,16 @@ export class Hud implements HudApi {
     this.toasts.push({ el, left: seconds, dying: -1 });
     // Two frames on, so the slip has been laid out off to the side before it is told to slide in.
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in')));
+  }
+
+  /** The small place tag under the objective strip, borrowed for a short notice of its own (a span built, a district opened). Not in HudApi yet. */
+  tag(title: string, sub = '', seconds = 5): void {
+    const inner = this.placeEl.firstElementChild as HTMLElement;
+    (inner.children[0] as HTMLElement).textContent = title;
+    (inner.children[1] as HTMLElement).textContent = sub;
+    this.placeShow = seconds;
+    this.placeEl.classList.add('on');
+    this.restart(this.placeEl);
   }
 
   stamp(title: string, sub = ''): void {

@@ -23,6 +23,7 @@ import { Police } from '../sim/police';
 import { Post } from './post';
 import { Fx } from '../fx/particles';
 import { Skids } from '../fx/skids';
+import { ProgressWorks, progress } from '../world/progress';
 
 const PRESETS: Record<Quality['name'], Quality> = {
   low: { name: 'low', pixelRatio: 1.5, antialias: false, shadows: false, shadowSize: 1024, drawDist: 520, density: 0.5 },
@@ -101,6 +102,8 @@ export class Game {
     this.camera.position.set(0, 120, 520);
     this.input = new Input(canvas);
     this.input.setEnabled(false);
+    // Before anything is built: the bridge's length and the closed streets are part of the plan the builders read.
+    progress.init(this.plan);
     this.post = post ? new Post(this) : null;
     this.post?.setSize(innerWidth, innerHeight, this.renderer.getPixelRatio());
     addEventListener('resize', () => this.resize());
@@ -142,6 +145,7 @@ export class Game {
     this.systems.push((this.fx = new Fx(this)), new Skids(this));
     this.systems.push(new Police(this));
     this.systems.push(this.player.weapons);
+    this.systems.push(new ProgressWorks(this));
 
     // One full step so every system has seen every other before the first picture.
     this.state = 'title';

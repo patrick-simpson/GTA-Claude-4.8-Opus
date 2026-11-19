@@ -21,9 +21,14 @@ import { CELL, Cover, EXTRA, TreeField, loadFlora, floraMaterial, type Planting 
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RNG, TAU, clamp, hash2, noise2, smooth } from '../core/util';
 import {
-  AVE_HW, BREAKWATER, BRIDGE, CURB, PIER, RAMPS, SIDEWALK, WATER_Y, XS, ZS,
-  groundAt, hwX, hwZ, islandSD, terrainAt, type Block, type District, type Rect,
+  AVE_HW, BREAKWATER, BRIDGE, BRIDGE_SPAN, BRIDGE_SPANS, CURB, PIER, RAMPS, SIDEWALK, WATER_Y, XS, ZS,
+  groundAt, hwX, hwZ, islandSD, roadY, terrainAt, type Block, type District, type Rect,
 } from './plan';
+import {
+  COAST, DAM_Z, EXTRA_LOTS, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MAIN_SPLIT_Z, MAIN_Y, MXS, MZS, POND_Y, RAIL, RAIL_TRESTLE,
+  RIVER_HW, ROAD_BRIDGE, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, hillAt, mainlandTerrain, riverX, waterDist,
+} from './mainland';
+import { sawhorses } from './progress';
 
 // Palette (see PLAN.md).
 const INK = 0x1e2b44, BONE = 0xf2e8cf, VERM = 0xe4572e, MUST = 0xf0a202, TEAL = 0x2a9d8f;
@@ -33,6 +38,9 @@ const SODIUM = 0xffa63d;
 const XW = XS[0] - hwX(0), XE = XS[XS.length - 1] + hwX(XS.length - 1);
 const ZN = ZS[0] - hwZ(0), ZSO = ZS[ZS.length - 1] + hwZ(ZS.length - 1);
 const SHOULDER = 2.4;
+const ST_HW_M = 6;
+/** Z of the mainland end of the finished bridge: where the landing's own road begins. */
+const bridgeFullEnd = (): number => BRIDGE.z1 - BRIDGE_SPANS * BRIDGE_SPAN;
 /** How far in from the curb the poles, trees and furniture stand. */
 const STRIP = 0.65;
 const REGION = 360;
@@ -102,6 +110,14 @@ function nearRamp(x: number, z: number): boolean {
 
 /** Spots other builders need empty: ramp runs, the park pond and promenade, the mouths of the bridge, pier and breakwater. */
 function keepOut(x: number, z: number): boolean {
+  if (z < MAIN_SPLIT_Z) {
+    // The mainland's: the railway, the bridge's landing, the footpath to the footbridge, the Thruway's stub, the water's edge.
+    if (Math.abs(z - RAIL.z) < 5.5 && x > RAIL.x0 - 4 && x < RAIL.x1 + 4) return true;
+    if (Math.abs(x - BRIDGE.x) < BRIDGE.hw + 5 && z > MZS[MZS.length - 1] + 5) return true;
+    if (Math.abs(z - FOOTBRIDGE_Z) < 3.5 && x > MXS[8] && x < 660) return true;
+    if (Math.abs(x - MXS[0]) < AVE_HW + 3 && z < MZS[0]) return true;
+    return waterDist(x, z) < 3;
+  }
   if (nearRamp(x, z)) return true;
   if (z < ZN && Math.abs(x - BRIDGE.x) < BRIDGE.hw + 3) return true;
   if (z > ZSO && x > PIER.x0 - 5 && x < PIER.x1 + 5) return true;
@@ -391,6 +407,169 @@ function driftGeo(): THREE.BufferGeometry {
   return p.build();
 }
 
+
+// ── The mainland's helpers ───────────────────────────────────────────────────
+
+/** The two paved rectangles of Tepid Falls: the town west of the river, and the far bank's few streets. */
+const TOWN_A: Rect = { x0: MXS[0] - 6, z0: MZS[0] - 6, x1: MXS[8] + 6, z1: MZS[MZS.length - 1] + 6 };
+const TOWN_B: Rect = { x0: MXS[9] - 6, z0: MZS[0] - 6, x1: MXS[10] + 6, z1: MZS[4] + 6 };
+const inTown = (x: number, z: number, m: number): boolean =>
+  (x > TOWN_A.x0 - m && x < TOWN_A.x1 + m && z > TOWN_A.z0 - m && z < TOWN_A.z1 + m)
+  || (x > TOWN_B.x0 - m && x < TOWN_B.x1 + m && z > TOWN_B.z0 - m && z < TOWN_B.z1 + m);
+const inExtraLot = (x: number, z: number, m: number): boolean =>
+  EXTRA_LOTS.some((l) => x > l.rect.x0 - m && x < l.rect.x1 + m && z > l.rect.z0 - m && z < l.rect.z1 + m);
+const onHill = (x0: number, z0: number, x1: number, z1: number): boolean =>
+  x1 > HILL.x0 && x0 < HILL.x1 && z1 > HILL.z0 && z0 < HILL.z1;
+
+/**
+ * gq() for the mainland: the same oriented quad, lying at roadY() + dy. On the flat that is one quad;
+ * where it touches Dithers Hill it is cut into cells small enough to follow the slope, each corner
+ * sampled from the same function the physics drives on.
+ */
+function gqh(
+  b: Batch, ox: number, oz: number, h: number, t0: number, t1: number, n0: number, n1: number, dy: number,
+  hex: number, u0 = 0, v0 = 0, u1 = 1, v1 = 1, shade = 1,
+): void {
+  const fx = Math.sin(h), fz = Math.cos(h), rx = -fz, rz = fx;
+  const X = (t: number, n: number): number => ox + rx * t + fx * n, Z = (t: number, n: number): number => oz + rz * t + fz * n;
+  const xs = [X(t0, n0), X(t1, n0), X(t1, n1), X(t0, n1)], zs = [Z(t0, n0), Z(t1, n0), Z(t1, n1), Z(t0, n1)];
+  const hilly = onHill(Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs));
+  const NT = hilly ? Math.max(1, Math.ceil((t1 - t0) / 4)) : 1, NN = hilly ? Math.max(1, Math.ceil((n1 - n0) / 4)) : 1;
+  for (let i = 0; i < NT; i++) for (let j = 0; j < NN; j++) {
+    const ta = t0 + ((t1 - t0) * i) / NT, tb = t0 + ((t1 - t0) * (i + 1)) / NT;
+    const na = n0 + ((n1 - n0) * j) / NN, nb = n0 + ((n1 - n0) * (j + 1)) / NN;
+    const ua = u0 + ((u1 - u0) * i) / NT, ub = u0 + ((u1 - u0) * (i + 1)) / NT;
+    const va = v0 + ((v1 - v0) * j) / NN, vb = v0 + ((v1 - v0) * (j + 1)) / NN;
+    const ax = X(ta, na), az = Z(ta, na), bx = X(tb, na), bz = Z(tb, na), cx = X(tb, nb), cz = Z(tb, nb), dx = X(ta, nb), dz = Z(ta, nb);
+    b.quad(ax, roadY(ax, az) + dy, az, bx, roadY(bx, bz) + dy, bz, cx, roadY(cx, cz) + dy, cz, dx, roadY(dx, dz) + dy, dz, hex, ua, va, ub, vb, shade);
+  }
+}
+
+/** wf() for the mainland: an axis-aligned floor with world UVs at roadY() + dy, cut up where it lies on the hill. */
+function wfh(b: Batch, x0: number, z0: number, x1: number, z1: number, dy: number, hex: number, tile: number, shade = 1): void {
+  if (x1 - x0 < 0.01 || z1 - z0 < 0.01) return;
+  const hilly = onHill(x0, z0, x1, z1);
+  const NX = hilly ? Math.ceil((x1 - x0) / 4) : 1, NZ = hilly ? Math.ceil((z1 - z0) / 4) : 1;
+  for (let i = 0; i < NX; i++) for (let j = 0; j < NZ; j++) {
+    const xa = x0 + ((x1 - x0) * i) / NX, xb = x0 + ((x1 - x0) * (i + 1)) / NX;
+    const za = z0 + ((z1 - z0) * j) / NZ, zb = z0 + ((z1 - z0) * (j + 1)) / NZ;
+    b.quad(xa, roadY(xa, zb) + dy, zb, xb, roadY(xb, zb) + dy, zb, xb, roadY(xb, za) + dy, za, xa, roadY(xa, za) + dy, za,
+      hex, xa / tile, zb / tile, xb / tile, za / tile, shade);
+  }
+}
+
+/** An upright strip from (ax, az) to (bx, bz), from lo to hi above the road: a curb face that follows the ground. */
+function vfh(b: Batch, ax: number, az: number, bx: number, bz: number, lo: number, hi: number, hex: number, shade: number): void {
+  const L = Math.hypot(bx - ax, bz - az), N = onHill(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz)) ? Math.max(1, Math.ceil(L / 4)) : 1;
+  for (let i = 0; i < N; i++) {
+    const x0 = ax + ((bx - ax) * i) / N, z0 = az + ((bz - az) * i) / N, x1 = ax + ((bx - ax) * (i + 1)) / N, z1 = az + ((bz - az) * (i + 1)) / N;
+    const y0 = roadY(x0, z0), y1 = roadY(x1, z1);
+    b.quad(x0, y0 + lo, z0, x1, y1 + lo, z1, x1, y1 + hi, z1, x0, y0 + hi, z0, hex, 0, 0, 1, 1, shade);
+  }
+}
+
+/** A square bar between two points: cables, rails, struts. */
+function bar(b: Batch, ax: number, ay: number, az: number, bx: number, by: number, bz: number, w: number, hex: number): void {
+  let dx = bx - ax, dy = by - ay, dz = bz - az;
+  const L = Math.hypot(dx, dy, dz) || 1;
+  dx /= L; dy /= L; dz /= L;
+  let sx: number, sy: number, sz: number;
+  if (Math.abs(dy) > 0.98) { sx = 1; sy = 0; sz = 0; } else { sx = -dz; sy = 0; sz = dx; }
+  const sl = Math.hypot(sx, sy, sz);
+  sx /= sl; sy /= sl; sz /= sl;
+  const ux = sy * dz - sz * dy, uy = sz * dx - sx * dz, uz = sx * dy - sy * dx, k = w / 2;
+  const c = [[sx + ux, sy + uy, sz + uz], [sx - ux, sy - uy, sz - uz], [-sx - ux, -sy - uy, -sz - uz], [-sx + ux, -sy + uy, -sz + uz]];
+  for (let i = 0; i < 4; i++) {
+    const p = c[i], q = c[(i + 1) % 4];
+    b.quad(ax + q[0] * k, ay + q[1] * k, az + q[2] * k, ax + p[0] * k, ay + p[1] * k, az + p[2] * k,
+      bx + p[0] * k, by + p[1] * k, bz + p[2] * k, bx + q[0] * k, by + q[1] * k, bz + q[2] * k, hex, 0, 0, 1, 1, i % 2 ? 0.8 : 1);
+  }
+}
+
+const F1 = (n: number): string => n.toFixed(1);
+/** mainland.ts's coast and fresh water, ported like islandSD. The river is left out above the dam: the mill pond has its own surface. */
+const MAIN_SD = /* glsl */ `
+float mainCoastSD(vec2 p) {
+  p -= vec2(${F1(COAST.cx)}, ${F1(COAST.cz)});
+  vec2 q = abs(p) - vec2(${F1(COAST.hx - COAST.r)}, ${F1(COAST.hz - COAST.r)});
+  float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - ${F1(COAST.r)};
+  float th = atan(p.y, p.x);
+  return sd + 10.0 * sin(th * 4.0 + 0.7) + 6.0 * sin(th * 9.0 + 2.1) + 3.0 * sin(th * 17.0);
+}
+float mainWaterDist(vec2 p) {
+  float d = 1.0e9;
+  float rx = 340.0 + 30.0 * sin((p.y + 1100.0) / 210.0);
+  if (p.x > 230.0 && p.x < 450.0 && p.y > ${F1(DAM_Z)}) d = abs(p.x - rx) - ${F1(RIVER_HW)};
+  if (p.x > 300.0 && p.y > -1600.0 && p.y < -1470.0 && p.x > rx - 10.0) d = min(d, abs(p.y - (-1530.0 + 14.0 * sin((p.x - 400.0) / 160.0))) - ${F1(TRIB_HW)});
+  if (p.x < -740.0) {
+    if (p.x > -860.0 && p.y > ${F1(STREAM_Z0)}) d = min(d, abs(p.x - (-800.0 + 22.0 * sin((p.y + 1000.0) / 130.0))) - ${F1(STREAM_HW)});
+    if (p.y < -1930.0) { vec2 e = (p - vec2(${F1(LAKE.x)}, ${F1(LAKE.z)})) / vec2(${F1(LAKE.a)}, ${F1(LAKE.b)}); d = min(d, (length(e) - 1.0) * ${F1(LAKE.a)}); }
+  }
+  return d;
+}
+`;
+
+const RIVER_VERT = /* glsl */ `
+attribute float aEdge, aFoam;
+varying vec3 vW;
+varying float vEdge, vFoam;
+#include <common>
+#include <fog_pars_vertex>
+void main() {
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vW = wp.xyz; vEdge = aEdge; vFoam = aFoam;
+  vec4 mvPosition = viewMatrix * wp;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+
+// The mill pond and the falls: the sea's shading with the noise scrolling downstream (+z), and white water where aFoam says.
+const RIVER_FRAG = /* glsl */ `
+uniform float uTime, uNight;
+uniform vec3 uLight, uShallow, uDeep, uShallowN, uDeepN, uFoam, uGlint;
+uniform sampler2D uNoise;
+varying vec3 vW;
+varying float vEdge, vFoam;
+#include <common>
+#include <fog_pars_fragment>
+const float E = 1.0 / 256.0;
+vec2 slope(vec2 uv) {
+  float h = texture2D(uNoise, uv).r;
+  return vec2(texture2D(uNoise, uv + vec2(E, 0.0)).r - h, texture2D(uNoise, uv + vec2(0.0, E)).r - h);
+}
+void main() {
+  vec2 p = vW.xz;
+  float t = uTime;
+  vec3 toCam = cameraPosition - vW;
+  float dist = length(toCam);
+  vec3 V = toCam / dist;
+  vec2 g = slope(vec2(p.x / 41.0, p.y / 41.0 - t * 0.03)) + slope(vec2(p.x / 15.0 + 0.3, p.y / 15.0 - t * 0.085)) * 0.6;
+  float near = 1.0 - smoothstep(70.0, 460.0, dist);
+  vec3 N = normalize(vec3(-g.x * 22.0 * near, 1.0, -g.y * 22.0 * near));
+  // A river is browner and greener than the sea, and darker in the channel.
+  vec3 col = mix(mix(uShallow, uShallowN, uNight), mix(uDeep, uDeepN, uNight), 0.3 + 0.45 * vEdge) * vec3(0.8, 0.92, 0.74);
+  col *= 1.0 + clamp((dot(N, uLight) - uLight.y) * 1.5, -0.22, 0.3) * near;
+  #ifdef USE_FOG
+    vec3 sky = mix(fogColor, mix(uShallow, uShallowN, uNight) * 1.1, 0.3) * (1.0 - 0.55 * uNight);
+  #else
+    vec3 sky = vec3(0.8, 0.88, 0.9);
+  #endif
+  float fres = pow(1.0 - max(dot(normalize(mix(vec3(0.0, 1.0, 0.0), N, 0.4)), V), 0.0), 3.0);
+  col = mix(col, sky, fres * 0.42);
+  vec3 H = normalize(uLight + V);
+  col += uGlint * smoothstep(0.2, 0.85, pow(max(dot(N, H), 0.0), 240.0));
+  // White water: streaks stretched along the fall and running down it.
+  float n1 = texture2D(uNoise, vec2(p.x / 7.0, p.y / 30.0 - t * 0.5)).r;
+  float n2 = texture2D(uNoise, vec2(p.x / 2.3, p.y / 12.0 - t * 0.9)).g;
+  float white = clamp(vFoam * (0.5 + 1.5 * n1 * n2 + 0.35 * n2), 0.0, 1.0);
+  col = mix(col, uFoam * (1.0 - 0.72 * uNight), white);
+  float alpha = max(smoothstep(0.0, 0.22, vEdge) * 0.9, white);
+  gl_FragColor = vec4(col, alpha);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+
 // ── The sea ──────────────────────────────────────────────────────────────────
 
 const SEA_VERT = /* glsl */ `
@@ -409,13 +588,15 @@ void main() {
 // follow the real shore without baking a map. Wave slopes come from the shared
 // noise tile: it is mip-mapped, so far water flattens itself instead of sparkling.
 const SHORE_SD = /* glsl */ `
-float shoreSD(vec2 p) {
+float isleShoreSD(vec2 p) {
   p -= vec2(0.0, -5.0);
   vec2 q = abs(p) - vec2(540.0, 365.0);
   float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - 140.0;
   float th = atan(p.y, p.x);
   return sd + 13.0 * sin(th * 5.0 + 1.3) + 8.0 * sin(th * 11.0 + 0.4) + 4.0 * sin(th * 23.0);
 }
+` + MAIN_SD.replace('float mainWaterDist', 'float mainWaterDistUnused') + /* glsl */ `
+float shoreSD(vec2 p) { return p.y < ${F1(MAIN_SPLIT_Z)} ? mainCoastSD(p) : isleShoreSD(p); }
 `;
 
 const SEA_FRAG = /* glsl */ `
@@ -433,6 +614,7 @@ float islandSD(vec2 p) {
   float th = atan(p.y, p.x);
   return sd + 13.0 * sin(th * 5.0 + 1.3) + 8.0 * sin(th * 11.0 + 0.4) + 4.0 * sin(th * 23.0);
 }
+${MAIN_SD}
 const float E = 1.0 / 256.0;
 vec2 slope(vec2 uv) {
   float h = texture2D(uNoise, uv).r;
@@ -441,15 +623,23 @@ vec2 slope(vec2 uv) {
 void main() {
   vec2 p = vW.xz;
   float sd = islandSD(p);
+  // riv: 1 in the mainland's fresh water, where the surface runs downstream and no surf rolls in.
+  float riv = 0.0;
+  if (p.y < ${F1(MAIN_SPLIT_Z)}) {
+    float cs = mainCoastSD(p), wd = -mainWaterDist(p) - 4.2;
+    riv = step(cs, wd);
+    sd = max(cs, wd);
+  }
   if (sd < -30.0) discard;
   vec3 toCam = cameraPosition - vW;
   float dist = length(toCam);
   vec3 V = toCam / dist;
   float t = uTime;
 
-  vec2 g = slope(p / 131.0 + t * vec2(0.0045, 0.003))
-         + slope(p / 47.0 + t * vec2(-0.011, 0.008)) * 0.75
-         + slope(p / 19.0 + t * vec2(0.017, -0.022)) * 0.5;
+  vec2 pf = p - vec2(0.0, t * 1.3) * riv * step(200.0, p.x);
+  vec2 g = slope(pf / 131.0 + t * vec2(0.0045, 0.003))
+         + slope(pf / 47.0 + t * vec2(-0.011, 0.008)) * 0.75
+         + slope(pf / 19.0 + t * vec2(0.017, -0.022)) * 0.5;
   // Far from the camera the slope noise only reads as grey marble blotches: ease it flat with distance.
   float near = 1.0 - smoothstep(90.0, 600.0, dist);
   vec3 N = normalize(vec3(-g.x * 26.0 * near, 1.0, -g.y * 26.0 * near));
@@ -477,7 +667,7 @@ void main() {
   float n = texture2D(uNoise, p / 61.0 + t * 0.004).g;
   float s = sd + 5.5 + (n - 0.5) * 4.0;
   float edge = 1.0 - smoothstep(0.8, 2.8, s + sin(t * 0.6 + n * 6.2832) * 1.1);
-  float bands = smoothstep(0.84, 0.97, sin(s * 0.4 - t * 0.75 + n * 9.0) * 0.5 + 0.5) * (1.0 - smoothstep(3.0, 30.0, s));
+  float bands = smoothstep(0.84, 0.97, sin(s * 0.4 - t * 0.75 + n * 9.0) * 0.5 + 0.5) * (1.0 - smoothstep(3.0, 30.0, s)) * (1.0 - riv);
   float lace = 0.5 + 0.5 * smoothstep(0.3, 0.62, texture2D(uNoise, p / 8.0 + vec2(t * 0.012, -t * 0.009)).r);
   float foam = clamp(edge * lace + bands * 0.65 * lace, 0.0, 1.0);
   // The swash: 0 on dry sand, 1 once properly afloat. It breathes with the same slow wave as the foam line.
@@ -500,6 +690,9 @@ const FILL: Record<District, [Surface, number]> = {
   downtown: ['sidewalk', 0xe6dfcd], midtown: ['sidewalk', 0xcfc8b7], oldtown: ['cobble', 0xffffff],
   suburb: ['grass', 0xe6e0b0], industrial: ['asphalt', 0xffffff], port: ['sidewalk', 0xbfb8a8],
   strand: ['wood', 0xffffff], park: ['grass', 0xdfe2b0], arena: ['asphalt', 0xf2f0ea],
+  // Tepid Falls. Lots are empty until part 2, so each district shows the ground its buildings will stand on.
+  mill: ['cobble', 0xd8cdc0], main: ['sidewalk', 0xd9d2c0], square: ['grass', 0xdfe2b0], stacks: ['grass', 0xd9dba6],
+  college: ['grass', 0xd2e0a4], yard: ['asphalt', 0xe6e0d2], exits: ['asphalt', 0xf0ede6], lake: ['grass', 0xdfe2b0], sister: ['grass', 0xdfe2b0],
 };
 
 type Species = 'plane' | 'maple' | 'oak' | 'cypress' | 'palm';
@@ -508,6 +701,9 @@ const STREET_TREES: Record<District, [Species, number, number]> = {
   downtown: ['plane', 15, 0.85], midtown: ['plane', 14, 0.8], oldtown: ['plane', 21, 0.5],
   suburb: ['maple', 10, 0.9], industrial: ['plane', 40, 0.1], port: ['plane', 40, 0.06],
   strand: ['palm', 13, 0.5], park: ['oak', 12, 0.85], arena: ['plane', 22, 0.5],
+  // Maine has no palms and few planes: maples on the streets, oaks on the square and the hill.
+  mill: ['maple', 26, 0.4], main: ['maple', 15, 0.8], square: ['oak', 11, 0.9], stacks: ['maple', 11, 0.85],
+  college: ['oak', 13, 0.8], yard: ['maple', 40, 0.12], exits: ['maple', 34, 0.2], lake: ['oak', 20, 0.5], sister: ['maple', 14, 0.6],
 };
 const LEAF: Record<Species, number[]> = {
   plane: [0x7f9c54, 0x8ca95e, 0x70904f],
@@ -534,6 +730,9 @@ const FURN_MIX: Record<District, [number[], number]> = {
   industrial: [[1.2, 1, 0, 0, 0.2, 0], 0.22], port: [[1.2, 1, 0, 0, 0.2, 0], 0.2],
   strand: [[0.8, 2.2, 0.4, 2.6, 0.5, 0.8], 0.65], park: [[0.5, 2, 0, 3, 0.3, 0], 0.5],
   arena: [[1, 2, 0, 1, 0.6, 0.4], 0.4],
+  mill: [[1.2, 1, 0.3, 0.4, 0.2, 0], 0.25], main: [[1, 2, 1, 1.6, 0.5, 1.2], 0.55], square: [[0.5, 2, 0, 3, 0.2, 0], 0.5],
+  stacks: [[1.2, 0.8, 1.2, 0.4, 0.2, 0], 0.3], college: [[0.6, 1.4, 0.3, 2.4, 0.2, 0.2], 0.3], yard: [[1.2, 1, 0, 0, 0.2, 0], 0.15],
+  exits: [[1.2, 1, 0, 0, 0.4, 0], 0.2], lake: [[1, 1, 0, 1, 0, 0], 0.1], sister: [[1, 1, 0, 1, 0, 0], 0.1],
 };
 const NEWS_COLORS = [VERM, MUST, TEAL, 0x27457a];
 
@@ -572,6 +771,7 @@ class Ground implements WorldPart {
   private slotProp: Prop[] = [];
   private felled = new Map<Prop, Felled>();
   private haloPos: THREE.BufferAttribute | null = null;
+  private mainShown = true;
   private pools = new Batch();
   private halos: number[] = [];
 
@@ -580,6 +780,11 @@ class Ground implements WorldPart {
   private sigHoriz: boolean[] = [];
   private sigLast!: Int8Array;
   private bulbs: THREE.InstancedMesh | null = null;
+  /** The mainland's signal lamps are a second mesh, so they can be left undrawn from the island. Approaches from `sigMain` on are its. */
+  private bulbsMain: THREE.InstancedMesh | null = null;
+  private sigMain = 0;
+  /** Everything of the far shore's that is one big mesh: shown only when the camera is within fog range of the mainland's coast. */
+  private mainOnly: THREE.Object3D[] = [];
   private readonly litC = new Float32Array(9);
   private readonly dimC = new Float32Array(9);
 
@@ -600,8 +805,12 @@ class Ground implements WorldPart {
 
     if (game.quality.name !== 'low') this.toneGrass();
     this.terrain();
+    this.mainTerrain();
     this.sea();
+    this.mainWater();
     this.surfaces();
+    this.mainSurfaces();
+    this.mainStructures();
     // Order matters from here: each claims its spots and the next works around them.
     this.signals();
     this.streetLamps();
@@ -613,6 +822,10 @@ class Ground implements WorldPart {
     this.trunks.build(this.root, true);
     this.blobs.build(this.root, true);
     this.palms.build(this.root, true);
+    // The far shore's lamps and stand-in trees are bucketed by region like the island's; out of sight, they are not drawn at all.
+    for (const inst of [this.lamps, this.trunks, this.blobs]) {
+      for (const m of inst.meshes) { m.computeBoundingSphere(); if (m.boundingSphere!.center.z < MAIN_SPLIT_Z - 120) this.mainOnly.push(m); }
+    }
     // Knee-high props are not worth a place in the shadow pass.
     for (const f of this.furn) { f.build(this.root, false); this.hideFar(f.meshes, 150); }
     this.lights();
@@ -677,9 +890,11 @@ class Ground implements WorldPart {
       mesh.instanceMatrix.needsUpdate = true;
     }
     if (f.halo >= 0 && this.haloPos) { this.haloPos.setY(f.halo, -900); this.haloPos.needsUpdate = true; }
-    if (f.sig >= 0 && this.bulbs) {
-      for (let k = 0; k < 6; k++) this.bulbs.setMatrixAt(f.sig * 6 + k, ZERO);
-      this.bulbs.instanceMatrix.needsUpdate = true;
+    const fb = f.sig >= this.sigMain ? this.bulbsMain : this.bulbs;
+    if (f.sig >= 0 && fb) {
+      const s0 = f.sig >= this.sigMain ? f.sig - this.sigMain : f.sig;
+      for (let k = 0; k < 6; k++) fb.setMatrixAt(s0 * 6 + k, ZERO);
+      fb.instanceMatrix.needsUpdate = true;
     }
   }
 
@@ -824,6 +1039,7 @@ class Ground implements WorldPart {
     const PAINT = 0xefe9da;
 
     for (const e of plan.edges) {
+      if (e.land) continue;
       const A = plan.nodes[e.a], B = plan.nodes[e.b];
       const from = e.horiz ? A.hx : A.hz, len = e.len - from - (e.horiz ? B.hx : B.hz);
       const b = e.hw === AVE_HW ? avenue : street;
@@ -834,6 +1050,7 @@ class Ground implements WorldPart {
     const cross = mats.tex.marks.rect('crosswalk'), stop = mats.tex.marks.rect('stopline');
     const arrow = mats.tex.marks.rect('arrow'), manhole = mats.tex.marks.rect('manhole'), stain = mats.tex.marks.rect('stain');
     for (const n of plan.nodes) {
+      if (n.land) continue;
       wf(surf.asphalt, n.x - n.hx, n.z - n.hz, n.x + n.hx, n.z + n.hz, 0, 0xffffff, TILE_M.asphalt);
       if (n.hx > 0 && n.hz > 0 && rng.chance(0.7)) {
         const mx = n.x + rng.range(-0.5, 0.5) * n.hx, mz = n.z + rng.range(-0.5, 0.5) * n.hz;
@@ -842,6 +1059,7 @@ class Ground implements WorldPart {
       if (!n.hasLight) continue;
       for (const eid of n.edges) {
         const e = plan.edges[eid];
+        if (e.deck) continue;
         // Heading that leaves the intersection along this street.
         const away = e.horiz ? (e.a === n.id ? Math.PI / 2 : -Math.PI / 2) : (e.a === n.id ? 0 : Math.PI);
         const half = e.horiz ? n.hx : n.hz;
@@ -859,6 +1077,7 @@ class Ground implements WorldPart {
 
     const CW = 0.3, STONE = 0xd6cfbe;
     for (const b of plan.blocks) {
+      if (b.land) continue;
       const r = b.rect, road = b.road;
       const r1 = inset(r, road, CW), r2 = inset(r, road, SIDEWALK);
       ring(r, r1, (x0, z0, x1, z1) => curb.floor(x0, z0, x1, z1, CURB, STONE));
@@ -917,10 +1136,14 @@ class Ground implements WorldPart {
     const masts = ARM.map((a) => new Inst(signalGeo(a), this.propMat, REGION));
     const bulbM: number[] = [];
 
+    let seenMain = false;
     for (const n of plan.nodes) {
       if (!n.hasLight) continue;
+      // Nodes are in order, the island's first: everything from here on is the mainland's.
+      if (n.land && !seenMain) { seenMain = true; this.sigMain = this.sigNode.length; }
       for (const eid of n.edges) {
         const e = plan.edges[eid];
+        if (e.deck) continue;
         // Traffic on this street arriving here travels along heading hd. Its mast stands on
         // the far right corner with the arm reaching back over its lanes, heads facing it.
         const hd = e.horiz ? (e.b === n.id ? Math.PI / 2 : -Math.PI / 2) : (e.b === n.id ? 0 : Math.PI);
@@ -951,6 +1174,7 @@ class Ground implements WorldPart {
     for (const m of masts) { m.build(this.root, true); this.hideFar(m.meshes, 330); }
 
     const count = this.sigNode.length;
+    if (!seenMain) this.sigMain = count;
     this.sigLast = new Int8Array(count).fill(-1);
     for (let l = 0; l < 3; l++) {
       COL.setHex(LIT[l]).toArray(this.litC, l * 3);
@@ -958,12 +1182,19 @@ class Ground implements WorldPart {
     }
     if (!count) return;
     // Unlit material: a signal lamp is its own light, day or night.
-    const bulbs = new THREE.InstancedMesh(new THREE.CircleGeometry(0.15, 12), new THREE.MeshBasicMaterial({ fog: true }), count * 6);
-    bulbs.instanceMatrix.array.set(bulbM);
-    bulbs.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 18), 3);
-    bulbs.matrixAutoUpdate = false;
-    this.root.add(bulbs);
-    this.bulbs = bulbs;
+    const geo = new THREE.CircleGeometry(0.15, 12), mat = new THREE.MeshBasicMaterial({ fog: true });
+    const make = (from: number, to: number): THREE.InstancedMesh | null => {
+      if (to <= from) return null;
+      const bulbs = new THREE.InstancedMesh(geo, mat, (to - from) * 6);
+      bulbs.instanceMatrix.array.set(bulbM.slice(from * 96, to * 96));
+      bulbs.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array((to - from) * 18), 3);
+      bulbs.matrixAutoUpdate = false;
+      this.root.add(bulbs);
+      return bulbs;
+    };
+    this.bulbs = make(0, this.sigMain);
+    this.bulbsMain = make(this.sigMain, count);
+    if (this.bulbsMain) this.mainOnly.push(this.bulbsMain);
   }
 
   // ── Street lamps ───────────────────────────────────────────────────────────
@@ -971,6 +1202,7 @@ class Ground implements WorldPart {
   private streetLamps(): void {
     const plan = this.plan;
     for (const e of plan.edges) {
+      if (e.deck) continue;
       const A = plan.nodes[e.a], B = plan.nodes[e.b];
       const s0 = (e.horiz ? A.hx : A.hz) + 9, s1 = e.len - (e.horiz ? B.hx : B.hz) - 9;
       const count = Math.max(2, Math.round((s1 - s0) / 32) + 1);
@@ -982,6 +1214,8 @@ class Ground implements WorldPart {
         const h = e.horiz ? (side > 0 ? Math.PI : 0) : (side > 0 ? -Math.PI / 2 : Math.PI / 2);
         // Not in front of the one door in town that matters (ROOM 404, on Eel Alley).
         if (Math.abs(x + 129.3) < 6 && Math.abs(z - 126.7) < 5) continue;
+        // No lamp posts standing in a river (Trestle St's bridge), or on the tracks.
+        if (e.land && waterDist(x, z) < 26) continue;
         if (keepOut(x, z) || !this.claim(x, z, 1.0)) continue;
         this.lamp(x, z, h);
       }
@@ -1000,6 +1234,13 @@ class Ground implements WorldPart {
     // The pool of light is centered under the head and cut at the curb line: the part on the
     // road lies on the road, the part behind lies on the sidewalk, and the UVs keep it one disc.
     const R = 9, n0 = LAMP_REACH - R, n1 = LAMP_REACH + R, cut = (STRIP - n0) / (n1 - n0);
+    if (z < MAIN_SPLIT_Z) {
+      // On the mainland the road is at the plateau's height, and on the hill it slopes: lifted a finger so it never dips under.
+      const lift = hillAt(x, z) > 0 ? 0.04 : 0;
+      gqh(this.pools, x, z, h, -R, R, STRIP, n1, lift, SODIUM, 0, cut, 1, 1, 0.5);
+      gqh(this.pools, x, z, h, -R, R, n0, STRIP, CURB + lift, SODIUM, 0, 0, 1, cut, 0.5);
+      return;
+    }
     gq(this.pools, x, z, h, -R, R, STRIP, n1, 0, SODIUM, 0, cut, 1, 1, 0.5);
     gq(this.pools, x, z, h, -R, R, n0, STRIP, y, SODIUM, 0, 0, 1, cut, 0.5);
   }
@@ -1059,7 +1300,7 @@ class Ground implements WorldPart {
       const ew = side % 2 === 0;
       const len = ew ? r.x1 - r.x0 : r.z1 - r.z0;
       const inward = [0, -Math.PI / 2, Math.PI, Math.PI / 2][side];
-      const avenue = (side === 0 ? hwZ(b.j) : side === 2 ? hwZ(b.j + 1) : side === 1 ? hwX(b.i + 1) : hwX(b.i)) === AVE_HW;
+      const avenue = b.ave[side];
       fn(len, (s, d) => [
         ew ? r.x0 + s : side === 1 ? r.x1 - d : r.x0 + d,
         ew ? (side === 0 ? r.z0 + d : r.z1 - d) : r.z0 + s,
@@ -1108,6 +1349,7 @@ class Ground implements WorldPart {
 
     // Street trees, in the curb strip between the lamps and the furniture.
     for (const b of plan.blocks) {
+      if (b.land) continue;
       const [species, gap, share] = STREET_TREES[b.district];
       this.eachSide(b, (len, at) => {
         for (let s = gap * 0.5; s < len - 4; s += gap) {
@@ -1158,6 +1400,373 @@ class Ground implements WorldPart {
       const outside = px < XW - 9 || px > XE + 9 || pz < ZN - 9;
       if (!outside || roll > 0.5 * den || (px > XE && pz > 150) || islandSD(px, pz) > -66 || keepOut(px, pz)) continue;
       this.tree(alt < 0.45 ? 'cypress' : alt < 0.75 ? 'oak' : 'maple', px, pz, rng);
+    }
+    this.mainTrees();
+  }
+
+  // ── The mainland ───────────────────────────────────────────────────────────
+
+  /** Add a mesh that belongs to the far shore: drawn only when the camera is within sight of it. */
+  private far(m: THREE.Mesh, order = 0): THREE.Mesh {
+    m.matrixAutoUpdate = false;
+    m.renderOrder = order;
+    this.root.add(m);
+    this.mainOnly.push(m);
+    return m;
+  }
+
+  private meshM(b: Batch, mat: THREE.Material, order = 0, cast = false): void {
+    if (b.empty) return;
+    const m = new THREE.Mesh(b.toGeometry(), mat);
+    m.receiveShadow = true; m.castShadow = cast;
+    this.far(m, order);
+  }
+
+  /** Beach, bluff, plateau, riverbanks and countryside: one grid like the island's, cut into bands so the frustum can drop most of it. */
+  private mainTerrain(): void {
+    const STEP = 8, X0 = -976, Z0 = -2528, NX = 250, NZ = 212, W = NX + 1, BANDS = 4;
+    const pos = new Float32Array(W * (NZ + 1) * 3), col = new Float32Array(pos.length);
+    const uv = new Float32Array(W * (NZ + 1) * 2), sds = new Float32Array(W * (NZ + 1)), sandy = new Float32Array(W * (NZ + 1));
+    const stops: [number, THREE.Color][] = ([
+      [-86, 0x9db074], [-66, 0xc6c98a], [-54, 0xffffff], [-13, 0xf6ecd2], [-4, 0xe4d6b6],
+      [2, 0x9fbda0], [26, 0x4f8d86], [80, 0x1c4458],
+    ] as [number, number][]).map(([d, hex]) => [d, new THREE.Color(hex)]);
+    const dry = new THREE.Color(0xb7b377), lush = new THREE.Color(0x859b5f), bank = new THREE.Color(0x8d8468), bed = new THREE.Color(0x4a5f58), c = new THREE.Color();
+    let v = 0;
+    for (let j = 0; j <= NZ; j++) {
+      for (let i = 0; i <= NX; i++, v++) {
+        const x = X0 + i * STEP, z = Z0 + j * STEP, sd = coastSD(x, z), wd = waterDist(x, z);
+        sds[v] = Math.max(sd, -wd);
+        pos[v * 3] = x; pos[v * 3 + 1] = mainlandTerrain(x, z) - 0.06; pos[v * 3 + 2] = z;
+        uv[v * 2] = x / TILE_M.sand; uv[v * 2 + 1] = z / TILE_M.sand;
+        const n = noise2(x * 0.028 + 9, z * 0.028), n2 = noise2(x * 0.09, z * 0.09 + 31);
+        // The bluff is grass and the sand starts at its foot: the island's inland bands, squeezed into the thirty meters above the beach.
+        const base = sd + (n - 0.5) * 10;
+        const s = base > -13 ? base : -13 + (base + 13) * 2.4;
+        let k = 0;
+        while (k < stops.length - 2 && s > stops[k + 1][0]) k++;
+        const a = stops[k], b = stops[k + 1];
+        c.copy(a[1]).lerp(b[1], smooth((s - a[0]) / (b[0] - a[0])));
+        if (s < -60) c.lerp(n2 > 0.5 ? dry : lush, Math.abs(n2 - 0.5) * 1.3 * smooth((-60 - s) / 20));
+        sandy[v] = clamp((s + 66) / 12, 0, 1) * (1 - clamp(base / 6, 0, 1));
+        // Riverbanks: earth and stone down to the water, dark silt under it.
+        if (wd < 24) { const t = smooth((24 - wd) / 20); c.lerp(wd < 0.5 ? bed : bank, t * 0.85); sandy[v] *= 1 - t; }
+        const g = 0.94 + 0.12 * n2;
+        col[v * 3] = c.r * g; col[v * 3 + 1] = c.g * g; col[v * 3 + 2] = c.b * g;
+      }
+    }
+    const bands: number[][] = [];
+    for (let k = 0; k < BANDS; k++) bands.push([]);
+    const all: number[] = [];
+    const inside = (r: Rect, x: number, z: number): boolean => x > r.x0 + 1 && x + STEP < r.x1 - 1 && z > r.z0 + 1 && z + STEP < r.z1 - 1;
+    for (let j = 0; j < NZ; j++) {
+      for (let i = 0; i < NX; i++) {
+        const x = X0 + i * STEP, z = Z0 + j * STEP;
+        if (inside(TOWN_A, x, z) || inside(TOWN_B, x, z)) continue;
+        const a = j * W + i, b = a + 1, d = a + W, e = d + 1;
+        if (Math.min(sds[a], sds[b], sds[d], sds[e]) > 70) continue;
+        all.push(d, e, b, d, b, a);
+        bands[Math.min(BANDS - 1, Math.floor((j * BANDS) / NZ))].push(d, e, b, d, b, a);
+      }
+    }
+    // Normals from the whole grid, so no seam shows where two bands meet.
+    const full = new THREE.BufferGeometry();
+    const attrs: Record<string, THREE.BufferAttribute> = {
+      position: new THREE.BufferAttribute(pos, 3), color: new THREE.BufferAttribute(col, 3),
+      uv: new THREE.BufferAttribute(uv, 2), aSand: new THREE.BufferAttribute(sandy, 1),
+    };
+    for (const k in attrs) full.setAttribute(k, attrs[k]);
+    full.setIndex(all);
+    full.computeVertexNormals();
+    const mat = this.sandMat ?? this.terrainMaterial();
+    const hx = (NX * STEP) / 2, hz = (NZ * STEP) / BANDS / 2;
+    for (let k = 0; k < BANDS; k++) {
+      const geo = new THREE.BufferGeometry();
+      for (const name in attrs) geo.setAttribute(name, attrs[name]);
+      geo.setAttribute('normal', full.getAttribute('normal'));
+      geo.setIndex(bands[k]);
+      const center = new THREE.Vector3(X0 + hx, 4, Z0 + hz * (2 * k + 1));
+      geo.boundingSphere = new THREE.Sphere(center, Math.hypot(hx, hz) + 24);
+      const m = new THREE.Mesh(geo, mat);
+      m.receiveShadow = true;
+      m.matrixAutoUpdate = false;
+      m.name = 'mainland-terrain';
+      this.root.add(m);
+      this.mainOnly.push(m);
+    }
+  }
+
+  /** The mill pond above Threadbare Dam, the sheet of water over its crest, and the foam below. */
+  private mainWater(): void {
+    const pos: number[] = [], edge: number[] = [], foam: number[] = [], idx: number[] = [];
+    const row = (z: number, y: number, half: number, eSide: number, eMid: number, f: number): number => {
+      const x = riverX(z);
+      pos.push(x - half, y, z, x, y, z, x + half, y, z);
+      edge.push(eSide, eMid, eSide); foam.push(f, f, f);
+      return pos.length / 3 - 3;
+    };
+    const strip = (a: number, b: number): void => { idx.push(a, b, a + 1, a + 1, b, b + 1, a + 1, b + 1, a + 2, a + 2, b + 1, b + 2); };
+    const zc = DAM_Z - 1.5;
+    let prev = -1;
+    for (let z = -2528; ; z += 12) {
+      const r = row(Math.min(z, zc), POND_Y, RIVER_HW + 8, 0, 1, 0);
+      if (prev >= 0) strip(prev, r);
+      prev = r;
+      if (z >= zc) break;
+    }
+    const c0 = row(zc, POND_Y, RIVER_HW + 2, 1, 1, 0.3), c1 = row(DAM_Z + 1.6, POND_Y - 0.04, RIVER_HW + 2, 1, 1, 0.85), c2 = row(DAM_Z + 7, WATER_Y + 0.07, RIVER_HW + 2, 1, 1, 1);
+    strip(c0, c1); strip(c1, c2);
+    // Below the falls only the white is drawn (edge 0), over the tidal river the sea shader already paints.
+    const a0 = row(DAM_Z + 7, WATER_Y + 0.06, RIVER_HW + 2, 0, 0, 1), a1 = row(DAM_Z + 22, WATER_Y + 0.05, RIVER_HW + 2, 0, 0, 0.6), a2 = row(DAM_Z + 52, WATER_Y + 0.04, RIVER_HW + 2, 0, 0, 0);
+    strip(a0, a1); strip(a1, a2);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('aEdge', new THREE.Float32BufferAttribute(edge, 1));
+    geo.setAttribute('aFoam', new THREE.Float32BufferAttribute(foam, 1));
+    geo.setIndex(idx);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: this.seaU, vertexShader: RIVER_VERT, fragmentShader: RIVER_FRAG,
+      fog: true, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const m = new THREE.Mesh(geo, mat);
+    m.name = 'mill-pond';
+    this.far(m, -1);
+  }
+
+  /** Tepid Falls' streets, paint and blocks: the island's recipe, laid at the plateau's height and bent over the hill. */
+  private mainSurfaces(): void {
+    const plan = this.plan, mats = this.mats;
+    const street = new Batch(), avenue = new Batch(), marks = new Batch(), curb = new Batch();
+    const surf: Record<Surface, Batch> = { sidewalk: new Batch(), grass: new Batch(), asphalt: new Batch(), cobble: new Batch(), wood: new Batch() };
+    const tile: Record<Surface, number> = { sidewalk: TILE_M.sidewalk, grass: TILE_M.grass, asphalt: TILE_M.asphalt, cobble: TILE_M.cobble, wood: TILE_M.wood };
+    const rng = new RNG(5502);
+    const PAINT = 0xefe9da;
+
+    for (const e of plan.edges) {
+      if (!e.land || e.deck) continue;
+      const A = plan.nodes[e.a], B = plan.nodes[e.b];
+      const from = e.horiz ? A.hx : A.hz, len = e.len - from - (e.horiz ? B.hx : B.hz);
+      const b = e.hw === AVE_HW ? avenue : street;
+      if (e.horiz) gqh(b, A.x + from, A.z, Math.PI / 2, -e.hw, e.hw, 0, len, 0, 0xffffff, 0, 0, 1, len / TILE_M.street);
+      else gqh(b, A.x, A.z + from, 0, -e.hw, e.hw, 0, len, 0, 0xffffff, 0, 0, 1, len / TILE_M.street);
+    }
+
+    const cross = mats.tex.marks.rect('crosswalk'), stop = mats.tex.marks.rect('stopline');
+    const arrow = mats.tex.marks.rect('arrow'), manhole = mats.tex.marks.rect('manhole'), stain = mats.tex.marks.rect('stain');
+    for (const n of plan.nodes) {
+      if (!n.land) continue;
+      wfh(surf.asphalt, n.x - n.hx, n.z - n.hz, n.x + n.hx, n.z + n.hz, 0, 0xffffff, TILE_M.asphalt);
+      if (n.hx > 0 && n.hz > 0 && rng.chance(0.7)) {
+        const mx = n.x + rng.range(-0.5, 0.5) * n.hx, mz = n.z + rng.range(-0.5, 0.5) * n.hz;
+        gqh(marks, mx, mz, 0, -0.5, 0.5, -0.5, 0.5, 0, 0xffffff, manhole.u0, manhole.v0, manhole.u1, manhole.v1);
+      }
+      if (!n.hasLight) continue;
+      for (const eid of n.edges) {
+        const e = plan.edges[eid];
+        if (e.deck) continue;
+        const away = e.horiz ? (e.a === n.id ? Math.PI / 2 : -Math.PI / 2) : (e.a === n.id ? 0 : Math.PI);
+        const half = e.horiz ? n.hx : n.hz;
+        const ox = n.x + Math.sin(away) * half, oz = n.z + Math.cos(away) * half;
+        gqh(marks, ox, oz, away, -e.hw, e.hw, 0.9, 3.9, 0, PAINT, -e.hw / MARKS.tileM, cross.v0, e.hw / MARKS.tileM, cross.v1);
+        const lanes = e.lanes * 3.5;
+        gqh(marks, ox, oz, away, -lanes, 0, 4.8, 5.3, 0, PAINT, 0, stop.v0, lanes / MARKS.tileM, stop.v1);
+        if (e.lanes === 2) for (const lane of [-1.8, -5.2]) {
+          gqh(marks, ox, oz, away, lane - 0.7, lane + 0.7, 8.5, 11.9, 0, PAINT, arrow.u0, arrow.v1, arrow.u1, arrow.v0);
+        }
+      }
+    }
+
+    const CW = 0.3, STONE = 0xd6cfbe;
+    for (const b of plan.blocks) {
+      if (!b.land) continue;
+      const r = b.rect, road = b.road;
+      const r1 = inset(r, road, CW), r2 = inset(r, road, SIDEWALK);
+      ring(r, r1, (x0, z0, x1, z1) => wfh(curb, x0, z0, x1, z1, CURB, STONE, 1));
+      if (road[0]) vfh(curb, r.x1, r.z0, r.x0, r.z0, -0.08, CURB, STONE, 0.78);
+      if (road[2]) vfh(curb, r.x0, r.z1, r.x1, r.z1, -0.08, CURB, STONE, 0.78);
+      if (road[1]) vfh(curb, r.x1, r.z1, r.x1, r.z0, -0.08, CURB, STONE, 0.78);
+      if (road[3]) vfh(curb, r.x0, r.z0, r.x0, r.z1, -0.08, CURB, STONE, 0.78);
+      ring(r1, r2, (x0, z0, x1, z1) => wfh(surf.sidewalk, x0, z0, x1, z1, CURB, 0xffffff, TILE_M.sidewalk));
+      const [kind, hex] = FILL[b.district];
+      wfh(surf[kind], r2.x0, r2.z0, r2.x1, r2.z1, CURB, hex, tile[kind]);
+      if (b.district === 'yard' || b.district === 'mill' || b.district === 'exits') {
+        for (let k = 0; k < 5; k++) {
+          const sx = rng.range(r2.x0 + 6, r2.x1 - 6), sz = rng.range(r2.z0 + 6, r2.z1 - 6), s = rng.range(1.6, 4);
+          gqh(marks, sx, sz, rng.range(0, TAU), -s, s, -s, s, CURB, 0xffffff, stain.u0, stain.v0, stain.u1, stain.v1);
+        }
+      }
+    }
+
+    // The ways off the grid: the bridge's landing, the Thruway running out of funding to the north, and the footpaths to the footbridge.
+    const zs = MZS[MZS.length - 1] + ST_HW_M, ll = bridgeFullEnd() - zs;
+    gqh(avenue, BRIDGE.x, zs, 0, -BRIDGE.hw, BRIDGE.hw, 0, ll, 0, 0xffffff, 0, 0, 1, ll / TILE_M.avenue);
+    gqh(avenue, MXS[0], MZS[0] - ST_HW_M, Math.PI, -AVE_HW, AVE_HW, 0, 226, 0, 0xffffff, 0, 0, 1, 226 / TILE_M.avenue);
+    const sw = surf.sidewalk, t = TILE_M.sidewalk, pz = FOOTBRIDGE_Z;
+    wfh(sw, MXS[8] + ST_HW_M, pz - 1.4, FOOTBRIDGE.x0, pz + 1.4, 0.02, 0xd8d0bc, t);
+    wfh(sw, FOOTBRIDGE.x1, pz - 1.4, 652, pz + 1.4, 0.02, 0xd8d0bc, t);
+
+    this.meshM(street, mats.street);
+    this.meshM(avenue, mats.avenue);
+    this.meshM(curb, mats.flat);
+    this.meshM(surf.sidewalk, mats.sidewalk);
+    this.meshM(surf.grass, mats.grass);
+    this.meshM(surf.asphalt, mats.asphalt);
+    this.meshM(surf.cobble, mats.cobble);
+    this.meshM(marks, mats.marks);
+  }
+
+  /** What stands in or over the water, and the railway: Trestle St's bridge, the footbridge, the dam, the tracks, the Thruway's divider. */
+  private mainStructures(): void {
+    const plan = this.plan, col = this.game.col, flat = new Batch();
+    const CONC = 0xcbc4b2, IRON_C = 0x4f5a63, TIMB = 0x6b5440, RAILC = 0x54585e, BALLAST = 0x7d776c, Y = MAIN_Y;
+
+    // Trestle St over the river: a slab on three piers with solid parapets.
+    const rb = ROAD_BRIDGE, zc = (rb.z0 + rb.z1) / 2, rxm = riverX(zc);
+    const bx0 = rxm - RIVER_HW - 26, bx1 = rxm + RIVER_HW + 26;
+    flat.box((bx0 + bx1) / 2, Y - 1.1, zc, bx1 - bx0, 1.08, 13.2, CONC, 0, 6);
+    for (const k of [-0.75, 0, 0.75]) flat.box(rxm + k * RIVER_HW, -4, zc, 2.2, Y + 2.9, 11, CONC, 0, 4);
+    for (const sg of [-1, 1]) {
+      const z = zc + sg * 6.3;
+      flat.box((bx0 + bx1) / 2, Y, z, bx1 - bx0 + 8, 1.0, 0.6, CONC, 0, 5);
+      col.addBox(bx0 - 4, z - 0.3, bx1 + 4, z + 0.3, Y + 1.2, Y - 1.5);
+    }
+
+    // The Exact Change Footbridge: a plank deck hung from two pairs of posts. Bollards keep cars off it.
+    const fb = FOOTBRIDGE, fz = FOOTBRIDGE_Z, fl = fb.x1 - fb.x0, T0 = fb.x0 + 7, T1 = fb.x1 - 7, TOP = Y + 9.5;
+    flat.box((fb.x0 + fb.x1) / 2, Y - 0.22, fz, fl, 0.22, 2.8, TIMB, 0, 7);
+    for (let x = fb.x0 + 1; x < fb.x1; x += 2) flat.box(x, Y - 0.001, fz, 0.06, 0.012, 2.8, 0x4a3a2c, 0, 1);
+    const sag = (x: number): number => { const u = (x - T0) / (T1 - T0); return TOP - (TOP - Y - 1.5) * 4 * u * (1 - u); };
+    for (const sg of [-1, 1]) {
+      const z = fz + sg * 1.75;
+      for (const tx of [T0, T1]) {
+        flat.box(tx, Y - 6, z, 0.45, TOP - Y + 6.3, 0.45, IRON_C, 0, 5);
+        col.addBoxC(tx, z, 0.45, 0.45, TOP, Y - 6);
+      }
+      for (let x = T0; x < T1 - 0.01; x += (T1 - T0) / 16) bar(flat, x, sag(x), z, x + (T1 - T0) / 16, sag(x + (T1 - T0) / 16), z, 0.14, IRON_C);
+      bar(flat, T0, TOP, z, fb.x0 - 9, Y, z, 0.14, IRON_C);
+      bar(flat, T1, TOP, z, fb.x1 + 9, Y, z, 0.14, IRON_C);
+      for (let x = T0 + 7; x < T1 - 3; x += 7) bar(flat, x, sag(x), z, x, Y - 0.1, fz + sg * 1.42, 0.05, IRON_C);
+      // Railings, and the wall the physics feels for them.
+      bar(flat, fb.x0, Y + 1.05, fz + sg * 1.42, fb.x1, Y + 1.05, fz + sg * 1.42, 0.07, IRON_C);
+      bar(flat, fb.x0, Y + 0.55, fz + sg * 1.42, fb.x1, Y + 0.55, fz + sg * 1.42, 0.05, IRON_C);
+      for (let x = fb.x0; x <= fb.x1 + 0.01; x += 3) flat.box(x, Y, fz + sg * 1.42, 0.07, 1.05, 0.07, IRON_C, 0, 4);
+      col.addBox(fb.x0, fz + sg * 1.42 - 0.06, fb.x1, fz + sg * 1.42 + 0.06, Y + 1.1, Y - 0.6);
+      for (const bx of [fb.x0 - 0.6, fb.x1 + 0.6]) {
+        flat.box(bx, Y, fz + sg * 0.75, 0.24, 0.9, 0.24, IRON_C, 0, 5);
+        col.addProp(bx, fz + sg * 0.75, 0.15, Y + 0.9, 'post', false).hard = true;
+      }
+    }
+    flat.box(T0, TOP - 0.5, fz, 0.3, 0.3, 3.5, IRON_C);
+    flat.box(T1, TOP - 0.5, fz, 0.3, 0.3, 3.5, IRON_C);
+
+    // Threadbare Dam: a concrete weir from bank to bank, abutments either end. The water over it is mainWater()'s.
+    const dx = riverX(DAM_Z);
+    flat.box(dx, -4, DAM_Z, RIVER_HW * 2 + 30, POND_Y - 0.06 + 4, 3, CONC, 0, 5);
+    col.addBox(dx - RIVER_HW - 15, DAM_Z - 1.5, dx + RIVER_HW + 15, DAM_Z + 1.5, POND_Y, -5);
+    for (const sg of [-1, 1]) {
+      flat.box(dx + sg * (RIVER_HW + 13), -2, DAM_Z + 1, 9, Y + 2.6, 9, CONC, 0, 5);
+      col.addBoxC(dx + sg * (RIVER_HW + 13), DAM_Z + 1, 9, 9, Y + 0.6, -2);
+    }
+    for (let x = dx - RIVER_HW + 3; x < dx + RIVER_HW; x += 6) flat.box(x, POND_Y - 0.06, DAM_Z - 1.1, 0.3, 0.75, 0.3, IRON_C, 0, 5);
+
+    // The railway. One running line, sidings in the yard, a timber trestle over the river. No trains yet.
+    const paved = (x: number, z: number): boolean => inTown(x, z, 0) && groundAt(x, z) < Y + 0.1;
+    const track = (x0: number, x1: number, z: number, yard: boolean): void => {
+      for (let x = x0; x < x1; x += 2) {
+        const xm = x + 1, g = groundAt(xm, z);
+        const deck = xm > RAIL_TRESTLE.x0 && xm < RAIL_TRESTLE.x1 && Math.abs(z - RAIL.z) < 1, road = !deck && paved(xm, z);
+        // A siding stops short of every street; the running line crosses them flush with the asphalt.
+        if (yard && (road || paved(xm - 9, z) || paved(xm + 9, z) || g < Y)) continue;
+        if (g < Y - 0.5 && !deck) continue;
+        const top = road ? g + 0.04 : deck ? Y + 0.2 : g + 0.26;
+        if (!road && !deck) flat.box(xm, g - 0.1, z, 2, 0.22, 3.4, BALLAST, 0, 5);
+        if (!road) flat.box(xm, top - 0.2, z, 0.26, 0.1, 2.5, TIMB, 0, 5);
+        for (const sg of [-1, 1]) flat.box(xm, top - 0.1, z + sg * 0.72, 2, 0.1, 0.08, RAILC, 0, 5);
+      }
+    };
+    track(RAIL.x0, RAIL.x1, RAIL.z, false);
+    for (const dz of [-4.6, 4.6]) track(MXS[3] + 12, MXS[8] - 12, RAIL.z + dz, true);
+    const tl = RAIL_TRESTLE.x1 - RAIL_TRESTLE.x0, tm = (RAIL_TRESTLE.x0 + RAIL_TRESTLE.x1) / 2;
+    flat.box(tm, Y - 0.5, RAIL.z, tl, 0.5, 4.4, TIMB, 0, 7);
+    for (let x = RAIL_TRESTLE.x0 + 8; x < RAIL_TRESTLE.x1 - 4; x += 14) {
+      for (const sg of [-1, 1]) bar(flat, x, Y - 0.5, RAIL.z + sg * 1.6, x, -4.5, RAIL.z + sg * 2.6, 0.5, TIMB);
+      flat.box(x, Y - 3.2, RAIL.z, 0.3, 0.3, 5, TIMB);
+    }
+    for (const end of [RAIL.x0 - 1, RAIL.x1 + 1]) {
+      const g = groundAt(end, RAIL.z);
+      flat.box(end, g, RAIL.z, 0.5, 1.1, 2.6, 0xe4572e);
+      col.addBoxC(end, RAIL.z, 0.6, 2.6, g + 1.1, g - 0.5);
+    }
+    // Crossbucks at every level crossing, one for each direction of traffic.
+    for (const e of plan.edges) {
+      if (!e.land || e.deck || e.horiz) continue;
+      const A = plan.nodes[e.a], B = plan.nodes[e.b];
+      if (A.z > RAIL.z || B.z < RAIL.z || A.x < RAIL.x0 || A.x > RAIL.x1) continue;
+      for (const sg of [-1, 1]) {
+        const px = A.x - sg * (e.hw + 0.9), pz = RAIL.z + sg * 4.6, g = groundAt(px, pz);
+        flat.box(px, g, pz, 0.12, 3.5, 0.12, 0xf2e8cf, 0, 5);
+        bar(flat, px - 0.75, g + 2.55, pz, px + 0.75, g + 3.35, pz, 0.17, 0xf2e8cf);
+        bar(flat, px - 0.75, g + 3.35, pz, px + 0.75, g + 2.55, pz, 0.17, 0xf2e8cf);
+        flat.box(px, g + 2.0, pz, 0.5, 0.3, 0.05, 0xe4572e);
+        this.claim(px, pz, 0.8);
+        col.addProp(px, pz, 0.12, g + 3.5, 'post', true);
+      }
+    }
+
+    // The Thruway is divided: a concrete barrier down the middle, with gaps at every crossing.
+    for (const e of plan.edges) {
+      if (!e.land || e.deck || e.horiz) continue;
+      const A = plan.nodes[e.a], B = plan.nodes[e.b];
+      if (A.x !== MXS[0]) continue;
+      const z0 = A.z + A.hz + 16, z1 = B.z - B.hz - 16;
+      if (z1 - z0 < 8) continue;
+      flat.box(A.x, Y, (z0 + z1) / 2, 0.6, 0.8, z1 - z0, CONC, 0, 5);
+      col.addBox(A.x - 0.3, z0, A.x + 0.3, z1, Y + 0.8, Y - 0.5);
+    }
+    // And it ends, for now, at a barrier two hundred meters past Town Line Rd.
+    const zn = MZS[0] - ST_HW_M - 222;
+    sawhorses(flat, MXS[0], Y, zn, 0, AVE_HW * 2 - 0.4);
+    col.addBox(MXS[0] - AVE_HW, zn - 0.3, MXS[0] + AVE_HW, zn + 0.3, Y + 1.15, Y - 0.5);
+
+    this.meshM(flat, this.mats.flat, 0, this.game.quality.shadows);
+  }
+
+  /** Street trees for the town, clumps on the slopes of the hill and round the square, and woods over the countryside. */
+  private mainTrees(): void {
+    const plan = this.plan, den = this.den, rng = new RNG(9131);
+    for (const b of plan.blocks) {
+      if (!b.land) continue;
+      const [species, gap, share] = STREET_TREES[b.district];
+      this.eachSide(b, (len, at) => {
+        for (let s = gap * 0.5; s < len - 4; s += gap) {
+          const j = rng.range(-1.5, 1.5), keep = rng.next() < share && rng.next() < den, alt = rng.next();
+          if (!keep) continue;
+          const [x, z] = at(s + j, STRIP + 0.2);
+          // The dark conifer stands in for a white pine until Maine's own trees are modelled.
+          const sp = species === 'maple' && alt < 0.2 ? 'cypress' : species;
+          if (!keepOut(x, z) && this.claim(x, z, 1.7)) this.tree(sp, x, z, rng);
+        }
+      });
+    }
+    for (const b of plan.blocks) {
+      if (b.district !== 'college' && b.district !== 'square') continue;
+      const r = b.rect, sq = b.district === 'square', G = sq ? 11 : 15;
+      for (let x = r.x0 + 7; x < r.x1 - 7; x += G) for (let z = r.z0 + 7; z < r.z1 - 7; z += G) {
+        const px = x + rng.range(0, G - 3), pz = z + rng.range(0, G - 3), roll = rng.next(), alt = rng.next();
+        const hh = hillAt(px, pz), edge = Math.min(px - r.x0, r.x1 - px, pz - r.z0, r.z1 - pz);
+        // Only where nothing will be built: the slopes of the hill, and the rim of the square.
+        if (sq ? edge > 16 : hh < 0.6 || hh > HILL.h - 0.5) continue;
+        const want = (sq ? 0.75 : 0.2 + 0.6 * smooth(noise2(px * 0.03 + 5, pz * 0.03) * 1.8 - 0.4)) * den;
+        if (roll > want || Math.abs(px - MXS[2]) < 12 || keepOut(px, pz) || !this.claim(px, pz, 3.2)) continue;
+        this.tree(alt < 0.3 ? 'cypress' : alt < 0.6 ? 'maple' : 'oak', px, pz, rng);
+      }
+    }
+    for (let x = -950; x < 1000; x += 24) for (let z = -2510; z < -1000; z += 24) {
+      const px = x + rng.range(0, 19), pz = z + rng.range(0, 19), roll = rng.next(), alt = rng.next();
+      if (inTown(px, pz, 9)) continue;
+      const want = (0.22 + 0.75 * smooth(noise2(px * 0.012 + 3, pz * 0.012 + 11) * 2 - 0.55)) * den;
+      if (roll > want || coastSD(px, pz) > -36 || waterDist(px, pz) < 7 || keepOut(px, pz) || inExtraLot(px, pz, 4)) continue;
+      this.tree(alt < 0.5 ? 'cypress' : alt < 0.72 ? 'oak' : 'maple', px, pz, rng);
     }
   }
 
@@ -1330,6 +1939,18 @@ class Ground implements WorldPart {
         for (let k = rng.int(5, 9); k > 0; k--) dune(x + rng.range(-2.2, 2.2), z + rng.range(-2.2, 2.2));
       }
     }
+    // The mainland's rough grass: the countryside, the riverbanks, the bluff. Drawn after the island's so its dice are untouched.
+    const rm = new RNG(3311);
+    for (let i = 0; i < 16000 * den; i++) {
+      const x = rm.range(-950, 1000), z = rm.range(-2400, -1000), roll = rm.next();
+      if (inTown(x, z, 3) || keepOut(x, z) || coastSD(x, z) > -30 || inExtraLot(x, z, 0)) continue;
+      if (noise2(x * 0.045, z * 0.045 + 7) < 0.42 || roll > 0.7) continue;
+      grass(x, z, 1.25);
+      if (roll < 0.03) {
+        xf(x, gy(x, z), z, rng.range(0, TAU), rng.range(0.9, 1.7));
+        this.plant('shrub', rng.pick(LEAF.oak), LEAF_GAIN);
+      }
+    }
     if (cover) this.hideFar(cover.build(this.root), 160);
 
     // Stone and timber. Its own dice, so the phone preset (no ground cover) has the same rocks in the same places.
@@ -1367,6 +1988,17 @@ class Ground implements WorldPart {
       rock(x, WATER_Y - 0.15 + R.range(-0.2, 0.25), z, s);
     }
     for (let z = bw.z0 - 1; z < bw.z1 + 1; z += 1.9) rock(bw.x1 + R.range(0.5, 1.8), WATER_Y - 0.1, z, R.range(1.0, 1.7));
+    // The Muddle below the dam runs over ledge: stones along both banks, boulders under the falls.
+    const RM = new RNG(3312);
+    for (let i = 0; i < 1100; i++) {
+      const z = RM.range(DAM_Z + 4, -1000), x = riverX(z) + RM.sign() * (RIVER_HW + RM.range(-4, 5)), big = RM.chance(0.15);
+      const s = RM.range(0.4, 1.2) * (big ? 1.8 : 1);
+      rock(x, Math.max(mainlandTerrain(x, z), WATER_Y - 0.5) - s * 0.25, z, s);
+    }
+    for (let i = 0; i < 70; i++) {
+      const z = DAM_Z + RM.range(7, 34), s = RM.range(0.8, 2.1);
+      rock(riverX(z) + RM.range(-33, 33), WATER_Y - 0.25 + RM.range(-0.2, 0.2), z, s);
+    }
     rocks.build(this.root, false);
     logs.build(this.root, false);
     this.hideFar(rocks.meshes, 420); this.hideFar(logs.meshes, 200);
@@ -1380,6 +2012,9 @@ class Ground implements WorldPart {
     if (this.sandMat && this.sandMat.envMap !== env) this.sandMat.envMap = env;
     const cp = this.game.camera.getWorldPosition(P);
     for (const n of this.nearOnly) n.o.visible = cp.distanceTo(n.c) - n.r < n.lim;
+    // The mainland's coast is at about z = -980: beyond fog range of it, none of the far shore is drawn.
+    const seeMain = cp.z < -975 + this.game.quality.drawDist + 60;
+    if (seeMain !== this.mainShown) { this.mainShown = seeMain; for (const o of this.mainOnly) o.visible = seeMain; }
     if (this.field) {
       this.field.update(this.game.camera);
       const fm = floraMaterial();
@@ -1391,23 +2026,25 @@ class Ground implements WorldPart {
     const light = this.game.sky?.lightDir;
     if (light) (u.uLight.value as THREE.Vector3).copy(light);
 
-    const bulbs = this.bulbs;
-    if (!bulbs) return;
     const nodes = this.plan.nodes, time = this.game.time, last = this.sigLast;
-    const c = bulbs.instanceColor!.array as Float32Array;
-    let changed = false;
-    for (let a = 0; a < last.length; a++) {
-      const st = signalState(nodes[this.sigNode[a]], this.sigHoriz[a], time);
-      const on = st === 'red' ? 0 : st === 'yellow' ? 1 : 2;
-      if (on === last[a]) continue;
-      last[a] = on;
-      changed = true;
-      for (let k = 0; k < 6; k++) {
-        const l = k % 3, src = l === on ? this.litC : this.dimC, o = (a * 6 + k) * 3;
-        c[o] = src[l * 3]; c[o + 1] = src[l * 3 + 1]; c[o + 2] = src[l * 3 + 2];
+    // Two meshes, one loop each: the island's approaches, then the mainland's (skipped while they are not drawn).
+    for (const [bulbs, from, to] of [[this.bulbs, 0, this.sigMain], [this.bulbsMain, this.sigMain, last.length]] as const) {
+      if (!bulbs || !bulbs.visible) continue;
+      const c = bulbs.instanceColor!.array as Float32Array;
+      let changed = false;
+      for (let a = from; a < to; a++) {
+        const st = signalState(nodes[this.sigNode[a]], this.sigHoriz[a], time);
+        const on = st === 'red' ? 0 : st === 'yellow' ? 1 : 2;
+        if (on === last[a]) continue;
+        last[a] = on;
+        changed = true;
+        for (let k = 0; k < 6; k++) {
+          const l = k % 3, src = l === on ? this.litC : this.dimC, o = ((a - from) * 6 + k) * 3;
+          c[o] = src[l * 3]; c[o + 1] = src[l * 3 + 1]; c[o + 2] = src[l * 3 + 2];
+        }
       }
+      if (changed) bulbs.instanceColor!.needsUpdate = true;
     }
-    if (changed) bulbs.instanceColor!.needsUpdate = true;
   }
 
   setNight(n: number): void {

@@ -16,6 +16,7 @@ import './ui/base.css';
 import * as THREE from 'three';
 import { Game } from './core/game';
 import { MPH } from './core/util';
+import { progress } from './world/progress';
 import { Title } from './ui/title';
 import type { Weather } from './core/api';
 import type { VehicleKind } from './ent/vehicleSpecs';
@@ -45,6 +46,12 @@ const hooks = {
   setTime(hour: number): void { game.sky.hour = ((hour % 24) + 24) % 24; },
   setWeather(w: Weather): void { game.sky.setWeather(w, true); },
   setHeat(n: number): void { game.player.heat = Math.max(0, Math.min(5, n)); },
+  /** The bridge and the mainland's unlock state (src/world/progress.ts): progress.add(points), .spans, .stage, .goal(). */
+  progress,
+  /** Build the Perpetual Bridge out to n new spans (0 = the stub in mid-air, 8 = finished). */
+  bridge(n: number): void { progress.setSpans(n); },
+  /** Open the mainland up to stage n (0 = only the landing, 4 = everything). Finishes the bridge if it is not. */
+  stage(n: number): void { progress.setStage(n); },
   /** Spawn a vehicle (default: 8 m ahead of the player) and return its id. */
   spawnVehicle(kind: VehicleKind = 'sedan', x?: number, z?: number, h?: number): number {
     const p = game.player;
@@ -95,7 +102,7 @@ const hooks = {
       vehicles: game.vehicles.list.length, people: game.people.list.length,
       traffic: game.vehicles.list.reduce((n, v) => n + (v.driver === 'ai' ? 1 : 0), 0),
       calls: r.render.calls, tris: r.render.triangles, geometries: r.memory.geometries, textures: r.memory.textures,
-      quality: game.quality.name,
+      quality: game.quality.name, spans: progress.spans, stage: progress.stage,
     };
   },
 };

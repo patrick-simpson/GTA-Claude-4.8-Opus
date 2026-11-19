@@ -16,7 +16,12 @@ import type { WorldPart } from '../core/api';
 import type { CityMaterials } from './materials';
 import type { AtlasRect } from './textures';
 import { Batch } from './batch';
-import { BREAKWATER, BRIDGE, DECK_Y, LIGHTHOUSE, PIER, PIER_HEAD, RAMPS, WATER_Y, groundAt } from './plan';
+import {
+  BREAKWATER, BRIDGE, BRIDGE_RAMP, BRIDGE_SPAN, BRIDGE_SPANS, DECK_Y, LIGHTHOUSE, PIER, PIER_HEAD, RAMPS, WATER_Y,
+  bridgeBuilt, bridgeY, groundAt,
+} from './plan';
+import { MAIN_Y } from './mainland';
+import { Toggle, noticeTexture, progress, sawhorses } from './progress';
 import { RNG, TAU, angleDiff, clamp, damp, headingOf, lerp, money, pickRand, rand, smooth } from '../core/util';
 
 const INK = 0x14213d, BONE = 0xf2e8cf, VERM = 0xe4572e, MUST = 0xf0a202, TEAL = 0x2a9d8f;
@@ -798,7 +803,7 @@ function buildBridge(c: Ctx): void {
   const flat = new Batch(), deck = new Batch();
   const F = frame(BRIDGE.x, BRIDGE.z0, Math.PI); // a = north, s = east
   const L = BRIDGE.z0 - BRIDGE.z1, HW = BRIDGE.hw, SEG = 5, n = Math.round(L / SEG);
-  const dy = (a: number): number => BRIDGE.top * smooth(a / (L - 20));
+  const dy = bridgeY;
   const V = 12; // TILE_M.avenue
 
   // Gull Heights Rd stops at z0 + 9; carry the avenue across the gap.
@@ -879,19 +884,7 @@ function buildBridge(c: Ctx): void {
     flat.box(F.x, d - 3.4, z, 17, 0.8, 2.6, CONCRETE, 0, 7);
   }
 
-  // The end. Rebar reaching for a far shore that was never poured.
-  const rng = new RNG(1987);
-  const yL = dy(L);
-  for (let k = 0; k < 18; k++) {
-    const s = rng.range(-9.6, 9.6), y = yL - rng.range(0.15, 0.78), l1 = rng.range(0.8, 2.3), bend = rng.range(-0.5, 0.5), droop = rng.range(0.05, 0.5);
-    const x1 = fx(F, L + l1, s + bend), z1 = fz(F, L + l1, 0), l2 = rng.range(0.5, 1.7);
-    beam(flat, fx(F, L, s), y, fz(F, L, 0), x1, y - droop, z1, 0.09, 0.09, RUST);
-    beam(flat, x1, y - droop, z1, fx(F, 0, s + bend * 2.2), y - droop - l2, fz(F, L + l1 + l2 * 0.4, 0), 0.09, 0.09, RUST, true);
-  }
-  for (let k = 0; k < 7; k++) {
-    const s = rng.range(-9, 9);
-    flat.box(fx(F, 0, s), yL - rng.range(1, 1.9), fz(F, L + rng.range(0.3, 1.1), 0), rng.range(0.8, 2.2), rng.range(0.4, 0.9), rng.range(0.6, 1.4), 0xb3ab99, rng.range(0, 3), 7, rng.range(0.8, 1));
-  }
+  // The broken end (rebar, warnings, ramp) belongs to BridgeWorks below: it moves as spans are added.
 
   // Lamps on alternate sides, growing out of the barrier.
   for (let a = 30, k = 0; a < L - 10; a += 30, k++) {
@@ -903,17 +896,206 @@ function buildBridge(c: Ctx): void {
     halo(c.glow, lx, y + 5.3, z, 3, SODIUM);
   }
 
-  // Three warnings, in case the first two are not enough.
-  const zs = fz(F, -6, 0), xs = fx(F, 0, HW + 3);
-  for (const o of [-1.7, 1.7]) flat.box(xs + o, 0, zs, 0.18, 3.4, 0.18, INK, 0, 4);
-  board(c, flat, xs, 3.3, zs + 0.1, 4.4, 2.2, 0, 'bridge-out');
-  board(c, flat, F.x, dy(T2) + 12.4, fz(F, T2, 0) + 1.3, 9, 4.5, 0, 'bridge-out');
-  const ze = fz(F, L - 22, 0), xe = fx(F, 0, HW - 0.3);
-  flat.box(xe, dy(L - 22) + 0.9, ze, 0.16, 2.6, 0.16, INK, 0, 4);
-  board(c, flat, xe, dy(L - 22) + 3.4, ze + 0.1, 3.2, 1.6, 0, 'bridge-out');
-
   mesh(deck, mats.avenue, c.parent, false, 'bridge-deck');
   mesh(flat, mats.flat, c.parent, c.cast, 'bridge');
+}
+
+// ── The bridge, as far as it has got ─────────────────────────────────────────
+
+/**
+ * Everything about the bridge that depends on how much of it is built: the new spans and their piers,
+ * the broken end with its rebar, warning boards and stunt ramp, the construction dressing on the newest
+ * span, and the barrier at the mainland landing. progress.ts says how many spans there are; rebuild()
+ * redraws only this group (five small meshes). The original stub above is never touched.
+ * With no new spans it draws exactly what the stub used to end with.
+ */
+class BridgeWorks {
+  private readonly group = new THREE.Group();
+  private readonly F = frame(BRIDGE.x, BRIDGE.z0, Math.PI); // a = north, s = east
+  private readonly L0 = BRIDGE.z0 - BRIDGE.z1;
+  /** Side walls and pier of span k at [k - 1]: switched on as the span is built. */
+  private readonly spanWalls: Toggle[] = [];
+  /** Solid parts of the construction dressing for a bridge of n spans, at [n]. */
+  private readonly dressWalls: Toggle[] = [];
+  private readonly landingWall = new Toggle();
+  private notice: THREE.MeshStandardMaterial | null = null;
+
+  constructor(private readonly c: Ctx) {
+    this.group.name = 'bridge-works';
+    c.parent.add(this.group);
+    const col = c.game.col, F = this.F, HW = BRIDGE.hw, SG = BRIDGE_SPAN / 7;
+    for (let k = 1; k <= BRIDGE_SPANS; k++) {
+      const t = new Toggle(), A = this.L0 + (k - 1) * BRIDGE_SPAN;
+      for (let i = 0; i < 7; i++) {
+        const a0 = A + i * SG, a1 = a0 + SG, y0 = bridgeY(a0), y1 = bridgeY(a1);
+        // Unlike the stub's, these walls stop a meter under the deck: nobody swimming the Gap should meet one.
+        for (const sg of [-1, 1]) {
+          const s0 = sg > 0 ? HW - 0.6 : -HW;
+          t.add(col.addBox(fx(F, a0, s0), fz(F, a0, 0), fx(F, a0, s0 + 0.6), fz(F, a1, 0), Math.max(y0, y1) + 1.3, Math.min(y0, y1) - 1));
+        }
+      }
+      const a = A + BRIDGE_SPAN, d = bridgeY(a);
+      if (k < BRIDGE_SPANS) for (const sg of [-1, 1]) t.add(col.addBoxC(fx(F, a, sg * 6.7), fz(F, a, 0), 2.2, 2.2, d - 3.4, -9));
+      t.set(false);
+      this.spanWalls.push(t);
+    }
+    for (let n = 0; n <= BRIDGE_SPANS; n++) {
+      const t = new Toggle(), Lc = this.L0 + n * BRIDGE_SPAN;
+      if (n > 0 && n < BRIDGE_SPANS) {
+        const yg = bridgeY(Lc - 28);
+        t.add(col.addBox(fx(F, 0, -9.35), fz(F, Lc - 22, 0), fx(F, 0, -8.05), fz(F, Lc - 34, 0), yg + 2.2, yg - 1.2));
+        for (const sg of [-1, 1]) t.add(col.addBoxC(fx(F, 0, sg * 8.2), fz(F, Lc - 36, 0), 2.1, 0.5, bridgeY(Lc - 36) + 1.1, bridgeY(Lc - 36) - 0.6));
+        t.add(col.addBoxC(fx(F, 0, HW + 4.5), fz(F, Lc - 30, 0), 3, 3, bridgeY(Lc - 30) + 30, -9));
+      }
+      t.set(false);
+      this.dressWalls.push(t);
+    }
+    const zl = fz(F, this.L0 + BRIDGE_SPANS * BRIDGE_SPAN + 5, 0);
+    this.landingWall.add(col.addBox(F.x - HW, zl - 0.3, F.x + HW, zl + 0.3, MAIN_Y + 1.15, MAIN_Y - 0.5));
+    this.rebuild();
+  }
+
+  rebuild(): void {
+    const { c, F, L0 } = this, { mats } = c, HW = BRIDGE.hw, V = 12, SG = BRIDGE_SPAN / 7;
+    for (const o of [...this.group.children]) { (o as THREE.Mesh).geometry?.dispose(); this.group.remove(o); }
+    if (this.notice) { this.notice.map?.dispose(); this.notice.dispose(); this.notice = null; }
+    const n = bridgeBuilt(), done = n >= BRIDGE_SPANS, Lc = L0 + n * BRIDGE_SPAN, dy = bridgeY;
+    this.spanWalls.forEach((t, k) => t.set(k < n));
+    this.dressWalls.forEach((t, k) => t.set(k === n));
+    this.landingWall.set(!done);
+
+    const flat = new Batch(), deck = new Batch(), signs = new Batch(), glow = new Batch(), top = new Batch(), paper = new Batch();
+    const cs: Ctx = { ...c, signs };
+
+    // The new spans: the same deck, barrier and girders as the stub, on plain piers.
+    for (let i = 0; i < n * 7; i++) {
+      const a0 = L0 + i * SG, a1 = a0 + SG, y0 = dy(a0), y1 = dy(a1), last = i === n * 7 - 1;
+      slab(deck, F, a0, a1, -HW, HW, 0, y0, 0, y1, 0xffffff, 1, 1, [0, a0 / V, 1, a1 / V]);
+      slab(flat, F, a0, a1, -HW, HW, y0 - 0.9, y0 - 0.02, y1 - 0.9, y1 - 0.02, CONCRETE, 2 | 4 | (last ? 16 : 0));
+      if (i % 2 === 0) slab(flat, F, a0, a0 + 0.5, -9.6, 9.6, y0 - 2, y0 - 0.9, y0 - 2, y0 - 0.9, DEEP_TEAL, 2 | 8 | 16);
+      for (const sg of [-1, 1]) {
+        const s0 = sg > 0 ? HW - 0.6 : -HW, s1 = s0 + 0.6, sr = sg * (HW - 0.3);
+        slab(flat, F, a0, a1, s0, s1, y0, y0 + 0.9, y1, y1 + 0.9, CONCRETE, 1 | 4 | (last ? 16 : 0));
+        beam(flat, fx(F, a0, sr), y0 + 1.25, fz(F, a0, sr), fx(F, a1, sr), y1 + 1.25, fz(F, a1, sr), 0.12, 0.12, DEEP_TEAL);
+        flat.box(fx(F, a0, sr), y0 + 0.9, fz(F, a0, sr), 0.1, 0.35, 0.1, DEEP_TEAL, 0, 4);
+        slab(flat, F, a0, a1 + (last && !done ? 2.2 : 0), sg * 6.7 - 0.5, sg * 6.7 + 0.5, y0 - 2.6, y0 - 0.9, y1 - 2.6, y1 - 0.9, DEEP_TEAL, 2 | 4 | (last ? 16 : 0));
+      }
+    }
+    for (let k = 1; k <= n; k++) {
+      const a = L0 + k * BRIDGE_SPAN, z = fz(F, a, 0), d = dy(a);
+      if (k === BRIDGE_SPANS) {
+        // The abutment on the bluff, and wing walls either side of it.
+        flat.box(F.x, 0, z + 6, 21, d - 0.9, 13, CONCRETE, 0, 5);
+        for (const sg of [-1, 1]) flat.box(fx(F, 0, sg * 11.2), 0, z + 2, 1.4, d + 0.9, 9, CONCRETE, 0, 5);
+        continue;
+      }
+      for (const sg of [-1, 1]) flat.box(fx(F, a, sg * 6.7), -9, z, 2.2, d + 5.6, 2.2, CONCRETE, 0, 4);
+      flat.box(F.x, d - 3.4, z, 17, 0.8, 2.6, CONCRETE, 0, 7);
+    }
+    for (let a = L0 + 15, k = 0; a < Lc - 10; a += 30, k++) {
+      const sg = k % 2 ? 1 : -1, x = fx(F, a, sg * (HW - 0.3)), z = fz(F, a, 0), y = dy(a) + 0.9, lx = x - sg * 1.6;
+      flat.box(x, y, z, 0.16, 5.4, 0.16, INK, 0, 4);
+      beam(flat, x, y + 5.3, z, lx, y + 5.6, z, 0.1, 0.1, INK);
+      flat.box(lx, y + 5.15, z, 0.4, 0.4, 0.4, 0xfff1c9);
+      halo(glow, lx, y + 5.3, z, 3, SODIUM);
+    }
+
+    if (!done) {
+      // The end. Rebar reaching for a far shore that has not been poured yet.
+      const rng = new RNG(1987);
+      const yL = dy(Lc);
+      for (let k = 0; k < 18; k++) {
+        const s = rng.range(-9.6, 9.6), y = yL - rng.range(0.15, 0.78), l1 = rng.range(0.8, 2.3), bend = rng.range(-0.5, 0.5), droop = rng.range(0.05, 0.5);
+        const x1 = fx(F, Lc + l1, s + bend), z1 = fz(F, Lc + l1, 0), l2 = rng.range(0.5, 1.7);
+        beam(flat, fx(F, Lc, s), y, fz(F, Lc, 0), x1, y - droop, z1, 0.09, 0.09, RUST);
+        beam(flat, x1, y - droop, z1, fx(F, 0, s + bend * 2.2), y - droop - l2, fz(F, Lc + l1 + l2 * 0.4, 0), 0.09, 0.09, RUST, true);
+      }
+      for (let k = 0; k < 7; k++) {
+        const s = rng.range(-9, 9);
+        flat.box(fx(F, 0, s), yL - rng.range(1, 1.9), fz(F, Lc + rng.range(0.3, 1.1), 0), rng.range(0.8, 2.2), rng.range(0.4, 0.9), rng.range(0.6, 1.4), 0xb3ab99, rng.range(0, 3), 7, rng.range(0.8, 1));
+      }
+
+      // Three warnings, in case the first two are not enough.
+      const T2 = 245, zs = fz(F, -6, 0), xs = fx(F, 0, HW + 3);
+      for (const o of [-1.7, 1.7]) flat.box(xs + o, 0, zs, 0.18, 3.4, 0.18, INK, 0, 4);
+      board(cs, flat, xs, 3.3, zs + 0.1, 4.4, 2.2, 0, 'bridge-out');
+      board(cs, flat, F.x, dy(T2) + 12.4, fz(F, T2, 0) + 1.3, 9, 4.5, 0, 'bridge-out');
+      const ze = fz(F, Lc - 22, 0), xe = fx(F, 0, HW - 0.3);
+      flat.box(xe, dy(Lc - 22) + 0.9, ze, 0.16, 2.6, 0.16, INK, 0, 4);
+      board(cs, flat, xe, dy(Lc - 22) + 3.4, ze + 0.1, 3.2, 1.6, 0, 'bridge-out');
+
+      // The stunt ramp rides the broken end. Its top follows what groundAt() says, deck slope and all.
+      const r = RAMPS[BRIDGE_RAMP], RF = frame(r.x, r.z, r.h), hw = r.width / 2;
+      const yA = dy(BRIDGE.z0 - r.z), yD = dy(BRIDGE.z0 - r.z + r.len), yB = yD + r.height;
+      for (const [s0, s1] of [[-hw, 0], [0, hw]]) {
+        slab(top, RF, 0, r.len, s0, s1, 0, yA, 0, yB, 0xffffff, 1, 1, [s0 / 2, 0, s1 / 2, r.len / 2]);
+        slab(flat, RF, 0, r.len, s0, s1, yA - 0.04, yA, yD - 0.04, yB, INK, 4 | 16);
+        const k0 = s0 < 0 ? s0 - 0.3 : s1, k1 = k0 + 0.3;
+        slab(flat, RF, 0, r.len, k0, k1, yA - 0.04, yA + 0.14, yD - 0.04, yB + 0.14, VERM, 1 | 4 | 8 | 16);
+        slab(flat, RF, r.len, r.len + 0.06, s0, s1, yB - 0.5, yB - 0.1, yB - 0.5, yB - 0.1, MUST, 16);
+      }
+
+      // The far landing waits behind a barrier of its own, with the same sign facing the town.
+      const al = L0 + BRIDGE_SPANS * BRIDGE_SPAN + 5, zl = fz(F, al, 0);
+      sawhorses(flat, F.x, MAIN_Y, zl, Math.PI, HW * 2 - 0.4);
+      for (const o of [-1.7, 1.7]) flat.box(F.x + o, MAIN_Y, zl + 1.2, 0.18, 3.6, 0.18, INK, 0, 4);
+      board(cs, flat, F.x, MAIN_Y + 3.5, zl + 1.1, 4.4, 2.2, Math.PI, 'bridge-out');
+    }
+
+    if (n > 0 && !done) {
+      // Construction on the newest span: kept to the edges, because the ramp at the end still needs its run-up.
+      const ag = Lc - 34, yg0 = dy(ag), yg1 = dy(ag + 12);
+      for (let l = 0; l < 3; l++) {
+        const w = l === 2 ? 0.5 : 1.2, s0 = -9.3 + (1.2 - w) / 2;
+        slab(flat, F, ag + l * 0.4, ag + 12 - l * 0.4, s0, s0 + w, yg0 + l * 0.66, yg0 + l * 0.66 + 0.56, yg1 + l * 0.66, yg1 + l * 0.66 + 0.56, l % 2 ? RUST : DEEP_TEAL, 1 | 4 | 8 | 16);
+        for (const t of [1.5, 6, 10.5]) slab(flat, F, ag + t, ag + t + 0.3, -9.35, -8.05, dy(ag + t) + l * 0.66 + 0.56, dy(ag + t) + l * 0.66 + 0.66, dy(ag + t) + l * 0.66 + 0.56, dy(ag + t) + l * 0.66 + 0.66, TIMBER, 1 | 4 | 8 | 16);
+      }
+      for (const sg of [-1, 1]) sawhorses(flat, fx(F, 0, sg * 8.2), dy(Lc - 36), fz(F, Lc - 36, 0), 0, 2);
+
+      // A tower crane on a pier of its own beside the deck, its jib out over the gap with the next girder on the hook.
+      const ac = Lc - 30, cx = fx(F, 0, HW + 4.5), cz = fz(F, ac, 0), cy = dy(ac), TOPY = cy + 30;
+      flat.box(cx, -9, cz, 3, cy + 9.5, 3, CONCRETE, 0, 5);
+      for (const [ox, oz] of [[-0.8, -0.8], [0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]]) flat.box(cx + ox, cy + 0.5, cz + oz, 0.22, 29.5, 0.22, MUST, 0, 4);
+      for (let y = cy + 0.5, k = 0; y < TOPY - 3; y += 3.6, k++) {
+        const e = k % 2 ? 0.8 : -0.8;
+        beam(flat, cx - 0.8, y, cz + e, cx + 0.8, y + 3.6, cz + e, 0.14, 0.14, MUST);
+        beam(flat, cx + e, y, cz - 0.8, cx + e, y + 3.6, cz + 0.8, 0.14, 0.14, MUST);
+      }
+      flat.box(cx, TOPY, cz, 2.4, 2.2, 2.4, MUST);
+      flat.box(cx - 1.6, TOPY + 0.2, cz, 1.2, 1.7, 1.6, GLASS);
+      flat.box(cx, TOPY + 2.2, cz, 0.5, 6, 0.5, MUST, 0, 5);
+      // Jib tip: over the centerline, six meters past the broken end.
+      const jx = F.x, jz = fz(F, Lc + 6, 0), jl = Math.hypot(jx - cx, jz - cz), ux = (jx - cx) / jl, uz = (jz - cz) / jl;
+      beam(flat, cx, TOPY + 1.6, cz, jx, TOPY + 1.6, jz, 0.9, 1.1, MUST, true);
+      beam(flat, cx, TOPY + 1.6, cz, cx - ux * 11, TOPY + 1.6, cz - uz * 11, 0.9, 1.1, MUST, true);
+      flat.box(cx - ux * 9.5, TOPY - 0.6, cz - uz * 9.5, 2.2, 1.8, 2.2, CONCRETE);
+      beam(flat, cx, TOPY + 8.2, cz, cx + ux * jl * 0.62, TOPY + 2.1, cz + uz * jl * 0.62, 0.1, 0.1, INK);
+      beam(flat, cx, TOPY + 8.2, cz, cx - ux * 10, TOPY + 2.1, cz - uz * 10, 0.1, 0.1, INK);
+      halo(glow, cx, TOPY + 8.6, cz, 4, 0xff4a2a);
+      const hx = cx + ux * (jl - 2), hz = cz + uz * (jl - 2), hy = dy(Lc) + 7;
+      beam(flat, hx, TOPY + 1.1, hz, hx, hy + 1.2, hz, 0.07, 0.07, INK);
+      beam(flat, hx, hy + 1.2, hz, hx - 4, hy + 0.3, hz, 0.05, 0.05, INK);
+      beam(flat, hx, hy + 1.2, hz, hx + 4, hy + 0.3, hz, 0.05, 0.05, INK);
+      flat.box(hx, hy - 0.5, hz, 12, 0.8, 0.9, DEEP_TEAL);
+
+      // And the paperwork.
+      const an = Lc - 33, nx = fx(F, 0, 8.3), nz = fz(F, an, 0), ny = dy(an);
+      for (const o of [-1.4, 1.4]) flat.box(nx + o * 0.9, ny, nz, 0.14, 3.3, 0.14, INK, 0, 4);
+      flat.box(nx, ny + 1.6, nz, 3.4, 1.8, 0.1, INK);
+      paper.quad(nx - 1.6, ny + 1.7, nz + 0.07, nx + 1.6, ny + 1.7, nz + 0.07, nx + 1.6, ny + 3.3, nz + 0.07, nx - 1.6, ny + 3.3, nz + 0.07, 0xffffff, 0, 0, 1, 1);
+      this.notice = new THREE.MeshStandardMaterial({
+        map: noticeTexture('HARBOR AUTHORITY NOTICE', [`Span ${n + 1} of ${BRIDGE_SPANS} is under construction.`, 'Expected completion: when it is paid for.', 'Bridge Completion Fund, Gull Heights Rd.', 'Please do not feed the crane.']),
+        vertexColors: true, roughness: 0.85, metalness: 0,
+      });
+    }
+
+    if (!deck.empty) mesh(deck, mats.avenue, this.group, false, 'bridge-deck-new');
+    if (!flat.empty) mesh(flat, mats.flat, this.group, c.cast, 'bridge-works');
+    if (!signs.empty) mesh(signs, mats.sign, this.group, false, 'bridge-signs');
+    if (!glow.empty) mesh(glow, mats.glow, this.group, false, 'bridge-glow');
+    if (!top.empty) mesh(top, mats.ramp, this.group, false, 'bridge-ramp');
+    if (!paper.empty && this.notice) mesh(paper, this.notice, this.group, false, 'bridge-notice');
+  }
 }
 
 // ── Stunt ramps ──────────────────────────────────────────────────────────────
@@ -921,6 +1103,8 @@ function buildBridge(c: Ctx): void {
 function buildRamps(c: Ctx): void {
   const top = new Batch(), side = new Batch();
   for (const r of RAMPS) {
+    // The one on the bridge moves with the broken end: BridgeWorks draws it.
+    if (r === RAMPS[BRIDGE_RAMP]) continue;
     const F = frame(r.x, r.z, r.h), hw = r.width / 2;
     // Two strips, because one ramp straddles a curb: each half sits on whatever groundAt() says is under it.
     for (const [s0, s1] of [[-hw, 0], [0, hw]]) {
@@ -1068,6 +1252,8 @@ export function buildLandmarks(game: Game, mats: CityMaterials, parent: THREE.Gr
   const gerald = new Gerald(game, c);
   const light = buildLighthouse(c);
   buildBridge(c);
+  const works = new BridgeWorks(c);
+  progress.onChange((what) => { if (what === 'bridge') works.rebuild(); });
   buildRamps(c);
   const duck = buildDuck(c);
   mesh(c.signs, mats.sign, group, false, 'landmark-signs');

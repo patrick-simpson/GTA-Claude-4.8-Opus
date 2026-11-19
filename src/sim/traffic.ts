@@ -235,6 +235,8 @@ export class Traffic {
     for (const id of at.edges) {
       if (id === e.id) continue;
       const c = plan.edges[id];
+      // Behind construction barriers, or a bridge with no far end. (No dice drawn for it: the island's traffic rolls as it always did.)
+      if (c.closed) continue;
       let k = (c.horiz === e.horiz ? 2.2 : 1) * (0.2 + this.rng.next());
       if (long) {
         if (c.lanes === 2) k *= 5;
@@ -279,7 +281,9 @@ export class Traffic {
   /** Try one random spot in a lane; on success a new car is driving there. */
   private seat(d: Driver, near: number, far: number, front: number): boolean {
     const g = this.game, plan = g.plan, rng = this.rng;
-    const e = rng.pick(plan.edges), fwd = rng.chance(0.5);
+    // The streets of the land the player is on: a pick from the whole world would land out of range most of the time.
+    const e = rng.pick(plan.landEdges(g.player.z)), fwd = rng.chance(0.5);
+    if (e.closed) return false;
     // The avenues carry the traffic; the side streets get what is left.
     if (e.lanes === 1 && rng.chance(0.4)) return false;
     const from = plan.nodes[fwd ? e.a : e.b], to = plan.nodes[fwd ? e.b : e.a];
@@ -410,7 +414,7 @@ export class Traffic {
           // Never made it across to the lane for the turn: go straight on instead, if the street does.
           for (const id of to.edges) {
             const c = plan.edges[id];
-            if (c !== e && c.horiz === e.horiz) { d.next = c; this.plan(d); d.wantLane = d.lane; break; }
+            if (c !== e && c.horiz === e.horiz && !c.closed) { d.next = c; this.plan(d); d.wantLane = d.lane; break; }
           }
         }
       }

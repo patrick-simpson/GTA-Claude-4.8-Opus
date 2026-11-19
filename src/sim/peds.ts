@@ -14,7 +14,7 @@
 import type { Game } from '../core/game';
 import type { Person, Vehicle } from '../core/api';
 import { RNG, clamp, dampAngle } from '../core/util';
-import { PIER, XS, ZS, groundAt, type Block, type District, type RoadNode } from '../world/plan';
+import { PIER, groundAt, type Block, type District, type RoadNode } from '../world/plan';
 import type { Prop } from '../world/collide';
 import { signalState } from '../world/signals';
 import { spawnOk, type RoadPed } from './traffic';
@@ -42,9 +42,14 @@ const DIR_X = [1, 0, -1, 0], DIR_Z = [0, 1, 0, -1];
 const BUSY: Record<District, [number, number]> = {
   downtown: [1, 0.45], midtown: [0.85, 0.4], oldtown: [0.85, 0.4], suburb: [0.45, 0.15],
   industrial: [0.07, 0.03], port: [0.05, 0.02], strand: [1.6, 0.5], park: [0.9, 0.1], arena: [0.35, 0.1],
+  // Tepid Falls: a small town. Main Street is busy by its own standards.
+  main: [0.8, 0.3], square: [0.9, 0.15], mill: [0.25, 0.06], stacks: [0.45, 0.15], college: [0.5, 0.1],
+  yard: [0.06, 0.02], exits: [0.08, 0.04], lake: [0.05, 0.01], sister: [0.2, 0.05],
 };
 const SHOPS: Record<District, boolean> = {
   downtown: true, midtown: true, oldtown: true, strand: true, suburb: false, industrial: false, port: false, park: false, arena: false,
+  // Nothing is built on the mainland's lots yet, so nobody there has a shop to step into.
+  main: false, square: false, mill: false, stacks: false, college: false, yard: false, exits: false, lake: false, sister: false,
 };
 
 /** A bench to sit on or a bus stop to wait at. */
@@ -121,7 +126,7 @@ export class Peds {
     }
     this.blocks = plan.blocks.filter((b) => this.usable[b.id]);
     // Benches and bus-stop posts on the kerb strip, filed under the block and side they stand on.
-    game.col.forProps(0, 0, 1300, (pr) => {
+    const file = (pr: Prop): void => {
       if ((pr.kind !== 'bench' || pr.r > 0.6) && pr.kind !== 'post') return;
       const b = this.blockAtPoint(pr.x, pr.z);
       if (!b || !this.usable[b.id]) return;
@@ -130,7 +135,10 @@ export class Peds {
       for (let k = 1; k < 4; k++) if (d[k] < d[side]) side = k;
       if (d[side] < 0 || d[side] > 1.6 || !b.road[side]) return;
       this.spots[b.id].push({ prop: pr, side, bench: pr.kind === 'bench', n: 0 });
-    });
+    };
+    game.col.forProps(0, 0, 1300, file);
+    // Tepid Falls' benches, north of where the first sweep stops.
+    game.col.forProps(-60, -1920, 618, file);
 
     const den = clamp(game.quality.density, 0.4, 1);
     const nW = Math.round(WALKERS * den), nS = Math.round(STROLLERS * den);
@@ -391,15 +399,11 @@ export class Peds {
   }
 
   private blockAt(i: number, j: number): Block | null {
-    if (i < 0 || j < 0 || i >= XS.length - 1 || j >= ZS.length - 1) return null;
-    return this.game.plan.blocks[i * (ZS.length - 1) + j];
+    return this.game.plan.blockAt(i, j);
   }
 
   private blockAtPoint(x: number, z: number): Block | null {
-    let i = 0, j = 0;
-    while (i < XS.length - 2 && x > XS[i + 1]) i++;
-    while (j < ZS.length - 2 && z > ZS[j + 1]) j++;
-    return this.blockAt(i, j);
+    return this.game.plan.blockAtPoint(x, z);
   }
 
   private refreshNear(): void {
