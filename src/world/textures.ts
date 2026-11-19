@@ -1910,3 +1910,373 @@ export async function makeTextures(q: Quality): Promise<Textures> {
     noise: done(noiseCanvas(), true, 1, true),
   };
 }
+
+// ── The mainland (Tepid Falls) ───────────────────────────────────────────────
+// One sheet for every wall in town, so the whole mainland costs one wall material.
+// It is 16 rows of 128 px and tiles along u only. The first rows are plain surfaces,
+// painted pale so the vertex colour tints them (one 128 px cell = MWALL.cell meters);
+// the rest are pieces picked by cell: windows and doors 64 px wide (32 to a row, every
+// one with its own night), shopfront bays 128 x 256. The arched windows sit in brick of
+// MWALL.redBrick, painted in: give the wall round them that tint and the piece a grey.
+
+export const MWALL = {
+  cell: 3.4,
+  redBrick: 0xa8503a,
+  rows: { brick: 0, corbel: 1, clap: 2, shingle: 3, granite: 4, timber: 5, seam: 6, ghost: 7, sash: 8, arch: 9, round: 10, mill: 11, house: 12, door: 13, shop: 14 },
+  /** Door kinds along row `door`, repeating every 8 cells. */
+  doors: { panel: 0, oval: 1, shop: 2, plank: 3, hall: 4, steel: 5, lights: 6, garage: 7 },
+} as const;
+
+/** v range of a row of MWALL (rows = 2 for the shopfront bays), inset so mipmaps do not pull in the neighbours. */
+export function mwallV(row: number, rows = 1): [number, number] {
+  return [1 - (row + rows) / 16 + 0.0012, 1 - row / 16 - 0.0012];
+}
+
+export interface MainlandTextures {
+  wall: THREE.Texture; glow: THREE.Texture; pbr: Pbr | null;
+  signs: Atlas;
+}
+
+const M_FRAME = '#f2ede0';
+const M_GHOSTS = ['NERVE TONIC 5¢ · IT MIGHT HELP', 'THREADBARE SHIRTS · NONE BETTER, SOME WORSE', 'UNEEDA NAP · MATTRESSES', 'THREADBARE'];
+
+function mainWallPair(nz: Noise): [HTMLCanvasElement, HTMLCanvasElement] {
+  const W = 2048, R = 128, r = new RNG(4401);
+  const [cv, c] = canvas(W, W), [gv, g] = canvas(W / 2, W / 2);
+  g.fillStyle = '#000'; g.fillRect(0, 0, W / 2, W / 2); g.scale(0.5, 0.5);
+  const day = painter(c, false), night = painter(g, true);
+  const twice = (fn: (c: Ctx, set: Paint, glow: boolean) => void): void => { fn(c, day, false); fn(g, night, true); };
+
+  const brick = (y0: number, h: number): void => {
+    c.fillStyle = '#a59e92'; c.fillRect(0, y0, W, h);
+    const ch = R / 24, bw = R / 9, n = W / bw;
+    for (let j = 0; j < Math.round(h / ch); j++) for (let i = -1; i < n; i++) {
+      const v = hashShade(((i + n) % n) * 5.3 + j * 17.1 + y0) * 46 + 184;
+      c.fillStyle = rgba(v + 8, v, v - 9);
+      c.fillRect((i + (j % 2) * 0.5) * bw + 0.6, y0 + j * ch + 0.6, bw - 1.2, ch - 1.2);
+    }
+  };
+  const row = (k: number): number => k * R;
+
+  // 0 brick, 1 brick under a corbelled cornice.
+  brick(0, R * 2);
+  {
+    const y = row(1);
+    c.fillStyle = '#e4ddd0'; c.fillRect(0, y, W, 9);
+    c.fillStyle = ink(0.35); c.fillRect(0, y + 9, W, 3);
+    for (let x = 0; x < W; x += 16) {
+      c.fillStyle = '#d6cfc2'; c.fillRect(x + 1, y + 12, 9, 20);
+      c.fillStyle = ink(0.5); c.fillRect(x + 10, y + 12, 6, 20);
+      c.fillStyle = ink(0.3); c.fillRect(x + 1, y + 32, 9, 4);
+    }
+    c.fillStyle = '#cfc8ba'; c.fillRect(0, y + 38, W, 6);
+    c.fillStyle = ink(0.3); c.fillRect(0, y + 44, W, 3);
+  }
+  // 2 clapboard.
+  {
+    const y = row(2), bh = R / 20;
+    for (let j = 0; j < 20; j++) {
+      const v = 226 + hashShade(j * 3.3) * 10;
+      c.fillStyle = vgrad(c, y + j * bh, y + (j + 1) * bh, rgba(v + 8, v + 6, v), rgba(v - 14, v - 15, v - 20)); c.fillRect(0, y + j * bh, W, bh);
+      c.fillStyle = ink(0.42); c.fillRect(0, y + (j + 1) * bh - 1.3, W, 1.3);
+      for (let k = 0; k < 5; k++) { c.fillStyle = ink(0.2); c.fillRect(r.next() * W, y + j * bh, 1, bh - 1); }
+    }
+  }
+  // 3 shingles.
+  {
+    const y = row(3), ch = R / 12;
+    for (let j = 0; j < 12; j++) for (let i = -1; i < W / 16; i++) {
+      const v = 176 + hashShade(((i + 128) % 128) * 7.7 + j * 31) * 44;
+      c.fillStyle = rgba(v, v - 1, v - 4); c.fillRect((i + (j % 2) * 0.5) * 16, y + j * ch, 15.2, ch);
+      c.fillStyle = ink(0.34); c.fillRect((i + (j % 2) * 0.5) * 16, y + (j + 1) * ch - 2, 16, 2);
+    }
+  }
+  // 4 granite ashlar.
+  {
+    const y = row(4);
+    c.fillStyle = '#8f8d88'; c.fillRect(0, y, W, R);
+    for (let j = 0; j < 4; j++) for (let i = -1; i < W / 64; i++) {
+      const v = 198 + hashShade(((i + 32) % 32) * 9.1 + j * 13) * 30;
+      c.fillStyle = rgba(v, v, v + 2); c.fillRect((i + (j % 2) * 0.5) * 64 + 1, y + j * 32 + 1, 62, 30);
+      c.fillStyle = grey(255, 0.25); c.fillRect((i + (j % 2) * 0.5) * 64 + 1, y + j * 32 + 1, 62, 2);
+    }
+  }
+  // 5 squared timber.
+  {
+    const y = row(5);
+    for (let j = 0; j < 8; j++) {
+      const v = 178 + hashShade(j * 5.1) * 26;
+      c.fillStyle = vgrad(c, y + j * 16, y + j * 16 + 16, rgba(v + 14, v + 4, v - 12), rgba(v - 10, v - 20, v - 36)); c.fillRect(0, y + j * 16, W, 16);
+      for (let k = 0; k < 70; k++) { c.fillStyle = ink(r.range(0.05, 0.16)); c.fillRect(r.next() * W, y + j * 16 + r.range(1, 13), r.range(20, 90), 1); }
+      for (let k = 0; k < 3; k++) { c.fillStyle = ink(0.4); c.fillRect(r.next() * W, y + j * 16, 1.5, 14); }
+      c.fillStyle = ink(0.62); c.fillRect(0, y + j * 16 + 14, W, 2);
+    }
+  }
+  // 6 standing-seam metal.
+  {
+    const y = row(6);
+    c.fillStyle = '#cfd2ce'; c.fillRect(0, y, W, R);
+    for (let x = 0; x < W; x += 32) { c.fillStyle = grey(255, 0.55); c.fillRect(x + 14, y, 2, R); c.fillStyle = ink(0.4); c.fillRect(x + 16, y, 3, R); }
+  }
+  // 7 ghost signs and the smokestack's lettering, on brick.
+  brick(row(7), R);
+  M_GHOSTS.forEach((text, i) => {
+    const x = i * 512, y = row(7), stack = i === 3;
+    if (!stack) { c.fillStyle = i === 1 ? 'rgba(30,34,40,0.5)' : 'rgba(244,240,228,0.5)'; c.fillRect(x + 14, y + 12, 484, 104); }
+    const [a, b] = text.split(' · ');
+    c.fillStyle = stack ? 'rgba(250,248,240,0.9)' : i === 1 ? 'rgba(244,240,228,0.62)' : 'rgba(26,30,38,0.6)';
+    let px = fit(c, a, 900, stack ? 104 : b ? 62 : 84, stack ? 480 : 452, HEAD, stack ? 0.12 : 0.03);
+    label(c, a, x + 256, y + (stack ? 100 : b ? 68 : 92), px, 0, stack ? 0.12 : 0.03);
+    if (b) { px = fit(c, b, 700, 26, 440, HEAD, 0.1); label(c, b, x + 256, y + 102, px, 0, 0.1); }
+  });
+  // Weather over the plain rows.
+  c.save(); c.beginPath(); c.rect(0, 0, W, R * 8); c.clip();
+  wash(c, W, R * 8, nz.cloud, 0.2, 'overlay', 4); wash(c, W, R * 8, nz.fine, 0.1, 'overlay');
+  c.restore();
+
+  // Red brick behind the arched windows.
+  brick(row(9), R * 3);
+  c.save(); c.beginPath(); c.rect(0, row(9), W, R * 3); c.clip();
+  wash(c, W, W, nz.cloud, 0.2, 'overlay', 4);
+  c.globalCompositeOperation = 'multiply'; c.fillStyle = '#a8503a'; c.fillRect(0, row(9), W, R * 3);
+  c.restore();
+  const RING = '#7d3a2b', SILL = '#c9c6bd';
+
+  const cells = (seed: number, p: number, pal: readonly string[], tvP: number): Cell[] => {
+    const rr = new RNG(seed), out: Cell[] = [];
+    for (let i = 0; i < 32; i++) {
+      const tv = rr.chance(tvP);
+      out.push({ lit: rr.chance(p) ? rr.range(0.62, 1.1) * (tv ? 0.75 : 1) : 0, tint: tv ? TV : rr.pick(pal), blind: rr.chance(0.4) ? rr.range(0.15, 0.7) : 0, kind: rr.next() });
+    }
+    return out;
+  };
+  const sash = cells(4410, 0.34, WARM, 0.12), arch = cells(4411, 0.3, WARM, 0.1), round = cells(4412, 0.4, WARM, 0), mill = cells(4413, 0.3, TUBE, 0);
+  const house = cells(4414, 0.4, WARM, 0.16), doors = cells(4415, 0.5, WARM, 0), shops = cells(4416, 0.75, WARM, 0);
+
+  twice((c, set, glow) => {
+    for (let i = 0; i < 32; i++) {
+      const x = i * 64;
+      // 8 two-over-two sash, frame to the edge.
+      {
+        const y = row(8), cell = sash[i];
+        set(M_FRAME); c.fillRect(x, y, 64, R);
+        pane(c, set, x + 6, y + 6, 52, 55, cell); pane(c, set, x + 6, y + 67, 52, 55, cell, 0.9);
+        if (cell.blind) { set('#e2dbc9', litCol(cell, 0.55)); c.fillRect(x + 6, y + 6, 52, Math.min(116, 150 * cell.blind)); }
+        else if (cell.kind > 0.55) { set('rgba(240,232,214,0.8)', litCol(cell, 0.4)); c.fillRect(x + 6, y + 6, 9, 116); c.fillRect(x + 49, y + 6, 9, 116); }
+        set(M_FRAME); c.fillRect(x + 30.5, y + 6, 3, 116); c.fillRect(x + 6, y + 61, 52, 6);
+        if (!glow) { c.fillStyle = ink(0.25); c.fillRect(x + 6, y + 6, 52, 2); c.fillRect(x + 6, y + 67, 52, 2); }
+      }
+      // 9 segmental arch in red brick, granite sill.
+      {
+        const y = row(9), cell = arch[i];
+        if (!glow) { c.fillStyle = RING; archPath(c, x + 2, y + 3, 60, 40, 9); c.fill(); c.fillStyle = SILL; c.fillRect(x + 2, y + 120, 60, 8); c.fillStyle = ink(0.3); c.fillRect(x + 2, y + 126, 60, 2); }
+        c.save(); archPath(c, x + 7, y + 10, 50, 110, 8); c.clip();
+        set(M_FRAME); c.fillRect(x, y, 64, R);
+        pane(c, set, x + 12, y + 14, 40, 48, cell); pane(c, set, x + 12, y + 68, 40, 47, cell, 0.9);
+        if (cell.blind) { set('#e2dbc9', litCol(cell, 0.55)); c.fillRect(x + 12, y + 10, 40, Math.min(104, 140 * cell.blind)); }
+        set(M_FRAME); c.fillRect(x + 30.5, y + 10, 3, 106); c.fillRect(x + 12, y + 62, 40, 6);
+        c.restore();
+      }
+      // 10 tall round-headed window with a fanlight.
+      {
+        const y = row(10), cell = round[i];
+        if (!glow) {
+          c.fillStyle = RING; c.beginPath(); c.arc(x + 32, y + 34, 31, Math.PI, 0); c.lineTo(x + 63, y + 44); c.lineTo(x + 1, y + 44); c.fill();
+          c.fillStyle = SILL; c.fillRect(x + 28, y + 1, 8, 9); c.fillRect(x + 2, y + 120, 60, 8);
+        }
+        c.save(); c.beginPath(); c.arc(x + 32, y + 34, 25, Math.PI, 0); c.lineTo(x + 57, y + 120); c.lineTo(x + 7, y + 120); c.closePath(); c.clip();
+        set(M_FRAME); c.fillRect(x, y, 64, R);
+        c.save(); c.beginPath(); c.arc(x + 32, y + 34, 21, Math.PI, 0); c.closePath(); c.clip(); pane(c, set, x + 11, y + 12, 42, 22, cell, 1.05); c.restore();
+        pane(c, set, x + 11, y + 39, 42, 37, cell); pane(c, set, x + 11, y + 80, 42, 37, cell, 0.9);
+        set(M_FRAME); c.fillRect(x + 30.5, y + 12, 3, 106);
+        c.restore();
+      }
+      // 11 mill window: many small panes under a segmental arch.
+      {
+        const y = row(11), cell = mill[i];
+        if (!glow) { c.fillStyle = RING; archPath(c, x + 1, y + 2, 62, 40, 9); c.fill(); c.fillStyle = SILL; c.fillRect(x + 1, y + 119, 62, 9); c.fillStyle = ink(0.3); c.fillRect(x + 1, y + 126, 62, 2); }
+        c.save(); archPath(c, x + 5, y + 8, 54, 111, 8); c.clip();
+        set('#d9d5c8'); c.fillRect(x, y, 64, R);
+        for (let py = 0; py < 8; py++) for (let px = 0; px < 4; px++) {
+          const k = hashShade(i * 7.7 + px * 3.1 + py * 11.3);
+          pane(c, set, x + 8 + px * 12.25, y + 10 + py * 13.6, 10.6, 12, cell, 0.75 + k * 0.4);
+          if (k > 0.93 && !glow) { c.fillStyle = '#8d8a80'; c.fillRect(x + 8 + px * 12.25, y + 10 + py * 13.6, 10.6, 12); }
+        }
+        c.restore();
+      }
+      // 12 house window: one-over-one in a casing with a head cap.
+      {
+        const y = row(12), cell = house[i];
+        set(M_FRAME); c.fillRect(x, y, 64, R);
+        if (!glow) { c.fillStyle = ink(0.22); c.fillRect(x, y + 9, 64, 2); c.fillRect(x, y + 120, 64, 2); }
+        pane(c, set, x + 10, y + 16, 44, 48, cell); pane(c, set, x + 10, y + 69, 44, 46, cell, 0.9);
+        if (cell.blind) { set('#ded8c8', litCol(cell, 0.55)); c.fillRect(x + 10, y + 16, 44, Math.min(99, 130 * cell.blind)); }
+        else if (cell.kind > 0.4) { set('rgba(244,238,224,0.85)', litCol(cell, 0.45)); c.fillRect(x + 10, y + 16, 10, 99); c.fillRect(x + 44, y + 16, 10, 99); }
+        set(M_FRAME); c.fillRect(x + 10, y + 64, 44, 5);
+      }
+      // 13 doors.
+      {
+        const y = row(13), cell = doors[i], k = i % 8, lit = cell.lit ? cell.lit : 0;
+        const leaf = '#d8d2c4', dark = '#b4ad9e';
+        const panel = (px: number, py: number, pw: number, ph: number): void => { set(dark); c.fillRect(px, py, pw, ph); set(leaf); c.fillRect(px + 2, py + 2, pw - 3, ph - 3); };
+        set(M_FRAME); c.fillRect(x, y, 64, R);
+        if (k === 0 || k === 1 || k === 6) {
+          const dx = k === 6 ? 14 : 8, dw = k === 6 ? 36 : 48;
+          set(leaf); c.fillRect(x + dx, y + 8, dw, 120);
+          if (k === 6) for (const sx of [3, 53]) { set(vgrad(c, y + 12, y + 110, GLASS_HI, GLASS_LO), lamp(lit * 0.8)); c.fillRect(x + sx, y + 12, 8, 98); }
+          if (k === 1) { set(vgrad(c, y + 20, y + 70, GLASS_HI, GLASS_LO), lamp(lit * 0.8)); c.beginPath(); c.ellipse(x + 32, y + 46, 13, 24, 0, 0, Math.PI * 2); c.fill(); }
+          else { for (let q = 0; q < 2; q++) { set(vgrad(c, y + 16, y + 40, GLASS_HI, GLASS_LO), lamp(lit * 0.8)); c.fillRect(x + dx + 5 + q * (dw / 2 - 2), y + 16, dw / 2 - 8, 24); } panel(x + dx + 5, y + 46, dw - 10, 28); }
+          panel(x + dx + 5, y + 80, dw - 10, 40);
+          set('#3a3a36'); c.fillRect(x + dx + dw - 9, y + 70, 4, 7);
+        } else if (k === 2) {
+          set('#cfc8b8'); c.fillRect(x + 4, y + 4, 56, 124);
+          set(vgrad(c, y + 6, y + 26, GLASS_HI, GLASS_LO), lamp(lit)); c.fillRect(x + 8, y + 7, 48, 18);
+          set(vgrad(c, y + 34, y + 100, GLASS_HI, GLASS_LO), lamp(lit)); c.fillRect(x + 12, y + 34, 40, 66);
+          panel(x + 12, y + 104, 40, 20);
+          set('#b08d3c'); c.fillRect(x + 48, y + 66, 4, 16);
+        } else if (k === 3 || k === 4) {
+          set(leaf); c.fillRect(x + 4, y + 6, 56, 122);
+          if (k === 3) { for (let q = 0; q < 8; q++) { set(dark); c.fillRect(x + 4 + q * 7, y + 6, 1.5, 122); } set('#4a4640'); c.fillRect(x + 4, y + 30, 56, 5); c.fillRect(x + 4, y + 100, 56, 5); }
+          else for (let q = 0; q < 2; q++) { panel(x + 8 + q * 26, y + 12, 22, 50); panel(x + 8 + q * 26, y + 68, 22, 54); }
+          set('#3a3a36'); c.fillRect(x + 31, y + 6, 2, 122);
+        } else if (k === 5) {
+          set('#a9aaa6'); c.fillRect(x + 6, y + 8, 52, 120); set('#8e8f8b'); c.fillRect(x + 10, y + 14, 44, 50); c.fillRect(x + 10, y + 70, 44, 52);
+          set('#3a3a36'); c.fillRect(x + 48, y + 64, 5, 8);
+        } else {
+          set(leaf); c.fillRect(x + 3, y + 6, 58, 122);
+          for (let py = 0; py < 4; py++) for (let px = 0; px < 4; px++) {
+            if (py === 0) { set(vgrad(c, y + 10, y + 34, GLASS_HI, GLASS_LO)); c.fillRect(x + 6 + px * 13.5, y + 10, 11, 24); }
+            else panel(x + 6 + px * 13.5, y + 10 + py * 29, 11, 26);
+          }
+        }
+      }
+    }
+    // 14-15 shopfront bays: transom lights, the display, a panelled stall board. The last four are the door.
+    for (let i = 0; i < 16; i++) {
+      const x = i * R, y = row(14), cell = shops[i], lit = cell.lit, rr = new RNG(4500 + i);
+      set('#dcd6c8'); c.fillRect(x, y, R, 256);
+      for (let q = 0; q < 3; q++) { set(vgrad(c, y + 6, y + 44, '#4a6a74', GLASS_LO), lamp(lit * 0.7)); c.fillRect(x + 6 + q * 39.5, y + 6, 37, 38); }
+      if (i < 12) {
+        shopWindow(c, set, glow, x + 7, y + 54, R - 14, 148, lit, rr);
+        set('#bdb6a6'); c.fillRect(x + 6, y + 210, R - 12, 40); set('#d2ccbd'); c.fillRect(x + 10, y + 214, R - 20, 32);
+      } else {
+        for (const sx of [6, 100]) { set(vgrad(c, y + 54, y + 200, GLASS_HI, GLASS_LO), lamp(lit * 0.8)); c.fillRect(x + sx, y + 54, 22, 150); set('#bdb6a6'); c.fillRect(x + sx, y + 210, 22, 40); }
+        shopDoor(c, set, x + 36, y + 58, 56, 198, lit, i % 2 ? 'OPEN' : '');
+      }
+      if (!glow) { c.fillStyle = ink(0.3); c.fillRect(x, y + 48, R, 3); c.fillRect(x, y + 205, R, 2); }
+    }
+  });
+  c.save(); c.beginPath(); c.rect(0, R * 8, W, R * 8); c.clip();
+  wash(c, W, W, nz.fine, 0.07, 'overlay');
+  c.restore();
+  return [cv, gv];
+}
+
+/** [title, line under it] for every Main St signboard. The builder never puts the same one twice on a block. */
+export const MAIN_SHOPS: [string, string][] = [
+  ['The Reluctant Spoon', 'DINER · PIE, EVENTUALLY'], ['Hedge & Waver Hardware', 'ONE OF EVERYTHING · TWO OF NOTHING'],
+  ['Second Thoughts Books', 'USED · REUSED · RECONSIDERED'], ['Rise, Eventually', 'BAKERY · DOUGHNUTS BY TEN, PROBABLY'],
+  ['Spin Cycle of Life', 'COIN LAUNDROMAT · BRING QUARTERS'], ['Mud Season Outfitters', 'BOOTS · WADERS · REGRETS'],
+  ['The Wicked Decent', 'LUNCH · RED HOT DOGS'], ['Ayuh Notions', 'THREAD · BUTTONS · OPINIONS'],
+  ['Loose Ends Yarn', 'MILL SECONDS BY THE POUND'], ['Blackfly Barber', 'CUTS $9 · CONVERSATION EXTRA'],
+  ['Nor’easter News', 'YESTERDAY’S PAPERS TODAY'], ['The Frost Heave', 'TAVERN · POTHOLE-COLD BEER'],
+  ['Down Cellar Antiques', 'IT WAS YOUR GRANDMOTHER’S ONCE'], ['Can’t Get There Cyclery', 'BICYCLES · DIRECTIONS NOT GIVEN'],
+  ['Whoopie!', 'PIES, NOT CUSHIONS'], ['Modest Proposal Jewelers', 'RINGS · RESIZING · REFUNDS'],
+  ['Tepid Five & Dime', 'NOW MOSTLY $1.25'], ['Stove-Up Auto Parts', 'IF IT’S BROKE WE HAVE HALF OF IT'],
+  ['Lupine & Ledger', 'ACCOUNTANTS · FLORISTS'], ['The Dooryard Cafe', 'COFFEE · MOLASSES COOKIES'],
+  ['Flannel Republic', 'MENSWEAR · ONE PATTERN'], ['Bean Suppah Hall', 'SATURDAYS AT FIVE · ALL WELCOME'],
+  ['Numb as a Hake', 'SEAFOOD · FRIED, MOSTLY'], ['Quorum Pharmacy', 'OPEN WHEN ENOUGH OF US SHOW UP'],
+  ['Pine Tree Pawn', 'WE BUY SNOWBLOWERS · JULY ONLY'], ['The Undecided Voter', 'PUBLIC HOUSE'],
+  ['The Real Italian', 'SANDWICHES · NO RELATION'], ['Moose Crossing Travel', 'GO SOMEPLACE ELSE'],
+  ['Good Enough Furniture', 'LEVEL-ISH TABLES SINCE 1954'], ['Threadbare Outlet', 'SHIRTS · IRREGULARS A SPECIALTY'],
+  ['The Daily Maybe', 'ALL THE NEWS THAT MIGHT FIT'], ['Slow Thaw Ice Cream', 'OPEN JULY 4 TO JULY 5'],
+  ['Dithers & Sons', 'ATTORNEYS · ON THE OTHER HAND'], ['Porch Light Electric', 'WE’LL LEAVE IT ON'],
+  ['Upta Camp Supply', 'BUG DOPE · PROPANE · PUZZLES'], ['Some Assembly', 'TOYS · HOBBIES · SPARE PARTS'],
+  ['The Lukewarm Reception', 'BRIDAL · FORMAL · RENTALS'], ['Tepid Falls Tailor', 'ALTERATIONS · SECOND OPINIONS'],
+  ['Cribbage & Co.', 'GAMES · FIFTEEN-TWO AND THE REST DON’T GO'], ['Sugarhouse Sweets', 'MAPLE EVERYTHING'],
+];
+const M_SCHEMES: [string, string, string][] = [
+  ['#1d2a22', '#e8d9a8', '#c9a24a'], ['#161616', '#e9e2cf', '#b33a2a'], ['#5a1f1c', '#f0e6cc', '#d9b45a'],
+  ['#1f2f4a', '#f2ead6', '#d9b45a'], ['#ece3cc', '#2a2320', '#8c2f25'], ['#2f4a47', '#f2ead6', '#e0a23a'], ['#e7d9a8', '#1d2a22', '#8c2f25'],
+];
+/** Other boards: [key, width, height, background, ink, big line, small line]. */
+const M_PLATES: [string, number, number, string, string, string, string][] = [
+  ['m-bank', 448, 80, '#b9b6ae', '#3c3a36', 'TEPID SAVINGS & TRUST', 'MODERATE INTEREST SINCE 1871'],
+  ['m-marquee', 448, 160, '#f4efe2', '#1a1a1a', 'THE HESITATION', 'NOW SHOWING · “HE WHO” · ALSO “MAYBE LATER II”'],
+  ['m-variety', 448, 112, '#8c2f25', '#f2ead6', 'VARIETY (SOME)', 'COLD DRINKS · LOTTERY · BAIT'],
+  ['m-superette', 448, 112, '#1f2f4a', '#f2ead6', 'SUPERETTE, ARGUABLY', 'ITALIANS · REDEMPTION 5¢'],
+  ['m-school', 448, 112, '#ece3cc', '#2a2320', 'INDECISION ELEMENTARY', 'HOME OF THE FIGHTING MAYBES'],
+  ['m-church', 320, 160, '#f4efe2', '#1a1a1a', 'FIRST PROVISIONAL CHURCH', 'ALL WELCOME · SERMON: “WE’LL SEE”'],
+  ['m-store3', 448, 112, '#2f4a47', '#f2ead6', 'CORNER STORE, ROUGHLY', 'MILK · BREAD · SCRATCH TICKETS'],
+  ['m-store4', 448, 112, '#161616', '#e9e2cf', 'THE PACKIE', 'BEVERAGES · ICE · ADVICE'],
+  ['m-store5', 448, 112, '#ece3cc', '#2a2320', 'DOT’S MARKET', 'OPEN TILL DOT GOES HOME'],
+  ['m-store6', 448, 112, '#5a1f1c', '#f0e6cc', 'TRIPLE ST. GROCERY', 'THREE FLOORS · ONE AISLE'],
+  ['m-store7', 448, 112, '#c9a24a', '#1d2a22', 'PIZZA & SMALL ENGINES', 'BOTH FIXED WHILE YOU WAIT'],
+  ['m-store8', 448, 112, '#1f2f4a', '#f2ead6', 'REDEMPTION CENTER', 'CANS 5¢ · SOULS BY APPOINTMENT'],
+  ['m-mill', 448, 80, '#1d2a22', '#e8d9a8', 'THREADBARE MANUFACTURING CO.', 'SHIRTS · SHEETING · EST. 1866 · GATE 1'],
+  ['m-opera', 448, 80, '#b9b6ae', '#3c3a36', 'POSTPONEMENT HALL', 'CITY OFFICES · OPERA HOUSE · MEETING ADJOURNED'],
+  ['m-toll', 320, 160, '#f4efe2', '#1a1a1a', 'TOLL 2¢', 'EXACT CHANGE · NO, EXACT'],
+  ['m-college', 448, 80, '#1d2a22', '#e8d9a8', 'DITHERS COLLEGE', 'FOUNDED 1813, OR POSSIBLY 1814'],
+  ['m-depot', 448, 80, '#f4efe2', '#1a1a1a', 'TEPID FALLS', 'SIDETRACK YARD · TRAINS, IN PRINCIPLE'],
+  ['m-exit1', 448, 160, '#1f6a44', '#f4f4ee', 'EXIT 1 · SECOND THOUGHT AVE', 'TEPID FALLS · LAST CHANCE TO RECONSIDER'],
+  ['m-exit2', 448, 160, '#1f6a44', '#f4f4ee', 'EXIT 2 · DEPOT ST', 'SIDETRACK YARD · DITHERS COLLEGE'],
+  ['m-thru', 448, 160, '#1f6a44', '#f4f4ee', 'THRUWAY NORTH', 'ELSEWHERE 40 · AWAY 112'],
+  ['m-truck', 320, 160, '#b33a2a', '#f2ead6', 'IDLE HANDS', 'TRUCK STOP · DIESEL · PIE · SHOWERS'],
+  ['m-fort', 320, 160, '#5a4a36', '#f0e6cc', 'FORT RELUCTANCE', 'BUILT 1754 · NEVER ATTACKED · STILL READY'],
+  ['m-welcome', 448, 160, '#1d2a22', '#e8d9a8', 'TEPID FALLS', 'INCORPORATED, EVENTUALLY · POP. ABOUT RIGHT'],
+  ['m-ramp', 320, 160, '#5a4a36', '#f0e6cc', 'LAKE INDECISION', 'BOAT RAMP · LAUNCH, OR DON’T'],
+  ['m-stone', 160, 160, '#6f7378', '#22252a', 'UNDECIDED', 'B. 1802 · D. PENDING'],
+  ['m-monument', 320, 160, '#8f8d86', '#2a2a28', 'TO THOSE WHO WENT', 'AND THOSE WHO MEANT TO · 1861–1865'],
+];
+
+function mainSignAtlas(nz: Noise): { cv: HTMLCanvasElement; rects: Map<string, AtlasRect>; names: string[] } {
+  const a = new AtlasBuilder(2048, 1, 4);
+  MAIN_SHOPS.forEach(([title, sub], i) => {
+    const [bg, fg, ac] = M_SCHEMES[(i * 5) % M_SCHEMES.length], lay = i % 3;
+    a.add(signKey(title), 448, 112, (c, w, h) => {
+      c.fillStyle = bg; c.fillRect(0, 0, w, h);
+      c.strokeStyle = ac; c.lineWidth = lay === 1 ? 4 : 2; c.strokeRect(6, 6, w - 12, h - 12);
+      if (lay === 2) { c.fillStyle = ac; c.fillRect(0, 80, w, 32); }
+      const T = title.toUpperCase();
+      c.fillStyle = fg;
+      const px = fit(c, T, 900, 58, w - 44, HEAD, 0.03); label(c, T, w / 2, 48 + px * 0.36, px, 0, 0.03);
+      c.fillStyle = lay === 2 ? bg : ac;
+      const sp = fit(c, sub, 600, 17, w - 50, TEXT, 0.07); label(c, sub, w / 2, lay === 2 ? 102 : 96, sp, 0, 0.07);
+      wash(c, w, h, nz.fine, 0.14, 'overlay');
+      c.fillStyle = vgrad(c, 0, h, grey(255, 0.07), ink(0.1)); c.fillRect(0, 0, w, h);
+    });
+  });
+  for (const [key, pw, ph, bg, fg, big, small] of M_PLATES) {
+    a.add(key, pw, ph, (c, w, h) => {
+      c.fillStyle = bg; c.fillRect(0, 0, w, h);
+      c.strokeStyle = fg; c.lineWidth = 2; c.strokeRect(5, 5, w - 10, h - 10);
+      c.fillStyle = fg;
+      const px = fit(c, big, 900, h * 0.46, w - 36, HEAD, 0.04); label(c, big, w / 2, h * 0.42 + px * 0.36, px, 0, 0.04);
+      const sp = fit(c, small, 600, h * 0.17, w - 40, TEXT, 0.06); label(c, small, w / 2, h * 0.86, sp, 0, 0.06);
+      wash(c, w, h, nz.fine, 0.12, 'overlay');
+    });
+  }
+  // The mill tower's clock: stopped at ten past ten, when the last shift left.
+  a.add('m-clock', 192, 192, (c, w, h) => {
+    c.fillStyle = '#2a2420'; c.fillRect(0, 0, w, h);
+    c.fillStyle = '#efe9d8'; c.beginPath(); c.arc(w / 2, h / 2, 88, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#1a1a1a';
+    for (let i = 0; i < 12; i++) { c.save(); c.translate(w / 2, h / 2); c.rotate(i * Math.PI / 6); c.fillRect(-3, -84, 6, i % 3 ? 12 : 22); c.restore(); }
+    for (const [ang, len, wd] of [[-Math.PI / 3, 46, 9], [Math.PI / 3, 70, 6]]) { c.save(); c.translate(w / 2, h / 2); c.rotate(ang); c.fillRect(-wd / 2, -len, wd, len + 8); c.restore(); }
+    c.beginPath(); c.arc(w / 2, h / 2, 7, 0, Math.PI * 2); c.fill();
+  });
+  const b = a.build(false);
+  return { cv: b.cv, rects: b.rects, names: b.names };
+}
+
+/** The mainland's own sheets. Call after makeTextures (fonts loaded, phone shrink set). */
+export function makeMainlandTextures(q: Quality): MainlandTextures {
+  const nz = makeNoise();
+  const flat = q.name === 'low' || new URLSearchParams(location.search).get('pbr') === '0';
+  const [cv, gv] = mainWallPair(nz);
+  const twins = flat ? null : derive(cv, { bump: 5, rough: 0.88, roughK: 0.32, glass: true, cap: 0.16 }, 'u');
+  const wall = done(cv, 'u', 8);
+  const pbr = twins ? { normal: finish(twins.normal, 'u', 8, true), orm: finish(twins.orm, 'u', 4, true) } : null;
+  const s = mainSignAtlas(nz);
+  return { wall, glow: done(gv, 'u', 2), pbr, signs: { tex: done(s.cv, false, 8), ...lookup('mainland sign', s.rects, s.names) } };
+}

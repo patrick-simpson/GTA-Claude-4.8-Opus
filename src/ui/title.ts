@@ -92,6 +92,22 @@ function picture(): string {
   return `<svg class="tt-art" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMax slice" aria-hidden="true">${s}</svg>`;
 }
 
+/**
+ * Tapping or clicking the game takes the whole screen. Must run inside the gesture itself.
+ * iPhones do not offer full screen to web pages at all (only to video), so there it quietly does
+ * nothing; `?fs=0` switches it off for anyone who dislikes it, and tests run without it.
+ */
+function goFullscreen(): void {
+  if (document.fullscreenElement || new URLSearchParams(location.search).get('fs') === '0' || navigator.webdriver) return;
+  const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
+  try {
+    const p = el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : (el.webkitRequestFullscreen?.(), undefined);
+    // Phones: hold the game sideways once it has the screen. Not every browser allows it.
+    const lock = (): void => { (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> })?.lock?.('landscape').catch(() => {}); };
+    if (p && typeof p.then === 'function') p.then(lock).catch(() => {}); else lock();
+  } catch { /* refused: carry on windowed */ }
+}
+
 export class Title {
   private root: HTMLElement;
   private fill: HTMLElement;
@@ -136,7 +152,10 @@ export class Title {
       if (e.ctrlKey || e.metaKey || e.altKey || /^(F\d+|Tab|Meta|Control|Alt|Shift|CapsLock)/.test(e.key)) return;
       this.go(true);
     });
-    root.addEventListener('pointerdown', (e) => this.go(e.pointerType === 'mouse'));
+    root.addEventListener('pointerdown', (e) => { goFullscreen(); this.go(e.pointerType === 'mouse'); });
+    // Leaving full screen (Esc, a system gesture) should not be permanent: the next tap on the game goes back in.
+    // Captured at the window because the touch controls sit over the canvas and take its taps.
+    addEventListener('pointerdown', goFullscreen, true);
     game.on('start', () => this.leave());
   }
 
@@ -186,6 +205,7 @@ export class Title {
   }
 
   private go(lock: boolean): void {
+    // (Full screen is asked for by the tap itself, in the listener: browsers only grant it inside a gesture.)
     if (!this.isReady || this.gone || this.game.state !== 'title') return;
     this.game.start();
     // Still inside the key or click that started the game, so the browser allows the lock.

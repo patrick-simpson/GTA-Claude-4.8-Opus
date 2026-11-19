@@ -88,6 +88,23 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Owner requests, Nov 19 morning
+
+- **A 2017 Chevy Bolt, black** (kind `bolt`): the one real car, by explicit request;
+  parked at the start. Pushed about 6:30 AM ET. Not yet a faithful likeness: nose
+  too blunt, tail lamps too short, rims render dark, and black hides its shape.
+- **Tapping the game goes full screen** (`goFullscreen` in `src/ui/title.ts`;
+  `?fs=0` turns it off; iPhone Safari cannot do it). Pushed about 6:30 AM ET.
+- **"Go all out on these Blender models."** Briefs in `tools/briefs/allout-*.md`:
+  people (faces, hands, garments, hair, baked textures, gait), flora and street
+  furniture (real branching, species per land, dappled shade, props in Blender),
+  and cars (lamps, interiors, panel gaps, badges, baked detail). In progress.
+- **Push updates regularly as things are created.** Rule for whoever holds the
+  session: whenever the shared tree type-checks, build it, boot the production
+  build on the island, the mainland (`?bridge=8&stage=4`) and the phone preset
+  with zero console errors, and push, even while agents are mid-task on other
+  files. CI only deploys a build that passes, so a bad snapshot cannot reach the
+  site. Check again at least every time an agent reports.
 ### The mainland, part 1 (land, bridge, streets): pushed Nov 19, about 2:30 AM ET
 
 The mainland town is **Tepid Falls** (Waterville-inspired, all names invented):

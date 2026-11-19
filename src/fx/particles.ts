@@ -508,7 +508,8 @@ export class Fx {
     }
 
     // Hard launch: a second of rich exhaust out of the back.
-    if (v.driver !== null && v.ctl.accel > 0.9 && wasAccel < 0.5 && Math.abs(v.speed) < 4) st.launch = 0.45;
+    // Not the Bolt: it is electric and has no tailpipe.
+    if (v.driver !== null && v.spec.kind !== 'bolt' && v.ctl.accel > 0.9 && wasAccel < 0.5 && Math.abs(v.speed) < 4) st.launch = 0.45;
     if (st.launch > 0) {
       st.launch -= dt;
       if (rnd() < dt * 40 * lod) {

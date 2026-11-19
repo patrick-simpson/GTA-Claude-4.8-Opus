@@ -693,18 +693,21 @@ function build(kind: VehicleKind): VehicleModel {
       }
       break;
     }
-    case 'hatch': {
+    // The Bolt's stand-in until bolt.glb arrives is the hatch's shape at the Bolt's size: no rack, no tailpipe.
+    case 'hatch': case 'bolt': {
       const cab: Cab = { z0: -zF + 0.05, zr0: -zF + 0.42, zr1: 0.1, z1: 0.85, roof: H, pillars: [-0.4] };
       c = new Car(s, cfg({
         top: [[-zF, 0.94], [-fa, 1.0], [fa - 0.45, 0.98], [fa + 0.25, 0.9], [zF, 0.78]],
         bot: underside(zF, 0.22, 0.14), cab, tumble: 0.1, taperF: 0.14, taperR: 0.1,
       }));
       c.body(); c.cabin();
-      dress(c, { by: [0.34, 0.52], chrome: false, seams: [cab.z1 - 0.1, cab.pillars[0]], lamp: [0.22, 0.17], grille: 0.45, tailLamp: [0.16, 0.2] });
+      dress(c, { by: [0.34, 0.52], chrome: false, seams: [cab.z1 - 0.1, cab.pillars[0]], lamp: [0.22, 0.17], grille: 0.45, tailLamp: [0.16, 0.2], exhaust: kind === 'bolt' ? 0 : 1 });
       // Roof rack and a lip over the hatch.
       const xr = c.cabX(H) - 0.1;
-      c.both(() => c.box(T(), [xr, H + 0.05, -0.55], [0.035, 0.035, 1.2], RUBBER));
-      for (const z of [-0.95, -0.15]) c.box(T(), [0, H + 0.075, z], [xr * 2 + 0.1, 0.03, 0.05], STEEL);
+      if (kind === 'hatch') {
+        c.both(() => c.box(T(), [xr, H + 0.05, -0.55], [0.035, 0.035, 1.2], RUBBER));
+        for (const z of [-0.95, -0.15]) c.box(T(), [0, H + 0.075, z], [xr * 2 + 0.1, 0.03, 0.05], STEEL);
+      }
       c.box(c.paint, [0, H - 0.005, cab.zr0 - 0.02], [xr * 2 + 0.06, 0.035, 0.2], WHITE);
       break;
     }

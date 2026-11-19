@@ -1,12 +1,14 @@
 // The vehicle roster. All names and shapes are our own: Port Calamity's cars
 // come from makers nobody has heard of, because they do not exist.
+// The one exception is the 2017 Chevrolet Bolt EV, a real car in its real
+// dimensions and colours, added at the owner's explicit request.
 //
 // Dimensions are overall, in meters. The physics (ent/vehicle.ts) reads the
 // handling numbers; the body shapes (ent/vehicleModels.ts) read the dimensions.
 
 export type VehicleKind =
   | 'sedan' | 'hatch' | 'coupe' | 'muscle' | 'sports' | 'pickup'
-  | 'van' | 'taxi' | 'tow' | 'bus' | 'cruiser';
+  | 'van' | 'taxi' | 'tow' | 'bus' | 'cruiser' | 'bolt';
 
 export interface VehicleSpec {
   kind: VehicleKind;
@@ -106,6 +108,15 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
     length: 4.9, width: 1.9, height: 1.48, wheelbase: 2.9, track: 1.6, wheelR: 0.34, wheelW: 0.25,
     mass: 1750, topSpeed: 58, accel: 9, brake: 15, grip: 8.5, steer: 0.6, drive: 'rwd',
     colors: [NAVY], common: 0,
+  },
+  // The real one. Figures are the 2017 car's: 4.17 x 1.77 x 1.60 m, 2.60 m wheelbase, 215/50R17, about 1620 kg,
+  // front-drive, 0-60 mph in about 6.5 s, limited to 91 mph. Black first, so a Bolt spawned without a colour is
+  // black; then Orange Burst, Silver Ice, Summit White, Kinetic Blue and Cajun Red.
+  bolt: {
+    kind: 'bolt', name: '2017 Chevy Bolt',
+    length: 4.17, width: 1.77, height: 1.6, wheelbase: 2.6, track: 1.5, wheelR: 0.32, wheelW: 0.215,
+    mass: 1620, topSpeed: 40.7, accel: 8.0, brake: 13.5, grip: 7.6, steer: 0.62, drive: 'fwd',
+    colors: [0x0b0c0e, 0xd9581c, 0xb4b9bd, 0xf1f2f0, 0x1f5fa8, 0x8e1420], common: 2,
   },
 };
 

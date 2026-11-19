@@ -163,6 +163,9 @@ export class Game {
     const coupe = plan.curbPoint(5, 6, 2, 0.62);
     this.vehicles.spawn('tow', truck.x, truck.z, truck.h, 0xe4572e);
     this.vehicles.spawn('coupe', coupe.x, coupe.z, coupe.h, 0xf0a202);
+    // The owner's car: a black 2017 Bolt at the same kerb, the first thing on the left as the game opens.
+    const bolt = plan.curbPoint(5, 6, 2, 0.30);
+    this.vehicles.spawn('bolt', bolt.x, bolt.z, bolt.h, 0x0b0c0e);
     // A step out from the wall, so the opening camera has room behind her for a full-length boom.
     this.player.teleport(feet.x, feet.z + 0.9, 0);
 
@@ -175,6 +178,7 @@ export class Game {
       if (!keep) continue;
       if (Math.abs(s.x - truck.x) < 16 && Math.abs(s.z - truck.z) < 16) continue;
       if (Math.abs(s.x - coupe.x) < 9 && Math.abs(s.z - coupe.z) < 9) continue;
+      if (Math.abs(s.x - bolt.x) < 9 && Math.abs(s.z - bolt.z) < 9) continue;
       const v = this.vehicles.spawn(kind, s.x, s.z, s.h);
       v.color = v.spec.colors[Math.floor(tint * v.spec.colors.length)];
     }
