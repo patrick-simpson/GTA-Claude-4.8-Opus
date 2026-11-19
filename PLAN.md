@@ -88,6 +88,26 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Pushed Nov 19, about 11:50 AM ET: people, all-out pass one
+
+`tools/blender/people.py` and both bodies re-exported together (1.44 MB each):
+modelled heads with eyeballs, lids, nose, lips, ears; nine face variants by
+morph; hands with fingers (fist, wheel and gun grips); garments as geometry
+(tee, shirt, hoodie, jacket, coveralls, dress, trousers, jeans, shorts, skirt,
+sneakers, boots, cap, beanie, brimmed hat, glasses, backpack); eleven hair and
+beard options; per-vertex surface classes (skin, cloth, leather, hair) in the
+shader; three levels of detail with only the nearest 8 people at full detail;
+stride scaled by height; a bench pose (nothing sets it yet: `bench` on the body
+is not in api.ts). `StyledLook` gained topKind/bottomKind/shoeKind/hatKind/
+glasses/bag/face/beard and lost shortSleeves/shorts.
+Owed: no UVs or baked maps (as with the cars); faces smooth and long; hair is
+helmet shells; garments are tubes; limbs are jointed-doll pieces; no heel-to-toe
+gait or look-at; 60 people cost about 4 ms at high; the crowd texture is RGBA32F
+and untested on a real phone.
+WARNING learned here: pushing mid-task snapshots shipped a man with most of his
+body missing for about half an hour (model file and loader out of step). When
+pushing a snapshot, LOOK at Dess, a pedestrian, a car and a tree in the
+production build first, not only at the console.
 ### Pushed Nov 19, about 11:35 AM ET: Tepid Falls complete, cars all-out pass one
 
 - **Mainland part 2 is done and live** (`mainlandBuildings.ts`, `mainlandPlaces.ts`):

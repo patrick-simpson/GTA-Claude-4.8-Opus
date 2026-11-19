@@ -14,7 +14,7 @@
 #   flora_far.webp, flora_far_mask.webp
 #                      the impostor atlas: every tree, rendered from its full-detail model
 #                      from two sides (128 x 256) and from above (128 x 128)
-#   flora.glb          the models (see "The file" below)
+#   flora2.glb         the models (see "The file" below)
 #
 # `noatlas` reuses the leaf renders cached in scratch/allout (the slow step); `sheets`
 # also renders lit contact sheets of every tree to shots/allout/sheet-*.png.
@@ -715,7 +715,7 @@ def build_templates():
         tcard(a, cell, (0, 0.6, 0.02), 1.0, 1.0, 0.0, 0.0, droop, 0.08)
         tcard(a, cell, (-0.2, 0.52, 0.06), 0.92, 0.95, -0.18, 0.95, droop * 0.7, 0.06, True, yaw=0.3)
         tcard(a, cell, (0.2, 0.5, 0.06), 0.92, 0.95, 0.14, -0.95, droop * 0.7, 0.06, False, yaw=-0.3)
-        tcard(a, cell, (0, 0.42, -0.16), 0.9, 0.8, 1.1, 0.0, 0.1, 0.05, True, shade=0.82)
+        tcard(a, cell, (0, 0.42, -0.16), 0.9, 0.8, 1.1, 0.0, 0.1, 0.05, True, seg=1, shade=0.82)
         tcard(b, cell, (0, 0.6, 0.0), 1.0, 1.0, -0.12, 0.0, seg=1)
         tcard(b, cell, (-0.16, 0.52, 0.04), 0.95, 0.95, 0.0, 1.05, flip=True, seg=1)
         tcard(b, cell, (0.16, 0.5, 0.04), 0.95, 0.95, 0.0, -1.05, seg=1)
@@ -1189,6 +1189,7 @@ class Glb:
 
     def points(self, name, tips):
         n = len(tips)
+        if not n: return          # a palm's trunk: the loader reads a missing node as no tips
         P = np.array([t[0] for t in tips], np.float32); D = np.array([t[1] for t in tips], np.float32)
         C = np.array([[t[2], t[3], t[4], t[5]] for t in tips], np.float32)
         attrs = {
@@ -1229,6 +1230,9 @@ def to_blender(name, m, mat, tint=None):
         C = np.where(lf, C * np.array(tint, np.float32), C)
     at = me.color_attributes.new('Col', 'FLOAT_COLOR', 'POINT')
     at.data.foreach_set('color', np.concatenate([C, np.ones((len(C), 1), np.float32)], 1).ravel())
+    LF = np.repeat((np.array(m.leaf, np.float32) > 0.75).astype(np.float32)[:, None], 3, 1)
+    at = me.color_attributes.new('Lf', 'FLOAT_COLOR', 'POINT')
+    at.data.foreach_set('color', np.concatenate([LF, np.ones((len(LF), 1), np.float32)], 1).ravel())
     me.materials.append(mat)
     ob = bpy.data.objects.new(name, me); bpy.context.scene.collection.objects.link(ob)
     return ob
@@ -1240,6 +1244,7 @@ def atlas_material(path, lit):
     an = nodes.new('ShaderNodeAttribute'); an.attribute_name = 'Col'
     mul = nodes.new('ShaderNodeVectorMath'); mul.operation = 'MULTIPLY'
     links.new(tex.outputs['Color'], mul.inputs[0]); links.new(an.outputs['Color'], mul.inputs[1])
+    mat['attr_node'] = an.name
     cut = nodes.new('ShaderNodeMath'); cut.operation = 'GREATER_THAN'; cut.inputs[1].default_value = 0.42
     links.new(tex.outputs['Alpha'], cut.inputs[0])
     tr = nodes.new('ShaderNodeBsdfTransparent'); mix = nodes.new('ShaderNodeMixShader'); out = nodes.new('ShaderNodeOutputMaterial')
@@ -1271,7 +1276,15 @@ def bake_far(sc, atlas_png, near):
         obs[name] = to_blender('far_' + name, m, mat)
     ortho_cam(sc, 4, 4, 8)
     passes = []
-    for view in range(3):
+    # Views 3-5 are views 0-2 again, showing only which texels are leaf: the game tints those and leaves the bark alone.
+    for view6 in range(6):
+        view = view6 % 3
+        if view6 == 3:
+            an = mat.node_tree.nodes[mat['attr_node']]; an.attribute_name = 'Lf'
+            for l in list(mat.node_tree.links):
+                if l.to_node.type == 'EMISSION': mat.node_tree.links.remove(l)
+            em = [n for n in mat.node_tree.nodes if n.type == 'EMISSION'][0]
+            mat.node_tree.links.new(an.outputs['Color'], em.inputs['Color'])
         for i, name in enumerate(names):
             hw, H = info[name]['hw'], info[name]['h']
             if view < 2:
@@ -1286,18 +1299,22 @@ def bake_far(sc, atlas_png, near):
                 s = (120 / 256) / (2 * hw)
                 M = Matrix(((s, 0, 0, cx), (0, 0, -s, cy), (0, s, 0, 0), (0, 0, 0, 1)))
             obs[name].matrix_world = M
-        path = os.path.join(TMP, 'far%d.png' % view)
+        path = os.path.join(TMP, 'far%d.png' % view6)
         render_to(sc, path, FW, FH); passes.append(read_png(path))
-    out = np.zeros((FH, FW, 4), np.uint8)
+    out = np.zeros((FH, FW, 4), np.uint8); lfm = np.zeros((FH, FW), np.uint8)
     for i in range(len(names)):
         for view in range(2):
             slot = i * 2 + view; x0 = (slot % 16) * 128; y0 = (slot // 16) * 256
             out[y0:y0 + 256, x0:x0 + 128] = passes[view][y0:y0 + 256, x0:x0 + 128]
+            lfm[y0:y0 + 256, x0:x0 + 128] = passes[3 + view][y0:y0 + 256, x0:x0 + 128, 0]
         x0 = (i % 16) * 128; y0 = 1536 + (i // 16) * 128
         out[y0:y0 + 128, x0:x0 + 128] = passes[2][y0:y0 + 128, x0:x0 + 128]
+        lfm[y0:y0 + 128, x0:x0 + 128] = passes[5][y0:y0 + 128, x0:x0 + 128, 0]
     alpha = out[..., 3]
+    lfm = dilate(np.repeat(lfm[..., None], 3, 2), alpha, 12)[..., 0]
     save_img(dilate(out[..., :3], alpha, 12), os.path.join(MODELS, 'flora_far.webp'), 86)
-    save_img(np.repeat(alpha[..., None], 3, 2), os.path.join(MODELS, 'flora_far_mask.webp'), 90)
+    # Red: coverage. Green: how much of the texel is leaf.
+    save_img(np.stack([alpha, lfm, np.zeros_like(alpha)], -1), os.path.join(MODELS, 'flora_far_mask.webp'), 90)
     for o in obs.values():
         me = o.data; bpy.data.objects.remove(o); bpy.data.meshes.remove(me)
     return info
@@ -1360,10 +1377,10 @@ def main():
         print('  %-14s near %5d  mid %5d tris, %3d tips' % (name, near[name][0].tris(), mid[name][0].tris(), len(T.tips)))
     info = bake_far(sc, atlas_png, near)
     extras = {'kinds': {n: dict(info.get(n, {'cell': -1}), ms=T.midstep, mk=T.midscale) for n, T in kinds.items()}, 'templates': [t[0] for t in TPL]}
-    out = os.path.join(MODELS, 'flora.glb')
+    out = os.path.join(MODELS, 'flora2.glb')
     g.write(out, extras)
     if 'sheets' in ARGS: sheets(sc, atlas_png, near, mid)
-    for f in ('flora.glb', 'flora_atlas.webp', 'flora_mask.webp', 'flora_nrm.webp', 'flora_far.webp', 'flora_far_mask.webp'):
+    for f in ('flora2.glb', 'flora_atlas.webp', 'flora_mask.webp', 'flora_nrm.webp', 'flora_far.webp', 'flora_far_mask.webp'):
         print('wrote %-22s %5d KB' % (f, os.path.getsize(os.path.join(MODELS, f)) // 1024))
 
 
