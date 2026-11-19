@@ -229,3 +229,48 @@
 @media (orientation: portrait) {
   .t-rotate { display: block; }
 }
+
+/* ── Weapons ───────────────────────────────────────────────────────────── */
+
+/* On foot FIRE stacks on JUMP, so the right thumb rolls up from one to the
+   other; dragging while it is held turns the view, which is how one thumb
+   aims and shoots. AIM is a latch under GET IN, SWAP beside GET IN: the
+   column above them is where the notices are read, and stays clear. */
+#touch.armed .t-key.arm { display: flex; }
+#touch.paused .t-key.arm, #touch.drive .t-key.t-aim { display: none; }
+.t-fire {
+  right: calc(var(--sr) + var(--u) * 0.25);
+  bottom: calc(var(--sb) + var(--u) * 2.05 + var(--g));
+  width: calc(var(--u) * 1.7);
+  height: calc(var(--u) * 1.45);
+  font-size: calc(var(--u) * 0.46);
+  border-color: var(--vermilion);
+}
+.t-aim {
+  right: calc(var(--sr) + var(--u) * 1.95 + var(--g));
+  bottom: var(--sb);
+  width: calc(var(--u) * 1.6);
+  height: calc(var(--u) * 1.15 - var(--g));
+}
+.t-aim.held { background: var(--mustard); color: var(--ink); border-color: var(--ink); }
+.t-swap {
+  right: calc(var(--sr) + var(--u) * 3.55 + var(--g) * 2);
+  bottom: calc(var(--sb) + var(--u) * 1.15);
+  width: calc(var(--u) * 1.2);
+  height: calc(var(--u) * 0.9);
+  font-size: calc(var(--u) * 0.28);
+}
+/* At the wheel: FIRE beside EXIT, over the horn, and SWAP over that. The thumb leaves the gas to fire, which is the price of a drive-by. */
+#touch.drive .t-fire {
+  right: calc(var(--sr) + var(--u) * 3 + var(--g) * 2);
+  bottom: calc(var(--sb) + var(--u) * 2.1 + var(--g));
+  width: calc(var(--u) * 1.3);
+  height: var(--u);
+  font-size: calc(var(--u) * 0.36);
+}
+#touch.drive .t-swap {
+  right: calc(var(--sr) + var(--u) * 3.1 + var(--g) * 2);
+  bottom: calc(var(--sb) + var(--u) * 3.1 + var(--g) * 2);
+  width: calc(var(--u) * 1.2);
+  height: calc(var(--u) * 0.9);
+}

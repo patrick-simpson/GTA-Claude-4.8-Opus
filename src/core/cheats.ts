@@ -32,6 +32,7 @@ const CHEATS: Cheat[] = [
     },
   },
   { word: 'QUACK', run: () => 'Somewhere in the harbor, something large and yellow feels seen.' },
+  { word: 'BADIDEAS', run: (g) => { g.player.weapons.giveAll(); return 'Requisition approved in error. One of everything. Sign nowhere.'; } },
   { word: 'DOOFUS', run: (g) => { g.player.money += 99.9; return 'WDOOF 99.9 thanks you for listening. Here is $99.90.'; } },
 ];
 

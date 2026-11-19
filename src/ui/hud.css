@@ -332,57 +332,62 @@
 
 /* The place name is struck straight onto the picture: bone ink with a hard
    navy edge, so it reads over cream fog and over a night street alike. */
+/* It used to be seven ems of lettering across the middle of the windscreen.
+   Now it is a luggage tag: one line, struck just under the objective strip at
+   the top edge, up for a second and a half and gone. Above the road, clear of
+   the reference card on the left and the notices on the right. */
 .hud-place {
   position: absolute;
   left: 0;
   right: 0;
-  top: 15%;
+  top: 4.5em;
   display: flex;
   justify-content: center;
 }
 .hud-place-in {
   opacity: 0;
-  text-align: center;
-  transform: rotate(-3deg);
+  display: flex;
+  align-items: baseline;
+  gap: 0.7em;
+  padding: 0.28em 0.8em 0.3em 0.7em;
+  background: var(--ink);
+  border-left: 0.4em solid var(--mustard);
+  box-shadow: 2px 2px 0 rgba(20, 33, 61, 0.45);
+  transform: rotate(-1deg);
   transform-origin: 50% 50%;
 }
-.hud-place.a .hud-place-in { animation: hud-place-a 3.3s linear both; }
-.hud-place.b .hud-place-in { animation: hud-place-b 3.3s linear both; }
+.hud-place.a .hud-place-in { animation: hud-place-a 1.9s linear both; }
+.hud-place.b .hud-place-in { animation: hud-place-b 1.9s linear both; }
 @keyframes hud-place-a {
-  0% { opacity: 0; transform: rotate(-3deg) scale(1.22); }
-  4% { opacity: 1; transform: rotate(-3deg) scale(0.985); }
-  7%, 80% { opacity: 1; transform: rotate(-3deg) scale(1); }
-  100% { opacity: 0; transform: rotate(-3deg) scale(1) translateY(-0.5em); }
+  0% { opacity: 0; transform: rotate(-1deg) scale(1.12); }
+  6% { opacity: 1; transform: rotate(-1deg) scale(1); }
+  79% { opacity: 1; transform: rotate(-1deg) scale(1); }
+  100% { opacity: 0; transform: rotate(-1deg) translateY(-0.4em); }
 }
 @keyframes hud-place-b {
-  0% { opacity: 0; transform: rotate(-3deg) scale(1.22); }
-  4% { opacity: 1; transform: rotate(-3deg) scale(0.985); }
-  7%, 80% { opacity: 1; transform: rotate(-3deg) scale(1); }
-  100% { opacity: 0; transform: rotate(-3deg) scale(1) translateY(-0.5em); }
+  0% { opacity: 0; transform: rotate(-1deg) scale(1.12); }
+  6% { opacity: 1; transform: rotate(-1deg) scale(1); }
+  79% { opacity: 1; transform: rotate(-1deg) scale(1); }
+  100% { opacity: 0; transform: rotate(-1deg) translateY(-0.4em); }
 }
 .hud-place-t {
   font-family: var(--f-head);
   font-weight: 900;
-  font-size: 7em;
-  line-height: 0.84;
-  letter-spacing: 0.015em;
+  font-size: 1.75em;
+  line-height: 1;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
-  /* Navy letters on a bone offset: bone-on-cream vanished in morning fog; navy mass reads on bright and, with the bone edge, on dark streets. */
-  color: var(--ink);
-  text-shadow: 1px 1px 0 var(--bone), -1px -1px 0 var(--bone), 1px -1px 0 var(--bone), -1px 1px 0 var(--bone), 3px 3px 0 var(--bone), 4px 4px 0 var(--bone);
+  color: var(--bone);
 }
 .hud-place-s {
-  display: inline-block;
-  margin-top: 0.75em;
-  padding: 0.22em 0.8em 0.26em;
-  background: var(--ink);
-  border-top: 3px solid var(--vermilion);
-  font-weight: 600;
-  font-size: 1.5em;
-  letter-spacing: 0.2em;
+  font-family: var(--f-mono);
+  font-weight: 500;
+  font-size: 1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
+  color: var(--mustard);
 }
 
 /* The big one: a rubber stamp on a scrap of bone, double ruled. */
@@ -605,8 +610,8 @@
 #hud.touch .hud-toast:nth-last-child(n + 2) { display: none; }
 #hud.touch .hud-toast-tx { font-size: 1.25em; }
 /* Below the notice and between the thumbs: the one clear patch on a small phone. */
-#hud.touch .hud-place { top: 44%; }
-#hud.touch .hud-place-t { font-size: 4.6em; }
+#hud.touch .hud-place { top: 3.6em; }
+#hud.touch .hud-place-t { font-size: 1.5em; }
 #hud.touch .hud-stamp-t { font-size: 7.4em; }
 #hud.touch .hud-hint { bottom: 0; }
 #hud.touch .hud-kc { display: none; }
@@ -666,3 +671,151 @@
 /* On a phone the radar is in the top corner, so the tabs sit under it. */
 #hud.touch .hud-vitals { left: 0; top: 14.2em; bottom: auto; }
 #hud.touch .hud-vital .hud-lbl { display: none; }
+
+/* ── Weapons ───────────────────────────────────────────────────────────── */
+
+/* The requisition slip: what she is holding and the rounds signed out for it.
+   Only on the desk while something is in her hand. */
+.hud-arm {
+  display: none;
+  /* As wide as its longest line: a fixed width cut the spare rounds off the end of the long descriptions. */
+  min-width: 15.5em;
+  padding: 0.4em 0.75em 0.5em;
+}
+.hud-arm.on { display: block; }
+.hud-arm-hd {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 0.25em;
+  border-bottom: var(--rule) solid var(--vermilion);
+}
+.hud-arm-name {
+  margin-top: 0.28em;
+  font-family: var(--f-head);
+  font-weight: 900;
+  font-size: 1.7em;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hud-arm-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6em; margin-top: 0.15em; }
+.hud-arm-count { flex: none; font-family: var(--f-mono); white-space: nowrap; }
+.hud-arm-note { white-space: nowrap; }
+.hud-arm-mag { font-size: 2em; font-weight: 700; line-height: 1; }
+.hud-arm-res { font-size: 1.15em; opacity: 0.75; }
+.hud-arm.dry .hud-arm-mag { color: var(--vermilion); }
+.hud-arm-flag {
+  display: none;
+  margin-top: 0.3em;
+  padding: 0.14em 0.5em 0.18em;
+  background: var(--ink);
+  color: var(--bone);
+  font-family: var(--f-mono);
+  font-size: 1em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.hud-arm-flag.on { display: block; animation: hud-flash-a 1.4s steps(1, end) infinite; }
+.hud-arm-flag.busy { background: var(--mustard); color: var(--ink); animation: none; }
+
+/* The reticle is four printer's crop marks around a pin-prick: the corners of
+   a box the shot will land in, which opens as the aim gets worse. */
+.hud-reticle {
+  --sp: 6px;
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  display: none;
+}
+.hud-reticle.on { display: block; }
+.hud-reticle i {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 0 solid var(--bone);
+  filter: drop-shadow(0 0 1px var(--ink)) drop-shadow(0 0 1px var(--ink));
+}
+.hud-reticle i:nth-child(1) { right: var(--sp); bottom: var(--sp); border-right-width: 2px; border-bottom-width: 2px; }
+.hud-reticle i:nth-child(2) { left: var(--sp); bottom: var(--sp); border-left-width: 2px; border-bottom-width: 2px; }
+.hud-reticle i:nth-child(3) { right: var(--sp); top: var(--sp); border-right-width: 2px; border-top-width: 2px; }
+.hud-reticle i:nth-child(4) { left: var(--sp); top: var(--sp); border-left-width: 2px; border-top-width: 2px; }
+.hud-reticle b {
+  position: absolute;
+  left: -1.5px;
+  top: -1.5px;
+  width: 3px;
+  height: 3px;
+  background: var(--bone);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+/* Drive-by with the camera outside the window's arc: the marks are there, struck through. */
+.hud-reticle.off-arc { opacity: 0.4; }
+.hud-reticle.off-arc b { width: 13px; left: -6.5px; background: var(--vermilion); }
+
+/* A hit is initialled: a vermilion ring stamped round the pin-prick. Someone put down gets it double-ruled. */
+.hud-hitmark { position: fixed; left: 50%; top: 50%; width: 0; height: 0; }
+.hud-hitmark i {
+  position: absolute;
+  left: -15px;
+  top: -15px;
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  border: 2px solid var(--vermilion);
+  border-radius: 50%;
+  opacity: 0;
+}
+.hud-hitmark.down i { border-width: 3px; outline: 2px solid var(--vermilion); outline-offset: 3px; border-radius: 50%; }
+.hud-hitmark.a i { animation: hud-hit-a 0.28s linear both; }
+.hud-hitmark.b i { animation: hud-hit-b 0.28s linear both; }
+@keyframes hud-hit-a { 0% { opacity: 1; transform: scale(1.5); } 30% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(0.9); } }
+@keyframes hud-hit-b { 0% { opacity: 1; transform: scale(1.5); } 30% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(0.9); } }
+
+/* Hurt: a flat vermilion rule round the whole glass for a third of a second. No vignette, no blood. */
+.hud-hurt {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  border: 0.9em solid var(--vermilion);
+  opacity: 0;
+  pointer-events: none;
+}
+.hud-hurt.hard { border-width: 1.6em; }
+.hud-hurt.a { animation: hud-hurt-a 0.38s linear both; }
+.hud-hurt.b { animation: hud-hurt-b 0.38s linear both; }
+@keyframes hud-hurt-a { 0% { opacity: 0.9; } 35% { opacity: 0.75; } 100% { opacity: 0; } }
+@keyframes hud-hurt-b { 0% { opacity: 0.9; } 35% { opacity: 0.75; } 100% { opacity: 0; } }
+#hud.paused .hud-reticle, #hud.paused .hud-hitmark, #hud.pinned .hud-reticle { display: none; }
+
+/* Start over sits at the far end of the pause card's foot, in ink: the quiet one of the two buttons. */
+.hud-btn-reset {
+  margin-left: auto;
+  background: var(--bone);
+  color: var(--ink);
+  font-size: 1.5em;
+  padding: 0.42em 0.9em 0.46em;
+}
+.hud-btn-reset:hover { color: var(--bone); }
+.hud-btn-reset.ask { background: var(--mustard); color: var(--ink); }
+/* On glass the right-hand column belongs to the keys and the one notice, so the
+   slip goes to the left edge, under the condition pips and above the stick, as two short lines. */
+#hud.touch .hud-arm {
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left));
+  top: calc(max(10px, env(safe-area-inset-top)) + 18.6em);
+  min-width: 11em;
+  padding: 0.25em 0.6em 0.3em;
+}
+#hud.touch .hud-arm-hd, #hud.touch .hud-arm-note { display: none; }
+#hud.touch .hud-arm-name { margin-top: 0; font-size: 1.5em; }
+
+/* Form K-1 on the pause card runs in two columns: with the weapon and
+   start-over rows a single column no longer fits a 720-line screen. */
+.hud-card-keys { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 1.4em; margin-top: 0.5em; }
+.hud-card-keys > .hud-lbl { grid-column: 1 / -1; }
+.hud-btn-reset { white-space: nowrap; }

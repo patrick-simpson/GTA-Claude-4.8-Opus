@@ -19,6 +19,7 @@ import { Hud } from '../ui/hud';
 import { TouchUI } from '../ui/touch';
 import { Cheats } from './cheats';
 import { Ambient } from '../sim/ambient';
+import { Police } from '../sim/police';
 import { Post } from './post';
 import { Fx } from '../fx/particles';
 import { Skids } from '../fx/skids';
@@ -139,6 +140,8 @@ export class Game {
     this.cheats = new Cheats(this);
     this.systems.push(new Ambient(this));
     this.systems.push((this.fx = new Fx(this)), new Skids(this));
+    this.systems.push(new Police(this));
+    this.systems.push(this.player.weapons);
 
     // One full step so every system has seen every other before the first picture.
     this.state = 'title';

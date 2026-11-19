@@ -25,13 +25,15 @@ interface Key {
   up: () => void;
   /** Pedals: a finger may slide from one to the next without lifting. */
   slide: boolean;
+  /** FIRE: the thumb holding it also turns the view as it drags, so one thumb aims and shoots. */
+  look?: boolean;
   l: number; t: number; r: number; b: number;
 }
 
 type Ptr =
   | { kind: 'stick' }
   | { kind: 'look'; x: number; y: number }
-  | { kind: 'key'; key: Key | null; slide: boolean };
+  | { kind: 'key'; key: Key | null; slide: boolean; x: number; y: number };
 
 const GLYPH = {
   // Two bars / a pennant for resume.
@@ -54,6 +56,10 @@ export class TouchUI {
   private keys: Key[] = [];
   private byEl = new Map<Element, Key>();
   private getIn!: Key;
+  private aimKey!: Key;
+  /** AIM is a latch on glass: nobody has a spare thumb to hold it. */
+  private aimOn = false;
+  private armed = false;
   private ptrs = new Map<number, Ptr>();
 
   private coarse: boolean;
@@ -97,6 +103,10 @@ export class TouchUI {
     act('t-horn drive', '06', GLYPH.horn + '<small>Horn</small>', 'horn');
     act('t-exit drive', '07', 'Exit', 'enter');
     act('t-cam drive', '08', GLYPH.camera + '<small>Camera</small>', 'camera');
+    // Weapons: FIRE above JUMP (above the pedals at the wheel), AIM and SWAP beside it. Only when she has something to fire.
+    act('t-fire arm', '09', 'Fire', 'fire').look = true;
+    this.aimKey = this.key('t-aim arm', '10', 'Aim', () => this.setAim(!this.aimOn), () => { /* a latch: lifting the thumb changes nothing */ });
+    act('t-swap arm', '11', 'Swap', 'nextWeapon');
     act('t-pause always', '', GLYPH.pause, 'pause');
 
     const card = this.div('t-rotate');
@@ -145,7 +155,7 @@ export class TouchUI {
     let p: Ptr | null = null;
     if (key) {
       if (key.slide) this.measurePedals();
-      p = { kind: 'key', key, slide: key.slide };
+      p = { kind: 'key', key, slide: key.slide, x: e.clientX, y: e.clientY };
       this.press(key);
     } else if (target === this.stickZone) {
       // One stick, one thumb: a second finger in the zone is ignored.
@@ -170,6 +180,9 @@ export class TouchUI {
     } else if (p.kind === 'stick') {
       this.px = e.clientX; this.py = e.clientY;
       this.stickApply();
+    } else if (p.key && p.key.look) {
+      this.game.input.addLook(e.clientX - p.x, e.clientY - p.y);
+      p.x = e.clientX; p.y = e.clientY;
     } else if (p.slide) {
       const cur = p.key;
       if (cur && this.inside(cur, e.clientX, e.clientY, SLOP)) return;
@@ -262,6 +275,13 @@ export class TouchUI {
     this.knob.style.transform = `translate(${dx.toFixed(1)}px,${dy.toFixed(1)}px)`;
   }
 
+  private setAim(on: boolean): void {
+    if (on === this.aimOn) return;
+    this.aimOn = on;
+    this.aimKey.el.classList.toggle('held', on);
+    if (on) this.game.input.touchDown('aim'); else this.game.input.touchUp('aim');
+  }
+
   private setSprint(on: boolean): void {
     if (on === this.sprinting) return;
     this.sprinting = on;
@@ -309,7 +329,7 @@ export class TouchUI {
     if (show !== this.shown) {
       this.shown = show;
       this.root.classList.toggle('show', show);
-      if (!show) this.releaseAll();
+      if (!show) { this.releaseAll(); this.setAim(false); }
     }
     if (!show) return;
 
@@ -330,6 +350,14 @@ export class TouchUI {
       this.releaseAll(false);
     }
 
+    // The weapon keys are on the glass once she owns anything beyond her hands.
+    const own = player.weapons.owned;
+    const armed = own[1] || own[2] || own[3] || own[4];
+    if (armed !== this.armed) {
+      this.armed = armed;
+      this.root.classList.toggle('armed', armed);
+    }
+    if (this.aimOn && (!armed || driving || paused || !player.canFight)) this.setAim(false);
     const near = !driving && player.nearVehicle !== null;
     if (near !== this.near) {
       this.near = near;

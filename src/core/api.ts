@@ -103,6 +103,8 @@ export interface Vehicle {
   lights: boolean;
   /** True once it has gone into deep water; it sinks and is removed shortly after. */
   sunk: boolean;
+  /** Burnt out by fire and explosion (ent/weapons.ts): driverless, inert, cannot be entered, removed once the player is far away. */
+  wreck?: boolean;
   /** Half length and half width of the collision box, meters. */
   readonly hl: number; readonly hw: number;
   /** Where a person stands to use a door. side: -1 = left (driver), +1 = right. */
@@ -225,4 +227,24 @@ export interface GameEvents {
   pause: { on: boolean };
   /** A pedestrian was knocked down by a vehicle. speed = the vehicle's, m/s; byPlayer = the player was driving it. */
   pedHit: { x: number; z: number; speed: number; byPlayer: boolean };
+  // ── Harbor Patrol (src/sim/police.ts) ──
+  /** Something illegal the player did at (x, z). weight: heat points, 1 = a whole level; it only counts if a bystander or officer could see it. Weapons emit this for gunfire and hits. */
+  crime: { kind: string; x: number; z: number; weight: number };
+  /** Heat state, four times a second. seen: an officer has eyes on the player. searching: the clock toward losing a level is running (timeLeft s); (x, z, radius) is the search circle round where she was last seen. */
+  heat: { level: number; seen: boolean; searching: boolean; timeLeft: number; x: number; z: number; radius: number };
+  /** The number of cruisers with the light bar going changed. Sound (milestone 5) hooks here. */
+  siren: { on: boolean; units: number };
+  /** Arrested: fined and put outside the station. confiscate: whoever owns the weapons should take them away. */
+  booked: { fine: number; confiscate: boolean };
+  /** Fresh Coat repainted the player's car and cleared the heat. */
+  respray: { vehicle: Vehicle; color: number; fee: number };
+  /** Two cruisers are on their way to block the road at (x, z). */
+  roadblock: { x: number; z: number };
+  /** A shot fired by somebody other than the player ('patrol' = an officer), for sound and for scaring bystanders. */
+  gunshot: { x: number; z: number; by: string };
+  // ── Weapons (src/ent/weapons.ts). These three objects are reused from shot to shot: copy what you keep. ──
+  /** The player fired, or something blew up, at (x, z). */
+  shot: { x: number; z: number; loud: boolean };
+  /** Somebody other than the player was hit by a punch, a bullet or a blast. Walkers are dealt with by the weapons code; anyone else's person (an officer) is their owner's to react for. health is already lowered. */
+  personHit: { person: Person; damage: number; x: number; z: number; byPlayer: boolean };
 }

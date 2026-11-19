@@ -23,6 +23,8 @@ const DRIVE_PITCH = 0.23;
 const ZOOM = [1, 1.5, 0.72];
 /** Seconds of quiet before the on-foot camera starts to drift behind her, and before free look at the wheel lets go. */
 const FOOT_HOLD = 2, DRIVE_HOLD = 1.5;
+/** Aiming: the boom, how far the pivot moves off her right shoulder and up, the lens, and how much slower the view turns. */
+const AIM_DIST = 1.75, AIM_SIDE = 0.62, AIM_UP = 0.14, AIM_FOV = 44, AIM_SENS = 0.6;
 /** How tightly the pivot follows a car, 1/s. It trails by LAG seconds of travel, so speed stretches the view a little. */
 const CHASE_RATE = 14, CHASE_LAG = 0.03;
 /** Stay this far off a wall, and never closer than MIN_DIST to the pivot. */
@@ -94,6 +96,8 @@ export class CameraRig implements CameraApi {
   private low = 0;
   private zoom = 0;
   private lookIdle = 0;
+  /** 0 walking about, 1 looking down a weapon. */
+  private aim = 0;
 
   // Chase camera.
   private chaseYaw = 0; private chaseVel = 0;
@@ -133,6 +137,13 @@ export class CameraRig implements CameraApi {
   /** amount: 0 = nothing, 1 = the hardest hit there is. Adds up, and is gone in about half a second. */
   shake(amount: number): void {
     this.trauma = Math.min(1, this.trauma + Math.max(0, amount));
+  }
+
+  /** Recoil: tip the view up by `up` radians and sideways by `side`. It does not come back by itself; that is the player's job. */
+  kick(up: number, side: number): void {
+    if (this.mode === 'foot') { this.pitch = clamp(this.pitch - up, PITCH_MIN, PITCH_MAX); this.yaw = wrapAngle(this.yaw + side); }
+    else if (this.mode === 'drive') this.freeYaw = wrapAngle(this.freeYaw + side);
+    this.shake(up * 4);
   }
 
   snap(): void {
@@ -212,7 +223,11 @@ export class CameraRig implements CameraApi {
 
   private follow(dt: number): void {
     const g = this.game, inp = g.input, p = g.player, per = p.person, L = this.live;
-    const lx = inp.lookX, ly = inp.lookY;
+    const aiming = p.aiming;
+    this.aim = this.to(this.aim, aiming ? 1 : 0, aiming ? 12 : 8, dt);
+    const sens = lerp(1, AIM_SENS, this.aim);
+    const lx = inp.lookX * sens, ly = inp.lookY * sens;
+    if (aiming) this.lookIdle = 0;
     if (inp.hit('camera')) this.zoom = (this.zoom + 1) % ZOOM.length;
     if (lx !== 0 || ly !== 0) {
       // Looking right turns the heading down; pulling the mouse toward you lifts the camera to look down.
@@ -235,8 +250,10 @@ export class CameraRig implements CameraApi {
     }
 
     // Sideways she is followed tightly; in height loosely, so a jump moves her and not the whole picture.
-    L.px = this.to(L.px, per.x, 20, dt);
-    L.pz = this.to(L.pz, per.z, 20, dt);
+    // Aiming, the pivot steps out past her right shoulder: she stands in the left of the picture and the middle of it is clear.
+    const side = AIM_SIDE * this.aim;
+    L.px = this.to(L.px, per.x - Math.cos(this.yaw) * side, 20, dt);
+    L.pz = this.to(L.pz, per.z + Math.sin(this.yaw) * side, 20, dt);
     // Flat on the road she is a meter and a half lower than the place the camera
     // usually aims at: look at her, and from higher, so she is not cut off by the bottom edge.
     const down = per.pose === 'down';
@@ -246,14 +263,14 @@ export class CameraRig implements CameraApi {
       this.yaw = wrapAngle(this.yaw + 1.1 * dt);
     }
     const stand = lerp(SHOULDER * per.look.height, 0.45, this.low);
-    L.py = this.to(L.py, p.swimming ? WATER_Y + 0.35 : per.y + stand, 8, dt);
+    L.py = this.to(L.py, p.swimming ? WATER_Y + 0.35 : per.y + stand + AIM_UP * this.aim, 8, dt);
     L.yaw = this.yaw; L.pitch = Math.min(this.pitch + 0.34 * this.low, PITCH_MAX);
     // Looking up from below, slide in along the ground rather than under it.
     const tuck = 1 - 0.42 * clamp01(-this.pitch / -PITCH_MIN);
-    L.dist = this.to(L.dist, FOOT_DIST * ZOOM[this.zoom] * tuck, 7, dt);
+    L.dist = this.to(L.dist, lerp(FOOT_DIST * ZOOM[this.zoom] * tuck, AIM_DIST, this.aim), aiming ? 12 : 7, dt);
     // On the ground she also goes in the lower part of the picture, under the stamp that says so.
-    L.lift = 0.09 + 0.2 * this.low; L.ax = 0; L.az = 0;
-    L.fov = this.to(L.fov, 60 + 3 * smooth((p.speed - 4.8) / 2), 4, dt);
+    L.lift = 0.09 * (1 - this.aim) + 0.2 * this.low; L.ax = 0; L.az = 0;
+    L.fov = this.to(L.fov, lerp(60 + 3 * smooth((p.speed - 4.8) / 2), AIM_FOV, this.aim), aiming ? 10 : 4, dt);
     this.rumble = this.to(this.rumble, 0, 6, dt);
   }
 
@@ -298,6 +315,8 @@ export class CameraRig implements CameraApi {
       this.inherited = false;
     } else if (!this.snapping) {
       this.lookIdle += dt;
+      // Leaning out of the window with something in hand, the view stays where she pointed it.
+      if (g.player.weapons.driveBy && inp.down('fire')) this.lookIdle = 0;
       // Parked, a look around stays where it was put; only driving pulls it back.
       if (this.inherited || (this.lookIdle > DRIVE_HOLD && sp > 1)) {
         const k = this.inherited ? 1 : smooth((this.lookIdle - DRIVE_HOLD) / 0.5);

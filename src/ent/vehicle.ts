@@ -132,6 +132,8 @@ class Car implements Vehicle {
   slip = 0;
   lights = false;
   sunk = false;
+  /** Burnt out (ent/weapons.ts). Nobody drives a wreck, so it is inert already; this only says so. */
+  wreck = false;
   readonly hl: number;
   readonly hw: number;
 

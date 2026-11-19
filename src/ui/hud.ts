@@ -532,8 +532,13 @@ const KEYS: [string[], string][] = [
   [['F'], 'Get in or out'],
   [['V'], 'Change camera'],
   [['C'], 'Look back'],
+  [['LMB', 'RMB'], 'Fire / aim'],
+  [['Q', 'E', 'R'], 'Switch / reload'],
   [['Esc'], 'Pause'],
+  [['Hold Backspace'], 'Back to the start'],
 ];
+/** Seconds Backspace must be held to go back to the start. Long enough that a slip of the finger does nothing. */
+const UNSTICK = 1;
 
 /** Top of the speed scale, mph. The fastest car on the island does about 143. */
 const SCALE_MPH = 150;
@@ -574,6 +579,29 @@ export class Hud implements HudApi {
   private clock: HTMLElement;
   private wx: HTMLElement;
   private heatEl: HTMLElement;
+  // The requisition slip (weapon and rounds), the reticle, the hit marker and the edge flash.
+  private armEl: HTMLElement;
+  private armName: HTMLElement;
+  private armNote: HTMLElement;
+  private armMag: HTMLElement;
+  private armRes: HTMLElement;
+  private armFlag: HTMLElement;
+  private retEl: HTMLElement;
+  private hitEl: HTMLElement;
+  private hurtEl: HTMLElement;
+  private resetBtn: HTMLElement;
+  private armSlot = -1;
+  private armMagN = -1;
+  private armResN = -1;
+  private armFlagTx = '';
+  private retState = -1;
+  private retGap = -1;
+  private hitSeen = -9;
+  private hurtSeen = -9;
+  /** performance.now() when Backspace went down, or 0. */
+  private backT = 0;
+  /** Wall-clock deadline for the second press of Start over, or 0. */
+  private resetArm = 0;
   private pips: Element[];
   private toastBox: HTMLElement;
   private drive: HTMLElement;
@@ -672,6 +700,12 @@ export class Hud implements HudApi {
       <div class="hud-meta"><span class="hud-clock"></span><span class="hud-wx"></span></div>
     </div>
     <div class="hud-heat"><span class="hud-heat-word">Heat</span><span class="hud-pips">${PIP.repeat(5)}</span></div>
+    <div class="hud-arm hud-slip">
+      <div class="hud-arm-hd hud-lbl"><span>Requisition</span><span>Form R-7</span></div>
+      <div class="hud-arm-name"></div>
+      <div class="hud-arm-row"><span class="hud-arm-note hud-lbl"></span><span class="hud-arm-count"><b class="hud-arm-mag"></b><span class="hud-arm-res"></span></span></div>
+      <div class="hud-arm-flag"></div>
+    </div>
     <div class="hud-toasts"></div>
   </div>
   <div class="hud-drive">
@@ -685,6 +719,8 @@ export class Hud implements HudApi {
       </div>
     </div>
   </div>
+  <div class="hud-reticle"><i></i><i></i><i></i><i></i><b></b></div>
+  <div class="hud-hitmark"><i></i></div>
   <div class="hud-hint"></div>
   <div class="hud-objective"><span class="hud-lbl">Current business</span><span class="hud-objective-tx"></span></div>
   <div class="hud-place"><div class="hud-place-in"><div class="hud-place-t"></div><div class="hud-place-s"></div></div></div>
@@ -709,7 +745,7 @@ export class Hud implements HudApi {
       </div>
       <div class="hud-card-keys"><div class="hud-lbl">Attached: Form K-1</div>${rows}</div>
     </div>
-    <div class="hud-card-ft"><button class="hud-btn" type="button">Resume</button><span class="hud-card-or">or press ${kc('Esc')}</span></div>
+    <div class="hud-card-ft"><button class="hud-btn" type="button">Resume</button><span class="hud-card-or">or press ${kc('Esc')}</span><button class="hud-btn hud-btn-reset" type="button">Start over</button></div>
     <div class="hud-card-note">* As reported by the applicant. Anything typed is not counted.</div>
   </div>
 </div>`;
@@ -720,6 +756,18 @@ export class Hud implements HudApi {
     this.clock = q('.hud-clock');
     this.wx = q('.hud-wx');
     this.heatEl = q('.hud-heat');
+    this.armEl = q('.hud-arm');
+    this.armName = q('.hud-arm-name');
+    this.armNote = q('.hud-arm-note');
+    this.armMag = q('.hud-arm-mag');
+    this.armRes = q('.hud-arm-res');
+    this.armFlag = q('.hud-arm-flag');
+    this.retEl = q('.hud-reticle');
+    this.hitEl = q('.hud-hitmark');
+    this.resetBtn = q('.hud-btn-reset');
+    // The edge flash covers the whole glass, so it lives outside the frame's margins.
+    this.hurtEl = root.appendChild(document.createElement('div'));
+    this.hurtEl.className = 'hud-hurt';
     this.pips = Array.from(root.querySelectorAll('.hud-pip'));
     this.toastBox = q('.hud-toasts');
     this.drive = q('.hud-drive');
@@ -749,10 +797,23 @@ export class Hud implements HudApi {
     // where only the button does: people click paper to read it.
     this.pauseEl.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
-      if (t.closest('.hud-card') && !t.closest('.hud-btn')) return;
+      if (t.closest('.hud-btn-reset')) {
+        // One confirmation, on the same button: the first press asks, the second (within four seconds) does it.
+        if (performance.now() > this.resetArm) {
+          this.resetArm = performance.now() + 4000;
+          this.resetBtn.textContent = 'Confirm?';
+          this.resetBtn.classList.add('ask');
+          return;
+        }
+        game.player.reset();
+      } else if (t.closest('.hud-card') && !t.closest('.hud-btn')) return;
       game.setPaused(false);
       game.input.lock();
     });
+    // Held Backspace is the way out of anywhere she is stuck. The hold is timed on the wall clock in update().
+    addEventListener('keydown', (e) => { if (e.code === 'Backspace' && !e.repeat) this.backT = performance.now(); });
+    addEventListener('keyup', (e) => { if (e.code === 'Backspace') this.backT = 0; });
+    addEventListener('blur', () => { this.backT = 0; });
     game.on('pause', () => this.syncState());
     game.on('start', () => this.syncState());
   }
@@ -899,6 +960,9 @@ export class Hud implements HudApi {
     }
     if (arN !== this.shownAr) { this.shownAr = arN; this.arEl.textContent = String(arN); }
 
+    this.tickArms(live);
+    if (this.backT > 0 && live && performance.now() - this.backT >= UNSTICK * 1000) { this.backT = 0; p.reset(); }
+
     if (live) {
       this.tickStunts(v);
       this.tickIntro(dt, v, p.z);
@@ -919,6 +983,10 @@ export class Hud implements HudApi {
     const shown = st === 'play' || st === 'paused';
     this.root.classList.toggle('off', !shown);
     this.pauseEl.classList.toggle('on', st === 'paused');
+    // Start over forgets it was asked whenever the card is put away or brought out.
+    this.resetArm = 0;
+    this.resetBtn.textContent = 'Start over';
+    this.resetBtn.classList.remove('ask');
     this.root.classList.toggle('paused', st === 'paused');
     if (st === 'paused') {
       const p = g.player, name = g.plan.placeName(p.x, p.z);
@@ -941,6 +1009,59 @@ export class Hud implements HudApi {
   private showKeys(seconds: number): void {
     this.keysT = seconds;
     this.keysEl.classList.toggle('on', seconds > 0);
+  }
+
+  /** The requisition slip, the reticle, the hit marker and the edge flash. Everything is written only when it changes. */
+  private tickArms(live: boolean): void {
+    const p = this.game.player, w = p.weapons;
+    const slot = live && w.armed && p.health > 0 ? w.slot : -1;
+    if (slot !== this.armSlot) {
+      this.armSlot = slot;
+      this.armEl.classList.toggle('on', slot > 0);
+      if (slot > 0) { this.armName.textContent = w.spec.name; this.armNote.textContent = w.spec.note; }
+      this.armMagN = this.armResN = -1;
+    }
+    if (slot > 0) {
+      if (w.mag !== this.armMagN) {
+        this.armMagN = w.mag;
+        this.armMag.textContent = String(w.mag);
+        this.armEl.classList.toggle('dry', w.mag === 0);
+      }
+      if (w.reserve !== this.armResN) { this.armResN = w.reserve; this.armRes.textContent = ' / ' + w.reserve; }
+      const flag = w.reloading > 0 ? 'Reloading' : w.mag > 0 ? '' : w.reserve > 0 ? (this.touch ? 'Fire to reload' : 'Press R to reload') : 'Out. File a complaint.';
+      if (flag !== this.armFlagTx) {
+        this.armFlagTx = flag;
+        this.armFlag.textContent = flag;
+        this.armFlag.classList.toggle('on', flag !== '');
+        this.armFlag.classList.toggle('busy', w.reloading > 0);
+      }
+    }
+    const ret = live ? w.reticle : 0;
+    if (ret !== this.retState) {
+      this.retState = ret;
+      this.retEl.classList.toggle('on', ret > 0);
+      this.retEl.classList.toggle('off-arc', ret === 2);
+    }
+    if (ret > 0) {
+      // The marks stand off the middle by the cone's radius at arm's length on screen: wider when she moves or holds the trigger.
+      const gap = Math.round((w.spec.spread + w.bloom) * 600 + Math.min(p.speed, 8) * 1.2);
+      if (gap !== this.retGap) { this.retGap = gap; this.retEl.style.setProperty('--sp', gap + 'px'); }
+    }
+    if (w.hitT !== this.hitSeen) {
+      this.hitSeen = w.hitT;
+      if (live) { this.hitEl.classList.toggle('down', w.hitDown); this.replay(this.hitEl); }
+    }
+    if (p.hurtT !== this.hurtSeen) {
+      this.hurtSeen = p.hurtT;
+      if (live && p.hurtT > 0) { this.hurtEl.classList.toggle('hard', p.hurtAmount >= 25); this.replay(this.hurtEl); }
+    }
+  }
+
+  /** As restart(), but keeping the element's own turn, so two that fire in the same frame both replay. */
+  private replay(el: HTMLElement): void {
+    const a = el.classList.contains('a');
+    el.classList.toggle('a', !a);
+    el.classList.toggle('b', a);
   }
 
   /** Replay an element's one-shot animation. Two identical keyframe sets, swapped, so no reflow is forced. */
@@ -1132,7 +1253,7 @@ export class Hud implements HudApi {
     if (g.plan.placeName(x + dx * k, z + dz * k) !== name) return;
     this.place = name;
     this.placeNeed = 1.5;
-    this.placeShow = 3;
+    this.placeShow = 1.9;
     const inner = this.placeEl.firstElementChild as HTMLElement;
     (inner.children[0] as HTMLElement).textContent = name;
     (inner.children[1] as HTMLElement).textContent = OFF_GRID[name] ?? g.plan.streetAt(x, z);

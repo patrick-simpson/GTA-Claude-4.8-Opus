@@ -12,6 +12,7 @@ import type { Look, Person, PlayerApi, Vehicle } from '../core/api';
 import type { Box } from '../world/collide';
 import { clamp, clamp01, damp, dampAngle, headingOf, lerp, money, smooth } from '../core/util';
 import { WATER_Y, groundAt } from '../world/plan';
+import { Weapons } from './weapons';
 
 const RADIUS = 0.35;
 const WALK = 1.8, JOG = 4.3, SPRINT = 7;
@@ -40,6 +41,9 @@ const BAIL_SPEED = 6;
 const HARD_LANDING = 13;
 /** The start point, and where Mercy General sends her home to: block (5, 6), south sidewalk. */
 const HOME = [5, 6, 2, 0.45] as const;
+/** With a weapon up she walks: slower than a jog, so the sights stay somewhere near the target. */
+const AIM_PACE = 2.6;
+const START_MONEY = 250;
 
 // Navy coveralls (one piece, so top and bottom match), work boots, vermilion cap.
 const DESS: Look = {
@@ -66,8 +70,14 @@ export class Player implements PlayerApi {
   readonly person: Person;
   health = 100;
   armor = 0;
-  money = 250;
+  money = START_MONEY;
   heat = 0;
+  /** What she is carrying and everything it does. Registered in game.systems, so it runs after people and vehicles each frame. */
+  readonly weapons: Weapons;
+  /** game.time of the last thing that hurt her, how much, and the heading it came from (NaN if from nowhere in particular). The HUD's edge flash reads these. */
+  hurtT = -9; hurtAmount = 0; hurtFrom = NaN;
+  /** Every car she has sat in, so a reset knows which ones she left lying about. */
+  private used = new WeakSet<Vehicle>();
   swimming = false;
   nearVehicle: Vehicle | null = null;
 
@@ -111,6 +121,7 @@ export class Player implements PlayerApi {
 
   constructor(private game: Game) {
     this.person = game.people.spawn(0, 0, 0, DESS);
+    this.weapons = new Weapons(game);
     this.person.health = this.health;
   }
 
@@ -123,7 +134,51 @@ export class Player implements PlayerApi {
     return this.car ? Math.hypot(this.car.vx, this.car.vz) : Math.hypot(this.vx, this.vz);
   }
 
+  /** Holding a weapon up and looking down it: the camera comes in over her shoulder and she turns with it. */
+  get aiming(): boolean { return this.weapons.aiming; }
+  /** On her feet, on dry land, in control: able to throw a punch or fire. */
+  get canFight(): boolean { return this.mode === 'foot' && !this.swimming && this.health > 0; }
+
   // ── Public controls ────────────────────────────────────────────────────────
+
+  /**
+   * Somebody hurt her: a bullet, a blast, a baton. Armor first, then health; the
+   * screen edge flashes and the camera takes a knock. `from` is where it came
+   * from, if anywhere. Nothing grows back: health returns at Mercy General.
+   */
+  hurt(amount: number, from?: { x: number; z: number } | null): void {
+    if (amount <= 0 || this.mode === 'dead') return;
+    this.damage(amount);
+    this.hurtT = this.game.time; this.hurtAmount = amount;
+    this.hurtFrom = from ? headingOf(from.x - this.x, from.z - this.z) : NaN;
+    this.game.cam.shake(clamp(amount / 60, 0.12, 0.6));
+  }
+
+  /**
+   * Start over: back to the start point on foot, as on the first morning. Full
+   * health, starting money, no heat, no weapons, 8 AM and fair weather. Wrecks,
+   * and cars she has bent or left within a block of the start, are towed.
+   */
+  reset(): void {
+    const g = this.game, home = g.plan.sidewalkPoint(...HOME);
+    if (this.car) this.release(this.car);
+    this.goal = null;
+    this.put(home.x, home.z + 0.9, 0);
+    this.health = 100; this.armor = 0; this.money = START_MONEY; this.heat = 0;
+    this.hurtT = -9; this.safeT = 1;
+    this.weapons.clear();
+    g.sky.hour = 8;
+    g.sky.setWeather('clear', true);
+    const list = g.vehicles.list;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const v = list[i];
+      if (v.driver === 'ai') continue;
+      const near = Math.abs(v.x - home.x) < 90 && Math.abs(v.z - home.z) < 90;
+      if (v.wreck || (near && (v.health < 100 || this.used.has(v)))) g.vehicles.remove(v);
+    }
+    g.cam.snap();
+    g.hud.toast('Start over granted. The paperwork says none of that happened.', 5);
+  }
 
   teleport(x: number, z: number, h?: number): void {
     if (this.car) this.release(this.car);
@@ -209,6 +264,8 @@ export class Player implements PlayerApi {
     const a = Math.min(this.armor, amount);
     this.armor -= a;
     this.health = Math.max(0, this.health - (amount - a));
+    // Anything that hurts flashes the screen edge, whoever dealt it; hurt() adds where it came from and the knock.
+    this.hurtT = this.game.time; this.hurtAmount = amount; this.hurtFrom = NaN;
   }
 
   /** Throw her to the ground with a velocity. She slides to a stop and gets up on her own. */
@@ -252,7 +309,8 @@ export class Player implements PlayerApi {
     // Camera-relative: forward on the stick is away from the lens.
     const yaw = g.cam.yaw, s = Math.sin(yaw), c = Math.cos(yaw);
     let wx = s * my - c * mx, wz = c * my + s * mx;
-    let sprint = inp.down('sprint');
+    const aim = this.weapons.aiming;
+    let sprint = inp.down('sprint') && !aim;
     if (this.turnT > 0) {
       // Past the edge of the map the tide does the steering for a couple of seconds.
       this.turnT -= dt;
@@ -268,12 +326,15 @@ export class Player implements PlayerApi {
       want = m <= 0.6 ? WALK * (m / 0.6) : lerp(WALK, sprint ? SPRINT : JOG, (m - 0.6) / 0.4);
       // Wading: the deeper the water, the slower the legs.
       if (this.wet) want *= 1 - 0.6 * clamp01((WATER_Y - per.y) / FLOAT);
+      if (aim) want = Math.min(want, AIM_PACE);
     }
     const rate = this.swimming ? 3.5 : this.grounded ? (m > 0.05 ? 11 : 15) : 2;
     const k = m > 1e-4 ? want / m : 0;
     this.vx = damp(this.vx, wx * k, rate, dt);
     this.vz = damp(this.vz, wz * k, rate, dt);
-    if (m > 0.05) per.h = dampAngle(per.h, headingOf(wx, wz), this.swimming ? 5 : this.grounded ? 13 : 7, dt);
+    // Aiming, she faces where the camera looks and sidesteps; otherwise she faces where she is going.
+    if (aim) per.h = dampAngle(per.h, yaw, 22, dt);
+    else if (m > 0.05) per.h = dampAngle(per.h, headingOf(wx, wz), this.swimming ? 5 : this.grounded ? 13 : 7, dt);
 
     if (inp.hit('jump')) this.jumpBuf = 0.12; else this.jumpBuf -= dt;
     if (this.grounded) this.coyote = 0.1; else this.coyote -= dt;
@@ -482,7 +543,7 @@ export class Player implements PlayerApi {
     let best: Vehicle | null = null, bd = REACH;
     for (let i = 0; i < list.length; i++) {
       const v = list[i];
-      if (v.sunk) continue;
+      if (v.sunk || v.wreck) continue;
       const dx = per.x - v.x, dz = per.z - v.z;
       const far = REACH + v.hl + v.hw;
       if (dx * dx + dz * dz > far * far || Math.abs(v.y - per.y) > 2.5) continue;
@@ -538,6 +599,7 @@ export class Player implements PlayerApi {
   private seat(v: Vehicle): void {
     const per = this.person;
     this.car = v;
+    this.used.add(v);
     this.goal = null;
     this.sinkT = 0;
     this.mode = 'drive';

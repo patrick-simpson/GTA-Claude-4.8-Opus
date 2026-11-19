@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 63% done)
+## Where things stand (about 70% done)
 
 **Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
@@ -61,6 +61,53 @@ pause card shows it already).
    lighting, integration and writing.
 3. **The site is at gta.doofus.live** (the owner moved it from gtaopus).
 
+### Owner decisions, Nov 18 evening — add-on land and progression
+
+1. **The first add-on land is the mainland, reached by FINISHING the Perpetual
+   Bridge** (the owner chose this over a ferry). The mid-air stop and its stunt
+   jump go away once the bridge is complete.
+2. **Theme: Waterville, Maine.** A central-Maine mill town on a river: a brick
+   Main Street downtown, big brick textile mills by a dam and falls, a narrow
+   pedestrian footbridge across the river, a small hilltop liberal-arts college
+   with a white-spired chapel and lawns, railroad yards, an interstate with
+   exits, an opera house and town square, wooden triple-deckers and
+   clapboard houses with porches, pines, birches and maples, a stream and a
+   lake nearby, a sister town across the river with a timber blockhouse fort.
+   Use it as inspiration for layout and character; invent the names (this is
+   still Port Calamity's world), and verify real details against a map before
+   leaning on them.
+3. **Slow, continual progression.** Players should see steady progress over a
+   long time rather than everything at once. Working design until the owner says
+   otherwise: the bridge is visibly BUILT span by span as the player earns
+   progress (missions, jobs, money paid to the "Bridge Completion Fund",
+   collectibles), so the mainland opens gradually; the mainland itself unlocks in
+   stages (the riverfront mills, then downtown, then the college hill, then the
+   interstate and lake); vehicles, weapons and shops unlock over time; a visible
+   progress readout in the pause menu. Save progress (M4's save system).
+4. **Place stamp gets in the way** when entering a new area: make it small and
+   out of the sight line (in progress with M3).
+5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
+   progress with M3).
+### M3 "Trouble": pushed Nov 19, about 1:35 AM ET
+
+`src/sim/police.ts`, `policeAir.ts`: heat only rises for crimes someone could
+see; Harbor Patrol cruisers pursue, ram and set roadblocks by level; officers on
+foot arrest ("BOOKED", $150 fine, weapons confiscated, release at Harbor Patrol
+Station No. 1 on Ledger St) or shoot from heat 3; a helicopter with a spotlight
+at heat 4+; "Fresh Coat" respray on Bollard St in the Cannery clears heat.
+`src/ent/weapons.ts`: fists, Paperweight (pistol), Stapler (SMG), Gull Duster
+(shotgun) and a launcher; over-the-shoulder aim; cars smoke, burn, explode and
+leave wrecks; drive-by; pickups at five places; cheat `BADIDEAS`.
+Also in this push: the district stamp is now a small tag under the objective
+strip, and "Start over" (pause card, or hold Backspace) calls `player.reset()`.
+Owed: at heat 1 a player who drives off at once is never reached; parking with
+cruisers on your bumper never loses them (escape is only by outrunning);
+officers carry no gun model and no flash was seen in stills; no arm or weapon
+drawn in a drive-by; recoil never recovers and has not been hand-played; the
+HUD does not yet show the search state from the 'heat' event (radar circle,
+"searching" pips); `PlayerApi` in api.ts lacks hurt/reset/weapons; police.ts
+should call `player.hurt(dmg, from)` for hit direction; weapons.ts copies a
+mode number from peds.ts; sirens and gunshots wait for M5.
 ### M2 "A living city": pushed Nov 18, about 8:40 PM ET
 
 `src/sim/peds.ts` and `traffic.ts` (behind the `Ambient` class in `ambient.ts`):
@@ -258,7 +305,7 @@ Original wording for fail states (for example "CLOCKED OUT" and "BOOKED").
 
 **M2 — A living city (DONE, first pass):** traffic on lane rails that obeys lights and turns into physical cars when hit; pedestrians on sidewalk loops who cross at lights, flee, and get knocked over; parked cars; particles, skid marks, breakable props (hydrants geyser).
 
-**M3 — Trouble:** heat levels 1-5, police on foot and in cruisers using route-finding, roadblocks, a helicopter with a spotlight at high heat, losing them by breaking line of sight, respray shop; weapons (fists, pistol, SMG, shotgun, launcher), aiming, vehicle damage, fire and explosions.
+**M3 — Trouble (DONE, first pass):** heat levels 1-5, police on foot and in cruisers using route-finding, roadblocks, a helicopter with a spotlight at high heat, losing them by breaking line of sight, respray shop; weapons (fists, pistol, SMG, shotgun, launcher), aiming, vehicle damage, fire and explosions.
 
 **M4 — Things to do:** about ten story missions from a small step-based script format (go to, get vehicle, deliver, collect, destroy, lose heat, tail, race, survive, dialogue); taxi fares, street races, courier runs, stunt jumps, 30 hidden golden rubber ducks; shops, money, autosave to `localStorage`, pause menu with full map and settings.
 

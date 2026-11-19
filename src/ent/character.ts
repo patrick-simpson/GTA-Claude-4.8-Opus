@@ -105,6 +105,8 @@ class Body implements Person {
   speed = 0;
   visible = true;
   health = 100;
+  /** Written by the weapons code: 0..1 of an arm (or both) raised along the line of fire, and that line's pitch in radians. */
+  aim = 0; aimPitch = 0; aimTwo = false;
 
   // Animation state. Nothing outside this file reads it.
   readonly cur = new Float32Array(NCH);
@@ -562,6 +564,31 @@ function sit(b: Body, o: Float32Array): void {
   o[BREATH] = breath;
 }
 
+/** The three fields above, for the code that writes them (ent/weapons.ts). */
+export interface Aimable { aim: number; aimPitch: number; aimTwo: boolean }
+
+/**
+ * Laid over whatever the legs are doing: the right arm out along the line of
+ * fire, the left hand under the weapon if it needs two, head and chest squared up.
+ */
+function aimOver(b: Body, c: Float32Array): void {
+  const k = smooth(b.aim), up = Math.PI / 2 + b.aimPitch;
+  c[ASW + 3] = lerp(c[ASW + 3], up, k);
+  c[AAB + 3] = lerp(c[AAB + 3], 0.04, k);
+  c[AEL + 3] = lerp(c[AEL + 3], 0.1, k);
+  if (b.aimTwo) {
+    c[ASW] = lerp(c[ASW], up - 0.12, k);
+    c[AAB] = lerp(c[AAB], -0.38, k);
+    c[AEL] = lerp(c[AEL], 0.55, k);
+    c[TWIST] = lerp(c[TWIST], -0.3, k);
+  } else {
+    c[TWIST] = lerp(c[TWIST], 0.18, k);
+  }
+  c[HYAW] = lerp(c[HYAW], b.aimTwo ? 0.3 : -0.18, k);
+  c[HPITCH] = lerp(c[HPITCH], 0, k);
+  c[SROLL] = lerp(c[SROLL], 0, k);
+}
+
 function target(b: Body, o: Float32Array): void {
   switch (b.shown) {
     case 'stand': stand(b, o); break;
@@ -897,6 +924,7 @@ export class People implements PeopleApi {
     } else {
       cur.set(TGT);
     }
+    if (b.aim > 0.004 && b.shown !== 'down' && b.shown !== 'swim') aimOver(b, cur);
   }
 
   private colors(b: Body): void {
