@@ -179,6 +179,9 @@ class SaveStore {
     this.write();
   }
 
+  /** Cash paid out while the player block is held: add it to the held copy, or a reload in mid-shift would keep the tally and lose the money. */
+  credit(cash: number): void { if (this.hold && this.data.player) this.data.player.money += cash; }
+
   /** How many times a job has paid, and one more. */
   count(key: string): number { return this.data.counts[key] ?? 0; }
   bump(key: string): number { return (this.data.counts[key] = this.count(key) + 1); }

@@ -58,6 +58,8 @@ export class ThingsToDo {
       save.data.stats.cars++;
     });
     game.on('booked', () => { save.data.stats.booked++; });
+    // A stranger's first minute: say where the work is.
+    game.on('start', () => { if (!save.data.missions.length) game.hud.toast('Lou, the watchman at your yard, wants a word. He is the L on the radar: The Cannery, Strand Blvd.', 9); });
     // The tab is going away (closed, reloaded, sent to the background on a phone): this is the write that matters.
     addEventListener('pagehide', () => this.saveNow());
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.saveNow(); });

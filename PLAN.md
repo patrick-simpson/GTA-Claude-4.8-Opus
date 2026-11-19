@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 79% done)
+## Where things stand (about 88% done)
 
 **Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
@@ -88,6 +88,28 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### M4 "Things to do": pushed Nov 19, about 5:00 PM ET
+
+`src/game/` (`index.ts` registers `ThingsToDo` as `game.todo`): `save.ts` (one
+versioned document, key `portcalamity.save.v1`; autosave; `?save=0` disables it),
+`script.ts` (19 step types, checkpoints, retry), `missions.ts` (13 missions: ten
+on the island paying 2,430 points, i.e. 5 of the 8 bridge spans, then mill,
+college and thruway jobs as Tepid Falls opens; givers at the Marlowe yard (Lou,
+a Harbor Authority watchman), Finch's bait shop, Gus's arcade, Vance's office),
+`activities.ts` (taxi, courier, towing, six races, stunt jumps, 30 ducks with 8
+in Tepid Falls; payouts taper), `shops.ts` ("Forms & Rounds" ammo on Ledger St,
+"Bent & Dented" body shop on Tinplate St). `src/ui/menu.ts`: the pause card is
+now a dossier with MAP, PROGRESS, STATS ("Mistakes made: 0*"), SETTINGS,
+CONTROLS, New game (wipes save, bridge and stages; hold Backspace only unsticks).
+Press G to talk or use; USE key on touch; M opens the map.
+Owed, important: NOBODY HAS PLAYED IT BY HAND. Every mission was passed by a
+script that hops along the street graph and does not steer, so timers and
+difficulty are untuned ("Public Comment Period" may be too hard). Also: towing
+is rigid and clips walls; five of six races never driven; gamepad and touch
+map gestures untested; duck rewards at 10/20/30 untested; nothing is actually
+gated by unlocks; no hostile Gull Syndicate actors; no shops or respray in
+Tepid Falls; radar badges crowd; dead pause-card code left in hud.ts;
+`HudApi` in api.ts lacks subtitle/timer/nav/chart/tag.
 ### Pushed Nov 19, about 4:40 PM ET: trees and street furniture, all-out pass one
 
 `tools/blender/flora.py` -> `flora2.glb` plus five texture files: trees with real
@@ -407,7 +429,7 @@ Original wording for fail states (for example "CLOCKED OUT" and "BOOKED").
 
 **M3 — Trouble (DONE, first pass):** heat levels 1-5, police on foot and in cruisers using route-finding, roadblocks, a helicopter with a spotlight at high heat, losing them by breaking line of sight, respray shop; weapons (fists, pistol, SMG, shotgun, launcher), aiming, vehicle damage, fire and explosions.
 
-**M4 — Things to do:** about ten story missions from a small step-based script format (go to, get vehicle, deliver, collect, destroy, lose heat, tail, race, survive, dialogue); taxi fares, street races, courier runs, stunt jumps, 30 hidden golden rubber ducks; shops, money, autosave to `localStorage`, pause menu with full map and settings.
+**M4 — Things to do (DONE, first pass, unplayed by hand):** about ten story missions from a small step-based script format (go to, get vehicle, deliver, collect, destroy, lose heat, tail, race, survive, dialogue); taxi fares, street races, courier runs, stunt jumps, 30 hidden golden rubber ducks; shops, money, autosave to `localStorage`, pause menu with full map and settings.
 
 **M5 — Sound:** procedural engine, tires, impacts, sirens, horn, gunshots, sea and gulls, rain; radio stations with generated music.
 

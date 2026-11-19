@@ -822,7 +822,6 @@
 
 /* ── Missions: subtitles and the countdown slip (src/game/) ────────────── */
 
-.hud-hint.tap { pointer-events: auto; cursor: pointer; }
 .hud-sub {
   position: absolute;
   left: 50%;
@@ -850,7 +849,7 @@
 }
 .hud-timer {
   position: absolute;
-  top: 3.9em;
+  top: 6.5em;
   left: 50%;
   transform: translateX(-50%);
   display: none;
@@ -862,5 +861,5 @@
 .hud-timer b { font-family: var(--f-mono); font-weight: 600; font-size: 1.9em; line-height: 1; }
 .hud-timer.urgent b { color: var(--vermilion); }
 #hud.touch .hud-sub { bottom: 3.2em; font-size: 1.2em; max-width: calc(100% - 26em); }
-#hud.touch .hud-timer { top: 3.2em; }
+#hud.touch .hud-timer { top: 5.6em; }
 #hud.paused .hud-sub, #hud.paused .hud-timer { visibility: hidden; }

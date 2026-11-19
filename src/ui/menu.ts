@@ -35,13 +35,13 @@ const CONTROLS: [string, string, string, string][] = [
   ['Look', 'Mouse', 'Right stick', 'Drag the picture'],
   ['Gas / brake', 'W / S', 'RT / LT', 'GAS / BRAKE'],
   ['Sprint', 'Shift', 'L3', 'Push the stick to its edge'],
-  ['Jump / handbrake', 'Space', 'A / X', 'JUMP / HAND BRAKE'],
+  ['Jump / handbrake', 'Space', 'A / B', 'JUMP / HAND BRAKE'],
   ['Get in or out', 'F', 'Y', 'GET IN / EXIT'],
-  ['Talk, start a job, pay', 'G', 'D-pad right', 'Tap the prompt'],
+  ['Talk, start a job, pay', 'G', 'D-pad right', 'USE'],
   ['Fire / aim', 'LMB / RMB', 'RT / LT', 'FIRE / AIM'],
   ['Switch / reload', 'Q E / R', 'LB RB / X', 'SWAP'],
   ['Horn', 'H', 'D-pad down', 'HORN'],
-  ['Camera / look back', 'V / C', 'D-pad up / R3', 'CAMERA'],
+  ['Camera / look back', 'V / C', 'D-pad left / R3', 'CAMERA'],
   ['Map', 'M or Tab', 'Back', 'Pause, then MAP'],
   ['Pause', 'Esc or P', 'Start', 'Pause key'],
   ['Unstick', 'Hold Backspace', '', ''],
@@ -64,6 +64,7 @@ export class Menu {
   private readonly pointers = new Map<number, { x: number; y: number }>();
   private dragMoved = 0; private pinch = 0;
   private cross = false;
+  private sea = '';
   private raf = 0;
   private padPrev: boolean[] = [];
   private padT = 0;
@@ -271,8 +272,10 @@ export class Menu {
   private clampView(): void {
     const b = this.game.plan.bounds, { w, h } = this.size();
     this.k = Math.max(Math.min(w / (b.x1 - b.x0), h / (b.z1 - b.z0)) * 0.94, Math.min(3, this.k));
-    this.cx = Math.max(b.x0, Math.min(b.x1, this.cx));
-    this.cz = Math.max(b.z0, Math.min(b.z1, this.cz));
+    // Never more than a margin of open paper: pulled all the way out, the world sits in the middle.
+    const hx = w / 2 / this.k - 60 / this.k, hz = h / 2 / this.k - 60 / this.k;
+    this.cx = b.x1 - b.x0 <= hx * 2 ? (b.x0 + b.x1) / 2 : Math.max(b.x0 + hx, Math.min(b.x1 - hx, this.cx));
+    this.cz = b.z1 - b.z0 <= hz * 2 ? (b.z0 + b.z1) / 2 : Math.max(b.z0 + hz, Math.min(b.z1 - hz, this.cz));
   }
 
   private zoom(f: number, px?: number, py?: number): void {
@@ -336,9 +339,11 @@ export class Menu {
     const { w, h, dpr } = this.size(), k = this.k;
     const X = (x: number): number => w / 2 + (x - this.cx) * k, Z = (z: number): number => h / 2 + (z - this.cz) * k;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    c.fillStyle = '#b9cdd0';
-    c.fillRect(0, 0, w, h);
     const ch = g.hud.chart();
+    // Open water beyond the chart's edge is the chart's own sea colour, read off its corner once.
+    if (!this.sea) { const d = (ch.img.getContext('2d') as CanvasRenderingContext2D).getImageData(2, 2, 1, 1).data; this.sea = `rgb(${d[0]},${d[1]},${d[2]})`; }
+    c.fillStyle = this.sea;
+    c.fillRect(0, 0, w, h);
     c.imageSmoothingQuality = 'high';
     c.drawImage(ch.img, X(ch.x0), Z(ch.z0), (ch.img.width / ch.s) * k, (ch.img.height / ch.s) * k);
 
@@ -354,13 +359,13 @@ export class Menu {
     const big = Math.max(11, Math.min(34, 46 * k * 3));
     text('C A L A M I T Y   S O U N D', X(-560), Z(600), big * 0.62, 'rgba(20,33,61,0.5)', false, '"Barlow Semi Condensed", sans-serif', 500);
     text('T H E   B U D G E T   G A P', X(330), Z(-800), big * 0.62, 'rgba(20,33,61,0.5)', false, '"Barlow Semi Condensed", sans-serif', 500);
-    if (k < 0.5) {
+    if (k < 0.24) {
       text('PORT CALAMITY', X(0), Z(-5), big, 'rgba(20,33,61,0.42)', false, '"Big Shoulders Display", sans-serif', 900);
       text('TEPID FALLS', X(-60), Z(-1560), big, 'rgba(20,33,61,0.42)', false, '"Big Shoulders Display", sans-serif', 900);
-      if (!progress.complete) text(`THE PERPETUAL BRIDGE · ${progress.spans} of ${BRIDGE_SPANS} spans`, X(BRIDGE.x + 150 / Math.max(k, 0.2) * 0.2 + 120), Z((BRIDGE.z0 + BRIDGE.z1) / 2), Math.max(9, big * 0.4), INK);
     }
-    if (k >= 0.3) for (const d of this.districts) text(d.text.toUpperCase(), X(d.x), Z(d.z), Math.max(10, Math.min(20, 30 * k)), 'rgba(20,33,61,0.72)');
-    if (k >= 0.62) {
+    if (!progress.complete && k < 1) text(`THE PERPETUAL BRIDGE · ${progress.spans} of ${BRIDGE_SPANS} spans`, X(BRIDGE.x) + 120, Z(BRIDGE.z0 - 60), 11, INK);
+    if (k >= 0.24) for (const d of this.districts) text(d.text.toUpperCase(), X(d.x), Z(d.z), Math.max(9, Math.min(20, 30 * k)), 'rgba(20,33,61,0.8)');
+    if (k >= 0.55) {
       const px = Math.max(9, Math.min(15, 13 * k));
       for (const l of this.labels) {
         const x = X(l.x), y = Z(l.z);
@@ -437,7 +442,7 @@ export class Menu {
     const ms = todo.missions.missions.map((m, i) => {
       const done = d.missions.includes(m.id), open = todo.missions.open(m);
       const giver = todo.missions.givers[m.giver];
-      return `<div class="mn-check ${done ? 'done' : open ? 'open' : ''}"><i>${done ? '✕' : ''}</i><span>${String(i + 1).padStart(2, '0')}</span><b>${done || open ? esc(m.title) : 'Not yet on file'}</b><em>${done ? `${money(m.reward)} · ${m.points} pts` : open ? `See ${esc(giver.name)} (${giver.letter})` : m.stage ? `Opens with ${esc(STAGE_NAMES[m.stage] ?? 'the town')}` : ''}</em></div>`;
+      return `<div class="mn-check ${done ? 'done' : open ? 'open' : ''}"><i>${done ? '✕' : ''}</i><span>${String(i + 1).padStart(2, '0')}</span><b>${done || open ? esc(m.title) : 'Not yet on file'}</b><em>${done ? `${money(m.reward)} · ${m.points} pts` : open ? `See ${esc(giver.name)} (${giver.letter})` : m.stage ? `Tepid Falls, stage ${m.stage}` : ''}</em></div>`;
     }).join('');
     const jumps = RAMP_NAMES.map((n, i) => `<div class="mn-check ${d.jumps.includes(i) ? 'done' : 'open'}"><i>${d.jumps.includes(i) ? '✕' : ''}</i><b>${n}</b><em>${d.best['jump:' + i] !== undefined ? `best ${d.best['jump:' + i]} pts` : ''}</em></div>`).join('');
     const races = todo.jobs.races.map((r) => { const b = d.best['race:' + r.name]; return `<div class="mn-check ${b !== undefined && b <= r.par ? 'done' : 'open'}"><i>${b !== undefined && b <= r.par ? '✕' : ''}</i><b>${esc(r.name)}</b><em>par ${clock(r.par)}${b !== undefined ? ` · best ${clock(b)}` : ''}</em></div>`; }).join('');

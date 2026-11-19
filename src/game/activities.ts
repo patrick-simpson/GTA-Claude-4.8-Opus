@@ -158,6 +158,7 @@ export class Activities {
     save.bump(key);
     const c = Math.round(cash * k.cash), p = Math.round(points * k.points);
     this.game.player.money += c;
+    save.credit(c);
     save.data.stats.earned += c;
     progress.add(p);
     return { cash: c, points: p };
@@ -518,12 +519,12 @@ export class Activities {
       m.visible = false;
       save.data.ducks.push(i);
       const n = save.data.ducks.length;
-      p.money += 50; save.data.stats.earned += 50;
+      p.money += 50; save.credit(50); save.data.stats.earned += 50;
       progress.add(25);
       g.emit('duck', { x: d.x, z: d.z });
       if (n === 10 || n === 20 || n === DUCKS) {
         const cash = n === 10 ? 500 : n === 20 ? 1000 : 2500, pts = n === 10 ? 150 : n === 20 ? 300 : 600;
-        p.money += cash; save.data.stats.earned += cash;
+        p.money += cash; save.credit(cash); save.data.stats.earned += cash;
         progress.add(pts);
         g.hud.stamp(n === DUCKS ? 'ALL THIRTY DUCKS' : `${n} DUCKS`, `${money(cash)} · ${pts} toward the bridge · ${n === DUCKS ? 'the Harbor Authority has no form for this' : 'they are watching you now'}`);
       } else g.hud.toast(`Golden duck ${n} of ${DUCKS}. $50. It squeaks with authority.`, 5);

@@ -820,6 +820,7 @@ export class Hud implements HudApi {
   readonly nav: Nav = { blips: [], route: null, rev: 0 };
   private navRev = -1;
   private subEl!: HTMLElement; private subT = 0;
+  private objShown: string | null = null;
   private timerEl!: HTMLElement; private timerTx = '';
 
   constructor(private game: Game) {
@@ -939,10 +940,6 @@ export class Hud implements HudApi {
 
     this.subEl = q('.hud-sub');
     this.timerEl = q('.hud-timer');
-    // No key to press on a phone: a prompt is its own button there (and a click works with the mouse free).
-    this.hint.addEventListener('pointerdown', (e) => { if (this.promptText !== null) { e.preventDefault(); game.input.touchDown('interact'); } });
-    for (const up of ['pointerup', 'pointercancel', 'pointerleave']) this.hint.addEventListener(up, () => game.input.touchUp('interact'));
-
     addEventListener('resize', () => { this.resized = true; });
     addEventListener('keydown', (e) => {
       if (e.code !== 'KeyK' || e.repeat || this.state !== 'play' || this.touch) return;
@@ -1028,6 +1025,9 @@ export class Hud implements HudApi {
    */
   prompt(text: string | null): void { this.promptText = text; }
 
+  /** A prompt that takes the interact key is up: the touch layer shows its USE key. */
+  get prompting(): boolean { return this.promptText !== null && this.promptText.charAt(0) === '['; }
+
   /** The radar's chart of both lands, for the pause menu's map. */
   chart(): { img: HTMLCanvasElement; s: number; x0: number; z0: number } { return this.radar.chart(); }
 
@@ -1060,6 +1060,9 @@ export class Hud implements HudApi {
   }
 
   private setObjective(text: string | null): void {
+    // Missions restate their objective every frame; only a change touches the page.
+    if (text === this.objShown) return;
+    this.objShown = text;
     this.objEl.classList.toggle('on', !!text);
     if (text) this.objTx.textContent = text;
   }
@@ -1152,7 +1155,6 @@ export class Hud implements HudApi {
 
     this.tickArms(live);
     if (this.subT > 0 && live && (this.subT -= dt) <= 0) this.subEl.classList.remove('on');
-    this.hint.classList.toggle('tap', this.promptText !== null);
     if (this.backT > 0 && live && performance.now() - this.backT >= UNSTICK * 1000) { this.backT = 0; g.todo.unstick(); }
 
     if (live) {

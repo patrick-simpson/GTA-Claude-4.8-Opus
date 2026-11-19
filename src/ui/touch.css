@@ -129,7 +129,16 @@
 .t-key.always { display: flex; }
 #touch.paused .t-key:not(.always) { display: none; }
 /* Beats the layout rules above: GET IN exists only beside a car. */
-#touch .t-key.t-getin.gone { display: none; }
+#touch .t-key.t-getin.gone, #touch .t-key.t-use.gone { display: none; }
+/* USE: bottom centre, just above the prompt it answers. */
+.t-use {
+  left: 50%;
+  bottom: calc(var(--sb) + 34px);
+  width: calc(var(--u) * 2);
+  height: calc(var(--u) * 0.9);
+  margin-left: calc(var(--u) * -1);
+  border-color: var(--mustard);
+}
 
 /* Driving: pedals along the bottom edge, growing toward the right thumb.
    The cluster is kept as narrow as thumbs allow: the car sits bottom-centre. */

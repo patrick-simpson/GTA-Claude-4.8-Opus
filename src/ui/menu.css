@@ -84,7 +84,7 @@ body.reduced-motion .mn-card, body.reduced-motion .mn-slip { animation: none; }
 .mn-scroll { overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding-right: 0.4em; }
 
 /* Map. */
-.mn-map { border: var(--rule) solid var(--ink); background: #b9cdd0; }
+.mn-map { border: var(--rule) solid var(--ink); background: var(--bone); }
 .mn-map canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
 .mn-map canvas:active { cursor: grabbing; }
 .mn-maphelp {
@@ -146,7 +146,7 @@ body.reduced-motion .mn-card, body.reduced-motion .mn-slip { animation: none; }
   align-self: center;
 }
 .mn-check span { font-family: var(--f-mono); font-size: 0.8em; opacity: 0.6; }
-.mn-check b { font-weight: 700; }
+.mn-check b { font-weight: 700; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mn-check em { margin-left: auto; font-style: normal; font-family: var(--f-mono); font-size: 0.72em; opacity: 0.7; text-align: right; white-space: nowrap; }
 .mn-mistakes { font-size: 1.7em; border-bottom: 3px solid var(--vermilion); }
 .mn-mistakes > span:last-child { font-family: var(--f-head); font-weight: 900; font-size: 1.5em; }
@@ -232,6 +232,7 @@ body.reduced-motion .mn-card, body.reduced-motion .mn-slip { animation: none; }
 #menu.touch .mn-tab small, #menu.touch .mn-or { display: none; }
 #menu.touch .mn-btn { font-size: 1.7em; }
 #menu.touch .mn-new { font-size: 1.3em; }
+@media (pointer: coarse) { .mn-or, .mn-tab small { display: none; } }
 @media (max-width: 900px) {
   .mn-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mn-hd .mn-lbl:last-child { display: none; }

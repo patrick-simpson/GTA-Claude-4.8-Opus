@@ -56,7 +56,7 @@ export type Step =
   | { t: 'destroy'; tags: string[]; text: string }
   | { t: 'loseHeat'; text: string }
   /** Follow a tagged vehicle as it drives `route`: fail by crowding it (inside `near` m) or losing it (beyond `far` m). */
-  | { t: 'tail'; tag: string; route: Pt[]; text: string; speed?: number; near?: number; far?: number }
+  | { t: 'tail'; tag: string; route: Pt[] | (() => Pt[]); text: string; speed?: number; near?: number; far?: number }
   /** Through every checkpoint in order inside `par` seconds. */
   | { t: 'race'; cps: Pt[]; par: number; text: string; r?: number; mode?: Mode }
   /** Last `secs` seconds; with `at`, the clock only runs while she is within `r` of it. */
@@ -158,8 +158,8 @@ export class Markers {
 
   begin(dt: number): void { this.used = 0; this.t += dt; }
 
-  /** r: radius of the ring in meters. tall: height of the column. */
-  put(x: number, z: number, kind: MarkKind, r = 4, tall = 30): void {
+  /** r: radius of the ring in meters. tall: height of the column. lift: how far up the column starts (over a person's head, say). */
+  put(x: number, z: number, kind: MarkKind, r = 4, tall = 30, lift = 0): void {
     const i = this.used++;
     if (i >= this.beams.length) {
       const b = new THREE.Mesh(this.beamGeo), g = new THREE.Mesh(this.ringGeo);
@@ -174,7 +174,7 @@ export class Markers {
     b.visible = g.visible = true;
     const reduced = document.body.classList.contains('reduced-motion');
     const pulse = reduced ? 1 : 1 + 0.07 * Math.sin(this.t * 3.2 + i);
-    b.position.set(x, y, z); b.scale.set(r * 0.5, tall, r * 0.5);
+    b.position.set(x, y + lift, z); b.scale.set(r * 0.5, tall, r * 0.5);
     g.position.set(x, y, z); g.scale.set(r * pulse, 1, r * pulse);
   }
 
@@ -274,6 +274,8 @@ export class Runner {
     this.timer = 0; this.lines.length = 0; this.rail = null;
     this.onBusy(m.id);
     this.cp = this.snap(0);
+    // Whatever the strip was saying (the newcomer's tour, usually) gives way to the mission.
+    g.hud.objective(null);
     g.hud.stamp(m.title, m.intro);
   }
 
@@ -308,10 +310,10 @@ export class Runner {
     save.data.missions.push(m.id);
     save.data.stats.passed++; save.data.stats.earned += m.reward;
     g.player.money += m.reward;
+    progress.add(m.points);
     this.cur = null;
     this.onBusy(null);
     g.hud.stamp('FILED', `${m.title} · ${money(m.reward)} · ${m.points} toward the bridge`);
-    progress.add(m.points);
     if (m.unlocks) g.hud.toast(m.unlocks, 8);
   }
 
@@ -421,7 +423,7 @@ export class Runner {
     if (!this.isFree()) return;
     for (const o of this.offers()) {
       const gv = this.givers[o.giver], d = Math.hypot(p.x - gv.at.x, p.z - gv.at.z);
-      if (d < 320) this.markers.put(gv.at.x, gv.at.z, 'giver', 1.5, 14);
+      if (d < 320) this.markers.put(gv.at.x, gv.at.z, 'giver', 1.3, 16, 2.5);
       if (d > (p.vehicle ? 7 : 3.6) || p.speed > 3) continue;
       this.prompt = `[G] ${gv.short}: "${o.m.title}"`;
       if (g.input.eat('interact')) this.start(o.m);
@@ -508,9 +510,11 @@ export class Runner {
         const v = this.car(s.tag);
         this.nearT = this.farT = 0;
         if (!v) break;
-        const a = s.route[0], b = s.route[1] ?? a;
+        // A route given as a function is worked out now, not at start-up: streets open and close with the town.
+        const pts = typeof s.route === 'function' ? s.route() : s.route;
+        const a = pts[0], b = pts[1] ?? a;
         v.x = a.x; v.z = a.z; v.h = Math.atan2(b.x - a.x, b.z - a.z);
-        this.rail = { v, pts: s.route, seg: 0, s: 0, speed: s.speed ?? 11, done: false };
+        this.rail = { v, pts, seg: 0, s: 0, speed: s.speed ?? 11, done: false };
         break;
       }
       default: break;

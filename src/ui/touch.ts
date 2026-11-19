@@ -56,6 +56,8 @@ export class TouchUI {
   private keys: Key[] = [];
   private byEl = new Map<Element, Key>();
   private getIn!: Key;
+  private useKey!: Key;
+  private using = false;
   private aimKey!: Key;
   /** AIM is a latch on glass: nobody has a spare thumb to hold it. */
   private aimOn = false;
@@ -107,6 +109,8 @@ export class TouchUI {
     act('t-fire arm', '09', 'Fire', 'fire').look = true;
     this.aimKey = this.key('t-aim arm', '10', 'Aim', () => this.setAim(!this.aimOn), () => { /* a latch: lifting the thumb changes nothing */ });
     act('t-swap arm', '11', 'Swap', 'nextWeapon');
+    // Talk, start a job, pay: on the glass only while a prompt that wants it is up (missions and jobs, src/game/).
+    this.useKey = act('t-use always gone', '12', 'Use', 'interact');
     act('t-pause always', '', GLYPH.pause, 'pause');
 
     const card = this.div('t-rotate');
@@ -363,6 +367,12 @@ export class TouchUI {
       this.near = near;
       this.getIn.el.classList.toggle('gone', !near);
       if (!near) this.dropKey(this.getIn);
+    }
+    const using = !paused && this.game.hud.prompting;
+    if (using !== this.using) {
+      this.using = using;
+      this.useKey.el.classList.toggle('gone', !using);
+      if (!using) this.dropKey(this.useKey);
     }
   }
 
