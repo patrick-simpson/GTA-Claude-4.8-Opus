@@ -38,5 +38,10 @@ jobs:
         with:
           path: dist
 
+      # The deploy step asks GitHub for the artifact a fraction of a second after the
+      # upload finishes, and sometimes the listing has not caught up ("No artifacts
+      # named github-pages were found"). Give it a moment.
+      - run: sleep 25
+
       - uses: actions/deploy-pages@v5
         id: deployment
