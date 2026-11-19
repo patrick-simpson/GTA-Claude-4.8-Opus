@@ -88,6 +88,25 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Pushed Nov 19, about 4:40 PM ET: trees and street furniture, all-out pass one
+
+`tools/blender/flora.py` -> `flora2.glb` plus five texture files: trees with real
+branching, several variants per species, backlit leaves, dappled shadows, baked
+impostors at distance; island species on the island, white pine, birch, maple,
+oak, spruce and elm with autumn colour in Tepid Falls. Ground cover: reeds at
+pond, river, lake and stream, ferns, fallen leaves, wildflower drifts.
+`tools/blender/props.py` -> `props.glb`: hydrant, bin, mailbox, bench, sign post,
+news box and cobra-head lamp modelled in Blender, drawn within 42 m
+(`propAssets.ts`); `?props=0` and `?flora=0` switch back.
+Owed: most of the prop list is not done (Tepid Falls post-top lamp, signal masts,
+pedestrian signal, bus shelter, parking meter, bollard, bike rack, covers, stop
+sign, utility poles and wires); no ivy or planters; props have no baked maps;
+prop swap at 42 m is a hard cut; trees still cost 1.7-2.3 ms in tree-heavy
+views (not shown to be cheaper than before); cypress is dark and spiky close up;
+mailbox and sign post never inspected; an unexplained olive wedge and brown band
+near (-19, -1) downtown in shots/fx/felled.png, not from flora or props.
+Cause of the black-trees snapshot that was held back: a texture's size was read
+after its bitmap was closed (0 x 0 upload). The look-first rule caught it.
 ### Pushed Nov 19, about 11:50 AM ET: people, all-out pass one
 
 `tools/blender/people.py` and both bodies re-exported together (1.44 MB each):

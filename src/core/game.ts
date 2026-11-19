@@ -24,6 +24,8 @@ import { Post } from './post';
 import { Fx } from '../fx/particles';
 import { Skids } from '../fx/skids';
 import { ProgressWorks, progress } from '../world/progress';
+import { ThingsToDo } from '../game/index';
+import { savedQuality } from '../game/save';
 
 const PRESETS: Record<Quality['name'], Quality> = {
   low: { name: 'low', pixelRatio: 1.5, antialias: false, shadows: false, shadowSize: 1024, drawDist: 520, density: 0.5 },
@@ -35,6 +37,9 @@ const PRESETS: Record<Quality['name'], Quality> = {
 function pickQuality(): Quality {
   const asked = new URLSearchParams(location.search).get('q') as Quality['name'] | null;
   if (asked && PRESETS[asked]) return PRESETS[asked];
+  // The menu's own choice (SETTINGS, kept in the save) comes next.
+  const kept = savedQuality();
+  if (kept) return PRESETS[kept];
   const phone = matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 500;
   return PRESETS[phone ? 'low' : 'high'];
 }
@@ -65,6 +70,8 @@ export class Game {
   private cheats!: Cheats;
   /** Particles: smoke, sparks, spray. `fx.emitters` is how other systems ask for an effect. */
   fx!: Fx;
+  /** Milestone 4: the save, the missions, the jobs and the menu (src/game/). */
+  todo!: ThingsToDo;
   /** Systems from later milestones plug in here until they earn a named slot. Updated after the world, while running. */
   readonly systems: { update(dt: number): void }[] = [];
 
@@ -146,6 +153,7 @@ export class Game {
     this.systems.push(new Police(this));
     this.systems.push(this.player.weapons);
     this.systems.push(new ProgressWorks(this));
+    this.systems.push((this.todo = new ThingsToDo(this)));
 
     // One full step so every system has seen every other before the first picture.
     this.state = 'title';

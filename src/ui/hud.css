@@ -819,3 +819,48 @@
 .hud-card-keys { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 1.4em; margin-top: 0.5em; }
 .hud-card-keys > .hud-lbl { grid-column: 1 / -1; }
 .hud-btn-reset { white-space: nowrap; }
+
+/* ── Missions: subtitles and the countdown slip (src/game/) ────────────── */
+
+.hud-hint.tap { pointer-events: auto; cursor: pointer; }
+.hud-sub {
+  position: absolute;
+  left: 50%;
+  bottom: 4.6em;
+  transform: translateX(-50%);
+  display: none;
+  max-width: min(46em, calc(100% - 22em));
+  padding: 0.45em 1em 0.5em;
+  background: rgba(20, 33, 61, 0.88);
+  border-left: 4px solid var(--mustard);
+  font-size: 1.45em;
+  font-weight: 500;
+  line-height: 1.22;
+  text-align: left;
+}
+.hud-sub.on { display: block; }
+.hud-sub b {
+  display: block;
+  font-family: var(--f-head);
+  font-weight: 900;
+  font-size: 0.8em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mustard);
+}
+.hud-timer {
+  position: absolute;
+  top: 3.9em;
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  align-items: baseline;
+  gap: 0.7em;
+  padding: 0.2em 0.8em 0.25em;
+}
+.hud-timer.on { display: flex; }
+.hud-timer b { font-family: var(--f-mono); font-weight: 600; font-size: 1.9em; line-height: 1; }
+.hud-timer.urgent b { color: var(--vermilion); }
+#hud.touch .hud-sub { bottom: 3.2em; font-size: 1.2em; max-width: calc(100% - 26em); }
+#hud.touch .hud-timer { top: 3.2em; }
+#hud.paused .hud-sub, #hud.paused .hud-timer { visibility: hidden; }

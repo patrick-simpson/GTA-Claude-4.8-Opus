@@ -17,7 +17,7 @@ import { Batch } from './batch';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { MARKS, TILE_M } from './textures';
 import { signalState } from './signals';
-import { CELL, Cover, EXTRA, TreeField, loadFlora, floraMaterial, type Planting } from './floraAssets';
+import { CELL, Cover, EXTRA, TreeField, loadFlora, floraEnv, type FloraFile, type Planting, type Rect4 } from './floraAssets';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RNG, TAU, clamp, hash2, noise2, smooth } from '../core/util';
 import {
@@ -29,6 +29,7 @@ import {
   RIVER_HW, ROAD_BRIDGE, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, hillAt, mainlandTerrain, riverX, waterDist,
 } from './mainland';
 import { sawhorses } from './progress';
+import { CUT_FAR, CUT_NEAR, CUT_VERTEX, PropField, loadProps } from './propAssets';
 
 // Palette (see PLAN.md).
 const INK = 0x1e2b44, BONE = 0xf2e8cf, VERM = 0xe4572e, MUST = 0xf0a202, TEAL = 0x2a9d8f;
@@ -232,15 +233,21 @@ const PM = new THREE.Matrix4(), PN = new THREE.Matrix3(), PV = new THREE.Vector3
  * What the furniture is drawn with. On the physically based shelf it reads roughness and metalness
  * per vertex; on the cheap shelf (phones, `?pbr=0`) it is the plain two-sided paint and `aPbr` is ignored.
  */
-function propMaterial(mats: CityMaterials): THREE.Material {
+function propMaterial(mats: CityMaterials, cut: { value: THREE.Vector2 } | null = null): THREE.Material {
   if (!mats.pbr) return mats.flatDouble;
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, fog: true, envMapIntensity: 0.55 });
   m.onBeforeCompile = (sh) => {
     sh.vertexShader = 'attribute vec2 aPbr;\nvarying vec2 vPbr;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vPbr = aPbr;');
+    // Props that have a modelled version (propAssets.ts) are drawn on one side of a distance only.
+    if (cut) {
+      sh.uniforms.uCut = cut;
+      sh.vertexShader = 'uniform vec2 uCut;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>' + CUT_VERTEX);
+    }
     sh.fragmentShader = 'varying vec2 vPbr;\n' + sh.fragmentShader
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = vPbr.x;')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = vPbr.y;');
   };
+  m.customProgramCacheKey = () => (cut ? 'prop-cut' : 'prop');
   return m;
 }
 
@@ -695,15 +702,16 @@ const FILL: Record<District, [Surface, number]> = {
   college: ['grass', 0xd2e0a4], yard: ['asphalt', 0xe6e0d2], exits: ['asphalt', 0xf0ede6], lake: ['grass', 0xdfe2b0], sister: ['grass', 0xdfe2b0],
 };
 
-type Species = 'plane' | 'maple' | 'oak' | 'cypress' | 'palm';
+type Species = 'plane' | 'maple' | 'oak' | 'cypress' | 'palm' | 'cherry' | 'pine' | 'spruce' | 'birch' | 'sugarmaple' | 'redoak' | 'elm';
 /** Street trees per district: species, spacing along the curb in meters, and how many of the spots are planted. */
 const STREET_TREES: Record<District, [Species, number, number]> = {
   downtown: ['plane', 15, 0.85], midtown: ['plane', 14, 0.8], oldtown: ['plane', 21, 0.5],
   suburb: ['maple', 10, 0.9], industrial: ['plane', 40, 0.1], port: ['plane', 40, 0.06],
   strand: ['palm', 13, 0.5], park: ['oak', 12, 0.85], arena: ['plane', 22, 0.5],
-  // Maine has no palms and few planes: maples on the streets, oaks on the square and the hill.
-  mill: ['maple', 26, 0.4], main: ['maple', 15, 0.8], square: ['oak', 11, 0.9], stacks: ['maple', 11, 0.85],
-  college: ['oak', 13, 0.8], yard: ['maple', 40, 0.12], exits: ['maple', 34, 0.2], lake: ['oak', 20, 0.5], sister: ['maple', 14, 0.6],
+  // Maine has no palms and no planes: sugar maples on the streets, elms round the square, red oaks on the hill,
+  // birch and pine where the town thins out.
+  mill: ['sugarmaple', 26, 0.4], main: ['sugarmaple', 15, 0.8], square: ['elm', 13, 0.9], stacks: ['sugarmaple', 11, 0.85],
+  college: ['redoak', 13, 0.8], yard: ['birch', 40, 0.12], exits: ['pine', 34, 0.2], lake: ['birch', 20, 0.5], sister: ['sugarmaple', 14, 0.6],
 };
 const LEAF: Record<Species, number[]> = {
   plane: [0x7f9c54, 0x8ca95e, 0x70904f],
@@ -711,7 +719,23 @@ const LEAF: Record<Species, number[]> = {
   oak: [0x507f46, 0x5e8b4b, 0x437048],
   cypress: [0x355e4b, 0x3f6b55],
   palm: [0x6f9a50, 0x82aa5a],
+  cherry: [0xf2a8c0, 0xf7c0d0, 0xee98b4],
+  pine: [0x4a7a58, 0x55866a], spruce: [0x3a6a54, 0x46755c],
+  birch: [0x8fae50, 0x9cb85a], sugarmaple: [0x5f8f48, 0x6f9c4e, 0x528243],
+  redoak: [0x55803f, 0x628c45, 0x4a7540], elm: [0x5c8c46, 0x6a984c, 0x4f7f40],
 };
+/** What the mainland's maples, birches and oaks turn in the fall, and how many of them have. */
+const FALL: Partial<Record<Species, number[]>> = {
+  sugarmaple: [0xe07a28, 0xd9542a, 0xe6a030, 0xc23e2a, 0xeab53a], birch: [0xe0b83a, 0xd9a52e, 0xe8c64a], redoak: [0xa85a2c, 0x9a4a28],
+};
+const FALL_SHARE = 0.45;
+/** The stand-in shape (phones, and everyone until the models load) and how much bigger than it the species is. */
+const SHAPE: Record<Species, [Species, number]> = {
+  plane: ['plane', 1], maple: ['maple', 1], oak: ['oak', 1], cypress: ['cypress', 1], palm: ['palm', 1], cherry: ['maple', 0.62],
+  pine: ['pine', 1], spruce: ['spruce', 1], birch: ['birch', 1], sugarmaple: ['maple', 1.35], redoak: ['oak', 1.2], elm: ['oak', 1.35],
+};
+/** A number in 0..1 that depends only on the spot: for choices that must not disturb anyone's dice. */
+const spot = (x: number, z: number): number => { const v = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453; return v - Math.floor(v); };
 
 /** The leaf pictures are pale and the crowns shade themselves, so the old flat-shaded leaf colours go on a little brighter. */
 const LEAF_GAIN = 1.2;
@@ -757,8 +781,13 @@ class Ground implements WorldPart {
 
   // One canopy mesh, one trunk mesh and one palm crown serve every species.
   private trunks: Inst; private blobs: Inst; private palms: Inst;
+  /** Every tree planted, for what grows and falls under it. */
+  private stood: [Species, number, number][] = [];
   private lamps: Inst;
   private propMat!: THREE.Material;
+  /** The same paint for props that have a modelled version: beyond its reach, and (propNear) within it. */
+  private propFar!: THREE.Material; private propNear!: THREE.Material;
+  private props: PropField | null = null;
   private sandMat: THREE.MeshStandardMaterial | null = null;
   /** Small things drawn only within `lim` meters of their bounding sphere: a bin at 300 m is a pixel, but it is still a draw call and triangles. */
   private nearOnly: { o: THREE.Object3D; c: THREE.Vector3; r: number; lim: number }[] = [];
@@ -799,9 +828,10 @@ class Ground implements WorldPart {
     this.blobs = new Inst(blobGeo(), flat, REGION);
     this.palms = new Inst(palmGeo(), mats.flatDouble, REGION);
     this.propMat = propMaterial(mats);
-    this.lamps = new Inst(lampGeo(), this.propMat, REGION);
+    this.propFar = propMaterial(mats, CUT_FAR); this.propNear = propMaterial(mats, CUT_NEAR);
+    this.lamps = new Inst(lampGeo(), this.propFar, REGION);
     // Bucketed by region like the lamps: the models have real triangle counts now, and far ones should be culled.
-    this.furn = [hydrantGeo(), binGeo(), mailboxGeo(), benchGeo(), postGeo(), newsGeo()].map((g) => new Inst(g, this.propMat, REGION));
+    this.furn = [hydrantGeo(), binGeo(), mailboxGeo(), benchGeo(), postGeo(), newsGeo()].map((g) => new Inst(g, this.propFar, REGION));
 
     if (game.quality.name !== 'low') this.toneGrass();
     this.terrain();
@@ -850,10 +880,20 @@ class Ground implements WorldPart {
     if (game.quality.name !== 'low' && new URLSearchParams(location.search).get('flora') !== '0') {
       void loadFlora().then((geo) => { if (geo) this.plantFlora(geo); });
     }
+    // The modelled street furniture, for close up. Not on phones or the cheap shelf; `?props=0` keeps the code-built ones, for comparing.
+    if (game.quality.name !== 'low' && mats.pbr && new URLSearchParams(location.search).get('props') !== '0') {
+      void loadProps().then((geo) => {
+        if (!geo) return;
+        const kinds: { geo: THREE.BufferGeometry; src: readonly THREE.InstancedMesh[] }[] = [];
+        const want: [string, Inst][] = [['lamp', this.lamps], ...(['hydrant', 'bin', 'mailbox', 'bench', 'post', 'news'] as const).map((n, i): [string, Inst] => [n, this.furn[i]])];
+        for (const [name, inst] of want) { const g = geo.get(name); if (g) kinds.push({ geo: g, src: inst.meshes }); }
+        this.props = new PropField(this.root, this.propNear, kinds);
+      });
+    }
   }
 
   /** The tree models have arrived: draw them and retire the stand-ins. Collision never changes. */
-  private plantFlora(geo: Map<string, THREE.BufferGeometry>): void {
+  private plantFlora(geo: FloraFile): void {
     const p = this.planted;
     // Whatever places.ts asked for (courtyard trees and planting) joins the same field.
     const all: Planting = { kind: p.kind.concat(EXTRA.kind), m: p.m.concat(EXTRA.m), c: p.c.concat(EXTRA.c) };
@@ -1356,7 +1396,8 @@ class Ground implements WorldPart {
           const j = rng.range(-1.5, 1.5), keep = rng.next() < share && rng.next() < den, alt = rng.next();
           if (!keep) continue;
           const [x, z] = at(s + j, STRIP + 0.2);
-          const sp = species === 'maple' && alt < 0.12 ? 'cypress' : species;
+          // One Gull Heights maple in seven is a cherry in blossom (it rolls the same dice as the maple it replaces).
+          const sp = species === 'maple' && alt < 0.12 ? 'cypress' : species === 'maple' && alt > 0.86 ? 'cherry' : species;
           // Palm crowns hang in front of sign boards; the spawn-side WDOOF board is the first one a player sees.
           if (sp === 'palm' && Math.abs(x - 52) < 12 && Math.abs(z - 302) < 12) continue;
           if (!keepOut(x, z) && this.claim(x, z, 1.7)) this.tree(sp, x, z, rng);
@@ -1742,8 +1783,7 @@ class Ground implements WorldPart {
           const j = rng.range(-1.5, 1.5), keep = rng.next() < share && rng.next() < den, alt = rng.next();
           if (!keep) continue;
           const [x, z] = at(s + j, STRIP + 0.2);
-          // The dark conifer stands in for a white pine until Maine's own trees are modelled.
-          const sp = species === 'maple' && alt < 0.2 ? 'cypress' : species;
+          const sp: Species = species === 'sugarmaple' && alt < 0.14 ? 'birch' : species === 'sugarmaple' && alt > 0.9 ? 'redoak' : species;
           if (!keepOut(x, z) && this.claim(x, z, 1.7)) this.tree(sp, x, z, rng);
         }
       });
@@ -1758,7 +1798,7 @@ class Ground implements WorldPart {
         if (sq ? edge > 16 : hh < 0.6 || hh > HILL.h - 0.5) continue;
         const want = (sq ? 0.75 : 0.2 + 0.6 * smooth(noise2(px * 0.03 + 5, pz * 0.03) * 1.8 - 0.4)) * den;
         if (roll > want || Math.abs(px - MXS[2]) < 12 || keepOut(px, pz) || !this.claim(px, pz, 3.2)) continue;
-        this.tree(alt < 0.3 ? 'cypress' : alt < 0.6 ? 'maple' : 'oak', px, pz, rng);
+        this.tree(sq ? (alt < 0.75 ? 'elm' : 'sugarmaple') : alt < 0.25 ? 'pine' : alt < 0.45 ? 'birch' : alt < 0.7 ? 'sugarmaple' : 'redoak', px, pz, rng);
       }
     }
     for (let x = -950; x < 1000; x += 24) for (let z = -2510; z < -1000; z += 24) {
@@ -1766,13 +1806,16 @@ class Ground implements WorldPart {
       if (inTown(px, pz, 9)) continue;
       const want = (0.22 + 0.75 * smooth(noise2(px * 0.012 + 3, pz * 0.012 + 11) * 2 - 0.55)) * den;
       if (roll > want || coastSD(px, pz) > -36 || waterDist(px, pz) < 7 || keepOut(px, pz) || inExtraLot(px, pz, 4)) continue;
-      this.tree(alt < 0.5 ? 'cypress' : alt < 0.72 ? 'oak' : 'maple', px, pz, rng);
+      // Maine woods: pine and spruce over birch, maple and oak.
+      this.tree(alt < 0.3 ? 'pine' : alt < 0.5 ? 'spruce' : alt < 0.68 ? 'birch' : alt < 0.86 ? 'sugarmaple' : 'redoak', px, pz, rng);
     }
   }
 
   private tree(sp: Species, x: number, z: number, rng: RNG): void {
     // Sunk a hand's width so no trunk hovers over the terrain's six-centimeter drop.
-    const y = groundAt(x, z) - 0.1, k = rng.range(0.85, 1.18), leaf = LEAF[sp];
+    const y = groundAt(x, z) - 0.1, k0 = rng.range(0.85, 1.18), leaf = LEAF[sp], [shape, big] = SHAPE[sp], k = k0 * big;
+    const fall = FALL[sp], turned = (): number => (fall && rng.chance(FALL_SHARE) ? rng.pick(fall) : rng.pick(leaf));
+    this.stood.push([sp, x, z]);
     let tint = -1;
     const blob = (dx: number, dy: number, dz: number, r: number, ry: number, hex: number): void => {
       if (tint < 0) tint = hex;
@@ -1782,38 +1825,49 @@ class Ground implements WorldPart {
     let th = 3, tr = 0.25, bark = 0x6b4a36;
     const a = rng.range(0, TAU), ax = Math.cos(a), az = Math.sin(a);
     if (sp === 'palm') {
-      th = rng.range(6.5, 9.5); tr = 0.2; bark = 0xa08a6a;
-      const h = rng.range(0, TAU), lean = rng.range(0.02, 0.11);
+      // Three palms in ten are the short stout kind, a date palm with its boots on.
+      const date = spot(x, z) < 0.3;
+      th = rng.range(6.5, 9.5) * (date ? 0.52 : 1); tr = date ? 0.34 : 0.2; bark = date ? 0x8a7458 : 0xa08a6a;
+      const h = rng.range(0, TAU), lean = rng.range(0.02, 0.11) * (date ? 0.3 : 1);
       xf(x, y, z, h, tr, th, tr, lean);
       this.trunks.add(x, z, bark);
-      // The modelled trunk is 8 m tall and stretched to this palm's height.
-      xf(x, y, z, h, 1, th / 8, 1, lean);
-      this.plant('palmtrunk', 0xffffff);
+      // The modelled trunk is 8 m tall (the date palm's 4 m) and stretched to this palm's height.
+      xf(x, y, z, h, 1, th / (date ? 4 : 8), 1, lean);
+      this.plant(date ? 'datetrunk' : 'palmtrunk', 0xffffff);
       // Top of the leaning trunk.
       const top = th * Math.sin(lean);
       xf(x + Math.sin(h) * top, y + th * Math.cos(lean), z + Math.cos(h) * top, rng.range(0, TAU), k, k, k, lean);
       const hex = rng.pick(leaf);
       this.palms.add(x, z, hex, rng.range(0.9, 1.05));
-      this.plant('palmcrown', hex, LEAF_GAIN);
+      this.plant(date ? 'datecrown' : 'palmcrown', hex, LEAF_GAIN);
+    } else if (shape === 'pine' || shape === 'spruce') {
+      const pine = shape === 'pine', hex = rng.pick(leaf);
+      th = pine ? 7 * k : 1.2; tr = pine ? 0.3 : 0.22; bark = 0x5a4334;
+      blob(0, (pine ? 11 : 5.2) * k, 0, (pine ? 3.0 : 2.3) * k, (pine ? 5.0 : 4.6) * k, hex);
+      blob(0, (pine ? 15 : 9.5) * k, 0, (pine ? 1.8 : 1.2) * k, (pine ? 2.6 : 3.0) * k, hex);
+    } else if (shape === 'birch') {
+      th = 4.5 * k; tr = 0.13; bark = 0xe6e2d6;
+      blob(0, th + 2.8 * k, 0, 1.9 * k, 3.3 * k, turned());
     } else if (sp === 'cypress') {
       th = 1.4; tr = 0.2; bark = 0x5a4334;
       const hex = rng.pick(leaf);
       blob(0, 1.0 + 3.6 * k, 0, 1.15 * k, 3.9 * k, hex);
       blob(0, 1.0 + 6.2 * k, 0, 0.7 * k, 2.2 * k, hex);
-    } else if (sp === 'plane') {
+    } else if (shape === 'plane') {
       th = rng.range(3.3, 4.1); tr = 0.2; bark = 0xb0a488;
       blob(0, th + 1.2 * k, 0, 2.1 * k, 1.7 * k, rng.pick(leaf));
       blob(ax * 0.9, th + 2.2 * k, az * 0.9, 1.5 * k, 1.3 * k, rng.pick(leaf));
-    } else if (sp === 'maple') {
-      th = rng.range(2.5, 3.3); tr = 0.25;
-      // One tree in seven has turned early, mustard or rust, top to bottom.
-      const hex = rng.chance(0.14) ? leaf[rng.int(3, 4)] : leaf[rng.int(0, 2)];
+    } else if (shape === 'maple') {
+      th = rng.range(2.5, 3.3) * big; tr = 0.25 * big;
+      // One island maple in seven has turned early, mustard or rust, top to bottom. On the mainland it is fall for half of them.
+      const early = rng.chance(0.14);
+      const hex = sp === 'maple' ? (early ? leaf[rng.int(3, 4)] : leaf[rng.int(0, 2)]) : sp === 'cherry' ? leaf[rng.int(0, 2)] : turned();
       blob(0, th + 1.5 * k, 0, 2.6 * k, 2.1 * k, hex);
       blob(ax * 1.5, th + 1.9 * k, az * 1.5, 1.8 * k, 1.5 * k, hex);
       blob(-ax * 1.2, th + 2.7 * k, -az * 1.2, 1.7 * k, 1.4 * k, hex);
     } else {
-      th = rng.range(3.2, 4.3); tr = 0.36; bark = 0x5a4334;
-      blob(0, th + 1.9 * k, 0, 3.3 * k, 2.5 * k, rng.pick(leaf));
+      th = rng.range(3.2, 4.3) * big; tr = 0.36 * big; bark = 0x5a4334;
+      blob(0, th + 1.9 * k, 0, 3.3 * k, 2.5 * k, turned());
       blob(ax * 2.1, th + 2.3 * k, az * 2.1, 2.4 * k, 1.9 * k, rng.pick(leaf));
       blob(-ax * 1.7, th + 3.3 * k, -az * 1.7, 2.2 * k, 1.8 * k, rng.pick(leaf));
     }
@@ -1821,7 +1875,9 @@ class Ground implements WorldPart {
       // The trunk runs a little way into the canopy so no gap opens between them.
       xf(x, y, z, a, tr, th + 0.9, tr);
       this.trunks.add(x, z, bark);
-      xf(x, y, z, a, k * (sp === 'plane' ? 0.88 : 1));
+      // The models are their species' own size; each stands a little off plumb, by where it is and not by the dice.
+      const upright = shape === 'pine' || shape === 'spruce' || sp === 'cypress', sc = k0 * (sp === 'plane' ? 0.88 : 1);
+      xf(x, y, z, a, sc, sc * (0.94 + 0.12 * spot(z, x)), sc, (upright ? 0.012 : 0.05) * spot(x + 3, z));
       this.plant(sp, tint, LEAF_GAIN);
     }
     this.game.col.addProp(x, z, tr + 0.08, y + 8, 'tree', false);
@@ -1880,9 +1936,9 @@ class Ground implements WorldPart {
       const w = rng.range(0.55, 0.9) * s, h = rng.range(0.32, 0.58) * s, a = rng.range(0, TAU), sh = rng.range(0.78, 1.05);
       cover?.tuft(x, gy(x, z), z, CELL.grass, w, h, a, sh);
     };
-    const flower = (x: number, z: number): void => {
+    const flower = (x: number, z: number, bed: Rect4 = CELL.flowers): void => {
       const w = rng.range(0.6, 0.85), h = rng.range(0.45, 0.7), a = rng.range(0, TAU);
-      cover?.tuft(x, gy(x, z), z, CELL.flowers, w, h, a, 1);
+      cover?.tuft(x, gy(x, z), z, bed, bed === CELL.flowers ? w : w * 1.25, h, a, 1, bed === CELL.flowers ? 2 : 3);
     };
     const dune = (x: number, z: number): void => {
       const w = rng.range(0.8, 1.25), h = rng.range(0.75, 1.3), a = rng.range(0, TAU), sh = rng.range(0.85, 1.05);
@@ -1900,7 +1956,8 @@ class Ground implements WorldPart {
       if (!want || keepOut(cx, cz)) continue;
       for (let k = 0; k < n; k++) {
         const a = rng.range(0, TAU), r = rng.range(0, 2.2), px = cx + Math.cos(a) * r, pz = cz + Math.sin(a) * r;
-        flower(px, pz);
+        // The park's beds are planted, one colour scheme a bed; the wild mix is for verges.
+        flower(px, pz, spot(cx, cz) < 0.5 ? CELL.bedwarm : CELL.bedcool);
         if (k % 2) grass(px + 0.4, pz - 0.3);
       }
     }
@@ -1951,7 +2008,62 @@ class Ground implements WorldPart {
         this.plant('shrub', rng.pick(LEAF.oak), LEAF_GAIN);
       }
     }
-    if (cover) this.hideFar(cover.build(this.root), 160);
+    if (cover) {
+      // Everything below was added after the grass and has its own dice, so no tuft above moved for it.
+      const rc = new RNG(3321);
+      const reeds = (x: number, z: number, y: number): void => {
+        for (let k = rc.int(2, 4); k > 0; k--) {
+          cover.tuft(x + rc.range(-0.6, 0.6), y, z + rc.range(-0.6, 0.6), CELL.reed, rc.range(0.9, 1.4), rc.range(1.3, 2.1), rc.range(0, TAU), rc.range(0.85, 1.05), 3);
+        }
+      };
+      // Reeds round Mercy Park's pond, in stands with open bank between them (the benches look over the gaps).
+      for (let a = 0; a < TAU; a += 0.045) {
+        const r = 1.035 + rc.range(-0.015, 0.03), x = 186 + Math.cos(a) * 30 * r, z = -152 + Math.sin(a) * 22 * r;
+        if (noise2(x * 0.11 + 9, z * 0.11) < 0.5 || nearRamp(x, z)) continue;
+        reeds(x, z, gy(x, z));
+      }
+      // And on the mainland wherever the bank is earth and not the town's stone: down both sides of the river, round
+      // the lake, and (found by trial, they are short) along the stream and the brook.
+      const bank = (x: number, z: number): void => {
+        const wd = waterDist(x, z);
+        if (wd < 0.3 || wd > 3 || inTown(x, z, 6) || noise2(x * 0.07, z * 0.07 + 4) < 0.45) return;
+        reeds(x, z, gy(x, z));
+      };
+      const sparse = den < 1 ? 2 : 1;
+      for (let z = DAM_Z + 12; z < MAIN_SPLIT_Z - 20; z += 1.3 * sparse) for (const side of [-1, 1]) bank(riverX(z) + side * (RIVER_HW + rc.range(0.5, 2.6)), z + rc.range(-0.6, 0.6));
+      for (let a = 0; a < TAU; a += (1.2 * sparse) / LAKE.b) {
+        const r = 1 + rc.range(0.5, 2.6) / LAKE.a;
+        bank(LAKE.x + Math.cos(a) * LAKE.a * r, LAKE.z + Math.sin(a) * LAKE.b * r);
+      }
+      for (let i = 0; i < 24000 / sparse; i++) {
+        if (i & 1) bank(rc.range(-870, -740), rc.range(STREAM_Z0, -1010)); else bank(rc.range(300, 480), rc.range(-1600, -1470));
+      }
+      for (const [sp, x, z] of this.stood) {
+        if (z > MAIN_SPLIT_Z) continue;
+        const wild = !inTown(x, z, 3);
+        // Ferns in the shade of the woods.
+        if (wild) for (let k = rc.int(1, 4); k > 0; k--) {
+          const a = rc.range(0, TAU), r = rc.range(1.2, 4.2), px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+          if (waterDist(px, pz) < 3) continue;
+          cover.tuft(px, gy(px, pz), pz, CELL.fern, rc.range(0.9, 1.4), rc.range(0.55, 0.85), rc.range(0, TAU), rc.range(0.8, 1.05), 3);
+        }
+        // It is October under the hardwoods: what they have dropped lies where it fell, on grass, sidewalk and gutter alike.
+        if (sp === 'sugarmaple' || sp === 'birch' || sp === 'redoak' || sp === 'elm') {
+          for (let k = rc.int(4, 8); k > 0; k--) {
+            const a = rc.range(0, TAU), r = rc.range(0.4, 4.6), px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+            if (waterDist(px, pz) < 2) continue;
+            cover.flat(px, groundAt(px, pz) + 0.035, pz, CELL.fallen, rc.range(0.9, 1.7), rc.range(0, TAU), rc.range(0.8, 1.05));
+          }
+        }
+      }
+      // Wildflowers in the mainland's meadows, in drifts.
+      for (let i = 0; i < 5000 * den; i++) {
+        const x = rc.range(-950, 1000), z = rc.range(-2400, -1000);
+        if (inTown(x, z, 3) || keepOut(x, z) || coastSD(x, z) > -30 || inExtraLot(x, z, 0) || noise2(x * 0.03 + 21, z * 0.03) < 0.62) continue;
+        cover.tuft(x, gy(x, z), z, CELL.flowers, rc.range(0.6, 0.9), rc.range(0.45, 0.7), rc.range(0, TAU), 1);
+      }
+      this.hideFar(cover.build(this.root), 160);
+    }
 
     // Stone and timber. Its own dice, so the phone preset (no ground cover) has the same rocks in the same places.
     const R = new RNG(3302);
@@ -2007,8 +2119,8 @@ class Ground implements WorldPart {
   // ── Per frame ──────────────────────────────────────────────────────────────
 
   update(dt: number): void {
-    const env = (this.mats.flat as THREE.MeshStandardMaterial).envMap, pm = this.propMat as THREE.MeshStandardMaterial;
-    if (pm !== this.mats.flatDouble && pm.envMap !== env) pm.envMap = env;
+    const env = (this.mats.flat as THREE.MeshStandardMaterial).envMap;
+    for (const pm of [this.propMat, this.propFar, this.propNear] as THREE.MeshStandardMaterial[]) if (pm !== this.mats.flatDouble && pm.envMap !== env) pm.envMap = env;
     if (this.sandMat && this.sandMat.envMap !== env) this.sandMat.envMap = env;
     const cp = this.game.camera.getWorldPosition(P);
     for (const n of this.nearOnly) n.o.visible = cp.distanceTo(n.c) - n.r < n.lim;
@@ -2017,9 +2129,9 @@ class Ground implements WorldPart {
     if (seeMain !== this.mainShown) { this.mainShown = seeMain; for (const o of this.mainOnly) o.visible = seeMain; }
     if (this.field) {
       this.field.update(this.game.camera);
-      const fm = floraMaterial();
-      if (fm.envMap !== env) fm.envMap = env;
+      floraEnv(env);
     }
+    this.props?.update(this.game.camera);
     const u = this.seaU;
     u.uTime.value += dt;
     // The sky is built after the world, so it may not be there yet.

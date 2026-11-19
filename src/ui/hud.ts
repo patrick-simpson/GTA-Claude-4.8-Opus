@@ -71,7 +71,7 @@ function box(c: CanvasRenderingContext2D, r: Rect, fill: string, line: number): 
 }
 
 /** The whole island as one picture, `s` pixels to the meter, north up. Drawn once. */
-function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
+export function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   const b = plan.bounds;
   const cv = document.createElement('canvas');
   cv.width = Math.ceil((b.x1 - b.x0) * s);
@@ -371,6 +371,17 @@ const MARKS: { x: number; z: number; kind: MarkKind }[] = [
   { x: BRIDGE.x, z: (BRIDGE.z0 + BRIDGE.z1) / 2, kind: 'bridge' },
 ];
 
+/** One thing the radar points at for the missions and jobs (src/game/). Off the face it rides the edge on its bearing. */
+export interface Blip {
+  x: number; z: number;
+  /** goal: where the business in hand is (mustard). giver: somebody with work (bone, a letter). job: a side job (teal). way: the map's waypoint. */
+  kind: 'goal' | 'giver' | 'job' | 'way';
+  /** One letter drawn on the badge. */
+  label?: string;
+}
+/** What src/game/ wants drawn on the radar. Bump `rev` after changing either list. */
+export interface Nav { blips: Blip[]; route: number[] | null; rev: number }
+
 class Radar {
   private ctx: CanvasRenderingContext2D;
   private size = 0;
@@ -404,6 +415,9 @@ class Radar {
     });
   }
 
+  /** The chart itself, for the menu's map: the picture, its pixels per meter, and the world point of its top-left corner. */
+  chart(): { img: HTMLCanvasElement; s: number; x0: number; z0: number } { return { img: this.full, s: this.s, x0: this.x0, z0: this.z0 }; }
+
   /** Match the backing store to the CSS box. Reads layout, so call it only after a resize. */
   resize(): void {
     const css = this.canvas.clientWidth || 200;
@@ -422,7 +436,7 @@ class Radar {
    * @param faint  draw the health bar dimmed (the low-health blink)
    * @param hot    index into MARKS of the landmark to pick out in mustard, or -1
    */
-  draw(x: number, z: number, yaw: number, h: number, viewR: number, hp: number, armor: number, faint: boolean, hot: number): void {
+  draw(x: number, z: number, yaw: number, h: number, viewR: number, hp: number, armor: number, faint: boolean, hot: number, nav: Nav): void {
     const c = this.ctx, H = this.size / 2;
     if (H <= 0) return;
     c.setTransform(1, 0, 0, 1, 0, 0);
@@ -441,6 +455,17 @@ class Radar {
     c.fillRect(-rf, -rf, rf * 2, rf * 2);
     c.rotate(yaw - Math.PI);
     this.blit(x, z, viewR, rf / viewR);
+    // The route in hand: a mustard line along the streets, drawn on the chart so the face clips it.
+    const rt = nav.route;
+    if (rt && rt.length >= 4) {
+      const k = rf / viewR;
+      c.lineJoin = 'round'; c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo((rt[0] - x) * k, (rt[1] - z) * k);
+      for (let i = 2; i < rt.length; i += 2) c.lineTo((rt[i] - x) * k, (rt[i + 1] - z) * k);
+      c.strokeStyle = INK; c.lineWidth = Math.max(4, H * 0.075); c.stroke();
+      c.strokeStyle = MUSTARD; c.lineWidth = Math.max(2.5, H * 0.045); c.stroke();
+    }
     c.restore();
 
     // Bearing marks, upright whichever way the chart is turned.
@@ -450,6 +475,27 @@ class Radar {
       // Inside this the chart's own drawing of the place is on the face.
       if (d < viewR * 0.86) continue;
       this.mark(m.kind, ((dx * ca - dz * sa) / d) * md, ((dx * sa + dz * ca) / d) * md, mr, i === hot);
+    }
+
+    // Missions and jobs: a badge where the thing is, or on the edge toward it.
+    const kf = rf / viewR, br = H * 0.075;
+    for (const b of nav.blips) {
+      const dx = b.x - x, dz = b.z - z, d = Math.hypot(dx, dz) || 1;
+      const lim = (rf - br * 1.25) / kf, q = d > lim ? lim / d : 1;
+      const px = (dx * ca - dz * sa) * q * kf, py = (dx * sa + dz * ca) * q * kf;
+      c.fillStyle = b.kind === 'goal' || b.kind === 'way' ? MUSTARD : b.kind === 'job' ? TEAL : BONE;
+      c.strokeStyle = INK;
+      c.lineWidth = Math.max(1.5, br * 0.28);
+      c.beginPath();
+      if (b.kind === 'goal' || b.kind === 'way') { c.moveTo(px, py - br * 1.2); c.lineTo(px + br * 1.2, py); c.lineTo(px, py + br * 1.2); c.lineTo(px - br * 1.2, py); c.closePath(); }
+      else c.arc(px, py, br, 0, TAU);
+      c.fill(); c.stroke();
+      if (b.label) {
+        c.fillStyle = INK;
+        c.font = `900 ${Math.round(br * 1.5)}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
+        c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillText(b.label, px, py + br * 0.1);
+      }
     }
 
     // Compass ring: a bone card that turns with the chart.
@@ -631,7 +677,7 @@ const KEYS: [string[], string][] = [
   [['LMB', 'RMB'], 'Fire / aim'],
   [['Q', 'E', 'R'], 'Switch / reload'],
   [['Esc'], 'Pause'],
-  [['Hold Backspace'], 'Back to the start'],
+  [['Hold Backspace'], 'Unstick'],
 ];
 /** Seconds Backspace must be held to go back to the start. Long enough that a slip of the finger does nothing. */
 const UNSTICK = 1;
@@ -770,6 +816,11 @@ export class Hud implements HudApi {
   private blink = 0;
   // The radar's last picture: [x, z, yaw, h, viewR, hp, armor, faint].
   private drawn = [NaN, 0, 0, 0, 0, 0, 0, 0];
+  /** Radar markers and the route line: src/game/ fills these in and bumps `rev`. */
+  readonly nav: Nav = { blips: [], route: null, rev: 0 };
+  private navRev = -1;
+  private subEl!: HTMLElement; private subT = 0;
+  private timerEl!: HTMLElement; private timerTx = '';
 
   constructor(private game: Game) {
     const root = (document.getElementById('hud') ?? document.body.appendChild(document.createElement('div'))) as HTMLElement;
@@ -819,6 +870,8 @@ export class Hud implements HudApi {
   <div class="hud-hitmark"><i></i></div>
   <div class="hud-hint"></div>
   <div class="hud-objective"><span class="hud-lbl">Current business</span><span class="hud-objective-tx"></span></div>
+  <div class="hud-timer hud-slip"><span class="hud-lbl"></span><b></b></div>
+  <div class="hud-sub"><b></b><span></span></div>
   <div class="hud-place"><div class="hud-place-in"><div class="hud-place-t"></div><div class="hud-place-s"></div></div></div>
   <div class="hud-stamp"><div class="hud-stamp-in"><div class="hud-stamp-t"></div><div class="hud-stamp-s"></div></div></div>
   <div class="hud-keys hud-slip">
@@ -841,7 +894,7 @@ export class Hud implements HudApi {
       </div>
       <div class="hud-card-keys"><div class="hud-lbl">Attached: Form K-1</div>${rows}</div>
     </div>
-    <div class="hud-card-ft"><button class="hud-btn" type="button">Resume</button><span class="hud-card-or">or press ${kc('Esc')}</span><button class="hud-btn hud-btn-reset" type="button">Start over</button></div>
+    <div class="hud-card-ft"><button class="hud-btn" type="button">Resume</button><span class="hud-card-or">or press ${kc('Esc')}</span><button class="hud-btn hud-btn-reset" type="button">New game</button></div>
     <div class="hud-card-note">* As reported by the applicant. Anything typed is not counted.</div>
   </div>
 </div>`;
@@ -884,6 +937,12 @@ export class Hud implements HudApi {
 
     this.radar = new Radar(q('.hud-radar canvas') as HTMLCanvasElement, game.plan, game.quality.name === 'low');
 
+    this.subEl = q('.hud-sub');
+    this.timerEl = q('.hud-timer');
+    // No key to press on a phone: a prompt is its own button there (and a click works with the mouse free).
+    this.hint.addEventListener('pointerdown', (e) => { if (this.promptText !== null) { e.preventDefault(); game.input.touchDown('interact'); } });
+    for (const up of ['pointerup', 'pointercancel', 'pointerleave']) this.hint.addEventListener(up, () => game.input.touchUp('interact'));
+
     addEventListener('resize', () => { this.resized = true; });
     addEventListener('keydown', (e) => {
       if (e.code !== 'KeyK' || e.repeat || this.state !== 'play' || this.touch) return;
@@ -897,11 +956,11 @@ export class Hud implements HudApi {
         // One confirmation, on the same button: the first press asks, the second (within four seconds) does it.
         if (performance.now() > this.resetArm) {
           this.resetArm = performance.now() + 4000;
-          this.resetBtn.textContent = 'Confirm?';
+          this.resetBtn.textContent = 'Wipe the save and the bridge? Press again';
           this.resetBtn.classList.add('ask');
           return;
         }
-        game.player.reset();
+        game.todo.newGame();
       } else if (t.closest('.hud-card') && !t.closest('.hud-btn')) return;
       game.setPaused(false);
       game.input.lock();
@@ -968,6 +1027,31 @@ export class Hud implements HudApi {
    * Plain text is shown as it is.
    */
   prompt(text: string | null): void { this.promptText = text; }
+
+  /** The radar's chart of both lands, for the pause menu's map. */
+  chart(): { img: HTMLCanvasElement; s: number; x0: number; z0: number } { return this.radar.chart(); }
+
+  /** A line of dialogue with the speaker's name, low in the middle. Not in HudApi yet. null clears it. */
+  subtitle(who: string | null, text = '', seconds = 5): void {
+    const el = this.subEl;
+    if (who === null) { this.subT = 0; el.classList.remove('on'); return; }
+    (el.children[0] as HTMLElement).textContent = who;
+    (el.children[1] as HTMLElement).textContent = text;
+    el.classList.add('on');
+    this.subT = seconds;
+  }
+
+  /** The countdown slip under the objective strip: timer('Past due in', '1:05', urgent). null puts it away. */
+  timer(label: string | null, value = '', urgent = false): void {
+    const el = this.timerEl, key = label === null ? '' : `${label}|${value}|${urgent}`;
+    if (key === this.timerTx) return;
+    this.timerTx = key;
+    el.classList.toggle('on', label !== null);
+    if (label === null) return;
+    (el.children[0] as HTMLElement).textContent = label;
+    (el.children[1] as HTMLElement).textContent = value;
+    el.classList.toggle('urgent', urgent);
+  }
 
   objective(text: string | null): void {
     // Real business outranks the newcomer's tour.
@@ -1067,7 +1151,9 @@ export class Hud implements HudApi {
     if (arN !== this.shownAr) { this.shownAr = arN; this.arEl.textContent = String(arN); }
 
     this.tickArms(live);
-    if (this.backT > 0 && live && performance.now() - this.backT >= UNSTICK * 1000) { this.backT = 0; p.reset(); }
+    if (this.subT > 0 && live && (this.subT -= dt) <= 0) this.subEl.classList.remove('on');
+    this.hint.classList.toggle('tap', this.promptText !== null);
+    if (this.backT > 0 && live && performance.now() - this.backT >= UNSTICK * 1000) { this.backT = 0; g.todo.unstick(); }
 
     if (live) {
       this.tickStunts(v);
@@ -1091,7 +1177,7 @@ export class Hud implements HudApi {
     this.pauseEl.classList.toggle('on', st === 'paused');
     // Start over forgets it was asked whenever the card is put away or brought out.
     this.resetArm = 0;
-    this.resetBtn.textContent = 'Start over';
+    this.resetBtn.textContent = 'New game';
     this.resetBtn.classList.remove('ask');
     this.root.classList.toggle('paused', st === 'paused');
     if (st === 'paused') {
@@ -1385,11 +1471,13 @@ export class Hud implements HudApi {
     // A teleport redraws at once; otherwise 30 pictures a second is the ceiling.
     if (this.radarT < 1 / 30 && !jumped && !Number.isNaN(d[0])) return;
     this.radarT = 0;
+    const navSame = this.navRev === this.nav.rev;
+    this.navRev = this.nav.rev;
     if (
-      Math.abs(p.x - d[0]) < 0.2 && Math.abs(p.z - d[1]) < 0.2 && Math.abs(yaw - d[2]) < 0.003 &&
+      navSame && Math.abs(p.x - d[0]) < 0.2 && Math.abs(p.z - d[1]) < 0.2 && Math.abs(yaw - d[2]) < 0.003 &&
       Math.abs(p.h - d[3]) < 0.01 && Math.abs(this.viewR - d[4]) < 0.4 && hp === d[5] && armor === d[6] && faint === d[7]
     ) return;
     d[0] = p.x; d[1] = p.z; d[2] = yaw; d[3] = p.h; d[4] = this.viewR; d[5] = hp; d[6] = armor; d[7] = faint;
-    this.radar.draw(p.x, p.z, yaw, p.h, this.viewR, hp, armor, faint === 1, this.hot);
+    this.radar.draw(p.x, p.z, yaw, p.h, this.viewR, hp, armor, faint === 1, this.hot, this.nav);
   }
 }
