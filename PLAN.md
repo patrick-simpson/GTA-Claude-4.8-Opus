@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 57% done)
+## Where things stand (about 63% done)
 
 **Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
@@ -61,6 +61,25 @@ pause card shows it already).
    lighting, integration and writing.
 3. **The site is at gta.doofus.live** (the owner moved it from gtaopus).
 
+### M2 "A living city": pushed Nov 18, about 8:40 PM ET
+
+`src/sim/peds.ts` and `traffic.ts` (behind the `Ambient` class in `ambient.ts`):
+walkers cross at lights, avoid each other, flee, sit, and are knocked down by any
+car ('pedHit' event); AI cars use every lane, stop at lines, queue, overtake,
+honk, and react to being cut off or hit. Ten-minute soaks at four places: no
+stuck cars, no AI-on-AI collisions, no red-light running, about 0.08 ms.
+`src/fx/particles.ts` and `skids.ts`: tyre smoke, skid marks, sparks, debris,
+hydrant geyser, splashes, dusts, rain splashes, engine smoke; explosion, fire,
+tracers and muzzle flash are built and waiting for M3 (`game.fx.emitters`).
+Owed: the city is thin (24 cars, 60 walkers; a junction averages 2 cars and 7
+walkers nearby); AI cars still hit 0-3 pedestrians per 10 minutes; overtaking on
+two-lane streets is slow; bench sitters hold the driving pose; give-way-to-the-
+right never runs (every 3-arm junction has a signal); several effects were never
+looked at (foam ring, rain splashes, dusts, engine smoke); old marks code in
+vehicle.ts is switched off by `OLD_MARKS`, delete it once the new system has
+proved itself; nothing listens to 'pedHit' or plays the horn yet.
+Agent briefs live in `tools/briefs/` (a cut-off agent's replacement re-reads the
+same brief).
 ### Realistic rework, step (d) foliage, furniture, land: pushed Nov 18, about 5:20 PM ET
 
 `tools/blender/flora.py` -> `public/models/flora.glb` (plane, maple, oak, cypress,
@@ -237,7 +256,7 @@ Original wording for fail states (for example "CLOCKED OUT" and "BOOKED").
 - `ent/character.ts`: instanced box-limb people (about 13 parts, about 13 draw calls for everyone) with walk, run, jump, swim and knocked-down poses.
 - `ent/player.ts`, `core/camera.ts`, `ui/hud.ts` + CSS, `ui/touch.ts`, `core/game.ts`, `main.ts`, title screen.
 
-**M2 — A living city:** traffic on lane rails that obeys lights and turns into physical cars when hit; pedestrians on sidewalk loops who cross at lights, flee, and get knocked over; parked cars; particles, skid marks, breakable props (hydrants geyser).
+**M2 — A living city (DONE, first pass):** traffic on lane rails that obeys lights and turns into physical cars when hit; pedestrians on sidewalk loops who cross at lights, flee, and get knocked over; parked cars; particles, skid marks, breakable props (hydrants geyser).
 
 **M3 — Trouble:** heat levels 1-5, police on foot and in cruisers using route-finding, roadblocks, a helicopter with a spotlight at high heat, losing them by breaking line of sight, respray shop; weapons (fists, pistol, SMG, shotgun, launcher), aiming, vehicle damage, fire and explosions.
 

@@ -20,6 +20,8 @@ import { TouchUI } from '../ui/touch';
 import { Cheats } from './cheats';
 import { Ambient } from '../sim/ambient';
 import { Post } from './post';
+import { Fx } from '../fx/particles';
+import { Skids } from '../fx/skids';
 
 const PRESETS: Record<Quality['name'], Quality> = {
   low: { name: 'low', pixelRatio: 1.5, antialias: false, shadows: false, shadowSize: 1024, drawDist: 520, density: 0.5 },
@@ -59,6 +61,8 @@ export class Game {
   hud!: Hud;
   touchUI!: TouchUI;
   private cheats!: Cheats;
+  /** Particles: smoke, sparks, spray. `fx.emitters` is how other systems ask for an effect. */
+  fx!: Fx;
   /** Systems from later milestones plug in here until they earn a named slot. Updated after the world, while running. */
   readonly systems: { update(dt: number): void }[] = [];
 
@@ -134,6 +138,7 @@ export class Game {
     this.touchUI = new TouchUI(this);
     this.cheats = new Cheats(this);
     this.systems.push(new Ambient(this));
+    this.systems.push((this.fx = new Fx(this)), new Skids(this));
 
     // One full step so every system has seen every other before the first picture.
     this.state = 'title';

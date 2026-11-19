@@ -223,4 +223,6 @@ export interface GameEvents {
   duck: { x: number; z: number };
   start: Record<string, never>;
   pause: { on: boolean };
+  /** A pedestrian was knocked down by a vehicle. speed = the vehicle's, m/s; byPlayer = the player was driving it. */
+  pedHit: { x: number; z: number; speed: number; byPlayer: boolean };
 }

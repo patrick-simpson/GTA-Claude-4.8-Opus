@@ -441,6 +441,12 @@ class Sprites {
   }
 }
 
+/**
+ * The first milestone drew its own skid marks, tyre smoke and dust in this file. src/fx/ does that
+ * properly now, so these are off; the code stays one release in case the new system has to be pulled.
+ */
+const OLD_MARKS: boolean = false;
+
 export class Vehicles implements VehiclesApi {
   private cars: Car[] = [];
   /** The same array as `cars`, seen through the public interface. */
@@ -1046,7 +1052,7 @@ export class Vehicles implements VehiclesApi {
     this.marksLive = MARK_LIFE;
   }
 
-  /** Once a frame per awake car: what its tires leave behind and throw up. Only near the camera; the pools are small. */
+  /** Once a frame per awake car: what it throws up from water. (Marks, smoke and dust: see OLD_MARKS.) */
   private trail(c: Car, dt: number): void {
     const dx = c.x - this.camX, dz = c.z - this.camZ;
     if (c.sunk || c.ditch || dx * dx + dz * dz > 22500) { c.mkOn = false; return; }
@@ -1062,8 +1068,9 @@ export class Vehicles implements VehiclesApi {
     if (skid) {
       const ex = lx - c.mlx, ez = lz - c.mlz, d2 = ex * ex + ez * ez;
       if (!c.mkOn || d2 > 0.3) {
-        // A jump of meters is a teleport, not a skid.
-        if (c.mkOn && d2 < 9) {
+        // Skid marks, tyre smoke and dust are drawn by src/fx/ now (skids.ts, particles.ts).
+        // Only the water stays here: wading spray and a sinking car's bubbles.
+        if (OLD_MARKS && c.mkOn && d2 < 9) {
           const a = 0.62 * clamp01((c.slip - 0.3) * 2.5), w = c.spec.wheelW * 1.25;
           this.mark(c.mlx, c.mlz, lx, lz, y + 0.025, w, a);
           this.mark(c.mrx, c.mrz, rx, rz, y + 0.025, w, a);
@@ -1075,7 +1082,7 @@ export class Vehicles implements VehiclesApi {
     c.puffT -= dt;
     if (c.puffT > 0) return;
     const left = this.rand() < 0.5, wx = left ? lx : rx, wz = left ? lz : rz;
-    if (skid) {
+    if (OLD_MARKS && skid) {
       c.puffT = 0.045;
       this.puff(wx, y + 0.25, wz, c.vx * 0.25 + (this.rand() - 0.5), 0.7 + this.rand() * 0.6, c.vz * 0.25 + (this.rand() - 0.5), 0.9 + this.rand() * 0.5, 0.9 + this.rand() * 0.6, 0.62 * c.slip);
     } else if (c.wade > 0.04 && v2 > 4) {
@@ -1084,7 +1091,7 @@ export class Vehicles implements VehiclesApi {
       const sp1 = Math.sqrt(v2), lead = c.speed >= 0 ? 1 : -1, side = (this.rand() - 0.5) * 2 * c.hw;
       this.puff(c.x + s * c.hl * lead + co * side, WATER_Y + 0.1, c.z + co * c.hl * lead - s * side, c.vx * 0.6 + co * side * 1.5, 1.2 + sp1 * 0.22, c.vz * 0.6 - s * side * 1.5,
         0.55, 0.6 + Math.min(sp1, 14) * 0.06, 0.75 * clamp01(sp1 / 6));
-    } else if (c.soft && v2 > 20) {
+    } else if (OLD_MARKS && c.soft && v2 > 20) {
       c.puffT = 0.08;
       this.puff(wx, y + 0.2, wz, c.vx * 0.2 + (this.rand() - 0.5), 0.5 + this.rand() * 0.5, c.vz * 0.2 + (this.rand() - 0.5), 1.1, 0.9 + this.rand() * 0.6, 0.3 * clamp01(v2 / 150 + 0.3));
     } else c.puffT = 0;
