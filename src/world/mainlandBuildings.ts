@@ -24,7 +24,8 @@ import { FENCE_UV, MAIN_SHOPS, MWALL, makeMainlandTextures, mwallV, signKey, typ
 import { RNG } from '../core/util';
 
 const CELL = MWALL.cell, ROW = MWALL.rows, RED = MWALL.redBrick;
-const CH = 300;
+/** Edge of a chunk of town. Small enough that the shadow pass and the distance cull below drop most of the town most of the time. */
+const CH = 150;
 const STONE = 0xcfcac0, TAR = 0x4a4b4d, IRON = 0x2e3338, WHITE = 0xf1ede2;
 
 /** Brick for the flat-lintel blocks: buff, brown, painted cream, painted grey-green, liver, ochre. The arched ones are all MWALL.redBrick. */
@@ -87,13 +88,15 @@ class Chunks {
     if (!b) this.map.set(k, (b = new Batch()));
     return b;
   }
-  build(mat: THREE.Material, parent: THREE.Object3D, cast: boolean): number {
+  build(mat: THREE.Material, parent: THREE.Object3D, cast: boolean, out: THREE.Mesh[], near = 0): number {
     let tris = 0;
     for (const b of this.map.values()) {
       if (b.empty) continue;
       const m = new THREE.Mesh(b.toGeometry(), mat);
       m.castShadow = cast; m.receiveShadow = true; m.matrixAutoUpdate = false;
+      m.userData.near = near;
       parent.add(m);
+      out.push(m);
       tris += b.idx.length / 3;
     }
     this.map.clear();
@@ -123,6 +126,8 @@ export class MainKit {
   W!: Batch; F!: Batch; S!: Batch; N!: Batch;
   tris = 0;
   private shown = true;
+  private meshes: THREE.Mesh[] = [];
+  private cullAt = new THREE.Vector3(1e9, 0, 0);
 
   constructor(readonly game: Game, readonly mats: CityMaterials, parent: THREE.Object3D) {
     this.low = game.quality.name === 'low';
@@ -147,8 +152,10 @@ export class MainKit {
 
   /** Turn everything batched so far into meshes. Safe to call more than once. */
   finish(): void {
-    this.tris += this.wall.build(this.wallMat, this.group, true) + this.flat.build(this.mats.flat, this.group, true)
-      + this.sign.build(this.signMat, this.group, false) + this.fence.build(this.mats.fence, this.group, false);
+    const M = this.meshes;
+    this.tris += this.wall.build(this.wallMat, this.group, true, M) + this.flat.build(this.mats.flat, this.group, true, M)
+      + this.sign.build(this.signMat, this.group, false, M, 420) + this.fence.build(this.mats.fence, this.group, false, M, 300);
+    this.cullAt.set(1e9, 0, 0);
   }
 
   setNight(): void {
@@ -162,8 +169,14 @@ export class MainKit {
       this.wallMat.envMap = env; if (this.signMat instanceof THREE.MeshStandardMaterial) this.signMat.envMap = env;
     }
     // Same rule as ground.ts: beyond fog range of the far shore, none of it is drawn.
-    const see = this.game.camera.getWorldPosition(P3).z < -975 + this.game.quality.drawDist + 60;
+    const far = this.game.quality.drawDist, see = this.game.camera.getWorldPosition(P3).z < -975 + far + 60;
     if (see !== this.shown) { this.shown = see; this.group.visible = see; }
+    // Within sight of the shore, a chunk is drawn only once the fog has let go of it: from the island that is the
+    // waterfront and nothing behind it. Signs stop at 420 m and fences at 300, where neither can be made out.
+    // Looked at again when the camera has moved 15 m, not every frame.
+    if (!see || P3.distanceToSquared(this.cullAt) < 225) return;
+    this.cullAt.copy(P3);
+    for (const m of this.meshes) { const s = m.geometry.boundingSphere; if (s) m.visible = s.center.distanceTo(P3) - s.radius * 0.7 < (m.userData.near || far); }
   }
 
   solid(r: Rect, top: number, base = 0): void { this.game.col.addBox(r.x0, r.z0, r.x1, r.z1, top, base); }
@@ -331,8 +344,8 @@ export class MainKit {
     return hh;
   }
   /** Pitched roof over `r` with its ridge along x (alongX) or z: shingled slopes with an overhang, soffits, and the two gable ends filled in `gableRow`. */
-  gableRoof(r: Rect, y: number, rise: number, alongX: boolean, over: number, roofHex: number, wallHex: number, gableRow: number, shade = 1): void {
-    const W = this.W, [v0, v1] = mwallV(ROW.shingle), us = 1 / (CELL * 16);
+  gableRoof(r: Rect, y: number, rise: number, alongX: boolean, over: number, roofHex: number, wallHex: number, gableRow: number, shade = 1, roofRow: number = ROW.shingle): void {
+    const W = this.W, [v0, v1] = mwallV(roofRow), us = 1 / (CELL * 16);
     for (const side of alongX ? [0, 2] : [1, 3]) {
       const f = frameOf(r, side), half = f.depth / 2, run = half + over, k = rise / half;
       const slope = Math.hypot(run, run * k), rows = Math.max(1, Math.round(slope / CELL));
@@ -360,6 +373,9 @@ export function mainKit(): MainKit {
 
 /** Loom Row's lots on the east side of Main St: they are built as Main St, not as mill yards. */
 const onMain = (l: Lot): boolean => l.district === 'mill' && l.block >= 0 && !l.interior && l.face === 3 && Math.abs(l.rect.x0 - 83.5) < 1.5;
+
+/** Where Postponement Hall stands (mainlandPlaces.ts), north of the square across Bobbin St: Lower Main's builder leaves these lots alone. */
+export const OPERA: Rect = { x0: -2, z0: -1543, x1: 42, z1: -1514.5 };
 
 // ── Lower Main ───────────────────────────────────────────────────────────────
 
@@ -399,32 +415,38 @@ class Builder {
       });
       return best;
     };
-    const bankLot = pickNear(50, -1560), movieLot = pickNear(50, -1350);
+    const bankLot = pickNear(50, -1592), movieLot = pickNear(50, -1350);
     lots.forEach((lot, i) => {
       if (lot.district !== 'main' && !onMain(lot)) return;
+      if (lot.rect.x0 < OPERA.x1 && lot.rect.x1 > OPERA.x0 && lot.rect.z0 < OPERA.z1 && lot.rect.z1 > OPERA.z0) return;
       const rng = new RNG(52000 + first + i), r = lot.rect, y = groundAt((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
       k.at((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
       if (lot.interior) { this.parking(r, y, rng); return; }
-      const f = frameOf(r, lot.face), block = blocks[lot.block], ave = block ? block.ave[lot.face] : false;
-      // Cut the frontage into buildings 7 to 13 m wide, wall to wall.
-      const segs: Seg[] = [];
-      let s = 0;
-      const special = i === bankLot ? 'bank' : i === movieLot ? 'movie' : null;
-      while (s < f.len - 0.01) {
-        let w = special && s === 0 ? Math.min(f.len, 15) : rng.range(7, 12.5);
-        if (f.len - s - w < 6.5) w = f.len - s;
-        const floors = ave ? rng.int(2, 4) : rng.int(2, 3);
-        const gap = !special && s > 0 && f.len - s - w > 1 && rng.chance(0.07);
-        segs.push({ s0: s, s1: s + w, kind: special && s === 0 ? special : gap ? 'gap' : 'shop', floors, depth: Math.min(f.depth, rng.range(13, 20)), top: 0 });
-        s += w;
-      }
-      segs.forEach((g, j) => {
-        if (g.kind === 'gap') { this.parking(cut(r, lot.face, g.s0, g.s1, 0, f.depth), y, rng); return; }
-        const openL = j === 0 || segs[j - 1].kind === 'gap', openR = j === segs.length - 1 || segs[j + 1].kind === 'gap';
-        if (g.kind === 'bank') this.bank(r, lot.face, g, y);
-        else if (g.kind === 'movie') this.movie(r, lot.face, g, y, rng);
-        else this.block(r, lot.face, g, y, rng, lot.block, openL, openR, ave);
-      });
+      const block = blocks[lot.block];
+      this.row(r, lot.face, y, rng, lot.block, block ? block.ave[lot.face] : false, i === bankLot ? 'bank' : i === movieLot ? 'movie' : null);
+    });
+  }
+
+  /** One lot's frontage on `face`, cut into buildings wall to wall. Loom Row calls this too, for its side of Main St. */
+  row(r: Rect, face: number, y: number, rng: RNG, blockId: number, ave: boolean, special: 'bank' | 'movie' | null): void {
+    const f = frameOf(r, face);
+    // Cut the frontage into buildings 7 to 13 m wide, wall to wall.
+    const segs: Seg[] = [];
+    let s = 0;
+    while (s < f.len - 0.01) {
+      let w = special && s === 0 ? Math.min(f.len, 15) : rng.range(7, 12.5);
+      if (f.len - s - w < 6.5) w = f.len - s;
+      const floors = ave ? rng.int(2, 4) : rng.int(2, 3);
+      const gap = !special && s > 0 && f.len - s - w > 1 && rng.chance(0.07);
+      segs.push({ s0: s, s1: s + w, kind: special && s === 0 ? special : gap ? 'gap' : 'shop', floors, depth: Math.min(f.depth, rng.range(13, 20)), top: 0 });
+      s += w;
+    }
+    segs.forEach((g, j) => {
+      if (g.kind === 'gap') { this.parking(cut(r, face, g.s0, g.s1, 0, f.depth), y, rng); return; }
+      const openL = j === 0 || segs[j - 1].kind === 'gap', openR = j === segs.length - 1 || segs[j + 1].kind === 'gap';
+      if (g.kind === 'bank') this.bank(r, face, g, y);
+      else if (g.kind === 'movie') this.movie(r, face, g, y, rng);
+      else this.block(r, face, g, y, rng, blockId, openL, openR, ave);
     });
   }
 
@@ -870,7 +892,7 @@ class Builder {
   mill(lots: Lot[], first: number): void {
     const k = this.k, y = groundAt(214, -1460), GRAN = 0xb5b1a6;
     // The yards: setts from Water St to the river walk.
-    for (const [z0, z1] of [[-1565, -1470], [-1470, -1356], [-1334, -1200]]) { k.at(214, (z0 + z1) / 2); k.F.floor(180, z0, 248, z1, y + 0.02, 0x8a8780, 1, 1, 0.95); }
+    for (const [z0, z1] of [[-1565, -1470], [-1470, -1356], [-1334, -1200]]) { k.at(214, (z0 + z1) / 2); k.F.floor(180, z0, 248, z1, y + 0.05, 0x8a8780, 1, 1, 0.95); }
 
     // Mill No. 1 and No. 2 under one roof: five floors, sixty bays, 192 m beside the river.
     const M: Rect = { x0: 212, z0: -1556, x1: 234, z1: -1364 }, fh = 4.2, b0 = y + 0.9, top = b0 + 5 * fh + 0.8;
@@ -969,7 +991,7 @@ class Builder {
     for (let z = -1560; z < -1204; z += 59) {
       const z1 = Math.min(z + 59, -1204);
       k.at(246, (z + z1) / 2);
-      k.F.floor(244, z, 247.6, z1, y + 0.04, 0xb9b3a4, 1, 1, 0.97);
+      k.F.floor(244, z, 247.6, z1, y + 0.08, 0xb9b3a4, 1, 1, 0.97);
       for (const [a, b] of z < -1345 && z1 > -1345 ? [[z, -1348], [-1342, z1]] : [[z, z1]]) k.fenceRun({ x0: 247.8, z0: a, x1: 247.8, z1: b }, y, 'rail');
       if (!k.low) for (const bz of [z + 14, z + 44]) if (Math.abs(bz + 1345) > 6 && bz < z1) {
         k.F.box(244.5, y + 0.4, bz, 0.45, 0.07, 1.7, 0x6a4a32); k.F.box(244.3, y + 0.47, bz, 0.07, 0.42, 1.7, 0x6a4a32);
@@ -1013,7 +1035,10 @@ class Builder {
       if (lot.district !== 'mill' || lot.block < 0 || onMain(lot)) return;
       const r = lot.rect, rng = new RNG(77000 + first + i), ly = groundAt((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
       k.at((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
-      if (rng.chance(0.55)) this.tenement(r, lot.face, ly, rng); else this.smallMill(r, lot.face, ly, rng);
+      let rr = r;
+      // A lot that touches Main St but faces a cross street gives its west 17 m to Main St's wall of shops.
+      if (Math.abs(r.x0 - 83.5) < 1.5 && r.x1 - r.x0 > 44) { this.row({ ...r, x1: r.x0 + 17 }, 3, ly, rng, lot.block, true, null); rr = { ...r, x0: r.x0 + 19 }; }
+      if (rng.chance(0.55)) this.tenement(rr, lot.face, ly, rng); else this.smallMill(rr, lot.face, ly, rng);
     });
   }
 
@@ -1063,7 +1088,7 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
   b.main(plan.mainlandLots, plan.blocks, plan.lots.length);
   b.stacks(plan.mainlandLots, plan.blocks, plan.lots.length);
   b.mill(plan.mainlandLots, plan.lots.length);
-  kit.finish();
+  // No kit.finish() here: mainlandPlaces.ts draws the landmarks into the same batches and builds the meshes.
   return { update: () => kit.update(), setNight: () => kit.setNight() };
 }
 

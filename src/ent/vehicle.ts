@@ -77,6 +77,10 @@ const SHADOW_R2 = 95 * 95, WHEEL_R2 = 320 * 320;
 
 /** Blender models swap to their simpler level past LOD_OUT and back inside LOD_IN; the gap stops a car at the line flickering. */
 const LOD_IN2 = 58 * 58, LOD_OUT2 = 64 * 64;
+/** The showroom level (interior, lamp internals, brake discs) is for the few cars within arm's reach: the player's and its neighbours. */
+const NEAR_IN2 = 13 * 13, NEAR_OUT2 = 16 * 16, NEAR_MAX = 4;
+
+const _nearD = new Float32Array(NEAR_MAX), _nearC: (Car | null)[] = [null, null, null, null];
 
 type Part = [geo: THREE.BufferGeometry, mat: THREE.Material, cast: boolean];
 
@@ -98,9 +102,11 @@ interface DrawSet {
   mats: Float32Array;
   cols: Float32Array;
   wmats: Float32Array;
-  /** Per instance: head lamp glow, tail lamp glow. */
+  /** Per instance: head, tail, brake, reverse; then left indicator, right indicator, daytime strip. */
   lamps: Float32Array | null;
+  lamps2: Float32Array | null;
   lampAttr: THREE.InstancedBufferAttribute | null;
+  lampAttr2: THREE.InstancedBufferAttribute | null;
   cap: number; wcap: number;
   n: number; nw: number;
   /** How many of the n instances (and nw wheels), counted from the front, are close enough to cast a shadow into view. */
@@ -113,8 +119,12 @@ interface KindBatch {
   proc: VehicleModel;
   /** What the rest of the game reads. Replaced when the kind's file arrives. */
   model: VehicleModel;
-  /** One set, or [near, far] for a Blender model above the low preset. */
+  /** One set, or nearest first for a Blender model above the low preset. */
   sets: DrawSet[];
+  /** Which set draws a car at each of the three distances (showroom, street, far). */
+  pick: [number, number, number];
+  /** The file lights brake lamps as their own section. */
+  sections: boolean;
   cap: number;
 }
 
@@ -183,8 +193,12 @@ class Car implements Vehicle {
   shown = -1; cr = 1; cg = 1; cb = 1;
   readonly mat = new Float32Array(16);
   readonly wmat: Float32Array;
-  /** Which level of detail it was last drawn at. */
-  lod = 0;
+  /** Which level of detail it was last drawn at: 0 showroom, 1 street, 2 far. */
+  lod = 1;
+  /** Frame stamp of the last frame it was among the few nearest the camera. */
+  nearest = -1;
+  /** Indicator: +1 left, -1 right, and when (game seconds) it cancels. */
+  turn = 0; turnEnd = 0;
 
   constructor(readonly id: number, readonly spec: VehicleSpec, readonly batch: KindBatch) {
     this.hl = spec.length / 2;
@@ -356,7 +370,7 @@ void main() {
  * top of the pane. Without it the glass is a black hole whenever the
  * environment is dim, and paint is matte plastic.
  */
-function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number): void {
+function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number, gloss = 0, pane = false): void {
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uSky = sky;
     if (grad > 0) sh.vertexShader = 'attribute float aSky;\nvarying float vSky;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvSky = aSky;');
@@ -364,6 +378,15 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
       float sF = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
       float sUp = max(inverseTransformDirection(normal, viewMatrix).y, 0.0);
       outgoingLight += uSky * (${base.toFixed(3)} + ${fres.toFixed(3)} * sF * sF * sF + ${up.toFixed(3)} * sUp${grad > 0 ? ` + ${grad.toFixed(3)} * vSky * vSky` : ''});
+      ${gloss > 0 ? `
+      // What makes lacquer read as lacquer is a hard edge in its reflection. The environment map is a soft sky, so
+      // the horizon is drawn in here: bright just above the line, cut off sharply below it.
+      vec3 sR = inverseTransformDirection(reflect(-normalize(vViewPosition), normalize(normal)), viewMatrix);
+      float sH = smoothstep(-0.035, 0.0, sR.y) * (1.0 - smoothstep(0.0, 0.42, sR.y));
+      outgoingLight += uSky * sH * ${gloss.toFixed(3)} * (0.22 + 1.6 * sF * sF);` : ''}
+      ${pane ? `
+      // A pane is clear where you look through it squarely and a mirror where you do not.
+      diffuseColor.a = min(1.0, diffuseColor.a + 0.75 * sF * sF + 0.5 * vSky * vSky * diffuseColor.a);` : ''}
     }
     #include <opaque_fragment>`);
   };
@@ -381,8 +404,10 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
 function detailMaterial(): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, envMapIntensity: 1.2 });
   mat.onBeforeCompile = (sh) => {
-    sh.vertexShader = 'attribute vec3 aPbr;\nattribute vec2 aLamp;\nvarying vec3 vPbr;\n' + sh.vertexShader.replace('#include <begin_vertex>',
-      '#include <begin_vertex>\nvPbr = vec3(aPbr.xy, aPbr.z > 1.5 ? aLamp.y : aPbr.z > 0.5 ? aLamp.x : 0.0);');
+    sh.vertexShader = 'attribute vec3 aPbr;\nattribute vec4 aLamp;\nattribute vec3 aLamp2;\nvarying vec3 vPbr;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      `#include <begin_vertex>
+      float lk = aPbr.z;
+      vPbr = vec3(aPbr.xy, lk < 0.5 ? 0.0 : lk < 1.5 ? aLamp.x : lk < 2.5 ? aLamp.y : lk < 3.5 ? aLamp.z : lk < 4.5 ? aLamp.w : lk < 5.5 ? aLamp2.x : lk < 6.5 ? aLamp2.y : aLamp2.z);`);
     sh.fragmentShader = 'varying vec3 vPbr;\n' + sh.fragmentShader
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vPbr.x;')
       .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vPbr.y;')
@@ -496,6 +521,7 @@ export class Vehicles implements VehiclesApi {
   private cur!: Car;
   private curS = 0; private curC = 1;
   private wet = 0;
+  private frame = 0;
 
   constructor(private game: Game) {
     this.paintMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.35, roughness: 0.3, envMapIntensity: 1.3 });
@@ -511,14 +537,16 @@ export class Vehicles implements VehiclesApi {
     this.wheelGeo = wheelGeometry();
     // Phones keep the cheap paint: a clearcoat is a second specular lobe on every pixel of every car.
     const low = game.quality.name === 'low';
-    const coat = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.5, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.3 });
-    sheen(coat, this.sky, 'coat', 0, 0.3, 0.1, 0);
+    // Metallic base under a hard lacquer: the base is left fairly rough (flake scatters), the coat is what shines.
+    const coat = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.025, envMapIntensity: 1.7 });
+    sheen(coat, this.sky, 'coat', 0, 0.3, 0.1, 0, 0.55);
     this.bodyMat = low ? this.paintMat : coat;
     this.detailMat = detailMaterial();
+    this.detailMat.envMapIntensity = 1.6;
     // Near glass lets a little of the cabin through. Far glass and phones use the opaque tinted one.
     this.paneMat = this.glassTintMat.clone();
     this.paneMat.transparent = true; this.paneMat.opacity = 0.82;
-    sheen(this.paneMat, this.sky, 'glass', 0.04, 0.75, 0.2, 0.44);
+    sheen(this.paneMat, this.sky, 'pane', 0.04, 0.75, 0.2, 0.44, 0, true);
     // ?glb=0 keeps every kind procedural, for comparing.
     if (new URLSearchParams(location.search).get('glb') !== '0') void loadVehicleAssets((a) => this.adopt(a));
     this.glow = new Sprites(1024, GLOW_VS, glowTexture(), 6);
@@ -1316,7 +1344,7 @@ export class Vehicles implements VehiclesApi {
       for (let i = 0; i < gp.count; i++) sky[i] = hi > lo ? (gp.getY(i) - lo) / (hi - lo) : 0.5;
       proc.glass.setAttribute('aSky', new THREE.BufferAttribute(sky, 1));
     }
-    b = { kind, proc, model: proc, sets: [], cap: Math.max(8, Math.ceil(SPECS[kind].common * 8)) };
+    b = { kind, proc, model: proc, sets: [], pick: [0, 0, 0], sections: false, cap: Math.max(8, Math.ceil(SPECS[kind].common * 8)) };
     this.dress(b);
     this.batches.set(kind, b);
     this.batchList.push(b);
@@ -1329,7 +1357,7 @@ export class Vehicles implements VehiclesApi {
     const b = this.batches.get(a.kind);
     if (!b) return;
     this.dress(b);
-    for (const c of this.cars) if (c.batch === b) { c.stale = true; c.lod = 0; }
+    for (const c of this.cars) if (c.batch === b) { c.stale = true; c.lod = 1; }
   }
 
   /** (Re)build a kind's draw sets: from its file if that is here, else from the procedural model. */
@@ -1345,19 +1373,24 @@ export class Vehicles implements VehiclesApi {
         head: a.head.length ? a.head : p.head, tail: a.tail.length ? a.tail : p.tail,
         beacon: a.beacon ?? p.beacon, seat: a.seat ?? p.seat,
       };
-      const lods = low ? [a.lods[1]] : a.lods;
+      // Phones draw the far level only.
+      const lods = low ? [a.lods[a.lods.length - 1]] : a.lods, n = lods.length;
+      b.pick = n === 3 ? [0, 1, 2] : n === 2 ? [0, 0, 1] : [0, 0, 0];
+      b.sections = a.sections;
       lods.forEach((l, i) => {
         const others: Part[] = [];
-        // Bumpers and mirrors add nothing to the shadow the shell already throws.
-        if (l.detail) others.push([l.detail, this.detailMat, false]);
-        if (l.glass) others.push([l.glass, i === 0 && !low ? this.paneMat : this.glassTintMat, true]);
+        // Bumpers and mirrors add nothing to the shadow the shell already throws, except close up, where the
+        // mirror, the wing and the rack are what you are looking at.
+        if (l.detail) others.push([l.detail, this.detailMat, n === 3 && i === 0]);
+        // All but the far level have a cabin to show through the glass.
+        if (l.glass) others.push([l.glass, n > 1 && i < n - 1 ? this.paneMat : this.glassTintMat, true]);
         list.push({
           paint: [l.paint, this.bodyMat, true], others,
           wheel: l.wheel ? [l.wheel, this.detailMat, true] : [this.wheelGeo, this.wheelMat, true], lampGeo: l.detail,
         });
       });
     } else {
-      b.model = p;
+      b.model = p; b.pick = [0, 0, 0]; b.sections = false;
       list.push({
         paint: [p.paint, this.paintMat, true],
         others: [[p.trim, this.trimMat, true], [p.glass, p.glass.hasAttribute('color') ? this.glassTintMat : this.glassMat, true]],
@@ -1366,7 +1399,7 @@ export class Vehicles implements VehiclesApi {
     }
     b.sets = list.map((parts) => {
       const s: DrawSet = {
-        parts, body: [], wheels: null!, mats: null!, cols: null!, wmats: null!, lamps: null, lampAttr: null,
+        parts, body: [], wheels: null!, mats: null!, cols: null!, wmats: null!, lamps: null, lamps2: null, lampAttr: null, lampAttr2: null,
         cap: b.cap, wcap: b.cap * p.wheels.length, n: 0, nw: 0, near: 0, nwNear: 0,
       };
       this.fillSet(s);
@@ -1395,9 +1428,9 @@ export class Vehicles implements VehiclesApi {
     s.body[0].instanceColor = dyn(s.cols, 3);
     s.wheels = make(q.wheel, true);
     if (q.lampGeo) {
-      s.lamps = new Float32Array(s.cap * 2);
-      s.lampAttr = dyn(s.lamps, 2);
-      q.lampGeo.setAttribute('aLamp', s.lampAttr);
+      s.lamps = new Float32Array(s.cap * 4); s.lamps2 = new Float32Array(s.cap * 3);
+      s.lampAttr = dyn(s.lamps, 4); s.lampAttr2 = dyn(s.lamps2, 3);
+      q.lampGeo.setAttribute('aLamp', s.lampAttr); q.lampGeo.setAttribute('aLamp2', s.lampAttr2);
     }
   }
 
@@ -1407,12 +1440,13 @@ export class Vehicles implements VehiclesApi {
 
   /** Growing replaces the meshes and their buffers, so carry over what this frame has already written. */
   private growSet(s: DrawSet): void {
-    const { mats, cols, wmats, lamps } = s;
+    const { mats, cols, wmats, lamps, lamps2 } = s;
     this.dropSet(s);
     s.cap *= 2; s.wcap *= 2;
     this.fillSet(s);
     s.mats.set(mats); s.cols.set(cols); s.wmats.set(wmats);
     if (lamps && s.lamps) s.lamps.set(lamps);
+    if (lamps2 && s.lamps2) s.lamps2.set(lamps2);
   }
 
   /** Rebuild one car's cached matrices: the body on its springs, and each wheel on the ground under its corner. */
@@ -1460,6 +1494,18 @@ export class Vehicles implements VehiclesApi {
     _cullCam.updateProjectionMatrix();
     _pv.multiplyMatrices(_cullCam.projectionMatrix, game.camera.matrixWorldInverse);
     _frustum.setFromProjectionMatrix(_pv);
+    // The few cars nearest the camera get the showroom level: four slots, kept sorted.
+    const stamp = ++this.frame, nd = _nearD, nc = _nearC; let nn = 0;
+    for (let k = 0; k < this.cars.length; k++) {
+      const c = this.cars[k], dx = cam.x - c.x, dy = cam.y - c.y, dz = cam.z - c.z, d = dx * dx + dy * dy + dz * dz;
+      if (d > NEAR_OUT2) continue;
+      let i = nn;
+      if (nn < NEAR_MAX) nn++; else if (d >= nd[NEAR_MAX - 1]) continue; else i = NEAR_MAX - 1;
+      while (i > 0 && nd[i - 1] > d) { nd[i] = nd[i - 1]; nc[i] = nc[i - 1]; i--; }
+      nd[i] = d; nc[i] = c;
+    }
+    for (let j = 0; j < nn; j++) { nc[j]!.nearest = stamp; nc[j] = null; }
+    const blink = (this.time * 1.4) % 1 < 0.5;
     for (let pass = 0; pass < 2; pass++) {
     for (let k = 0; k < this.cars.length; k++) {
       const c = this.cars[k];
@@ -1473,17 +1519,27 @@ export class Vehicles implements VehiclesApi {
       }
       if (c.stale) this.pose(c);
       const b = c.batch;
-      let s = b.sets[0];
-      if (b.sets.length > 1) {
-        if (d3 > (c.lod ? LOD_IN2 : LOD_OUT2)) { c.lod = 1; s = b.sets[1]; } else c.lod = 0;
-      }
+      if (c.nearest === stamp && d3 < (c.lod === 0 ? NEAR_OUT2 : NEAR_IN2)) c.lod = 0;
+      else c.lod = d3 > (c.lod === 2 ? LOD_IN2 : LOD_OUT2) ? 2 : 1;
+      let s = b.sets[b.pick[c.lod]];
       if (s.n >= s.cap) this.growSet(s);
       const i = s.n++;
       s.mats.set(c.mat, i * 16);
       if (c.color !== c.shown) { _col.setHex(c.color); c.cr = _col.r; c.cg = _col.g; c.cb = _col.b; c.shown = c.color; }
       s.cols[i * 3] = c.cr; s.cols[i * 3 + 1] = c.cg; s.cols[i * 3 + 2] = c.cb;
       // The lenses themselves light up; the glow sprites in lamps() are the halo round them.
-      if (s.lamps) { s.lamps[i * 2] = c.lights ? 2.2 : 0; s.lamps[i * 2 + 1] = c.braking ? 3.5 : c.lights ? 0.9 : 0; }
+      if (s.lamps && s.lamps2) {
+        const L = s.lamps, L2 = s.lamps2;
+        L[i * 4] = c.lights ? 2.2 : 0;
+        L[i * 4 + 1] = b.sections ? (c.lights ? 1.1 : 0) : c.braking ? 3.5 : c.lights ? 0.9 : 0;
+        L[i * 4 + 2] = c.braking ? 3.6 : 0;
+        L[i * 4 + 3] = c.reversing ? 2.6 : 0;
+        // Indicators: on while a driver holds a real turn at town speed, and for a moment after, like a stalk that cancels late.
+        if (c.driver !== null && Math.abs(c.ctl.steer) > 0.45 && c.vx * c.vx + c.vz * c.vz < 170) { c.turn = c.ctl.steer > 0 ? -1 : 1; c.turnEnd = this.time + 1.3; }
+        else if (c.turn !== 0 && (this.time > c.turnEnd || c.driver === null)) c.turn = 0;
+        L2[i * 3] = blink && c.turn > 0 ? 3 : 0; L2[i * 3 + 1] = blink && c.turn < 0 ? 3 : 0;
+        L2[i * 3 + 2] = c.driver !== null && !c.sunk ? (c.lights ? 1.2 : 1.8) : 0;
+      }
 
       // Past a few hundred meters a wheel is a pixel in the shade of its arch. (wcap is cap times the wheels per car, so these always fit.)
       if (d3 < WHEEL_R2) { s.wmats.set(c.wmat, s.nw * 16); s.nw += c.wmat.length / 16; }
@@ -1511,6 +1567,7 @@ export class Vehicles implements VehiclesApi {
       s.body[0].instanceMatrix.needsUpdate = true;
       s.body[0].instanceColor!.needsUpdate = true;
       if (s.lampAttr) s.lampAttr.needsUpdate = true;
+      if (s.lampAttr2) s.lampAttr2.needsUpdate = true;
       if (s.nw) s.wheels.instanceMatrix.needsUpdate = true;
     }
     glow.flush(); pool.flush(); shadow.flush();

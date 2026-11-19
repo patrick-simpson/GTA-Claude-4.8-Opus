@@ -12,6 +12,7 @@ import { buildBuildings } from './buildings';
 import { buildLandmarks } from './landmarks';
 import { buildPlaces } from './places';
 import { buildMainlandBuildings } from './mainlandBuildings';
+import { buildMainlandPlaces } from './mainlandPlaces';
 import { signalState } from './signals';
 
 export class World implements WorldApi {
@@ -46,6 +47,9 @@ export class World implements WorldApi {
     this.boxMarks.push(g.col.allBoxes.length);
     await step(0.96, 'Laying brick in Tepid Falls');
     this.parts.push(buildMainlandBuildings(g, this.mats, this.group));
+    this.boxMarks.push(g.col.allBoxes.length);
+    await step(0.98, 'Postponing the opera');
+    this.parts.push(buildMainlandPlaces(g.plan.mainlandLots, g.plan.lots.length));
     this.boxMarks.push(g.col.allBoxes.length);
     await step(1, 'Sweeping up');
   }

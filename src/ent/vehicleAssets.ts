@@ -1,12 +1,13 @@
 // The cars as files. tools/blender/cars.py writes public/models/<kind>.glb; this
 // reads one and turns it into the few merged geometries the vehicle code draws.
 //
-// What a file holds (checked against sedan.glb, not assumed): four nodes with
-// no transforms, LOD0, LOD1, WHEEL0, WHEEL1, each a mesh with one primitive per
-// material. Materials are told apart by NAME: paint, trim, chrome, glass,
-// lamp_head, lamp_tail, interior, tire, rim. Every primitive has position,
-// normal and COLOR_0 (linear albedo times baked ambient occlusion; paint and
-// glass carry occlusion only). No textures, no UVs. The frame is already the
+// What a file holds: nodes with no transforms, LOD0 .. LOD2 and WHEEL0 ..
+// WHEEL2 (two levels in the older files), each a mesh with one primitive per
+// material. Materials are told apart by NAME: paint, trim, chrome, glass, lens,
+// interior, tire, rim and the lamp sections in LAMP below. Every primitive has
+// position, normal and COLOR_0 (linear albedo times baked ambient occlusion;
+// paint and glass carry occlusion only; alpha is how opaque a pane is). No
+// textures, no UVs. Empties named HEAD* / TAIL* mark where the glow sprites go. The frame is already the
 // game's: +Z forward, Y up, y = 0 the road, origin midway between the axles,
 // +X the car's left. A wheel has its hub at the origin, axle along X, outer
 // face toward +X, and is modelled at its real size.
@@ -16,7 +17,8 @@
 //   paint   the body shell; the per-instance colour multiplies the occlusion
 //   detail  everything else opaque (trim, chrome, lamps, interior), told apart
 //           in the shader by a per-vertex `aPbr` = roughness, metalness, lamp
-//           (0 none, 1 head, 2 tail)
+//           section (0 none, then LAMP below; an indicator is 5 on the car's
+//           left and 6 on its right)
 //   glass   the windows, with the `aSky` height the glass sheen wants
 //   wheel   tire and rim, in `aPbr` form too, scaled to radius 1 and width 1
 //           so the wheel matrices the game already builds fit it unchanged
@@ -46,8 +48,10 @@ export interface VehicleLod {
 
 export interface VehicleAsset {
   kind: VehicleKind;
-  /** [near, far]. A file with one level has it in both places. */
-  lods: [VehicleLod, VehicleLod];
+  /** Nearest first: one, two or three levels, as many as the file has. */
+  lods: VehicleLod[];
+  /** The file lights its brake lamps as their own section; without it the tail lenses do both jobs. */
+  sections: boolean;
   /** Lamp centers, from nodes named HEAD* / TAIL* if the file has them, else from the lens meshes. May be empty. */
   head: THREE.Vector3[];
   tail: THREE.Vector3[];
@@ -59,13 +63,15 @@ export interface VehicleAsset {
 }
 
 /** Roughness, metalness, lamp class for the materials the file's own numbers do not cover. */
-const LAMP: Record<string, number> = { lamp_head: 1, lamp_tail: 2 };
+const LAMP: Record<string, number> = { lamp_head: 1, lamp_tail: 2, lamp_brake: 3, lamp_rev: 4, lamp_ind: 5, lamp_drl: 7 };
 
 const _v = new THREE.Vector3(), _nm = new THREE.Matrix3();
 
 /** Several primitives poured into one geometry. */
 class Bin {
   pos: number[] = []; nor: number[] = []; col: number[] = []; pbr: number[] = []; idx: number[] = [];
+  /** Colours carry alpha (the glass: how opaque each pane is). */
+  constructor(readonly alpha = false) {}
 
   add(g: THREE.BufferGeometry, m: THREE.Matrix4, rough: number, metal: number, lamp: number): void {
     const p = g.getAttribute('position'), n = g.getAttribute('normal'), c = g.getAttribute('color');
@@ -75,11 +81,14 @@ class Bin {
     for (let i = 0; i < p.count; i++) {
       _v.fromBufferAttribute(p, i).applyMatrix4(m);
       this.pos.push(_v.x, _v.y, _v.z);
+      const px = _v.x;
       if (n) _v.fromBufferAttribute(n, i).applyMatrix3(_nm).normalize(); else _v.set(0, 1, 0);
       this.nor.push(_v.x, _v.y, _v.z);
       // getX undoes the 16-bit normalisation the exporter packs colours in.
       if (c) this.col.push(c.getX(i), c.getY(i), c.getZ(i)); else this.col.push(1, 1, 1);
-      this.pbr.push(rough, metal, lamp);
+      if (this.alpha) this.col.push(c && c.itemSize > 3 ? c.getW(i) : 1);
+      // An indicator lens belongs to the side of the car it is on.
+      this.pbr.push(rough, metal, lamp === 5 && px < 0 ? 6 : lamp);
     }
     const ix = g.getIndex(), count = ix ? ix.count : p.count, flip = m.determinant() < 0;
     for (let i = 0; i + 2 < count; i += 3) {
@@ -93,7 +102,7 @@ class Bin {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, this.alpha ? 4 : 3));
     if (pbr) g.setAttribute('aPbr', new THREE.Float32BufferAttribute(this.pbr, 3));
     if (sky) {
       // How far up the glass each vertex is: the top of a windshield shows sky, the bottom the dash.
@@ -145,11 +154,11 @@ function lampPoints(ps: Part[], name: string, fix: THREE.Matrix4): THREE.Vector3
 }
 
 function buildLod(body: THREE.Object3D, wheel: THREE.Object3D | null, fix: THREE.Matrix4): VehicleLod | null {
-  const paint = new Bin(), detail = new Bin(), glass = new Bin(), m = new THREE.Matrix4();
+  const paint = new Bin(), detail = new Bin(), glass = new Bin(true), m = new THREE.Matrix4();
   for (const p of parts(body)) {
     m.multiplyMatrices(fix, p.mesh.matrixWorld);
     if (p.name === 'paint') paint.add(p.mesh.geometry, m, 0, 0, 0);
-    else if (p.name === 'glass') glass.add(p.mesh.geometry, m, 0, 0, 0);
+    else if (p.name === 'glass' || p.name === 'lens') glass.add(p.mesh.geometry, m, 0, 0, 0);
     else detail.add(p.mesh.geometry, m, p.rough, p.metal, LAMP[p.name] ?? 0);
   }
   const pg = paint.build(false, false);
@@ -175,8 +184,8 @@ function buildAsset(kind: VehicleKind, scene: THREE.Object3D): VehicleAsset | nu
   scene.updateMatrixWorld(true);
   const named = new Map<string, THREE.Object3D>();
   scene.traverse((o) => { if (o.name) named.set(o.name.toUpperCase(), o); });
-  const lod0 = named.get('LOD0'), lod1 = named.get('LOD1') ?? lod0;
-  if (!lod0 || !lod1) return null;
+  const lod0 = named.get('LOD0');
+  if (!lod0) return null;
   const notes: string[] = [];
   const p0 = parts(lod0);
 
@@ -194,9 +203,15 @@ function buildAsset(kind: VehicleKind, scene: THREE.Object3D): VehicleAsset | nu
   }
   if (Math.abs(all.min.y) > 0.6) notes.push(`lowest point is y = ${all.min.y.toFixed(2)}, expected the road at 0`);
 
-  const near = buildLod(lod0, named.get('WHEEL0') ?? named.get('WHEEL1') ?? null, fix);
-  const far = lod1 === lod0 ? near : buildLod(lod1, named.get('WHEEL1') ?? named.get('WHEEL0') ?? null, fix);
-  if (!near || !far) return null;
+  const lods: VehicleLod[] = [];
+  for (let i = 0; i < 3; i++) {
+    const body = named.get('LOD' + i);
+    if (!body) break;
+    const l = buildLod(body, named.get('WHEEL' + i) ?? named.get('WHEEL' + (i - 1)) ?? named.get('WHEEL0') ?? null, fix);
+    if (!l) { if (i === 0) return null; break; }
+    lods.push(l);
+  }
+  if (!lods.length) return null;
 
   const at = (prefix: string): THREE.Vector3[] => {
     const out: THREE.Vector3[] = [];
@@ -209,7 +224,7 @@ function buildAsset(kind: VehicleKind, scene: THREE.Object3D): VehicleAsset | nu
   let head = at('HEAD'), tail = at('TAIL');
   if (!head.length) head = lampPoints(p0, 'lamp_head', fix);
   if (!tail.length) tail = lampPoints(p0, 'lamp_tail', fix);
-  return { kind, lods: [near, far], head, tail, seat: at('SEAT')[0] ?? null, beacon: at('BEACON')[0] ?? null, notes };
+  return { kind, lods, sections: p0.some((p) => p.name === 'lamp_brake'), head, tail, seat: at('SEAT')[0] ?? null, beacon: at('BEACON')[0] ?? null, notes };
 }
 
 /**
