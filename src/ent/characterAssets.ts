@@ -23,6 +23,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { assets } from '../core/assets';
 
 export const BONES = [
   'hips', 'spine', 'chest', 'neck', 'head',
@@ -161,16 +162,16 @@ function parse(kind: BodyKind, scene: THREE.Object3D): PersonAsset | null {
  * box people. Never throws and never logs an error. A 404 the browser logs by
  * itself; these files are part of the build, so that only happens if one is deleted.
  */
+export const PEOPLE_FILES: readonly string[] = BODY_KINDS.map((k) => `models/person_${k}.glb`);
+
 export async function loadPeople(): Promise<PersonAsset[] | null> {
   const loader = new GLTFLoader();
   const out: PersonAsset[] = [];
   for (const kind of BODY_KINDS) {
     try {
-      const res = await fetch(`models/person_${kind}.glb`);
-      if (!res.ok) return null;
-      const buf = await res.arrayBuffer();
+      const buf = await assets.bytes(`models/person_${kind}.glb`);
       // "glTF". The dev server answers a missing file with the index page.
-      if (buf.byteLength < 20 || new DataView(buf).getUint32(0, true) !== 0x46546c67) return null;
+      if (!buf || buf.byteLength < 20 || new DataView(buf).getUint32(0, true) !== 0x46546c67) return null;
       const gltf = await loader.parseAsync(buf, '');
       const a = parse(kind, gltf.scene);
       if (!a) return null;

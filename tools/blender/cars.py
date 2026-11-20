@@ -2338,6 +2338,79 @@ def _build(kind, do_render=True, do_export=True, extra=False, do_tex=True):
     if do_render: render(kind, P, sets, extra)
 
 
+def pack_far():
+    """public/models/cars_far.glb: every kind's far level (its last LODn, the wheel that goes with it and the lamp
+    marks), lifted byte for byte out of that kind's own <kind>.glb and named <kind>_LOD2, <kind>_WHEEL2,
+    <kind>_HEAD_L and so on. Phones draw only the far level, so this one small file is all they fetch; the other
+    presets show it until a kind's full file has arrived (src/ent/vehicleAssets.ts). Nothing is rebuilt and the full
+    files are only read, so the two cannot differ in shape. It runs after every export; `-- --far` runs it alone."""
+    import struct
+    out = {'asset': {'version': '2.0', 'generator': 'tools/blender/cars.py pack_far'}, 'scene': 0,
+           'scenes': [{'name': 'Scene', 'nodes': []}], 'nodes': [], 'meshes': [], 'materials': [], 'accessors': [],
+           'bufferViews': [], 'buffers': [{}]}
+    blob = bytearray(); ext = set(); mat_at = {}; stats = {}
+    for kind in VEHICLES:
+        path = os.path.join(MODELS, kind + '.glb')
+        if not os.path.exists(path): continue
+        with open(path, 'rb') as fh: data = fh.read()
+        n = struct.unpack_from('<I', data, 12)[0]; g = json.loads(data[20:20 + n]); b0 = 20 + n + 8
+        at = {x.get('name', ''): i for i, x in enumerate(g['nodes'])}
+        lods = [i for i in range(3) if f'LOD{i}' in at]
+        if not lods: continue
+        keep = [f'LOD{lods[-1]}'] + [w for w in (f'WHEEL{i}' for i in range(lods[-1], -1, -1)) if w in at][:1]
+        keep += sorted(k for k, i in at.items() if 'mesh' not in g['nodes'][i] and k.split('_')[0] in ('HEAD', 'TAIL', 'SEAT', 'BEACON'))
+        views = {}; accs = {}; before = len(blob)
+
+        def view(i):
+            if i not in views:
+                v = g['bufferViews'][i]; s = b0 + v.get('byteOffset', 0)
+                while len(blob) % 4: blob.append(0)
+                nv = {k: x for k, x in v.items() if k not in ('buffer', 'byteOffset')}
+                nv['buffer'] = 0; nv['byteOffset'] = len(blob)
+                blob.extend(data[s:s + v['byteLength']])
+                views[i] = len(out['bufferViews']); out['bufferViews'].append(nv)
+            return views[i]
+
+        def acc(i):
+            if i not in accs:
+                a = dict(g['accessors'][i]); a['bufferView'] = view(a['bufferView'])
+                accs[i] = len(out['accessors']); out['accessors'].append(a)
+            return accs[i]
+
+        def mat(i):
+            m = g['materials'][i]; key = json.dumps(m, sort_keys=True)
+            if key not in mat_at:
+                mat_at[key] = len(out['materials']); out['materials'].append(m); ext.update(m.get('extensions', {}))
+            return mat_at[key]
+
+        for name in keep:
+            src = g['nodes'][at[name]]
+            node = {k: x for k, x in src.items() if k in ('translation', 'rotation', 'scale', 'matrix')}
+            node['name'] = f'{kind}_{name}'
+            if 'mesh' in src:
+                prims = []
+                for p in g['meshes'][src['mesh']]['primitives']:
+                    q = {'attributes': {k: acc(i) for k, i in p['attributes'].items()}}
+                    if 'indices' in p: q['indices'] = acc(p['indices'])
+                    if 'material' in p: q['material'] = mat(p['material'])
+                    if 'mode' in p: q['mode'] = p['mode']
+                    prims.append(q)
+                node['mesh'] = len(out['meshes']); out['meshes'].append({'name': f'{kind}_{name}', 'primitives': prims})
+            out['scenes'][0]['nodes'].append(len(out['nodes'])); out['nodes'].append(node)
+        stats[kind] = [keep[0], keep[1] if len(keep) > 1 else None, len(blob) - before]
+    while len(blob) % 4: blob.append(0)
+    out['buffers'][0]['byteLength'] = len(blob)
+    if ext: out['extensionsUsed'] = sorted(ext)
+    js = json.dumps(out, separators=(',', ':')).encode('utf-8')
+    js += b' ' * (-len(js) % 4)
+    path = os.path.join(MODELS, 'cars_far.glb')
+    with open(path, 'wb') as fh:
+        fh.write(struct.pack('<III', 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(blob)))
+        fh.write(struct.pack('<II', len(js), 0x4E4F534A)); fh.write(js)
+        fh.write(struct.pack('<II', len(blob), 0x004E4942)); fh.write(bytes(blob))
+    print('STATS ' + json.dumps({'cars_far': {'kB': round(os.path.getsize(path) / 1000), 'kinds': stats, 'mats': len(out['materials'])}}))
+
+
 if __name__ == '__main__':
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     if '--wheel-tex' in argv:
@@ -2349,9 +2422,17 @@ if __name__ == '__main__':
     for a in argv:
         if a.startswith('--paint='):
             for k in kinds: VEHICLES[k] = dict(VEHICLES[k], paint=tuple(float(x) for x in a[8:].split(',')))
-    for k in kinds:
+    # `-- --far` builds nothing: it only gathers the far levels of the files already in public/models.
+    for k in ([] if '--far' in argv else kinds):
         try:
             build(k, '--no-render' not in argv, '--no-export' not in argv, '--all-views' in argv, '--no-tex' not in argv)
         except Exception:
             import traceback
             print('FAILED ' + k); traceback.print_exc()
+    # The far levels as one file, always from what is on disk now, so it cannot fall out of step with the full files.
+    if '--no-export' not in argv:
+        try:
+            pack_far()
+        except Exception:
+            import traceback
+            print('FAILED cars_far'); traceback.print_exc()

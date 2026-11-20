@@ -121,7 +121,10 @@ export class Title {
   private held: { hour: number; rate: number; weather: Weather } | null = null;
   private onResize = (): void => this.frame(1);
 
-  constructor(private game: Game) {
+  /** Set by attach(): the card is built before the game's script has arrived. Nothing reads it until ready(). */
+  private game!: Game;
+
+  constructor() {
     const root = (document.getElementById('title') ?? document.body.appendChild(document.createElement('div'))) as HTMLElement;
     root.id = 'title';
     this.root = root;
@@ -156,6 +159,11 @@ export class Title {
     // Leaving full screen (Esc, a system gesture) should not be permanent: the next tap on the game goes back in.
     // Captured at the window because the touch controls sit over the canvas and take its taps.
     addEventListener('pointerdown', goFullscreen, true);
+  }
+
+  /** The game exists now: from here the card can be told it is ready, and can start it. */
+  attach(game: Game): void {
+    this.game = game;
     game.on('start', () => this.leave());
   }
 
@@ -242,3 +250,8 @@ export class Title {
     requestAnimationFrame(watch);
   }
 }
+
+/** The card, built by the page's first script (src/main.ts). */
+export const title = new Title();
+/** When it was built, ms after navigation. */
+export const titleAt = performance.now();

@@ -93,3 +93,12 @@ owner's ground rules for the takeover and the running state.
   noon: window 40% with 57% gone (resets 2:10 PM ET), week 84%: 11 points left. Remaining four:
   loading [top, launched 12:07 PM], owed list [Sonnet], bug bash [Sonnet], night [top].
   NOTE: a harness boot with no ?q= is now Auto; pass ?q= for anything compared between runs.
+- Nov 20, 12:30 PM ET: OWNER REQUEST: live multiplayer, as ONE FULLY SHARED WORLD. Decisions and the
+  design are in tools/briefs/multiplayer.md (finish M6 first; service deployed from the kvbcawana
+  repo, which holds the Cloudflare secrets; one public city only; made-up names, no typing). It
+  starts after M6, which in practice means after the weekly reset on Sunday Nov 22, 4 PM ET. About
+  15 to 25 more steps, so the job's total is now about 33 steps, not 13. Percentages given to the
+  owner: say both "the original job" and "with multiplayer".
+- Nov 20, 12:50 PM ET: pushed M6 step 4 (loading: cars_far.glb for phones, assets.ts queue, the hold).
+  10 of 13 original steps done. Gauge at 12:39 PM: window 54% (resets 2:10 PM ET), week 86%: 9 points
+  left. Remaining three: owed list [Sonnet, launched 12:52 PM], bug bash [Sonnet], night [top].

@@ -14,6 +14,10 @@
 // <kind>_o.webp (ambient occlusion, which those levels then do NOT carry in
 // their vertex colours). Tires of every kind share cars_wheel_n/_o.webp, which
 // repeats round the wheel. The far level has neither, and phones draw only it.
+// So the far levels of every kind are also gathered in ONE small file, cars_far.glb
+// (tools/blender/cars.py pack_far: the same bytes, nodes named <kind>_LOD2 and so on):
+// it is all a phone fetches (0.7 MB against 17.7), and what the other presets show,
+// in place of the code-built block cars, until a kind's own file has arrived.
 // Every kind's pictures are copied into ONE pair of sheets, a cell each, and
 // the kind's UVs are moved into its cell here: with a texture of its own each
 // kind needed materials of its own, and thirty parked cars then spent more
@@ -42,7 +46,8 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import type { VehicleKind } from './vehicleSpecs';
+import { assets } from '../core/assets';
+import { SPECS, type VehicleKind } from './vehicleSpecs';
 
 /** Kinds with a file in public/models. Keep in step with that folder. */
 export const GLB_KINDS: readonly VehicleKind[] = [
@@ -53,6 +58,35 @@ export const GLB_KINDS: readonly VehicleKind[] = [
 export const TEX_KINDS: readonly VehicleKind[] = GLB_KINDS;
 /** cars_wheel_n.webp and cars_wheel_o.webp are in the folder. */
 const WHEEL_TEX: boolean = true;
+
+/** Every kind's far level in one file. Keep in step with the folder: cars.py rewrites it after every export. */
+export const FAR_FILE = 'models/cars_far.glb';
+/** The kinds parked where the game opens (Game.placeStart): their own files are fetched first and the title card waits for them. */
+export const OPENING_KINDS: readonly VehicleKind[] = ['tow', 'coupe', 'bolt'];
+
+/** The order the kinds' own files are wanted in: the three at the start, then the commonest in traffic. */
+export function kindsByNeed(): VehicleKind[] {
+  const rest = GLB_KINDS.filter((k) => !OPENING_KINDS.includes(k)).sort((a, b) => SPECS[b].common - SPECS[a].common);
+  return [...OPENING_KINDS.filter((k) => GLB_KINDS.includes(k)), ...rest];
+}
+
+/** Whether the baked maps are fetched at all: not on phones, and not for a video card too small for the shared sheet. */
+export function wantsCarMaps(low: boolean, maxTextureSize: number): boolean {
+  return !low && maxTextureSize >= SHEET_TEXELS && new URLSearchParams(location.search).get('cartex') !== '0';
+}
+
+/** What loadVehicleAssets will ask for, in its order, for the download queue: the far file, the opening view's files, the rest. */
+export function carFiles(far: CarLoad['far'], textures: boolean): { far: string[]; opening: string[]; later: string[] } {
+  const out = { far: far === 'none' ? [] : [FAR_FILE], opening: [] as string[], later: [] as string[] };
+  if (far === 'only') return out;
+  if (textures && WHEEL_TEX) out.opening.push('models/cars_wheel_n.webp', 'models/cars_wheel_o.webp');
+  kindsByNeed().forEach((k, i) => {
+    const to = i < OPENING_KINDS.length ? out.opening : out.later;
+    to.push(`models/${k}.glb`);
+    if (textures && TEX_KINDS.includes(k)) to.push(`models/${k}_n.webp`, `models/${k}_o.webp`);
+  });
+  return out;
+}
 
 /** The sheet all kinds' maps are gathered on: a cell of CELL texels for each kind in TEX_KINDS, in reading order. */
 const COLS = 4, ROWS = 4, CELL = 1024;
@@ -213,11 +247,19 @@ function buildLod(body: THREE.Object3D, wheel: THREE.Object3D | null, fix: THREE
   return { paint: pg, detail: detail.build(true, false), glass: glass.build(false, true), wheel: wg };
 }
 
-function buildAsset(kind: VehicleKind, scene: THREE.Object3D): VehicleAsset | null {
-  scene.updateMatrixWorld(true);
+/** Every named node under a root, by its name in capitals. */
+function namesIn(root: THREE.Object3D): Map<string, THREE.Object3D> {
   const named = new Map<string, THREE.Object3D>();
-  scene.traverse((o) => { if (o.name) named.set(o.name.toUpperCase(), o); });
-  const lod0 = named.get('LOD0');
+  root.traverse((o) => { if (o.name) named.set(o.name.toUpperCase(), o); });
+  return named;
+}
+
+/** `named`: the kind's nodes. A kind's own file starts at LOD0; the far file holds one level, under the number it had there. */
+function buildAsset(kind: VehicleKind, scene: THREE.Object3D, named = namesIn(scene)): VehicleAsset | null {
+  scene.updateMatrixWorld(true);
+  let first = 0;
+  while (first < 2 && !named.has('LOD' + first)) first++;
+  const lod0 = named.get('LOD' + first);
   if (!lod0) return null;
   const notes: string[] = [];
   const p0 = parts(lod0);
@@ -237,11 +279,11 @@ function buildAsset(kind: VehicleKind, scene: THREE.Object3D): VehicleAsset | nu
   if (Math.abs(all.min.y) > 0.6) notes.push(`lowest point is y = ${all.min.y.toFixed(2)}, expected the road at 0`);
 
   const lods: VehicleLod[] = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = first; i < 3; i++) {
     const body = named.get('LOD' + i);
     if (!body) break;
     const l = buildLod(body, named.get('WHEEL' + i) ?? named.get('WHEEL' + (i - 1)) ?? named.get('WHEEL0') ?? null, fix);
-    if (!l) { if (i === 0) return null; break; }
+    if (!l) { if (i === first) return null; break; }
     lods.push(l);
   }
   if (!lods.length) return null;
@@ -269,11 +311,9 @@ interface Pix { w: number; h: number; d: Uint8Array<ArrayBuffer> }
  */
 async function pixels(url: string, channels: 1 | 2): Promise<Pix | null> {
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const blob = await res.blob();
+    const blob = await assets.blob(url);
     // The dev server answers a missing file with the index page.
-    if (!blob.type.startsWith('image')) return null;
+    if (!blob || !blob.type.startsWith('image')) return null;
     const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
     // Read the size BEFORE closing: a closed bitmap reports 0 by 0, and a 0 by 0 texture samples as opaque black.
     const w = bmp.width, h = bmp.height;
@@ -373,32 +413,68 @@ async function place(asset: VehicleAsset, send: SendCell | null): Promise<void> 
   }
 }
 
-/**
- * Fetch and build every listed kind, one after another so no frame carries two
- * parses. `onLoad` runs once per kind that arrives; nothing runs for one that
- * does not. Never throws and never logs an error. `send` is how a kind's cell of the shared sheets reaches the video
- * card (see place); without it the whole sheets are marked changed, which costs a hitch for every kind.
- */
-export async function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, textures = true, kinds: readonly VehicleKind[] = GLB_KINDS, send: SendCell | null = null): Promise<void> {
-  const loader = new GLTFLoader();
-  const wheelMaps = textures && WHEEL_TEX ? await wheelTextures() : null;
-  for (const kind of kinds) {
-    try {
-      const res = await fetch(`models/${kind}.glb`);
-      if (!res.ok) continue;
-      const buf = await res.arrayBuffer();
-      // "glTF". The dev server answers a missing file with the index page.
-      if (buf.byteLength < 20 || new DataView(buf).getUint32(0, true) !== 0x46546c67) continue;
-      const gltf = await loader.parseAsync(buf, '');
-      const asset = buildAsset(kind, gltf.scene);
-      if (!asset) { console.warn(`models/${kind}.glb: no LOD0 with a paint mesh; keeping the procedural ${kind}`); continue; }
-      for (const n of asset.notes) console.warn(`models/${kind}.glb: ${n}`);
-      // The maps come before the car is shown: its near levels have no occlusion of their own to fall back on.
-      if (textures) await place(asset, send);
-      asset.wheelMaps = wheelMaps;
-      onLoad(asset);
-    } catch (e) {
-      console.warn(`models/${kind}.glb did not load; keeping the procedural ${kind}`, e);
+const isGlb = (buf: ArrayBuffer | null): buf is ArrayBuffer => !!buf && buf.byteLength >= 20 && new DataView(buf).getUint32(0, true) === 0x46546c67;
+
+/** How the cars are fetched: `far` is 'only' on phones (the one small file and nothing else), 'first' elsewhere, 'none' for the old way. */
+export interface CarLoad { textures: boolean; send: SendCell | null; far: 'only' | 'first' | 'none' }
+
+/** Every kind's far level, from the one small file. A kind whose own file is already in (`skip`) is left alone. */
+async function loadFar(onLoad: (a: VehicleAsset) => void, skip: Set<VehicleKind>): Promise<void> {
+  try {
+    const buf = await assets.bytes(FAR_FILE);
+    // "glTF". The dev server answers a missing file with the index page.
+    if (!isGlb(buf)) return;
+    const gltf = await new GLTFLoader().parseAsync(buf, '');
+    const all = namesIn(gltf.scene);
+    for (const kind of GLB_KINDS) {
+      const pre = kind.toUpperCase() + '_', named = new Map<string, THREE.Object3D>();
+      for (const [n, o] of all) if (n.startsWith(pre)) named.set(n.slice(pre.length), o);
+      const asset = buildAsset(kind, gltf.scene, named);
+      if (asset && !skip.has(kind)) onLoad(asset);
     }
+  } catch (e) {
+    console.warn(`${FAR_FILE} did not load; the cars stay procedural until their own files arrive`, e);
   }
+}
+
+/**
+ * Fetch and build the cars: first every kind's far level from the one small file, then (unless that is all the
+ * preset draws) each kind's own file, one after another so no frame carries two parses, in order of need.
+ * `onLoad` runs once for a kind's far level and again when its own file is in; nothing runs for one that does not
+ * arrive. Never throws and never logs an error. `send` is how a kind's cell of the shared sheets reaches the video
+ * card (see place); without it the whole sheets are marked changed, which costs a hitch for every kind.
+ * `opening` settles when the far levels and the kinds parked at the start are in the scene, `all` when everything is.
+ */
+export function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, o: CarLoad): { opening: Promise<void>; all: Promise<void> } {
+  const full = new Set<VehicleKind>();
+  const far = o.far === 'none' ? Promise.resolve() : loadFar(onLoad, full);
+  if (o.far === 'only') return { opening: far, all: far };
+  let opened!: () => void;
+  const opening = new Promise<void>((r) => { opened = r; });
+  const all = (async (): Promise<void> => {
+    const loader = new GLTFLoader();
+    const wheelMaps = o.textures && WHEEL_TEX ? await wheelTextures() : null;
+    let i = 0;
+    for (const kind of kindsByNeed()) {
+      if (i++ === OPENING_KINDS.length) opened();
+      try {
+        const buf = await assets.bytes(`models/${kind}.glb`);
+        // "glTF". The dev server answers a missing file with the index page.
+        if (!isGlb(buf)) continue;
+        const gltf = await loader.parseAsync(buf, '');
+        const asset = buildAsset(kind, gltf.scene);
+        if (!asset) { console.warn(`models/${kind}.glb: no LOD0 with a paint mesh; keeping the procedural ${kind}`); continue; }
+        for (const n of asset.notes) console.warn(`models/${kind}.glb: ${n}`);
+        // The maps come before the car is shown: its near levels have no occlusion of their own to fall back on.
+        if (o.textures) await place(asset, o.send);
+        asset.wheelMaps = wheelMaps;
+        full.add(kind);
+        onLoad(asset);
+      } catch (e) {
+        console.warn(`models/${kind}.glb did not load; keeping the procedural ${kind}`, e);
+      }
+    }
+    opened();
+  })();
+  return { opening: Promise.all([far, opening]).then(() => undefined), all };
 }

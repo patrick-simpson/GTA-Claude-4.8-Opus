@@ -27,6 +27,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { putChanged } from '../core/util';
 import { flip, sendRange } from '../core/flip';
+import { assets } from '../core/assets';
 
 export type Rect4 = readonly [number, number, number, number];
 const AW = 2048, AH = 1536, Q = 256, FAR_PX = 2048;
@@ -51,11 +52,9 @@ function blank(r: number, g: number, b: number, a: number, srgb: boolean): THREE
 interface Pix { w: number; h: number; d: Uint8ClampedArray }
 
 async function pixels(url: string): Promise<Pix | null> {
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const blob = await res.blob();
+  const blob = await assets.blob(url);
   // The dev server answers a missing file with the index page.
-  if (!blob.type.startsWith('image')) return null;
+  if (!blob || !blob.type.startsWith('image')) return null;
   const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
   const cv = document.createElement('canvas');
   // Read the size first: a closed bitmap reports 0 by 0, and a 0 by 0 texture samples as opaque black.
@@ -219,7 +218,7 @@ function loadPictures(): Promise<boolean> {
   picturesAsked = (async () => {
     try {
       const [col, mask, nrm, far, farMask] = await Promise.all(
-        ['flora_atlas', 'flora_mask', 'flora_nrm', 'flora_far', 'flora_far_mask'].map((n) => pixels(`models/${n}.webp`)));
+        FLORA_PICTURES.map((n) => pixels(`models/${n}.webp`)));
       if (!col || !mask || col.w !== mask.w || col.h !== mask.h) return false;
       TEX.map = picture(col, mask, true);
       if (nrm) TEX.nrm = picture(nrm, null, false);
@@ -267,12 +266,15 @@ function raw(mesh: THREE.Mesh): Raw | null {
   return out;
 }
 
+const FLORA_PICTURES = ['flora_atlas', 'flora_mask', 'flora_nrm', 'flora_far', 'flora_far_mask'] as const;
+/** What loadFlora asks for, for the download queue. */
+export const FLORA_FILES: readonly string[] = ['models/flora2.glb', ...FLORA_PICTURES.map((n) => `models/${n}.webp`)];
+
 /** The models and their pictures. Null if anything is missing or broken; never throws, never logs an error. */
 export async function loadFlora(): Promise<FloraFile | null> {
   try {
-    const [res, pics] = await Promise.all([fetch('models/flora2.glb'), loadPictures()]);
-    if (!res.ok || !pics) return null;
-    const buf = await res.arrayBuffer();
+    const [buf, pics] = await Promise.all([assets.bytes('models/flora2.glb'), loadPictures()]);
+    if (!buf || !pics) return null;
     // "glTF". The dev server answers a missing file with the index page.
     if (buf.byteLength < 20 || new DataView(buf).getUint32(0, true) !== 0x46546c67) return null;
     const gltf = await new GLTFLoader().parseAsync(buf, '');

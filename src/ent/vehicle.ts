@@ -20,6 +20,7 @@
 
 import * as THREE from 'three';
 import { flip, sendRange } from '../core/flip';
+import { assets } from '../core/assets';
 import type { Game } from '../core/game';
 import type { Vehicle, VehicleControls, VehiclesApi } from '../core/api';
 import { RNG, clamp, clamp01, damp, smooth } from '../core/util';
@@ -738,7 +739,13 @@ export class Vehicles implements VehiclesApi {
     const sheetFits = game.renderer.capabilities.maxTextureSize >= SHEET_TEXELS;
     // A kind's baked maps go to the video card one cell of the shared sheets at a time (place() in vehicleAssets.ts).
     const send: SendCell = (sheet, texels, size, x, y, blank) => this.sendCell(sheet, texels, size, x, y, blank);
-    if (new URLSearchParams(location.search).get('glb') !== '0') void loadVehicleAssets((a) => this.adopt(a), !low && sheetFits && new URLSearchParams(location.search).get('cartex') !== '0', undefined, send);
+    // Phones fetch the one small file of far levels and nothing else. The rest show those far levels until a kind's
+    // own file is in (`?carfar=0`: the old way, block cars until then), and the title card waits for them and for
+    // the three cars parked where the game opens (core/assets.ts).
+    if (new URLSearchParams(location.search).get('glb') !== '0') {
+      const far = low ? 'only' : new URLSearchParams(location.search).get('carfar') === '0' ? 'none' : 'first';
+      assets.hold(loadVehicleAssets((a) => this.adopt(a), { textures: !low && sheetFits && new URLSearchParams(location.search).get('cartex') !== '0', send, far }).opening, 'cars');
+    }
     this.glow = new Sprites(1024, GLOW_VS, glowTexture(), 6);
     this.pool = new Sprites(96, POOL_VS, poolTexture(), 5);
     this.shadow = new Sprites(160, GROUND_VS, shadowTexture(), 2, new THREE.Color(0x0b1322));
@@ -1663,13 +1670,35 @@ export class Vehicles implements VehiclesApi {
     if (!first && this.envMs > this.envMax) this.envMax = this.envMs;
   }
 
-  /** A kind's file has arrived: from the next frame its cars are drawn from it. */
-  private adopt(a: VehicleAsset): void {
+  /**
+   * A kind's file has arrived: from the next frame its cars are drawn from it. The first arrival for a kind (its far
+   * level from cars_far.glb) goes straight in. Its own file taking the far level's place in the middle of play is a
+   * visible change of shape if one of those cars is close and on screen, so that swap waits until none is, six
+   * seconds at most. (A test that has frozen the clock is never made to wait.)
+   */
+  private adopt(a: VehicleAsset, waited = 0): void {
+    if (waited < 15 && this.assets.has(a.kind) && this.game.state === 'play' && !this.game.frozen && this.watched(a.kind)) {
+      setTimeout(() => this.adopt(a, waited + 1), 400);
+      return;
+    }
     this.assets.set(a.kind, a);
     const b = this.batches.get(a.kind);
     if (!b) return;
     this.dress(b);
     for (const c of this.cars) if (c.batch === b) { c.stale = true; c.lod = 1; }
+  }
+
+  /** Whether a car of this kind is on screen within 40 m of the camera. */
+  private watched(kind: VehicleKind): boolean {
+    const cam = this.game.camera, v = new THREE.Vector3();
+    for (const c of this.cars) {
+      if (c.spec.kind !== kind) continue;
+      v.set(c.x, c.y + 0.7, c.z);
+      if (v.distanceToSquared(cam.position) > 1600) continue;
+      v.project(cam);
+      if (Math.abs(v.x) < 1.15 && Math.abs(v.y) < 1.25 && v.z < 1) return true;
+    }
+    return false;
   }
 
   /** (Re)build a kind's draw sets: from its file if that is here, else from the procedural model. */

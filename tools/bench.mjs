@@ -234,8 +234,12 @@ async function runPreset(q, land) {
 }
 
 async function runLoad() {
-  // A cold cache every time: a new browser per run. `ready` is the title card's Play; `models` is the last model file in.
-  const t = await boot({ dist: !!opt.dist, start: false, wait: false, query: ['save=0', extra].filter(Boolean).join('&'), width: W, height: H });
+  // A cold cache every time: a new browser per run. `ready` is the world built, `playable` the title card's Play (it waits
+  // for what is round the player to arrive: src/core/assets.ts), `models` the last model file in.
+  // The game reads its model files in a worker, whose requests are not in the page's own resource log, so this run
+  // reads them on the page (`fetchworker=0`) to list every file. For what a visitor on a real line waits through, use
+  // scratch/m6/netload.mjs: the production build served gzipped as the live site does, on a slowed network.
+  const t = await boot({ dist: !!opt.dist, start: false, wait: false, query: ['save=0', 'fetchworker=0', extra].filter(Boolean).join('&'), width: W, height: H });
   try {
     await t.page.waitForFunction(() => window.__game && (window.__game.ready || window.__game.error), null, { timeout: 120000 });
     const ready = await t.page.evaluate(() => Math.round(performance.now()));
@@ -251,7 +255,8 @@ async function runLoad() {
     const total = res.reduce((a, r) => a + r.kB, 0), models = res.reduce((a, r) => Math.max(a, r.end), 0);
     const byKind = {};
     for (const r of res) { const k = /\.glb$/.test(r.file) ? 'models' : /\.webp$/.test(r.file) ? 'model textures' : /\.(woff2?|css)$/.test(r.file) ? 'fonts+css' : 'code'; byKind[k] = (byKind[k] || 0) + r.kB; }
-    out({ load: opt.dist ? 'dist' : 'source', readyMs: ready, lastFileMs: models, files: res.length, totalKB: total, byKind });
+    const boot = await t.page.evaluate(() => ({ ...window.__game.boot, marks: window.__game.loads?.().marks }));
+    out({ load: opt.dist ? 'dist' : 'source', titleMs: Math.round(boot.titleAt), readyMs: ready, playableMs: boot.playableAt, lastFileMs: models, files: res.length, totalKB: total, byKind, inScene: boot.marks });
     res.sort((a, b) => b.kB - a.kB);
     for (const r of res.slice(0, opt.dist ? 60 : 14)) console.log(`  ${String(r.kB).padStart(6)} kB  ${String(r.end).padStart(6)} ms  ${r.file}`);
   } finally {

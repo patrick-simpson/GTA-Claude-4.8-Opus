@@ -88,6 +88,51 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### M6 step 4, loading: pushed Nov 20, about 12:50 PM ET
+
+- **Phones download 1.84 MB instead of 9.23** and never show block cars or box
+  people: new `public/models/cars_far.glb` (898 kB, 333 gzipped) holds every
+  kind's far level, wheel and lamp marks, copied byte for byte out of the full
+  files by `pack_far()` at the end of `tools/blender/cars.py` (or `-- --far`
+  alone). Low fetches it and the two people files, and no car maps. ANY car
+  export that skips that last step leaves it stale.
+- **One download queue, `src/core/assets.ts`:** four at a time, in order of need
+  (people, far levels, street furniture, trees, the three cars at the start, then
+  kinds by how common they are), read in a worker (`?fetchworker=0` turns that
+  off; a Content-Security-Policy would need `worker-src blob:`).
+- **The title card holds** (showing megabytes really arrived) until what is
+  round the player is in the scene, 10 s at most after the world is built
+  (`HOLD_MS` in `src/boot.ts`), so the game opens on real people, trees and cars.
+  A kind's own file replaces its far level only while none of those cars is on
+  screen within 40 m (6 s at most): a swap out of sight, not a fade.
+- **`src/main.ts` is now a 4.8 kB entry** that shows the title card; the game is
+  `src/boot.ts`, fetched beside it (the test hooks, `window.__game`, live there
+  now). Title at 0.12 s instead of 0.30 (0.25 instead of 0.95 on a slow line).
+- Measured with the network slowed (25 Mbit/40 ms and 6 Mbit/100 ms), ms after
+  navigation, before to after. Phone: real models in at 5.4 to 1.1 s (fast) and
+  13.9 to 3.0 s (slow). High: no stand-ins after 10.8 to 5.7 s (fast) and 25.4 to
+  10.9 s (slow), last file 11.2 to 8.6 s and 26.8 to 22.5 s; but the card says
+  start at 6.3 s where it said 2.4 (11.9 against 3.0 on the slow line): that is
+  the hold. High transfers 16.4 MB on the wire (GitHub Pages gzips .glb).
+  `tools/bench.mjs --load` reports title, playable and in-scene times.
+  Owed: at 1.5 Mbit the start comes at 17 s and real models are all in only at
+  42 s. On a fast line the wait at high is the processor (first frames 2.4 s
+  cold, trees in at 5.3 s), not profiled. No true cross-fade. Audio, missions,
+  the menu and the mainland are still in the one big script (483 kB gzipped).
+  Quantised model attributes (KHR_mesh_quantization, no decoder needed) would cut
+  the .glb files a lot but mean re-exporting and re-inspecting every model. The
+  ten later car kinds each still cost a hitch going in during play. Verified in
+  headless Chromium only: no real phone, Safari or Firefox.
+
+### Owner request, Nov 20 midday: live multiplayer, one fully shared world
+
+"Make it so that when multiple people are on it, it does live multiplayer." The
+owner chose a fully shared world (the same traffic, police and missions for
+everyone), M6 finished first, the message service deployed from the kvbcawana
+repo, one public city only, and made-up names with no typing. Decisions, design
+and the five stages: `tools/briefs/multiplayer.md`. It starts after M6 and after
+the weekly usage reset (Sunday Nov 22, 4 PM ET); about 15 to 25 steps.
+
 ### M6 step 3, quality that chooses itself: pushed Nov 20, about 12:05 PM ET
 
 - **`src/core/governor.ts`** (new): the presets, the machine hints, a one-off

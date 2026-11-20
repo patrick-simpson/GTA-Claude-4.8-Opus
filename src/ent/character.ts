@@ -33,6 +33,7 @@ import type { Look, PeopleApi, Person, Pose } from '../core/api';
 import type { Game } from '../core/game';
 import { RNG, TAU, clamp, clamp01, damp, hash2, lerp, smooth } from '../core/util';
 import { flip, sendRange } from '../core/flip';
+import { assets } from '../core/assets';
 import { WATER_Y, groundAt } from '../world/plan';
 import { BONES, MORPHS, PARTS, loadPeople, type BodyKind, type PersonAsset } from './characterAssets';
 
@@ -830,7 +831,7 @@ export class People implements PeopleApi {
 
     // `?people=0` keeps the box people, for comparing the two.
     if (new URLSearchParams(location.search).get('people') !== '0') {
-      void loadPeople().then((a) => { if (a) this.adopt(a); });
+      assets.hold(loadPeople().then((a) => { if (a) this.adopt(a); }), 'people');
     }
   }
 

@@ -22,7 +22,7 @@ Rules
   `--query q=low`.
 
 Checking in the real game
-- tools/shot.mjs and tools/pw.mjs (read their headers); hooks are in src/main.ts (`window.__game`).
+- tools/shot.mjs and tools/pw.mjs (read their headers); hooks are in src/boot.ts (`window.__game`; they appear after a dynamic import, so wait for them).
 - Blender models load a few seconds after boot, so wait real time before screenshots:
   scratch/distwait.mjs and scratch/gate7.mjs show the pattern (boot, step, page.waitForTimeout, step,
   teleport or view, shot).

@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { putChanged } from '../core/util';
 import { flip, sendRange } from '../core/flip';
+import { assets } from '../core/assets';
 
 /** Inside this the modelled prop is drawn, outside it the one built in code. A hydrant is 14 pixels tall at this range. */
 export const NEAR = 42;
@@ -31,14 +32,14 @@ export const CUT_VERTEX = `
     }
   #endif`;
 
+export const PROPS_FILE = 'models/props.glb';
+
 /** The models by name, with the attributes ground.ts's prop material reads. Null if the file is missing or broken; never throws. */
 export async function loadProps(): Promise<Map<string, THREE.BufferGeometry> | null> {
   try {
-    const res = await fetch('models/props.glb');
-    if (!res.ok) return null;
-    const buf = await res.arrayBuffer();
+    const buf = await assets.bytes(PROPS_FILE);
     // "glTF". The dev server answers a missing file with the index page.
-    if (buf.byteLength < 20 || new DataView(buf).getUint32(0, true) !== 0x46546c67) return null;
+    if (!buf || buf.byteLength < 20 || new DataView(buf).getUint32(0, true) !== 0x46546c67) return null;
     const gltf = await new GLTFLoader().parseAsync(buf, '');
     const out = new Map<string, THREE.BufferGeometry>();
     gltf.scene.traverse((o) => {

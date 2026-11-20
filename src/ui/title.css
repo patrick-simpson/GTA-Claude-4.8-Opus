@@ -120,6 +120,9 @@
   text-transform: uppercase;
   text-align: right;
   white-space: nowrap;
+  /* A line longer than the slot (the megabytes during the wait) grows to the left, not off the screen. */
+  display: flex;
+  justify-content: flex-end;
 }
 .tt-rule { height: 4px; background: rgba(242, 232, 207, 0.22); }
 .tt-rule i {

@@ -20,6 +20,7 @@ import { signalState } from './signals';
 import { CELL, Cover, EXTRA, TreeField, loadFlora, floraEnv, type FloraFile, type Planting, type Rect4 } from './floraAssets';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RNG, TAU, clamp, hash2, noise2, smooth } from '../core/util';
+import { assets } from '../core/assets';
 import {
   AVE_HW, BREAKWATER, BRIDGE, BRIDGE_SPAN, BRIDGE_SPANS, CURB, PIER, RAMPS, SIDEWALK, WATER_Y, XS, ZS,
   groundAt, hwX, hwZ, islandSD, roadY, terrainAt, type Block, type District, type Rect,
@@ -878,17 +879,17 @@ class Ground implements WorldPart {
 
     // Phones keep the simple trees. `?flora=0` keeps them anywhere, for comparing.
     if (game.quality.name !== 'low' && new URLSearchParams(location.search).get('flora') !== '0') {
-      void loadFlora().then((geo) => { if (geo) this.plantFlora(geo); });
+      assets.hold(loadFlora().then((geo) => { if (geo) this.plantFlora(geo); }), 'flora');
     }
     // The modelled street furniture, for close up. Not on phones or the cheap shelf; `?props=0` keeps the code-built ones, for comparing.
     if (game.quality.name !== 'low' && mats.pbr && new URLSearchParams(location.search).get('props') !== '0') {
-      void loadProps().then((geo) => {
+      assets.hold(loadProps().then((geo) => {
         if (!geo) return;
         const kinds: { geo: THREE.BufferGeometry; src: readonly THREE.InstancedMesh[] }[] = [];
         const want: [string, Inst][] = [['lamp', this.lamps], ...(['hydrant', 'bin', 'mailbox', 'bench', 'post', 'news'] as const).map((n, i): [string, Inst] => [n, this.furn[i]])];
         for (const [name, inst] of want) { const g = geo.get(name); if (g) kinds.push({ geo: g, src: inst.meshes }); }
         this.props = new PropField(this.root, this.propNear, kinds);
-      });
+      }), 'props');
     }
   }
 
