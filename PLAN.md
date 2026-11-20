@@ -88,6 +88,30 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Lamps, bumpers, mirrors and handles on every car: pushed Nov 20, about 7:40 AM ET
+
+- All twelve kinds re-exported (`tools/blender/cars.py` only; no TypeScript).
+- **Square head lamps** no longer read as an open chrome box: the corner beside
+  each lamp is an amber wrap-round indicator lens. Root cause was the end plates'
+  corner column standing upright while the plate leaned back (a fin 3 cm proud of
+  the lamp, 9 cm on the Bolt); it now leans with the plate, at all three levels.
+- **Painted bumpers** run round the corner in one piece (the notch under the
+  sedan's and taxi's lamp is gone) and are measured against the finished skin.
+- **Bolt:** the tooth in the outline at the front corners is gone; lamp housing
+  is black, not chrome. **Mirrors** are rounded shells on a stalk with a glass
+  face, **door handles** chrome pulls over a dark recess, on every kind, for
+  fewer triangles than the boxes. Every kind carries the shallower lamp relief.
+- Near level is now 13.5-18.3k triangles a kind; car download 20.1 MB. Frame
+  time unchanged (cars' share 0.0 ms near, +0.66 mid). `--wheel-tex` is wrapped
+  for windowed Blender but was not run.
+- Checked: all twelve by day, lamps at night front and rear, low preset.
+  Owed: the bumper's ledge now reads as a wrap-round piece ending in a seam 4.5 cm
+  ahead of the arch (a change of look). Muscle car: a soft fold where the ledge
+  turns the corner, and at low a dark triangle under the bumper end ahead of the
+  front wheel. The far level keeps box mirrors and no handles. The bus was never
+  seen in a clean front three-quarter day view. Car detail on a real phone unseen.
+- **Next: the owner's 2015 Ford C-Max** (`tools/briefs/cmax.md`), then M6.
+
 ### Dark paint without the blotches: pushed Nov 20, about 6:50 AM ET
 
 - **Paint (step B), high preset only:** black and charcoal cars lost their

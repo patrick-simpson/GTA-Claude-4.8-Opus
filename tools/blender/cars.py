@@ -419,7 +419,7 @@ class Car:
         s.cq = P['rhead'] - P.get('cq', 0.3) * (P['rhead'] - P['deckf'])
         s.sg_end = P.get('sg_end', s.cq)
         # hi is the showroom level: everything gated on it is drawn for the few cars nearest the camera only.
-        s.hi = False; s.kind = ''; s.covers = []; s.lamp_c = {}; s.lamp_cells = {}; s.skin = None
+        s.hi = False; s.kind = ''; s.covers = []; s.lamp_c = {}; s.lamp_cells = {}; s.skin = None; s.shell_bvh = None
         s.cells = {1: P.get('front', FRONT), -1: s.sections(P.get('rear', REAR))}
 
     @property
@@ -585,6 +585,13 @@ class Car:
                 x, y = sd[k] if k < 4 else rows[k - 4]
                 zz = z + bow * CW[k - 4] if k >= 4 else z
                 if end and k >= 4: zz = s.zplan(x, end) - end * s.rake(end, y)
+                # The corner leans back with the end plate it is the edge of. It used to stand upright, so at lamp
+                # height it stood ahead of the plate (3 cm on most kinds, 9 on the Bolt, whose nose leans most): a
+                # fin up each corner that boxed the lamps in and showed in the outline as a tooth. It stops 3 cm
+                # short of the station behind it, so a tall tail cannot fold over.
+                if end and k < 4:
+                    zz = z - end * s.rake(end, y)
+                    zz = max(zz, st[1] + 0.03) if end > 0 else min(zz, st[NS - 2] - 0.03)
                 idx[j][k] = len(verts); verts.append((x, y, zz))
         zmid = lambda j: (st[j] + st[j + 1]) / 2
         mscr = (P['cowl'] + P['header']) / 2
@@ -706,14 +713,17 @@ class Car:
         dark = bm.verts.layers.float.new('dark')
         orient(bm, ('up',))
 
-        def inset(mi, thick, ring, push=0.0):
+        def inset(mi, thick, ring, push=0.0, side=1.0):
             fs = [f for f in bm.faces if f.material_index == MI[mi]]
             if not fs: return
             r = bmesh.ops.inset_region(bm, faces=fs, thickness=thick, depth=0.0, use_boundary=True, use_even_offset=True)
             for f in r['faces']: f.material_index = MI[ring]
             if push:
                 bm.normal_update()
-                for v in {v for f in bm.faces if f.material_index == MI[mi] for v in f.verts}: v.co -= v.normal * push
+                # 'side': how deep the housing stays where it has run round the corner onto the wing. A full-depth
+                # trench there stands open in the car's outline, the clear cover a loose line 3 cm off its floor.
+                for v in {v for f in bm.faces if f.material_index == MI[mi] for v in f.verts}:
+                    v.co -= v.normal * push * lerp(side, 1.0, smooth((abs(v.normal.y) - 0.3) / 0.4))
             return r['faces']
         if lod == 0 and s.g('bus_doors'):
             # The bus's doorways are cut out of the kerb side, sill to cant rail; the flange pass below gives each a
@@ -732,15 +742,24 @@ class Car:
             names_ = MATS + TMP; s.covers = []
             for f in bm.faces:
                 n = names_[f.material_index]
-                if n in ('lamp_head', 'lamp_drl') or (n == 'lamp_ind' and f.calc_center_median().y < 0):
+                if n in ('lamp_head', 'lamp_drl'):
                     s.covers.append([(v.co.x, v.co.z, -v.co.y) for v in f.verts])
             bowl = s.g('bowl'); wall = []
-            for m, depth in (('lamp_head', 0.034), ('lamp_drl', 0.02), ('lamp_ind', 0.012), ('lamp_tail', 0.008), ('lamp_brake', 0.008), ('lamp_rev', 0.008)):
-                inset(m, 0.008 if depth > 0.01 else 0.005, 'chrome')
-                w_ = inset(m, (0.02 if bowl and m == 'lamp_head' else 0.015) if depth > 0.01 else 0.007, 'chrome' if depth > 0.01 else m, depth)
+            # The indicators are lenses like the tail lamps, front ones too. The front one is the sliver that turns the
+            # corner beside the head lamp: as a chrome pan under the clear cover it was narrower than its own rings
+            # (4 cm against 4.6), so it folded through itself and the lamp stood open at the side, an empty chrome
+            # box. As an amber lens it closes the side of the bowl.
+            for m, depth in (('lamp_head', 0.034), ('lamp_drl', 0.02), ('lamp_ind', 0.008), ('lamp_tail', 0.008), ('lamp_brake', 0.008), ('lamp_rev', 0.008)):
+                # Behind a clear lens the housing is black plastic, rim and walls: chrome there (and gloss black as
+                # much) mirrored the sky in pale slivers where the lamp's tail faces up.
+                rim = 'trim' if bowl and depth > 0.01 else 'chrome'
+                inset(m, 0.008 if depth > 0.01 else 0.005, rim)
+                w_ = inset(m, (0.02 if bowl and m == 'lamp_head' else 0.015) if depth > 0.01 else 0.007, rim if depth > 0.01 else m, depth,
+                           0.35 if sweep and depth > 0.01 else 1.0)
                 if m == 'lamp_head' and bowl: wall = list(w_ or ())
                 if s.hi and depth < 0.01:
-                    fs = [f for f in bm.faces if f.material_index == MI[m]]
+                    # (Tiles only where a face is wide enough to hold one.)
+                    fs = [f for f in bm.faces if f.material_index == MI[m] and min(e.calc_length() for e in f.edges) > 0.012]
                     if fs:
                         r = bmesh.ops.inset_individual(bm, faces=fs, thickness=0.004, depth=0.003)
                         for f in r['faces']:
@@ -755,7 +774,7 @@ class Car:
                     if f.material_index == MI['lamp_head']:
                         for v in f.verts: v[dark] = bowl
                 for f in wall:
-                    if f.is_valid and f.normal.z > 0.5: f.material_index = MI['lamp_drl']
+                    if f.is_valid and f.normal.z > 0.3: f.material_index = MI['lamp_drl']
             inset('tmp_grille', 0.014, 'chrome', 0.02)
             seams = [e for e in bm.edges if e.seam]
             r = bmesh.ops.bevel(bm, geom=seams, offset=0.006, offset_type='OFFSET', segments=2, profile=0.5,
@@ -784,6 +803,7 @@ class Car:
         names = MATS + TMP
         me.polygons.foreach_set('material_index', [MI[REMAP.get(names[i], names[i])] for i in mi])
         for i in range(len(names) - 1, len(MATS) - 1, -1): me.materials.pop(index=i)
+        s.shell_bvh = BVHTree.FromPolygons([v.co.copy() for v in me.vertices], [list(q.vertices) for q in me.polygons])
         return ob
 
     def wrap(s, pts, end=1, off=0.004):
@@ -852,6 +872,14 @@ class Car:
         gap = zN - (s.zNf if end > 0 else s.zNr) + s.rake(end, T)
         path = [(th, 1) for th in ths] + [(th, -1) for th in reversed(ths[:-1])]
         verts, faces, fm = [], [], []
+        # (See fit_bumper.) On the two near levels the top three rows are placed against the finished skin already
+        # here, so the ledge the bumper makes under the lamps keeps its section round the corner and along the wing
+        # instead of fading out at the corner, which read as a notch there.
+        tree = s.shell_bvh if blend and lod == 0 else None
+
+        def skin_gap(x, z, nx, nz, y):
+            hit = tree.ray_cast(B(x + nx * 0.4, y, end * (z + nz * 0.4)), B(-nx, 0.0, -end * nz), 0.8)
+            return None if hit[0] is None else hit[3] - 0.4
         for th, sx in path:
             cx, sn = cos(th) ** (2 / n), sin(th) ** (2 / n)
             x, z = Wb * cx, zs + (zN - zs) * sn
@@ -861,8 +889,15 @@ class Car:
             hug = 1 - smooth((th - th0) / radians(28))
             ot = -gap * sn
             pr = prof if not blend else [(ot - 0.012, T + 0.008), (ot + 0.004, T - 0.05 * d), (ot * 0.35 + 0.009, T - 0.19 * d)] + prof[3:]
-            for o, y in pr:
-                o = o * k if o > 0 else o
+            offs = [o * k if o > 0 else o for o, _ in pr]
+            wf = smooth((z - z0) / 0.045) if tree else 0.0
+            if wf > 0:
+                g0, g1 = skin_gap(x, z, nx, nz, pr[0][1]), skin_gap(x, z, nx, nz, pr[1][1])
+                if g0 is not None and g1 is not None:
+                    o1 = 0.006 - g1
+                    offs[0] = lerp(offs[0], -0.014 - g0, wf); offs[1] = lerp(offs[1], o1, wf)
+                    offs[2] = lerp(offs[2], lerp(o1, offs[3], 0.62), wf)
+            for o, (_, y) in zip(offs, pr):
                 q = min(1.0, max(0.0, (T + 0.1 - y) / (T + 0.1 - P['sill'])))
                 verts.append((sx * (x * (1 - hug * (0.032 * q * q - 0.004)) + nx * o), y, end * (z + nz * o)))
         np_ = len(prof)
@@ -882,7 +917,44 @@ class Car:
             m = ob.modifiers.new('sub', 'SUBSURF'); m.levels = 1
             ob.data.attributes.remove(ob.data.attributes['tint'])
             apply_mods(ob); stamp(ob.data)
+        if blend: s.fit_bumper(ob, end, T, d, z0, n, zs, zN, Wb, lod == 0)
         return ob
+
+    def fit_bumper(s, ob, end, T, d, z0, n, zs, zN, Wb, exact):
+        """Lay a painted bumper against the skin it grows out of. The sweep above places it against the body's plan as
+        drawn, but the skin is that plan subdivided: it cuts the corners by a centimetre or two and swells round the
+        arches. So the bumper's tucked top edge came out through the skin at the corner (a notch under the lamp) and
+        along the wing the two surfaces lay within millimetres of each other and crossed in a zig-zag. Here every
+        vertex is measured against the finished skin along the plan's normal: the top edge goes 14 mm inside it, the
+        row below 5 mm outside (so the bumper leaves the body along one level line), and nothing lower down may come
+        closer than 5 mm proud. Over the 45 mm next to the arch the rule fades out: there the bumper ends buried in the
+        arch's flare as before. exact=False (the cage level, whose skin is too coarse to follow) only ever moves the
+        top edge in and the rest out."""
+        bvh = s.shell_bvh
+        if bvh is None: return
+        y1 = T - 0.05 * d
+        for v in ob.data.vertices:
+            x, y, z = abs(v.co.x), v.co.z, -end * v.co.y
+            if y < T - 0.75 * d: continue
+            w = smooth((z - z0) / 0.045)
+            if w <= 0.0: continue
+            u = max(0.0, (z - zs) / (zN - zs))
+            nx, nz = (x / Wb) ** (n - 1) / Wb, u ** (n - 1) / (zN - zs)
+            l = hypot(nx, nz)
+            if l < 1e-9: continue
+            nx /= l; nz /= l
+            hit = bvh.ray_cast(B(x + nx * 0.4, y, end * (z + nz * 0.4)), B(-nx, 0.0, -end * nz), 0.8)
+            if hit[0] is None: continue
+            off = 0.4 - hit[3]
+            if y >= T + 0.004:
+                mv = -0.014 - off
+                if not exact: mv = min(0.0, mv)
+            elif y >= y1 + (0.008 - 0.09 * d) / 8 - 0.002:      # (where one subdivision leaves the second row)
+                mv = lerp(0.005, -0.014, min(1.0, max(0.0, (y - y1) / (T + 0.008 - y1)))) - off
+                if not exact: mv = max(0.0, mv)
+            else: mv = max(0.0, 0.005 - off)
+            mv *= w
+            v.co.x += (1.0 if v.co.x >= 0 else -1.0) * nx * mv; v.co.y -= end * nz * mv
 
     # ── Underbody, interior, fittings ────────────────────────────────────────
 
@@ -1004,16 +1076,13 @@ class Car:
         bv = 0.0 if lod else 1.0; ms = s.g('mirror', 1.0)
         for sx in (1, -1):
             zm = s.g('mirror_z', lerp(P['cowl'], P['header'], 0.25))
-            # A pebble, not a brick: three bevel cuts round every edge (the cage level keeps the plain box).
-            I('mirror', (sx * (hw + 0.085), belt + 0.075 * ms, zm), (0.18, 0.115 * ms, 0.092), 'paint' if ms == 1 else 'trim', bevel=0.04 * bv, segs=3)
-            I('mirror_arm', (sx * (hw - 0.01), belt + 0.035, zm + 0.01), (0.12, 0.035, 0.06), 'trim', bevel=0.008 * bv)
-            if lod: continue
-            I('mirror_glass', (sx * (hw + 0.085), belt + 0.075 * ms, zm - 0.0435), (0.145, 0.115 * ms - 0.03, 0.004), 'chrome', 0.55)
-            for zh in s.g('handles', [dz + 0.16 for dz, _ in s.doors[1:]]):
-                # A pull bar over a dished recess for the fingers.
-                xh = s.xat(zh, belt - 0.07)
-                I('handle_cup', (sx * (xh - 0.001), belt - 0.073, zh), (0.012, 0.058, 0.2), 'trim', 0.006, bevel=0.005, segs=2)
-                I('handle', (sx * (xh + 0.011), belt - 0.066, zh), (0.02, 0.026, 0.17), 'chrome', bevel=0.009, segs=2)
+            if lod:
+                # The cage level keeps a plain box on a block.
+                I('mirror', (sx * (hw + 0.085), belt + 0.075 * ms, zm), (0.18, 0.115 * ms, 0.092), 'paint' if ms == 1 else 'trim')
+                I('mirror_arm', (sx * (hw - 0.01), belt + 0.035, zm + 0.01), (0.12, 0.035, 0.06), 'trim')
+                continue
+            out += s.mirror(sx, zm, ms)
+            for zh in s.g('handles', [dz + 0.16 for dz, _ in s.doors[1:]]): out += s.handle(sx, zh)
             if s.g('rub', True):
                 ry = lerp(P['sill'], belt - 0.12, 0.63)
                 for (z0, _), (z1, _) in zip(s.doors, s.doors[1:]):
@@ -1036,6 +1105,70 @@ class Car:
         for sx, zb in ((1, 0.02), (-0.15, 0.03)):
             I('wiper', (sx * 0.36 * k, P['hood_cowl'] + 0.035, P['cowl'] + 0.075 + zb), (0.5 * k, 0.012, 0.018), 'trim', 0.01)
         return out + s.trinkets()
+
+    def mirror(s, sx, zm, ms):
+        """A door mirror: a rounded shell standing clear of the door on a stalk, its glass set back in the open end.
+        The shell is rings of a soft-cornered oval, widest just ahead of the glass and closing to a dome that leans
+        in toward the door. (About 200 triangles; the bevelled box it replaces took nearer 300.)"""
+        P = s.P; hw = s.hw; belt = P['belt']; n = 16
+        a, b = 0.095, 0.058 * ms; cx, cy, zb = hw + 0.108, belt + 0.075 * ms, zm - 0.044
+        mat = 'paint' if ms == 1 else 'trim'
+        sp = lambda c: (1 if c >= 0 else -1) * abs(c) ** 0.6
+        oval = [(sp(cos(2 * pi * i / n)), sp(sin(2 * pi * i / n))) for i in range(n)]
+        # (scale, how far ahead of the glass, how far the ring has leaned in toward the door)
+        rings = [(0.84, 0.007, 0.0), (0.89, 0.0, 0.0), (1.0, 0.012, 0.0), (1.0, 0.042, 0.003), (0.93, 0.066, 0.008), (0.70, 0.084, 0.016)]
+        v = [(sx * (cx + a * k * ox - ln), cy + b * k * oy, zb + dz) for k, dz, ln in rings for ox, oy in oval]
+        v.append((sx * (cx - 0.02), cy, zb + 0.09))
+        f = []; fm = []
+        for r in range(len(rings) - 1):
+            for i in range(n):
+                j = (i + 1) % n
+                f.append((r * n + i, r * n + j, (r + 1) * n + j, (r + 1) * n + i)); fm.append('trim' if r == 0 else mat)
+        top = (len(rings) - 1) * n
+        for i in range(n):
+            f.append((top + i, top + (i + 1) % n, len(v) - 1)); fm.append(mat)
+        bm = new_bm(v, f, mats=fm); orient(bm, ('out', (sx * cx, cy, zb + 0.04)))
+        out = [to_obj(bm, 'mirror')]
+        bm = new_bm(v[:n], [tuple(range(n))], mat='chrome'); orient(bm, ('dir', (0, 0, -1), 0))
+        out.append(to_obj(bm, 'mirror_glass', 0.55))
+        # The stalk: a tapered oval tube from the door up and out into the foot of the shell.
+        m = 8; v = []
+        for x, y, ry, rz in ((hw - 0.014, belt + 0.032, 0.024, 0.04), (hw + 0.05, cy - 0.45 * b, 0.016, 0.028)):
+            for i in range(m):
+                t = 2 * pi * i / m; v.append((sx * x, y + ry * cos(t), zm + 0.006 + rz * sin(t)))
+        f = [(i, (i + 1) % m, m + (i + 1) % m, m + i) for i in range(m)]
+        bm = new_bm(v, f, mat='trim'); orient(bm, ('out', (sx * (hw + 0.015), (belt + 0.03 + cy - 0.5 * b) / 2, zm + 0.006)))
+        out.append(to_obj(bm, 'mirror_arm'))
+        return out
+
+    def skx(s, sx, y, z):
+        """Half width of the finished skin at (y, z) on side sx (the cage's, from xat, where no skin is there)."""
+        hit = s.skin.ray_cast(B(sx * 3.0, y, z), B(-sx, 0.0, 0.0), 3.0) if s.skin else (None,)
+        return abs(hit[0].x) if hit[0] is not None else s.xat(z, y)
+
+    def handle(s, sx, zh):
+        """A door handle: a rounded pull over a dished recess. The door is one skin, so the recess is a dark oval laid
+        a millimetre off it, vertex by vertex, not a hole cut in it; the pull is an oval bar that leaves the skin at
+        one end of the recess, runs level two centimetres off it and comes back at the other. (90 triangles; the
+        two bevelled boxes took about 250.)"""
+        yh = s.P['belt'] - 0.068; n = 14; sp = lambda c: (1 if c >= 0 else -1) * abs(c) ** 0.8
+        v = [(sx * (s.skx(sx, yh, zh) + 0.0012), yh, zh)]
+        for i in range(n):
+            t = 2 * pi * i / n; z = zh + 0.105 * sp(cos(t)); y = yh + 0.031 * sp(sin(t))
+            v.append((sx * (s.skx(sx, y, z) + 0.0012), y, z))
+        bm = new_bm(v, [(0, 1 + i, 1 + (i + 1) % n) for i in range(n)], mat='trim'); orient(bm, ('out', (0, yh, zh)))
+        out = [to_obj(bm, 'handle_cup', 0.006)]
+        m = 8; us = (-1.0, -0.6, 0.0, 0.6, 1.0); v = []; yb = yh + 0.004
+        for u in us:
+            z = zh + u * 0.085; k = 0.75 if abs(u) == 1 else 1.0
+            x = s.skx(sx, yb, z) + 0.004 + 0.016 * (1 - u ** 4)
+            for i in range(m):
+                t = 2 * pi * (i + 0.5) / m; v.append((sx * (x + 0.007 * k * cos(t)), yb + 0.0105 * k * sin(t), z))
+        f = [(r * m + i, r * m + (i + 1) % m, (r + 1) * m + (i + 1) % m, (r + 1) * m + i) for r in range(len(us) - 1) for i in range(m)]
+        f += [tuple(range(m)), tuple(range((len(us) - 1) * m, len(us) * m))]
+        bm = new_bm(v, f, mat='chrome'); orient(bm, ('out', (sx * (s.skx(sx, yb, zh) + 0.016), yb, zh)))
+        out.append(to_obj(bm, 'handle'))
+        return out
 
     def trinkets(s):
         """Writing, emblems and the small lamps: what a car has that a model of one usually leaves off."""
@@ -1441,7 +1574,6 @@ def wheel_uv(ob, P, s):
 def wheel_texture():
     """cars_wheel_n/_o.webp: a strip of real tread blocks and sidewall mouldings baked down onto a flat square.
     One unit is a quarter of a meter; x is round the tire (the strip repeats), y across it."""
-    bpy.ops.wm.read_factory_settings(use_empty=True)
     sc = _bake_setup(0.12)
     bm = bmesh.new()
     def blk(cx, cy, sx, sy, hgt, rot=0.0, taper=0.75):
@@ -2033,7 +2165,10 @@ def _build(kind, do_render=True, do_export=True, extra=False, do_tex=True):
 if __name__ == '__main__':
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     if '--wheel-tex' in argv:
-        wheel_texture(); sys.exit(0)
+        # As build(): reset first, then run inside the window and 3D-view override the bake needs.
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        with _ctx(): wheel_texture()
+        sys.exit(0)
     kinds = [a for a in argv if not a.startswith('--')] or list(VEHICLES)
     for a in argv:
         if a.startswith('--paint='):

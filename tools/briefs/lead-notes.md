@@ -51,3 +51,17 @@ owner's ground rules for the takeover and the running state.
   Gauge at 6:42 AM: window 42% with 51% gone, week 70%. Next: car unit (3) known flaws + re-export
   all twelve, then (4) inspect the uninspected kinds; then M6. Budget: about 13 units to the 95% stop,
   so cars get two more units at most and M6 the rest.
+- Nov 20, 7:05 AM ET: OWNER REQUEST: add their 2015 grey Ford C-Max (kind `cmax`), using the measured
+  shape from the other project at C:/Users/User/cmax; not beside the Bolt; parked somewhere and/or in
+  traffic. Brief: tools/briefs/cmax.md. Runs NEXT, right after the "car flaws, re-export all" unit
+  (same files, so not at the same time), as two units: (a) model + registration + one parked,
+  (b) likeness pass against the other project's renders, traffic, night. Then M6. The separate
+  "inspect the uninspected kinds" car unit is dropped unless budget is left after M6.
+- OWNER RULE (Nov 20, 7:10 AM): every update to the owner states a percentage complete. Count used:
+  steps pushed out of steps planned for the takeover job. Plan as of now is 14 steps: car pass two
+  x4 (three pushed, the fourth running), C-Max x2, M6 x8 (measure, the frame x2, auto quality,
+  loading, owed list, bug bash, night). Say so when a new request changes the total.
+- Nov 20, 7:40 AM ET: pushed car unit 4 (lamps, bumpers, mirrors, handles; all twelve re-exported).
+  4 of 14 steps done. Gauge at 7:34 AM: window 56% with 68% gone (resets 9:10 AM), week 72%. One unit
+  costs about 12 window points and 2 weekly points, so about 11 units remain before the 95% stop and
+  10 are planned. C-Max unit (a) launched 7:42 AM.
