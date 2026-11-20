@@ -107,3 +107,8 @@ owner's ground rules for the takeover and the running state.
   fails intermittently (about 1 check in 50, night rain and Gull Heights frame 52) on the live build
   too, so it predates step 5; see PLAN.md. Next unit [top model]: that stale frame first, then the
   scripted bug bash. Then night lighting if the week allows.
+- Nov 20, 2:15 PM ET: M6 step 6 done (bug bash). The "stale frame" was a false alarm in the check;
+  scripted play found nothing broken; no game code changed, PLAN.md has the list of oddities found.
+  12 of 13 original steps done. Gauge at 2:10 PM: NEW window 0% (resets 7:10 PM ET), week 90%:
+  5 points left. Last M6 unit, night lighting [top model], launched 2:17 PM. After it: STOP for the
+  week unless it is under 93%; multiplayer starts after Sunday Nov 22, 4 PM ET (see multiplayer.md).

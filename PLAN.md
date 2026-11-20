@@ -88,6 +88,36 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### M6 step 6, the bug bash: Nov 20, about 2:15 PM ET (no game code changed)
+
+- **The "stale frame" of step 5 was a false alarm in the check, not a stale
+  buffer.** With the two-copy buffers switched off the check failed at the same
+  rate; every registered buffer read back from the GPU equalled its array at every
+  bad frame. Night rain: the particles fade against scene depth and on a
+  multisampled target read LAST frame's depth (by design, see `particles.ts`), so
+  the first draw after a tick differs from a repeat by a few faint drops. Gull
+  Heights: the multisampled picture is not exactly repeatable on this GPU (1-2
+  pixels in 2-5 of 15 identical draws). `scratch/m6/flipcheck.mjs` now draws
+  without multisampling and also reads every registered buffer back; five runs at
+  high and two at low: 0 bad of 106 each; `--break` still fails every check.
+  An independent worker reran it and the frame rate (68 standing, 65 moving).
+- **Scripted play found nothing broken** (errors list empty throughout): new game,
+  the first mission's opening steps, across town and over the bridge, four taxi
+  fares, heat 3 with roadblocks, an arrest, two deaths, a swim, the menu and every
+  tab, Auto and fixed quality across reloads, a reload mid-chase, window resizes,
+  the phone layout by real touch events. A ten-minute soak: heap 32 to 36 MB,
+  geometries 389 to 526, textures 100 to 112; nothing runs away (a slow creep at
+  the end that ten minutes cannot judge).
+  Owed (found, not fixed): no AI car crossed the finished bridge in a 3-minute
+  watch (is traffic meant to?). A reload mid-chase clears the heat and the car.
+  Map tab: the bridge label sits partly under the hint strip and markers cover
+  three district names. Phone menu tabs are 26 px tall. The intro line "Take it
+  down Pelican Pier" stays as current business for up to 180 s wherever she goes.
+  Console warnings at Auto and medium (`willReadFrequently`, `faces -Z` on the
+  two people files, HLSL X3595). Not played: later missions, courier, tow and race
+  jobs, weapons, shops, respray, the bridge fund box, a gamepad, a 30-minute soak.
+  The box people can go back under `flip` (`scratch/m6/owed/character.item9.ts`).
+
 ### M6 step 5, the owed list: pushed Nov 20, about 1:20 PM ET
 
 A Sonnet worker, checked item by item by a second one and then by the lead.
