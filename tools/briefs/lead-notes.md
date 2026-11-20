@@ -116,3 +116,8 @@ owner's ground rules for the takeover and the running state.
   Gauge at 2:51 PM: window 12% (resets 7:10 PM ET), week 91%: 4 points left before the 95% stop.
   One small Sonnet unit on the oddities the bug bash found fits (about 1 point); then STOP for the
   week. Multiplayer (tools/briefs/multiplayer.md) starts after Sunday Nov 22, 4 PM ET.
+- Nov 20, 3:25 PM ET: pushed the interface leftovers (9f3c5de). STOPPED FOR THE WEEK at 92% (the
+  owner's stop is 95%; the rest is their reserve). Everything asked for before multiplayer is done
+  and live. NEXT, after the weekly reset on Sunday Nov 22, 4 PM ET: multiplayer stage 1
+  (tools/briefs/multiplayer.md). Open question put to the owner: should AI traffic cross the
+  finished bridge? Until the reset: answer the resume check with one line and do nothing else.
