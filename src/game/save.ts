@@ -216,15 +216,21 @@ export function savedQuality(): 'low' | 'medium' | 'high' | null {
  * and the preset Auto fell back to if the measured one proved too much. Its own key, not part of the save: a new
  * game keeps it. `?save=0` neither reads nor writes it.
  */
-export interface GfxNote { gpu: string; score: number | null; /** How many times it has been measured. */ n: number; cap?: 'low' | 'medium'; when: number }
+export interface GfxNote { gpu: string; score: number | null; /** How many times it has been measured. */ n: number; cap?: 'low' | 'medium'; /** When the cap was written (ms): it lapses after a week, so one bad session cannot mark a machine down for good. */ capAt?: number; when: number }
 const GFX_KEY = 'portcalamity.gfx.v1';
+/** How long a "start one preset lower" note lasts: a week. */
+const CAP_LIFE = 7 * 24 * 3600 * 1000;
 export function readGfx(): GfxNote | null {
   if (!save.enabled) return null;
   try {
     const r = obj(JSON.parse(localStorage.getItem(GFX_KEY) ?? 'null'));
     if (typeof r.gpu !== 'string' || !(r.score === null || (typeof r.score === 'number' && Number.isFinite(r.score) && r.score > 0))) return null;
     const n: GfxNote = { gpu: r.gpu.slice(0, 200), score: r.score as number | null, n: Math.round(num(r.n, 1, 1, 9)), when: num(r.when, 0, 0) };
-    if (r.cap === 'low' || r.cap === 'medium') n.cap = r.cap;
+    if (r.cap === 'low' || r.cap === 'medium') {
+      const at = num(r.capAt, n.when, 0);
+      if (Date.now() - at > CAP_LIFE) { delete r.cap; try { localStorage.setItem(GFX_KEY, JSON.stringify({ ...n })); } catch { /* the cap simply lapses again next time */ } }
+      else { n.cap = r.cap; n.capAt = at; }
+    }
     return n;
   } catch { return null; }
 }

@@ -335,7 +335,7 @@ export class Peds {
           if (far > 0.35) break;
           w.timer = 0;
           if (s.bench) {
-            w.mode = SIT; this.stats.sits++;
+            w.mode = SIT; this.stats.sits++; p.bench = true;
             // The sit pose is the driving one, hips at foot level and a little ahead of the feet: lift it onto the slats and back against the rail.
             p.x = s.prop.x - IN_X[s.side] * 0.22; p.z = s.prop.z - IN_Z[s.side] * 0.22; p.y = groundAt(p.x, p.z) + 0.42;
             w.face = INWARD[s.side]; w.cool = rng.range(10, day ? 30 : 16);
@@ -435,7 +435,7 @@ export class Peds {
     w.block = b; w.side = side; w.t = t; w.inset = inset; w.dir = rng.sign();
     const p = w.p;
     p.x = this.qx; p.z = this.qz; p.y = groundAt(p.x, p.z); p.h = Math.atan2(DIR_X[side] * w.dir, DIR_Z[side] * w.dir);
-    p.visible = true; p.health = 100; p.pose = 'walk';
+    p.visible = true; p.health = 100; p.pose = 'walk'; p.bench = false;
     w.active = true; w.mode = WALK; w.flee = 0; w.hard = false; w.cars.length = 0; w.scan = 0;
     w.cool = rng.range(4, 40);
     return true;
@@ -465,6 +465,7 @@ export class Peds {
 
   /** Give up whatever they were doing (a seat, a wait, a crossing not yet begun) and go back to walking. */
   private leave(w: Walker): void {
+    w.p.bench = false;
     if (w.spot) { w.spot.n--; w.spot = null; }
     if (w.mode === DOWN) return;
     if (w.mode === CROSS) return;
@@ -727,7 +728,7 @@ export class Peds {
     w.inset = rng.sign() * rng.range(5.2, 7.6);
     p.x = w.inset; p.z = rng.range(PIER.z0 + 8, PIER_TURN); p.y = groundAt(p.x, p.z);
     p.h = w.dir > 0 ? 0 : Math.PI;
-    p.visible = true; p.health = 100; p.pose = 'walk';
+    p.visible = true; p.health = 100; p.pose = 'walk'; p.bench = false;
     w.active = true; w.mode = WALK; w.hard = false; w.flee = 0;
   }
 

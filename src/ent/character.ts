@@ -34,7 +34,8 @@ import type { Game } from '../core/game';
 import { RNG, TAU, clamp, clamp01, damp, hash2, lerp, smooth } from '../core/util';
 import { flip, sendRange } from '../core/flip';
 import { assets } from '../core/assets';
-import { WATER_Y, groundAt } from '../world/plan';
+import { groundAt } from '../world/plan';
+import { waterLevelAt } from '../world/mainland';
 import { BONES, MORPHS, PARTS, loadPeople, type BodyKind, type PersonAsset } from './characterAssets';
 
 export type HairCut = 'crop' | 'part' | 'long' | 'bob' | 'tail' | 'bun' | 'curls' | 'afro' | 'bald';
@@ -258,6 +259,9 @@ function put(D: Float32Array, o: number, J: Float32Array, b: number, m: Float64A
  * The crowd shader: skin from the row texture, tint by the palette, fold hidden parts to a point.
  * `morph` adds the nearest level's five shape slots; `pbr` gives every surface class its own response.
  */
+/** Night fill on people (0 by day): a soft moonlit-blue lift so a figure away from the lamps still reads. Written by People.update. */
+const FILL = { value: 0 };
+
 function skinned(tex: THREE.DataTexture, lit: boolean, morph: boolean, pbr: boolean): (shader: { vertexShader: string; fragmentShader: string; uniforms: Record<string, THREE.IUniform> }) => void {
   return (shader) => {
     shader.uniforms.uPeople = { value: tex };
@@ -293,6 +297,12 @@ void pcFetch() {
 vec4 pcP = vec4(pcQ, 1.0);` : 'vec4 pcP = vec4(position, 1.0);';
     shader.vertexShader = v.replace('#include <begin_vertex>',
       (lit ? '' : 'pcFetch();\n') + shape + '\nvec3 transformed = vec3(dot(pcM0, pcP), dot(pcM1, pcP), dot(pcM2, pcP)) * pcPal.a;');
+    if (lit) {
+      shader.uniforms.uFill = FILL;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uFill;')
+        .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.indirectDiffuse += diffuseColor.rgb * uFill * vec3(0.74, 0.82, 1.0);');
+    }
     if (!pbr) return;
     // Skin, cloth, leather, rubber, hair, metal, eye, plastic: each its own roughness; cloth gets a
     // soft sheen at grazing angles and skin a warmer shadow side, which is as much subsurface as this can afford.
@@ -947,6 +957,7 @@ export class People implements PeopleApi {
     const far = Math.min(DRAW_DIST, g.quality.drawDist * 0.3);
     const far2 = far * far, detail2 = DETAIL_DIST * DETAIL_DIST;
 
+    FILL.value = 1.0 * g.sky.night;
     OUT_M = this.mesh.instanceMatrix.array as Float32Array;
     OUT_C = this.tint.array as Float32Array;
     OUT_S = this.shape.array as Float32Array;
@@ -1035,7 +1046,7 @@ export class People implements PeopleApi {
     const hk = b.look.height || 1;
     b.gaitSpeed = damp(b.gaitSpeed, b.speed / hk, 12, dt);
     // The two bands overlap so a seabed hovering at the line does not flicker between gaits.
-    const wading = b.y < WATER_Y - WADE_DEPTH - (b.wading ? -0.08 : 0.08);
+    const wading = b.y < waterLevelAt(b.x, b.z) - WADE_DEPTH - (b.wading ? -0.08 : 0.08);
     if (wading !== b.wading) {
       b.wading = wading;
       if (b.shown === 'run') { b.from.set(b.cur); b.blend = 0; b.blendDur = 0.25; }
@@ -1174,7 +1185,7 @@ export class People implements PeopleApi {
     P[0] = ch; P[1] = 0; P[2] = -sh; P[3] = 0;
     P[4] = 0; P[5] = k; P[6] = 0; P[7] = 0;
     P[8] = sh; P[9] = 0; P[10] = ch; P[11] = 0;
-    P[12] = b.x; P[13] = lerp(b.y, WATER_Y, c[WATER]); P[14] = b.z; P[15] = 1;
+    P[12] = b.x; P[13] = lerp(b.y, waterLevelAt(b.x, b.z), c[WATER]); P[14] = b.z; P[15] = 1;
     rotX(P, c[TIP]);
     move(P, c[RX], HIP + c[RY], c[RZ]);
     rotY(P, c[YAW]);
@@ -1259,7 +1270,7 @@ export class People implements PeopleApi {
     P[0] = ch; P[1] = 0; P[2] = -sh; P[3] = 0;
     P[4] = 0; P[5] = k; P[6] = 0; P[7] = 0;
     P[8] = sh; P[9] = 0; P[10] = ch; P[11] = 0;
-    P[12] = b.x; P[13] = lerp(b.y, WATER_Y, c[WATER]); P[14] = b.z; P[15] = 1;
+    P[12] = b.x; P[13] = lerp(b.y, waterLevelAt(b.x, b.z), c[WATER]); P[14] = b.z; P[15] = 1;
     rotX(P, c[TIP]);
     move(P, c[RX], HIP + c[RY], c[RZ]);
     rotY(P, c[YAW]);

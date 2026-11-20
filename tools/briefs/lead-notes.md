@@ -102,3 +102,8 @@ owner's ground rules for the takeover and the running state.
 - Nov 20, 12:50 PM ET: pushed M6 step 4 (loading: cars_far.glb for phones, assets.ts queue, the hold).
   10 of 13 original steps done. Gauge at 12:39 PM: window 54% (resets 2:10 PM ET), week 86%: 9 points
   left. Remaining three: owed list [Sonnet, launched 12:52 PM], bug bash [Sonnet], night [top].
+- Nov 20, 1:20 PM ET: pushed M6 step 5 (the owed list, by Sonnet). 11 of 13 original steps done.
+  Gauge at 1:11 PM: window 58% (resets 2:10 PM ET), week 87%: 8 points left. LEAD FOUND: flipcheck
+  fails intermittently (about 1 check in 50, night rain and Gull Heights frame 52) on the live build
+  too, so it predates step 5; see PLAN.md. Next unit [top model]: that stale frame first, then the
+  scripted bug bash. Then night lighting if the week allows.

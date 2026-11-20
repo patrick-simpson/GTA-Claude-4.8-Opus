@@ -38,6 +38,16 @@ interface KeyDef {
   cloudLit: number; cloudShade: number;
 }
 
+// No object takes more than this share of the fog colour, however far: a landmark across the water keeps a tenth of its own colour,
+// so a spire or a far shore still reads as a shape against the haze. Three's fog chunk has no cap, so it is added here, before
+// any material compiles.
+const FOG_CAP = '0.9';
+if (!THREE.ShaderChunk.fog_fragment.includes('FOG_CAP')) {
+  THREE.ShaderChunk.fog_fragment = THREE.ShaderChunk.fog_fragment
+    .replace('float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );', 'float fogFactor = min(1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth ), ' + FOG_CAP + '); // FOG_CAP')
+    .replace('float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );', 'float fogFactor = min(smoothstep( fogNear, fogFar, vFogDepth ), ' + FOG_CAP + '); // FOG_CAP');
+}
+
 const NIGHT: Omit<KeyDef, 'h'> = {
   zen: 0x0a1326, mid: 0x13233f, hor: 0x183542, glow: 0x183542, glowAmt: 0,
   sun: 0xffffff, sunI: 0, disc: 0xffd27a, discI: 0,
@@ -515,6 +525,7 @@ export class Sky implements SkyApi {
   private readonly v2 = new THREE.Vector3();
   private readonly v3 = new THREE.Vector3();
   private readonly c1 = new THREE.Color();
+  private readonly envKeep = [new THREE.Color(), new THREE.Color(), new THREE.Color()];
   private readonly rainOff = new THREE.Vector3();
   /** Edge of the square the sun's shadow map covers, meters: SHADOW_BOX unless the quality governor has shortened it. */
   private shadowBox = SHADOW_BOX;
@@ -773,6 +784,9 @@ export class Sky implements SkyApi {
     // about an eighth thicker on dark walls. Thin it to keep the distances the
     // weather table was tuned for.
     if (g.post?.enabled) this.fog.density *= 0.88;
+    // Higher up there is less air between the eye and the horizon: from 4 m to 60 m up the haze thins by a third, so the far end of
+    // the island and the college spire stay readable from the bridge and the heights (the cap on fog_fragment below does the rest).
+    this.fog.density *= 1 - 0.34 * smooth((g.camera.position.y - 4) / 56);
     this.exposure = p.exposure;
     this.faceFog(g.camera);
 
@@ -911,7 +925,18 @@ export class Sky implements SkyApi {
     const g = this.game, r = g.renderer;
     // Mirrors do not want the fog band of whichever way the camera happens to face.
     (u.uFog.value as THREE.Color).copy(this.horBase).lerp(this.fogFlat, this.fogTint);
+    // The cube is what shaded surfaces take as ambient. A sky blue with almost no red in it (zenith 0x4f9ccd) gave shaded road and
+    // pavement a teal cast (about 50,82,97 in shade at noon, now about 62,81,88); mirrors and shade want the sky's brightness with less of its dye, so the
+    // cube sees the same sky pulled 85% toward its own grey by day. Brightness is kept, so the shadows stay as deep as they were.
+    const dye = 0.85 * (1 - this._night), keep = this.envKeep;
+    const cols = [u.uZen.value, u.uMid.value, u.uHor.value] as THREE.Color[];
+    for (let i = 0; i < 3; i++) {
+      const c = cols[i], l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      keep[i].copy(c);
+      c.r += (l - c.r) * dye; c.g += (l - c.g) * dye; c.b += (l - c.b) * dye;
+    }
     this.envCam.update(r, this.envScene);
+    for (let i = 0; i < 3; i++) cols[i].copy(keep[i]);
     this.envRT = this.pmrem.fromCubemap(this.envCube.texture, this.envRT);
     g.scene.environment = this.envRT.texture;
     this.faceFog(g.camera);

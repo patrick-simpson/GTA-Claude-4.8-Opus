@@ -10,6 +10,9 @@
 // --view x,y,z,tx,ty,tz  pin the camera           --weather W     clear|overcast|fog|rain
 // --drive [kind]    put the player in a vehicle   --keys A,B      hold these key codes while stepping
 // --steps N         simulate N frames first (default 30)          --query q=low
+// --wait MS         wait MS real milliseconds (after the teleport and steps) before the picture, so the Blender
+//                   models have arrived. WITHOUT it the picture is taken at once, with no real time passing, and
+//                   can show the box people and blocky cars that stand in until the models load.
 // Prints the game's info() and any console errors; exits 1 if there were errors.
 
 import { boot } from './pw.mjs';
@@ -35,6 +38,7 @@ try {
     for (const k of keys) await t.page.keyboard.down(k);
     await t.step(Number(opt.steps ?? 30));
     for (const k of keys) await t.page.keyboard.up(k);
+    if (opt.wait) { await t.page.waitForTimeout(Number(opt.wait)); await t.step(2); }
     if (opt.view) { await t.game((g, a) => g.view(...a), nums(opt.view)); await t.step(1); }
   } else {
     await t.page.waitForTimeout(600);

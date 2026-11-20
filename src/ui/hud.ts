@@ -674,6 +674,7 @@ const KEYS: [string[], string][] = [
   [['F'], 'Get in or out'],
   [['V'], 'Change camera'],
   [['C'], 'Look back'],
+  [['T'], 'Radio (in a car)'],
   [['LMB', 'RMB'], 'Fire / aim'],
   [['Q', 'E', 'R'], 'Switch / reload'],
   [['Esc'], 'Pause'],
@@ -770,6 +771,7 @@ export class Hud implements HudApi {
   private mins = -1;
   private weather: Weather | '' = '';
   private heat = 0;
+  private searching = false;
   private veh: Vehicle | null = null;
   private shownMph = -1;
   private hintKey = '';
@@ -966,6 +968,14 @@ export class Hud implements HudApi {
     addEventListener('keydown', (e) => { if (e.code === 'Backspace' && !e.repeat) this.backT = performance.now(); });
     addEventListener('keyup', (e) => { if (e.code === 'Backspace') this.backT = 0; });
     addEventListener('blur', () => { this.backT = 0; });
+    // The police have lost sight of her and are looking (police.ts emits 'heat' four times a second): the word says so and the lit lamps go amber and blink.
+    game.on('heat', (e) => {
+      const on = e.searching && e.level > 0;
+      if (on === this.searching) return;
+      this.searching = on;
+      this.heatEl.classList.toggle('search', on);
+      (this.heatEl.firstElementChild as HTMLElement).textContent = on ? 'Searching' : 'Heat';
+    });
     game.on('pause', () => this.syncState());
     game.on('start', () => this.syncState());
   }

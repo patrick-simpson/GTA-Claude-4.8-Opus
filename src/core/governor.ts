@@ -326,7 +326,7 @@ export function pickQuality(): QualityChoice {
     benchMs = b ? b.took : 0;
     const best = b && old && old.score !== null ? Math.min(old.score, b.score) : b ? b.score : old ? old.score : null;
     const n: GfxNote = { gpu: b?.gpu || old?.gpu || '', score: best === null ? null : +best.toFixed(2), n: (old?.n ?? 0) + 1, when: Date.now() };
-    if (old?.cap) n.cap = old.cap;
+    if (old?.cap) { n.cap = old.cap; if (old.capAt) n.capAt = old.capAt; }
     writeGfx(n);
     return n;
   };
@@ -489,6 +489,17 @@ export class Governor {
     }
     // A step up that has lasted half a minute was right: its wait goes back to normal.
     if (this.climbedFrom >= 0 && now - this.climbedAt > 30000) { this.upWait[this.climbedFrom] = UP_WAIT; this.climbedFrom = -1; }
+    // The note that starts the next load a preset lower is lifted when the machine shows it was not needed: back at full on the preset
+    // it was lowered from (this session), or a full minute of room to spare on the capped preset itself (a later session).
+    if (this.step === 0 && this.roomRun >= (this.demoted ? 30 : 60)) {
+      const note = readGfx();
+      if (note?.cap && (this.demoted || this.game.quality.name === note.cap)) {
+        const { cap: _c, capAt: _a, ...rest } = note;
+        writeGfx(rest);
+        this.demoted = null;
+        this.reason = `${mean.toFixed(1)} ms a frame with room to spare: the note to start lower is cleared`;
+      }
+    }
     if (now - this.changedAt < DWELL * 1000) return;
 
     if (this.slowRun >= (mean > b * 1.6 ? 2 : 3)) this.down(now, mean);
@@ -539,7 +550,7 @@ export class Governor {
       const cap = g === 'high' ? 'medium' : 'low';
       this.demoted = cap;
       const note = readGfx();
-      if (note) writeGfx({ ...note, cap });
+      if (note) writeGfx({ ...note, cap, capAt: Date.now() });
     }
   }
 

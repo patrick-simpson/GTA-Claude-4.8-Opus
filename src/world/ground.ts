@@ -30,6 +30,7 @@ import {
   RIVER_HW, ROAD_BRIDGE, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, hillAt, mainlandTerrain, riverX, waterDist,
 } from './mainland';
 import { sawhorses } from './progress';
+import { flip, sendRange } from '../core/flip';
 import { CUT_FAR, CUT_NEAR, CUT_VERTEX, PropField, loadProps } from './propAssets';
 
 // Palette (see PLAN.md).
@@ -133,6 +134,15 @@ function keepOut(x: number, z: number): boolean {
 }
 
 /** Instances collected first and turned into one InstancedMesh per map region (or one in all when region = 0). */
+/** Instanced meshes already registered with game.flip (registering a buffer's twin again would register the twin). */
+const flipped = new WeakSet<THREE.InstancedMesh>();
+/** Whatever was just written into this mesh's instance buffers (matrices, and colours when `colors`) goes to the GPU through flip, like its neighbours' do. */
+function rewrote(mesh: THREE.InstancedMesh, colors = false): void {
+  if (!flipped.has(mesh)) { flipped.add(mesh); flip.mesh(mesh, colors); }
+  sendRange(mesh.instanceMatrix, mesh.instanceMatrix.array.length);
+  if (colors && mesh.instanceColor) sendRange(mesh.instanceColor, mesh.instanceColor.array.length);
+}
+
 class Inst {
   private buckets = new Map<number, { m: number[]; c: number[] }>();
   readonly meshes: THREE.InstancedMesh[] = [];
@@ -866,7 +876,7 @@ class Ground implements WorldPart {
     game.col.onBreak = (p, vx, vz) => {
       if (p.slot >= 0 && this.slotProp[p.slot] === p) {
         const mesh = this.furn[this.slotKind[p.slot]].meshAt(p.x, p.z);
-        if (mesh) { mesh.setMatrixAt(this.slotIdx[p.slot], ZERO); mesh.instanceMatrix.needsUpdate = true; }
+        if (mesh) { mesh.setMatrixAt(this.slotIdx[p.slot], ZERO); rewrote(mesh); }
       }
       const f = this.felled.get(p);
       if (f) this.fell(p, f, vx, vz);
@@ -928,14 +938,14 @@ class Ground implements WorldPart {
       Q.premultiply(FELL_Q.setFromAxisAngle(a, 1.5));
       FELL_P.x -= a.z * 0.5; FELL_P.z += a.x * 0.5; FELL_P.y += 0.12;
       mesh.setMatrixAt(f.i, M.compose(FELL_P, Q, FELL_S));
-      mesh.instanceMatrix.needsUpdate = true;
+      rewrote(mesh);
     }
     if (f.halo >= 0 && this.haloPos) { this.haloPos.setY(f.halo, -900); this.haloPos.needsUpdate = true; }
     const fb = f.sig >= this.sigMain ? this.bulbsMain : this.bulbs;
     if (f.sig >= 0 && fb) {
       const s0 = f.sig >= this.sigMain ? f.sig - this.sigMain : f.sig;
       for (let k = 0; k < 6; k++) fb.setMatrixAt(s0 * 6 + k, ZERO);
-      fb.instanceMatrix.needsUpdate = true;
+      rewrote(fb, true);
     }
   }
 
@@ -1230,6 +1240,7 @@ class Ground implements WorldPart {
       bulbs.instanceMatrix.array.set(bulbM.slice(from * 96, to * 96));
       bulbs.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array((to - from) * 18), 3);
       bulbs.matrixAutoUpdate = false;
+      flipped.add(bulbs); flip.mesh(bulbs, true);
       this.root.add(bulbs);
       return bulbs;
     };
@@ -2156,7 +2167,7 @@ class Ground implements WorldPart {
           c[o] = src[l * 3]; c[o + 1] = src[l * 3 + 1]; c[o + 2] = src[l * 3 + 2];
         }
       }
-      if (changed) bulbs.instanceColor!.needsUpdate = true;
+      if (changed) rewrote(bulbs, true);
     }
   }
 

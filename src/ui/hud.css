@@ -157,6 +157,11 @@
 /* A lamp is either on or off, so the flash steps rather than fades. */
 .hud-heat.a .hud-pips { animation: hud-flash-a 0.7s steps(1, end); }
 .hud-heat.b .hud-pips { animation: hud-flash-b 0.7s steps(1, end); }
+/* Searching: they have lost her. Amber lamps, and the word blinks slowly. */
+.hud-heat.search .hud-pip.lit path { fill: var(--mustard); stroke: var(--mustard); }
+.hud-heat.search .hud-pip.lit .glass { fill: var(--ink); stroke: var(--mustard); }
+.hud-heat.search .hud-heat-word { color: var(--mustard); animation: hud-search 1.2s steps(1, end) infinite; }
+@keyframes hud-search { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes hud-flash-a { 0%, 40%, 80% { opacity: 0.15; } 20%, 60%, 100% { opacity: 1; } }
 @keyframes hud-flash-b { 0%, 40%, 80% { opacity: 0.15; } 20%, 60%, 100% { opacity: 1; } }
 

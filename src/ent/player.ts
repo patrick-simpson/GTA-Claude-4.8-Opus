@@ -11,7 +11,8 @@ import type { Game } from '../core/game';
 import type { Look, Person, PlayerApi, Vehicle } from '../core/api';
 import type { Box } from '../world/collide';
 import { clamp, clamp01, damp, dampAngle, headingOf, lerp, money, smooth } from '../core/util';
-import { WATER_Y, groundAt } from '../world/plan';
+import { groundAt } from '../world/plan';
+import { waterLevelAt } from '../world/mainland';
 import { Weapons } from './weapons';
 
 const RADIUS = 0.35;
@@ -30,7 +31,8 @@ const STEP_BOX = 0.3;
 const DROP = 0.4;
 /** How far under the surface her feet hang while she swims: head and shoulders stay out. */
 const FLOAT = 1.3;
-const SWIM_Y = WATER_Y - FLOAT;
+/** Where she floats at (x, z): the mill pond on the mainland sits above sea level, so the water line is not one number. */
+const swimY = (x: number, z: number): number => waterLevelAt(x, z) - FLOAT;
 /** Gap between her and a car body at which the door is within reach. */
 const REACH = 3.2;
 /** Seconds she stays at the wheel of a car that has gone into the water, so the splash is seen from the chase camera. */
@@ -226,9 +228,9 @@ export class Player implements PlayerApi {
     this.safeT = 1;
 
     const g = this.support(outX, outZ, v.y + STEP_UP);
-    if (v.sunk || g < SWIM_Y) {
+    if (v.sunk || g < swimY(per.x, per.z)) {
       // The car is on its way to the bottom; she surfaces beside it.
-      per.y = SWIM_Y; this.swimming = true; this.grounded = false; this.wet = true;
+      per.y = swimY(per.x, per.z); this.swimming = true; this.grounded = false; this.wet = true;
       this.mode = 'foot';
       this.game.emit('splash', { x: outX, z: outZ, big: false });
       return;
@@ -325,7 +327,7 @@ export class Player implements PlayerApi {
       // A light push on the stick is a walk; past 60% it ramps up to the jog.
       want = m <= 0.6 ? WALK * (m / 0.6) : lerp(WALK, sprint ? SPRINT : JOG, (m - 0.6) / 0.4);
       // Wading: the deeper the water, the slower the legs.
-      if (this.wet) want *= 1 - 0.6 * clamp01((WATER_Y - per.y) / FLOAT);
+      if (this.wet) want *= 1 - 0.6 * clamp01((waterLevelAt(per.x, per.z) - per.y) / FLOAT);
       if (aim) want = Math.min(want, AIM_PACE);
     }
     const rate = this.swimming ? 3.5 : this.grounded ? (m > 0.05 ? 11 : 15) : 2;
@@ -338,7 +340,7 @@ export class Player implements PlayerApi {
 
     if (inp.hit('jump')) this.jumpBuf = 0.12; else this.jumpBuf -= dt;
     if (this.grounded) this.coyote = 0.1; else this.coyote -= dt;
-    if (this.jumpBuf > 0 && this.coyote > 0 && !this.swimming && per.y > WATER_Y - 0.6) {
+    if (this.jumpBuf > 0 && this.coyote > 0 && !this.swimming && per.y > waterLevelAt(per.x, per.z) - 0.6) {
       this.vy = JUMP_V;
       this.grounded = false;
       this.jumpBuf = 0; this.coyote = 0; this.airT = 0;
@@ -369,7 +371,7 @@ export class Player implements PlayerApi {
 
     // Swimming into the side of a deck: lean on it for a moment (or jump) and she climbs out.
     // Without this, falling off the end of the pier is a four-minute swim to the beach.
-    if (this.swimming && this.ledge && m > 0.3 && this.ledgeY - WATER_Y < 1.5 && this.mode === 'foot') {
+    if (this.swimming && this.ledge && m > 0.3 && this.ledgeY - waterLevelAt(per.x, per.z) < 1.5 && this.mode === 'foot') {
       this.pushT += dt;
       if (this.pushT > 0.25 || inp.hit('jump')) this.hoist();
     } else {
@@ -434,17 +436,17 @@ export class Player implements PlayerApi {
     const fallV = this.vy;
     let landed = 0;
     if (this.swimming) {
-      if (gy >= SWIM_Y) {
+      if (gy >= swimY(per.x, per.z)) {
         // The seabed has come up to meet her feet: wade from here.
         this.swimming = false; this.grounded = true; this.vy = 0; per.y = gy;
       } else {
         // A soft spring to the floating depth, so a dive bobs back up instead of stopping dead.
-        this.vy += ((SWIM_Y - per.y) * 30 - this.vy * 9) * dt;
+        this.vy += ((swimY(per.x, per.z) - per.y) * 30 - this.vy * 9) * dt;
         per.y += this.vy * dt;
       }
     } else if (this.grounded) {
       // Deep water under her is a swim only if she waded into it. Off the edge of a deck it is a fall first.
-      if (gy < SWIM_Y && per.y <= SWIM_Y + 0.3) { this.swimming = true; this.grounded = false; this.vy = 0; }
+      if (gy < swimY(per.x, per.z) && per.y <= swimY(per.x, per.z) + 0.3) { this.swimming = true; this.grounded = false; this.vy = 0; }
       else if (gy < per.y - DROP) { this.grounded = false; this.vy = 0; this.airT = 0; }
       // Eased rather than snapped, so a curb is a step and not a jolt in the camera.
       else per.y = Math.abs(gy - per.y) < 0.004 ? gy : Math.max(damp(per.y, gy, 26, dt), gy - 0.22);
@@ -452,15 +454,15 @@ export class Player implements PlayerApi {
       this.vy -= GRAVITY * dt;
       per.y += this.vy * dt;
       this.airT += dt;
-      if (gy < SWIM_Y) {
-        if (per.y <= SWIM_Y) { this.swimming = true; this.vy *= 0.3; }
+      if (gy < swimY(per.x, per.z)) {
+        if (per.y <= swimY(per.x, per.z)) { this.swimming = true; this.vy *= 0.3; }
       } else if (per.y <= gy) {
         landed = -this.vy;
         per.y = gy; this.vy = 0; this.grounded = true; this.airT = 0;
       }
     }
 
-    const wet = gy < WATER_Y - 0.35 && per.y < WATER_Y - 0.25;
+    const wet = gy < waterLevelAt(per.x, per.z) - 0.35 && per.y < waterLevelAt(per.x, per.z) - 0.25;
     if (wet && !this.wet) g.emit('splash', { x: per.x, z: per.z, big: fallV < -4 });
     this.wet = wet;
     return landed;
@@ -755,9 +757,9 @@ export class Player implements PlayerApi {
     const per = this.person;
     const g = groundAt(x, z);
     per.x = x; per.z = z; per.h = h;
-    this.swimming = g < SWIM_Y;
-    per.y = this.swimming ? SWIM_Y : g;
-    this.wet = g < WATER_Y - 0.35;
+    this.swimming = g < swimY(per.x, per.z);
+    per.y = this.swimming ? swimY(per.x, per.z) : g;
+    this.wet = g < waterLevelAt(per.x, per.z) - 0.35;
     this.grounded = !this.swimming;
     this.vx = this.vy = this.vz = 0;
     this.airT = 0; this.jumpBuf = 0; this.turnT = 0;

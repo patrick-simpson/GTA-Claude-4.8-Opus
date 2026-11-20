@@ -15,6 +15,7 @@ import type { CameraApi, Vehicle } from './api';
 import type { Prop } from '../world/collide';
 import { angleDiff, clamp, clamp01, damp, headingOf, lerp, smooth, wrapAngle } from './util';
 import { WATER_Y, groundAt } from '../world/plan';
+import { waterLevelAt } from '../world/mainland';
 
 const PITCH_MIN = -0.5, PITCH_MAX = 1.2;
 const FOOT_DIST = 4.6, FOOT_PITCH = 0.2, SHOULDER = 1.5;
@@ -263,7 +264,7 @@ export class CameraRig implements CameraApi {
       this.yaw = wrapAngle(this.yaw + 1.1 * dt);
     }
     const stand = lerp(SHOULDER * per.look.height, 0.45, this.low);
-    L.py = this.to(L.py, p.swimming ? WATER_Y + 0.35 : per.y + stand + AIM_UP * this.aim, 8, dt);
+    L.py = this.to(L.py, p.swimming ? waterLevelAt(p.x, p.z) + 0.35 : per.y + stand + AIM_UP * this.aim, 8, dt);
     L.yaw = this.yaw; L.pitch = Math.min(this.pitch + 0.34 * this.low, PITCH_MAX);
     // Looking up from below, slide in along the ground rather than under it.
     const tuck = 1 - 0.42 * clamp01(-this.pitch / -PITCH_MIN);

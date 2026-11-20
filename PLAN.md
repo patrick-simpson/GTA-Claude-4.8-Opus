@@ -88,6 +88,38 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### M6 step 5, the owed list: pushed Nov 20, about 1:20 PM ET
+
+A Sonnet worker, checked item by item by a second one and then by the lead.
+- Bench sitters sit, hands in the lap (`p.bench`, set in `peds.ts`).
+- The quick-reference card lists T for the radio.
+- People get a soft blue fill at night (`uFill` in the skinned materials, set by
+  `People.update`), so Dess reads away from the lamps.
+- The HUD shows SEARCHING (amber, blinking) while the police have lost you.
+- Shade is less teal: the cause was the sky-environment cube (zenith 0x4f9ccd has
+  almost no red). `sky.ts refreshEnv` now pulls the sky 85% toward grey while the
+  cube is drawn, by day. A shaded pavement went from (50,82,97) toward (62,81,88).
+- Fog thins by up to a third from 4 m to 60 m of camera height, and no object
+  takes more than 90% fog (a cap patched into three's fog chunk in `sky.ts`).
+- The mill pond: swim, wade and camera heights use `waterLevelAt(x, z)`.
+- The governor's "one preset lower" note expires after a week and clears itself
+  when the machine holds the higher preset (`GfxNote.capAt` in `save.ts`).
+- Knocked-down lamps and signal bulbs are registered with `game.flip`.
+- `tools/shot.mjs --wait MS` waits real time, so its pictures show real models.
+  Owed: **an intermittent stale frame, live since M6 step 2:** `node
+  scratch/m6/flipcheck.mjs` fails about one check in fifty in the night-rain scene
+  and sometimes in Gull Heights (frame 52), on the build before this push as well
+  (three runs of four showed it). It is probably tied to the cars' reflection
+  cube redraw. Unexplained; first job of the bug bash. The box people were NOT
+  registered with flip (the worker's version is `scratch/m6/owed/character.item9.ts`;
+  the lead took it out while chasing the stale frame, and they are hardly seen
+  since the title card holds). Left undone: the dead M1 pause-card code and the
+  lagging `api.ts` declarations. The less-teal cube also greys the sky seen in car
+  paint and glass by day. The college spire is still only a faint tick from
+  mid-bridge. The SEARCHING badge was only seen from a hand-sent event; vehicles
+  in the mill pond still use `WATER_Y`. No before pictures were taken for the
+  night fill or the fog.
+
 ### M6 step 4, loading: pushed Nov 20, about 12:50 PM ET
 
 - **Phones download 1.84 MB instead of 9.23** and never show block cars or box

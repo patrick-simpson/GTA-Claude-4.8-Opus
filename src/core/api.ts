@@ -143,6 +143,8 @@ export interface Person {
   h: number;
   /** Set by whoever controls the person; the renderer notices changes and blends between poses itself. */
   pose: Pose;
+  /** With pose 'sit': on a bench (thighs level, hands in the lap) rather than at a wheel. */
+  bench?: boolean;
   /** Horizontal speed in m/s. Drives the stride rate. */
   speed: number;
   look: Look;
