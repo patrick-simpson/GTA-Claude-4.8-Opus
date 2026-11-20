@@ -26,25 +26,8 @@ import { Fx } from '../fx/particles';
 import { Skids } from '../fx/skids';
 import { ProgressWorks, progress } from '../world/progress';
 import { ThingsToDo } from '../game/index';
-import { savedQuality } from '../game/save';
+import { Governor, pickQuality } from './governor';
 import { GameAudio } from '../audio/index';
-
-const PRESETS: Record<Quality['name'], Quality> = {
-  low: { name: 'low', pixelRatio: 1.5, antialias: false, shadows: false, shadowSize: 1024, drawDist: 520, density: 0.5 },
-  medium: { name: 'medium', pixelRatio: 1.5, antialias: true, shadows: true, shadowSize: 2048, drawDist: 800, density: 0.8 },
-  high: { name: 'high', pixelRatio: 2, antialias: true, shadows: true, shadowSize: 2048, drawDist: 1100, density: 1 },
-};
-
-/** `?q=low|medium|high` wins; otherwise phones get the light preset. Milestone 6 replaces this with a measured choice. */
-function pickQuality(): Quality {
-  const asked = new URLSearchParams(location.search).get('q') as Quality['name'] | null;
-  if (asked && PRESETS[asked]) return PRESETS[asked];
-  // The menu's own choice (SETTINGS, kept in the save) comes next.
-  const kept = savedQuality();
-  if (kept) return PRESETS[kept];
-  const phone = matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 500;
-  return PRESETS[phone ? 'low' : 'high'];
-}
 
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
@@ -57,7 +40,10 @@ export class Game {
   readonly input: Input;
   readonly plan = new CityPlan();
   readonly col = new Colliders();
-  readonly quality: Quality = pickQuality();
+  /** The preset this visit was built with: `?q=`, the menu's choice, or what core/governor.ts measured. A copy, so nothing changes the table. */
+  readonly quality: Quality;
+  /** Auto quality: watches the real frame times and trims the picture to keep them (core/governor.ts). Inert unless Auto is in charge. */
+  readonly gov: Governor;
   /** Ambient occlusion, bloom, the tone map and the grade. Null on the `low` preset and with `?post=0`: a plain render straight to the canvas. */
   readonly post: Post | null;
   /** The two-copy instance buffers (core/flip.ts), here so tools can switch them off and measure. */
@@ -97,14 +83,17 @@ export class Game {
   private handlers = new Map<string, Handler<never>[]>();
   private lastNight = -1;
   private lastT = 0;
+  /** The governor's share of the preset's pixel ratio: 1 is all of it. */
+  private ratioScale = 1;
 
   constructor(readonly canvas: HTMLCanvasElement) {
-    const q = this.quality;
+    const choice = pickQuality();
+    const q = this.quality = choice.quality;
     // `low` is the phone preset and pays nothing for post-processing. `?post=0` is the before picture, for comparing.
     const post = q.name !== 'low' && new URLSearchParams(location.search).get('post') !== '0';
     // With post on, the scene is antialiased in its own target; the canvas only ever receives one full-screen triangle.
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: q.antialias && !post, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, q.pixelRatio));
+    this.renderer.setPixelRatio(this.pixelRatio());
     this.renderer.setSize(innerWidth, innerHeight, false);
     // A frame is several render() calls now; count them all, not just the last pass.
     this.renderer.info.autoReset = false;
@@ -120,11 +109,24 @@ export class Game {
     this.post = post ? new Post(this) : null;
     this.post?.setSize(innerWidth, innerHeight, this.renderer.getPixelRatio());
     if (new URLSearchParams(location.search).get('flip') === '0') flip.enabled = false;
+    this.gov = new Governor(this, choice);
+    this.gov.apply();
     addEventListener('resize', () => this.resize());
   }
 
+  private pixelRatio(): number {
+    return Math.min(devicePixelRatio || 1, this.quality.pixelRatio) * this.ratioScale;
+  }
+
+  /** The governor's pixel lever. The canvas and every post target are rebuilt at the new size, so it is called before a frame is drawn, never between passes. */
+  setRatioScale(k: number): void {
+    if (k === this.ratioScale) return;
+    this.ratioScale = k;
+    this.resize();
+  }
+
   private resize(): void {
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, this.quality.pixelRatio));
+    this.renderer.setPixelRatio(this.pixelRatio());
     this.renderer.setSize(innerWidth, innerHeight, false);
     this.post?.setSize(innerWidth, innerHeight, this.renderer.getPixelRatio());
     this.camera.aspect = innerWidth / innerHeight;
@@ -163,6 +165,9 @@ export class Game {
     this.systems.push((this.todo = new ThingsToDo(this)));
     // Last: it listens to what everything above did this frame.
     this.systems.push((this.audio = new GameAudio(this)));
+
+    // The sky exists now, so the governor's starting step can reach the shadows too.
+    this.gov.apply();
 
     // One full step so every system has seen every other before the first picture.
     this.state = 'title';
@@ -286,8 +291,11 @@ export class Game {
   /** Start the real-time loop. */
   run(): void {
     this.lastT = performance.now();
+    this.gov.begin();
     const loop = (t: number): void => {
       requestAnimationFrame(loop);
+      // Before the frame is drawn: a change of size here is never seen half-made.
+      this.gov.frame(t);
       const dt = Math.max(0.001, (t - this.lastT) / 1000);
       this.lastT = t;
       this.fps += (1 / dt - this.fps) * 0.05;

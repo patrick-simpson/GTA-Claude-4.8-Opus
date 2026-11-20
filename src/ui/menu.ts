@@ -24,6 +24,7 @@ import { money } from '../core/util';
 import { DUCKS } from '../game/activities';
 import { clock } from '../game/script';
 import { save, type QualityPick } from '../game/save';
+import { autoPresetIfKnown } from '../core/governor';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
 type VolKey = 'volMaster' | 'volMusic' | 'volSfx' | 'volAmbience';
@@ -516,8 +517,14 @@ export class Menu {
     const s = save.data.settings;
     const tog = (key: string, on: boolean): string => `<button type="button" class="mn-tog ${on ? 'on' : ''}" data-set="${key}" aria-pressed="${on}"><i></i>${on ? 'On' : 'Off'}</button>`;
     const q = (['auto', 'low', 'medium', 'high'] as QualityPick[]).map((v) => `<button type="button" class="mn-seg ${s.quality === v ? 'on' : ''}" data-set="quality" data-v="${v}">${v}</button>`).join('');
-    const running = this.game.quality.name;
-    const stale = s.quality !== 'auto' && s.quality !== running;
+    const running = this.game.quality.name, gov = this.game.gov;
+    // Auto and a fixed preset swap while running; only a different preset has to rebuild the world.
+    const want = s.quality === 'auto' ? autoPresetIfKnown() : s.quality;
+    const stale = !gov.forced && want !== null && want !== running;
+    const at = gov.steps[gov.step];
+    const how = gov.forced ? `Running at <b>${running}</b> because the address says so (?q=); the setting applies without it.`
+      : !gov.enabled ? `Running at <b>${running}</b>, fixed.`
+      : `Auto is running <b>${running}</b>${gov.step ? `, eased to step ${gov.step} of ${gov.steps.length - 1} (${at.name}),` : ' in full'} and adjusts itself to keep the frames smooth.${gov.demoted ? ` This machine has trouble with ${running}: next time it starts at ${gov.demoted}.` : ''}`;
     const vol = (label: string, key: VolKey): string => `<div class="mn-row"><span class="mn-lbl">${label}</span><span><input type="range" min="0" max="1" step="0.05" value="${s[key]}" data-set="${key}"><b class="mn-val">${Math.round(s[key] * 100)}</b></span></div>`;
     return `
 <div class="mn-form mn-two">
@@ -528,7 +535,7 @@ export class Menu {
     <div class="mn-row"><span class="mn-lbl">Full screen on tap</span><span>${tog('fsTap', s.fsTap)}</span></div>
     <div class="mn-row"><span class="mn-lbl">Reduced motion</span><span>${tog('reducedMotion', s.reducedMotion)}</span></div>
     <div class="mn-row"><span class="mn-lbl">Quality</span><span class="mn-segs">${q}</span></div>
-    <p class="mn-note">Running at <b>${running}</b>. A change of quality rebuilds the world, so it takes effect when the page is reloaded${stale ? ': <button type="button" class="mn-link" data-set="reload">save and reload now</button>' : '.'}</p>
+    <p class="mn-note">${how}${stale ? ` A change of preset rebuilds the world, so <b>${want}</b> takes effect when the page is reloaded: <button type="button" class="mn-link" data-set="reload">save and reload now</button>` : ''}</p>
   </div>
   <div class="mn-sec">
     <h3>Form C-3 · Sound</h3>
@@ -553,7 +560,7 @@ export class Menu {
       const v = el.parentElement?.querySelector('.mn-val');
       if (v) v.textContent = String(Math.round(s[key] * 100));
       this.game.audio?.applySettings(key);
-    } else if (key === 'quality') s.quality = (el.dataset.v as QualityPick) ?? 'auto';
+    } else if (key === 'quality') { s.quality = (el.dataset.v as QualityPick) ?? 'auto'; this.game.gov.setPick(s.quality); }
     else if (key === 'invertY' || key === 'fsTap' || key === 'reducedMotion') s[key] = !s[key];
     else return;
     this.todo.applySettings();

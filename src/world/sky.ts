@@ -516,6 +516,8 @@ export class Sky implements SkyApi {
   private readonly v3 = new THREE.Vector3();
   private readonly c1 = new THREE.Color();
   private readonly rainOff = new THREE.Vector3();
+  /** Edge of the square the sun's shadow map covers, meters: SHADOW_BOX unless the quality governor has shortened it. */
+  private shadowBox = SHADOW_BOX;
 
   constructor(private game: Game) {
     const { renderer, scene, quality } = game;
@@ -840,6 +842,25 @@ export class Sky implements SkyApi {
     if (!this.game.post?.enabled) toneMap(this.fog.color, this.exposure);
   }
 
+  /**
+   * The quality governor's shadow lever (core/governor.ts): the map's edge in texels and the share of the full
+   * 130 m box it covers. A new size frees the old map and three makes the next one at the following shadow pass
+   * (one reallocation); a new reach only moves the shadow camera's planes. Nothing is recompiled either way.
+   */
+  setShadowDetail(size: number, reach = 1): void {
+    if (!this.sun.castShadow) return;
+    const s = this.sun.shadow, box = SHADOW_BOX * reach, half = box / 2;
+    if (s.mapSize.x !== size) {
+      s.mapSize.set(size, size);
+      s.map?.dispose();
+      s.map = null;
+    }
+    this.shadowBox = box;
+    s.camera.left = -half; s.camera.right = half; s.camera.top = half; s.camera.bottom = -half;
+    s.camera.updateProjectionMatrix();
+    s.normalBias = box / size * 1.6;
+  }
+
   /** Centre the shadow box on the action and snap it to whole shadow texels, so edges do not crawl as the camera moves. */
   private placeShadowBox(): void {
     const g = this.game, L = this.lightDir, c = this.v1;
@@ -849,15 +870,15 @@ export class Sky implements SkyApi {
       // Nudged forward: the camera sits behind the focus looking past it, so that is where the screen is.
       const e = g.camera.matrixWorld.elements, l = Math.hypot(e[8], e[10]) || 1;
       c.copy(cam.focus);
-      c.x -= e[8] / l * SHADOW_BOX * 0.22;
-      c.z -= e[10] / l * SHADOW_BOX * 0.22;
+      c.x -= e[8] / l * this.shadowBox * 0.22;
+      c.z -= e[10] / l * this.shadowBox * 0.22;
     } else c.copy(g.camera.position);
 
     if (this.sun.castShadow) {
       // The shadow camera's own axes: right and up across the map, L along its depth.
       const right = this.v2.set(L.z, 0, -L.x).normalize();
       const up = this.v3.crossVectors(L, right);
-      const texel = SHADOW_BOX / this.sun.shadow.mapSize.x;
+      const texel = this.shadowBox / this.sun.shadow.mapSize.x;
       const x = Math.round(c.dot(right) / texel) * texel;
       const y = Math.round(c.dot(up) / texel) * texel;
       const z = c.dot(L);

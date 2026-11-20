@@ -89,3 +89,7 @@ owner's ground rules for the takeover and the running state.
   (4) loading [top model]; (5) the owed list [Sonnet]; (6) bug bash [Sonnet]; (7) night [top model].
   More frame work (leaf cards, the post pass) is dropped unless budget is left. If the week reaches
   95% first, stop, tell the owner what is left, and resume after Sunday 4 PM ET.
+- Nov 20, 12:05 PM ET: pushed M6 step 3 (governor.ts, Auto quality). 9 of 13 steps done. Gauge at
+  noon: window 40% with 57% gone (resets 2:10 PM ET), week 84%: 11 points left. Remaining four:
+  loading [top, launched 12:07 PM], owed list [Sonnet], bug bash [Sonnet], night [top].
+  NOTE: a harness boot with no ?q= is now Auto; pass ?q= for anything compared between runs.

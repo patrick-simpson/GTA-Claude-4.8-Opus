@@ -211,6 +211,28 @@ export function savedQuality(): 'low' | 'medium' | 'high' | null {
   return q === 'auto' ? null : q;
 }
 
+/**
+ * What this machine was measured to manage (core/governor.ts): the benchmark's score with the GPU it was taken on,
+ * and the preset Auto fell back to if the measured one proved too much. Its own key, not part of the save: a new
+ * game keeps it. `?save=0` neither reads nor writes it.
+ */
+export interface GfxNote { gpu: string; score: number | null; /** How many times it has been measured. */ n: number; cap?: 'low' | 'medium'; when: number }
+const GFX_KEY = 'portcalamity.gfx.v1';
+export function readGfx(): GfxNote | null {
+  if (!save.enabled) return null;
+  try {
+    const r = obj(JSON.parse(localStorage.getItem(GFX_KEY) ?? 'null'));
+    if (typeof r.gpu !== 'string' || !(r.score === null || (typeof r.score === 'number' && Number.isFinite(r.score) && r.score > 0))) return null;
+    const n: GfxNote = { gpu: r.gpu.slice(0, 200), score: r.score as number | null, n: Math.round(num(r.n, 1, 1, 9)), when: num(r.when, 0, 0) };
+    if (r.cap === 'low' || r.cap === 'medium') n.cap = r.cap;
+    return n;
+  } catch { return null; }
+}
+export function writeGfx(n: GfxNote | null): void {
+  if (!save.enabled) return;
+  try { if (n) localStorage.setItem(GFX_KEY, JSON.stringify(n)); else localStorage.removeItem(GFX_KEY); } catch { /* storage refused: measure again next time */ }
+}
+
 /** Copy the live player into the document. Skipped while held, or while she is down. */
 export function capture(game: Game): void {
   if (save.hold) return;

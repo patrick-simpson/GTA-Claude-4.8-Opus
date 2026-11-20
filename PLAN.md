@@ -88,6 +88,39 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### M6 step 3, quality that chooses itself: pushed Nov 20, about 12:05 PM ET
+
+- **`src/core/governor.ts`** (new): the presets, the machine hints, a one-off
+  benchmark (175-210 ms before the title card on the first visit, cached in
+  localStorage `portcalamity.gfx.v1` with the GPU name), `pickQuality()` and the
+  `Governor`. Quality defaults to **Auto**; fixed presets remain in the menu, and
+  `?q=low|medium|high` forces one with the governor OFF (tests must pass `?q=`
+  to be comparable). `?q=auto`, `?rebench`, `?debug` (a one-line readout);
+  `window.__game.governor` (`enabled`, `step`, `steps`, `reason`, `log`, `ms`,
+  `force(step)`), `info().gov`.
+- **Starting preset:** a phone-sized touch screen gets low, no benchmark. This
+  laptop at 1920x1080 1x gets high in full; on its own 1.5x panel high at 90%
+  pixels; a 2x 1080p context medium at 70%.
+- **The governor's ladder**, taken after about 3 s of long frames and climbed
+  back by trial when there is room, never above the full preset (ms a frame at
+  high, standing downtown): full 15.4, pixels 90% 12.8, 80% 11.2, shadow map
+  1024 10.2, occlusion off 9.8, FXAA alone 8.5, then "start one preset lower next
+  load" plus 70% pixels. Pixel steps cost one or two long frames (17-42 ms).
+  Tested in the real loop: a window enlarged to 2560x1440 stepped down twice in
+  8 s and held 59-69 fps, climbed back 15 s after release and then held for 60 s;
+  a 5x CPU throttle (which quality cannot cure) was recognised and it went back
+  to full; six teleports caused no step.
+- An independent worker confirmed the presets, the cache, the menu and the trace.
+  Owed: never run on a real screen (the headless loop caps at 120 fps). The
+  benchmark is noisy (4.0-5.0 ms normally, once 12.1 on the same laptop, which
+  started that visit at medium); a low first score is measured again on the
+  second visit and the better kept. The "one preset lower" note is lifted only by
+  a new GPU name or `?rebench`: one bad session could mark a machine down for
+  good (give it an expiry). The preset cannot change live (it decides how the
+  world is built). Only the pixel steps were reached under real load; the others
+  were forced. A small desktop window no longer counts as a phone. This laptop's
+  other GPU (RTX 4050) was not the one measured.
+
 ### M6 step 2, the running game no longer waits on its own buffers: pushed Nov 20, about 11:15 AM ET
 
 - **What was wrong.** Not "moving": the bench's stills never ran the simulation.

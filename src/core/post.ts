@@ -323,6 +323,9 @@ export class Post {
   fxaa = true;
   /** What FXAA takes for an edge: a brightness step (0..1, as it will look on screen) of at least x, and at least y of the brighter side. */
   readonly fxaaEdge = new THREE.Vector2(0.04, 0.125);
+  /** The antialiasing this visit started with (the tier's, or `?aa=`): what the governor goes back to after `setAA(0, true)`. */
+  readonly baseSamples: number;
+  readonly baseFxaa: boolean;
 
   private readonly tier: Tier;
   private readonly sceneRT: THREE.WebGLRenderTarget;
@@ -348,6 +351,8 @@ export class Post {
     const aa = new URLSearchParams(location.search).get('aa');
     const samples = !q.antialias ? 0 : aa === 'msaa' ? this.tier.msaaAlone : aa === 'fxaa' ? 0 : this.tier.msaa;
     this.fxaa = q.antialias && (aa === 'fxaa' || (aa !== 'msaa' && this.tier.fxaa));
+    this.baseSamples = samples;
+    this.baseFxaa = this.fxaa;
 
     const depth = new THREE.DepthTexture(2, 2, THREE.UnsignedIntType);
     depth.minFilter = depth.magFilter = THREE.NearestFilter;

@@ -24,6 +24,8 @@ import type { VehicleKind } from './ent/vehicleSpecs';
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const game = new Game(canvas);
 const title = new Title(game);
+/** When the title card was built, ms after navigation: the first-visit benchmark runs before it (see hooks.boot). */
+const titleAt = performance.now();
 
 /**
  * Test hooks. Playwright drives the simulation through these instead of
@@ -48,6 +50,14 @@ const hooks = {
   setHeat(n: number): void { game.player.heat = Math.max(0, Math.min(5, n)); },
   /** The bridge and the mainland's unlock state (src/world/progress.ts): progress.add(points), .spans, .stage, .goal(). */
   progress,
+  /**
+   * Auto quality (core/governor.ts): `enabled`, `step` (0 is the full preset), `steps` (the ladder), `reason` (why it
+   * last changed), `log` (every change with its time, the median frame that caused it and the hitch it cost),
+   * `ms`/`longShare` (the last second), `choice` (the starting preset and why), `force(step)`.
+   */
+  governor: game.gov,
+  /** How this visit started: ms the first-visit benchmark took (0 when cached or not needed) and when the title card was built. */
+  boot: { benchMs: +game.gov.choice.benchMs.toFixed(1), titleAt: +titleAt.toFixed(1) },
   /** Build the Perpetual Bridge out to n new spans (0 = the stub in mid-air, 8 = finished). */
   bridge(n: number): void { progress.setSpans(n); },
   /** Open the mainland up to stage n (0 = only the landing, 4 = everything). Finishes the bridge if it is not. */
@@ -103,10 +113,20 @@ const hooks = {
       traffic: game.vehicles.list.reduce((n, v) => n + (v.driver === 'ai' ? 1 : 0), 0),
       calls: r.render.calls, tris: r.render.triangles, geometries: r.memory.geometries, textures: r.memory.textures,
       quality: game.quality.name, spans: progress.spans, stage: progress.stage,
+      gov: game.gov.brief(),
     };
   },
 };
 (window as unknown as { __game: typeof hooks }).__game = hooks;
+
+// `?debug`: one line at the foot of the screen saying what the quality governor is doing and why.
+if (new URLSearchParams(location.search).has('debug')) {
+  const el = document.createElement('div');
+  el.id = 'gov-readout';
+  el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9999;max-width:calc(100vw - 16px);padding:3px 8px;background:rgba(10,14,24,.72);color:#f2e8cf;font:12px/1.4 "IBM Plex Mono",monospace;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+  document.body.appendChild(el);
+  setInterval(() => { el.textContent = `${Math.round(game.fps)} fps · ${game.gov.line()}`; }, 500);
+}
 
 game.init((f, label) => title.progress(f, label)).then(() => {
   hooks.ready = true;
