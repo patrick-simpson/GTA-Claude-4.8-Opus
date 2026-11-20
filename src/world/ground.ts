@@ -278,6 +278,49 @@ function lampGeo(): THREE.BufferGeometry {
   return p.build();
 }
 const LAMP_REACH = 2.05, LAMP_H = 6.3;
+/** With the post pass on: how much brighter than their old levels the pools under the street lamps and the lamps' own halos are. */
+const POOL_GAIN = 1.7, HALO_GAIN = 1.5;
+/** A lamp's reflection in a soaked road at its brightest, as a share of the lamp's own colour. */
+const STREAK_GAIN = 0.2;
+
+// position: the lamp head (the same for a quad's four corners). aCorner: x across (-1..1), y along (0 near the eye, 1 toward the lamp).
+const STREAK_VS = /* glsl */`
+attribute vec2 aCorner;
+varying vec3 vK;
+varying vec3 vW;
+void main() {
+  float gy = position.y - ${(LAMP_H + CURB).toFixed(2)} + 0.03;
+  vec2 toCam = cameraPosition.xz - position.xz;
+  float d = length(toCam);
+  float hc = cameraPosition.y - gy;
+  if (position.y < -100.0 || d < 4.0 || hc < 0.3) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  vec2 dir = toCam / d;
+  // A mirror would show the lamp this far from the eye, measured along the road.
+  float r0 = d * hc / (hc + ${LAMP_H.toFixed(2)});
+  float rc = mix(0.4 * r0, min(2.6 * r0, d - 1.5), aCorner.y);
+  vec2 p = cameraPosition.xz - dir * rc + vec2(-dir.y, dir.x) * aCorner.x * (0.05 + 0.011 * rc);
+  // Water mirrors best at a glancing angle: a far lamp reflects more than the one overhead. Far ones then thin out
+  // in the air. From a roof or the air there is no glancing angle left, and the quads would lie across lawns: none.
+  float graze = 0.12 + 0.88 * clamp(1.0 - 2.2 * (hc + ${LAMP_H.toFixed(2)}) / d, 0.0, 1.0);
+  vK = vec3(rc, r0, graze * exp(-d * 0.006) * (1.0 - smoothstep(6.0, 20.0, hc)));
+  vW = vec3(p, aCorner.x);
+  gl_Position = projectionMatrix * viewMatrix * vec4(p.x, gy, p.y, 1.0);
+}`;
+const STREAK_FS = /* glsl */`
+uniform float uAmount;
+uniform vec3 uColor;
+varying vec3 vK;
+varying vec3 vW;
+void main() {
+  // How far this piece of road is from where the mirror image would be, as a change in the angle of sight:
+  // the smear runs long toward the eye and short toward the lamp.
+  float q = vK.y / vK.x - 1.0;
+  float along = exp(-q * q / (q > 0.0 ? 0.36 : 0.1));
+  float across = max(exp(-vW.z * vW.z * 3.5) - 0.03, 0.0);
+  // Asphalt is not a sheet of glass: the streak comes and goes with the road's own lumps.
+  float lumps = 0.62 + 0.38 * sin(vW.x * 2.3 + sin(vW.y * 0.9) * 2.0) * sin(vW.y * 1.7 + vW.x * 0.6);
+  gl_FragColor = vec4(uColor * (uAmount * vK.z * along * across * lumps), 1.0);
+}`;
 
 /** Mast with an arm reaching `arm` meters to the model's right (-X), a head hanging from its tip and one on the pole. */
 function signalGeo(arm: number): THREE.BufferGeometry {
@@ -811,6 +854,11 @@ class Ground implements WorldPart {
   private slotProp: Prop[] = [];
   private felled = new Map<Prop, Felled>();
   private haloPos: THREE.BufferAttribute | null = null;
+  /** The lamps' reflections in a wet road (see STREAK_VS): four corners a lamp, in the halos' order. */
+  private streakPos: THREE.BufferAttribute | null = null;
+  private streaks: THREE.Mesh | null = null;
+  private streakU = { uAmount: { value: 0 }, uColor: { value: new THREE.Color(SODIUM) } };
+  private nightGlow = 0;
   private mainShown = true;
   private pools = new Batch();
   private halos: number[] = [];
@@ -941,6 +989,7 @@ class Ground implements WorldPart {
       rewrote(mesh);
     }
     if (f.halo >= 0 && this.haloPos) { this.haloPos.setY(f.halo, -900); this.haloPos.needsUpdate = true; }
+    if (f.halo >= 0 && this.streakPos) { for (let k = 0; k < 4; k++) this.streakPos.setY(f.halo * 4 + k, -900); this.streakPos.needsUpdate = true; }
     const fb = f.sig >= this.sigMain ? this.bulbsMain : this.bulbs;
     if (f.sig >= 0 && fb) {
       const s0 = f.sig >= this.sigMain ? f.sig - this.sigMain : f.sig;
@@ -1308,6 +1357,10 @@ class Ground implements WorldPart {
     // gradient are one flat colour: the disc became an orange rectangle with ruled edges.
     const pm = this.poolMat.map;
     if (pm) { pm.generateMipmaps = false; pm.minFilter = THREE.LinearFilter; pm.needsUpdate = true; }
+    // Through the post pass a light may be brighter than white: the pools read as light on the road and the
+    // lamp heads are bright enough for the bloom to take. Low has no such range and keeps the old levels.
+    const hdr = this.game.quality.name !== 'low';
+    if (hdr) this.poolMat.color.setScalar(POOL_GAIN);
     if (!this.pools.empty) {
       const m = new THREE.Mesh(this.pools.toGeometry(), this.poolMat);
       m.matrixAutoUpdate = false;
@@ -1320,6 +1373,7 @@ class Ground implements WorldPart {
       blending: THREE.AdditiveBlending, depthWrite: false, fog: true, opacity: 0,
     });
     // Additive light must not mix toward a bright fog colour (that adds white); it just dims, slower than geometry does.
+    if (hdr) this.haloMat.color.multiplyScalar(HALO_GAIN);
     this.haloMat.onBeforeCompile = (sh) => {
       sh.fragmentShader = sh.fragmentShader.replace('#include <fog_fragment>', `#ifdef USE_FOG
         #ifdef FOG_EXP2
@@ -1338,8 +1392,45 @@ class Ground implements WorldPart {
     pts.frustumCulled = false;
     pts.renderOrder = 2;
     this.root.add(pts);
+    this.wetStreaks();
     this.halos = [];
     this.pools = new Batch();
+  }
+
+  /**
+   * Street lamps mirrored in a wet road. A rough wet surface does not show the lamp, it shows a streak of its
+   * colour along the line from the lamp's foot to the eye, brightest where a true mirror would put the lamp.
+   * One quad a lamp, laid on the road and aimed at the camera in the vertex shader: one draw call, drawn only
+   * when it is dark and the road is wet, and the depth test keeps it off kerbs, cars and walls. Not at low.
+   */
+  private wetStreaks(): void {
+    const n = this.halos.length / 3;
+    if (!n || this.game.quality.name === 'low') return;
+    const pos = new Float32Array(n * 12), corner = new Float32Array(n * 8), index = new Uint32Array(n * 6);
+    for (let i = 0; i < n; i++) {
+      for (let k = 0; k < 4; k++) {
+        pos[i * 12 + k * 3] = this.halos[i * 3]; pos[i * 12 + k * 3 + 1] = this.halos[i * 3 + 1]; pos[i * 12 + k * 3 + 2] = this.halos[i * 3 + 2];
+        corner[i * 8 + k * 2] = k & 1 ? 1 : -1; corner[i * 8 + k * 2 + 1] = k >> 1;
+      }
+      index.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 2, i * 4 + 1, i * 4 + 3], i * 6);
+    }
+    const g = new THREE.BufferGeometry();
+    this.streakPos = new THREE.BufferAttribute(pos, 3);
+    g.setAttribute('position', this.streakPos);
+    g.setAttribute('aCorner', new THREE.BufferAttribute(corner, 2));
+    g.setIndex(new THREE.BufferAttribute(index, 1));
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: STREAK_VS, fragmentShader: STREAK_FS, uniforms: this.streakU,
+      blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
+    });
+    const m = new THREE.Mesh(g, mat);
+    m.matrixAutoUpdate = false;
+    m.frustumCulled = false;
+    m.renderOrder = 1;
+    m.visible = false;
+    this.streaks = m;
+    this.root.add(m);
   }
 
   // ── Sidewalk furniture ─────────────────────────────────────────────────────
@@ -2131,6 +2222,11 @@ class Ground implements WorldPart {
   // ── Per frame ──────────────────────────────────────────────────────────────
 
   update(dt: number): void {
+    if (this.streaks) {
+      const a = this.nightGlow * (this.game.sky?.wet ?? 0);
+      this.streakU.uAmount.value = a * STREAK_GAIN;
+      this.streaks.visible = a > 0.02;
+    }
     const env = (this.mats.flat as THREE.MeshStandardMaterial).envMap;
     for (const pm of [this.propMat, this.propFar, this.propNear] as THREE.MeshStandardMaterial[]) if (pm !== this.mats.flatDouble && pm.envMap !== env) pm.envMap = env;
     if (this.sandMat && this.sandMat.envMap !== env) this.sandMat.envMap = env;
@@ -2177,6 +2273,7 @@ class Ground implements WorldPart {
     // Warm and strong under the sun, pale and thin under the moon.
     (u.uGlint.value as THREE.Color).copy(this.glintDay).lerp(this.glintNight, n).multiplyScalar(0.95 - 0.5 * n);
     const glow = smooth(n * 1.2), on = n > 0.01;
+    this.nightGlow = glow;
     this.poolMat.opacity = glow; this.poolMat.visible = on;
     this.haloMat.opacity = glow; this.haloMat.visible = on;
   }

@@ -169,6 +169,7 @@ void main() {
 const UP_FRAG = /* glsl */ `
 uniform sampler2D tSrc;
 uniform vec2 uTexel;
+uniform float uGain;
 varying vec2 vUv;
 void main() {
   vec2 t = uTexel;
@@ -177,7 +178,7 @@ void main() {
      + texture2D(tSrc, vUv + vec2(0.0, t.y)).rgb + texture2D(tSrc, vUv - vec2(0.0, t.y)).rgb) * 2.0
     + texture2D(tSrc, vUv + t).rgb + texture2D(tSrc, vUv - t).rgb
     + texture2D(tSrc, vUv + vec2(t.x, -t.y)).rgb + texture2D(tSrc, vUv + vec2(-t.x, t.y)).rgb;
-  gl_FragColor = vec4(c * 0.0625, 1.0);
+  gl_FragColor = vec4(c * (0.0625 * uGain), 1.0);
 }`;
 
 const COMPOSITE_FRAG = /* glsl */ `
@@ -188,6 +189,7 @@ uniform sampler2D tBloom;
 uniform vec2 uHalf;
 uniform float uAO;
 uniform float uBloom;
+uniform float uPeak;
 uniform float uExposure;
 uniform float uFogDensity;
 uniform float uGrade;
@@ -280,6 +282,11 @@ void main() {
   }
   vec3 glow = texture2D(tBloom, vUv).rgb * uBloom;
   col += glow;
+  // After dark nothing goes into the tone map brighter than uPeak (after exposure), and it is brought down with
+  // its colour intact. The tone map turns anything far over range toward white: a brake lamp at four times
+  // white came out pink and a sodium lamp cream. By day the limit is out of reach and this is skipped.
+  float pk = max(col.r, max(col.g, col.b)) * uExposure;
+  if (pk > 1.0 && uPeak < 60.0) { float room = uPeak - 1.0; col *= (1.0 + room * (1.0 - exp((1.0 - pk) / room))) / pk; }
   if (uDebug > 1.5) col = glow; else if (uDebug > 0.5) col = vec3(shown) * 0.8 / uExposure;
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
@@ -315,6 +322,18 @@ export class Post {
   ao = 1;
   bloom = 1;
   grade = 1;
+  /**
+   * The night's bloom, for tuning from a test (the day's is fixed: threshold 1.05, strength 0.6, every level alike).
+   * `nightThreshold`: how bright (on screen, after exposure) a thing must be to glow at all. High enough that a pale
+   * car under a lamp does not, low enough that a lit window does. `nightStrength`: the glow of a wide bright
+   * area, as a share of what it is over the threshold. `nightSpread`: each wider level of the chain counts this
+   * many times the one before, so the glow is a wide soft halo round the lamp and not a second coat of white
+   * on the lamp itself. `nightPeak`: see uPeak in the composite.
+   */
+  nightThreshold = 0.56;
+  nightStrength = 3.0;
+  nightSpread = 1.7;
+  nightPeak = 1.7;
   /** 1 shows the occlusion alone, 2 the bloom alone. */
   debug = 0;
   /** The occlusion passes, on or off (a lever for the quality governor of M6 section 3). Costs nothing while off. */
@@ -380,10 +399,10 @@ export class Post {
       tColor: tex(this.sceneRT.texture), uTexel: v2(), uExposure: num(1), uThreshold: num(1), uKnee: num(0.3),
     });
     this.downMat = pass(DOWN_FRAG, { tSrc: tex(), uTexel: v2() });
-    this.upMat = pass(UP_FRAG, { tSrc: tex(), uTexel: v2() }, { blending: THREE.AdditiveBlending, transparent: true });
+    this.upMat = pass(UP_FRAG, { tSrc: tex(), uTexel: v2(), uGain: num(1) }, { blending: THREE.AdditiveBlending, transparent: true });
     this.compMat = pass(COMPOSITE_FRAG, {
       tColor: tex(this.sceneRT.texture), tDepth: tex(depth), tAO: tex(this.aoA.texture), tBloom: tex(this.mips[0].texture),
-      uNearFar: v2(), uHalf: v2(), uAO: num(1), uBloom: num(0), uExposure: num(1), uFogDensity: num(0), uGrade: num(1), uDebug: num(0), uFxaa: num(1), uTexel: v2(), uEdge: { value: this.fxaaEdge },
+      uNearFar: v2(), uHalf: v2(), uAO: num(1), uBloom: num(0), uPeak: num(1e6), uExposure: num(1), uFogDensity: num(0), uGrade: num(1), uDebug: num(0), uFxaa: num(1), uTexel: v2(), uEdge: { value: this.fxaaEdge },
     }, { toneMapped: true });
 
     // One triangle that covers the screen: no diagonal seam, and nothing to cull.
@@ -470,16 +489,22 @@ export class Post {
 
     // ── Bloom ──
     // By day only what is brighter than a sunlit white wall may glow; after
-    // dark the bar drops so lamps, windows and tail lamps all carry a halo.
+    // dark the bar drops so lamps, windows and tail lamps all carry a halo,
+    // but not so far that a pale car or a lit pavement glows with them.
     const night = g.sky ? g.sky.night : 0;
     const exposure = r.toneMappingExposure;
     const br = this.brightMat.uniforms;
     br.uExposure.value = exposure;
-    br.uThreshold.value = 1.05 - 0.65 * night;
+    br.uThreshold.value = 1.05 + (this.nightThreshold - 1.05) * night;
     br.uKnee.value = 0.25;
     const mips = this.mips, n = mips.length;
     this.draw(this.brightMat, mips[0]);
     const du = this.downMat.uniforms, uu = this.upMat.uniforms;
+    // By day every level counts alike (gain 1); by night each wider one counts for more.
+    const gain = 1 + (this.nightSpread - 1) * night;
+    uu.uGain.value = gain;
+    let sum = 0;
+    for (let i = 0, wgt = 1; i < n; i++, wgt *= gain) sum += wgt;
     for (let i = 1; i < n; i++) {
       du.tSrc.value = mips[i - 1].texture;
       (du.uTexel.value as THREE.Vector2).set(1 / mips[i - 1].width, 1 / mips[i - 1].height);
@@ -497,9 +522,11 @@ export class Post {
     cu.uAO.value = this.aoOn ? AO_STRENGTH * this.ao : 0;
     cu.uFxaa.value = this.fxaa ? 1 : 0;
     cu.uExposure.value = exposure;
-    // The chain sums one copy per level, and it was built after exposure while
+    // The chain sums its levels (by weight), and it was built after exposure while
     // the composite applies exposure again: undo both here.
-    cu.uBloom.value = this.bloom * (0.6 + 1.5 * night) / (n * Math.max(exposure, 1e-3));
+    cu.uBloom.value = this.bloom * (0.6 + (this.nightStrength - 0.6) * night) / (sum * Math.max(exposure, 1e-3));
+    // Out of reach by day (64 times white), closing in through dusk: a ratio, so the change is even all the way.
+    cu.uPeak.value = night > 0.001 ? this.nightPeak * Math.pow(64 / this.nightPeak, 1 - night) : 1e6;
     cu.uGrade.value = this.grade;
     cu.uDebug.value = this.debug;
     this.draw(this.compMat, null);

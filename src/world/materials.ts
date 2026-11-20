@@ -152,6 +152,9 @@ export class CityMaterials {
       map: tex.glow, vertexColors: true, blending: THREE.AdditiveBlending, transparent: true,
       depthWrite: false, fog: false, opacity: 0,
     });
+    // Through the post pass a bulb may be brighter than white, which is what lets the bloom find the Ferris wheel's
+    // bulbs and the pier's lamps; low has no such range.
+    if (quality.name !== 'low') this.glow.color.setScalar(1.5);
     this.glow.visible = false;
 
     // Rain: asphalt goes dark and glossy, concrete and stone less so, planks and paint in between.

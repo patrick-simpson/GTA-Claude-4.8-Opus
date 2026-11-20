@@ -265,6 +265,13 @@ class Car implements Vehicle {
   }
 }
 
+/**
+ * How much of their mirror the cars lose after dark. The cube they reflect holds every lit window and lamp in the
+ * street at full strength, and on a roof or a windscreen that came out as soft cream, orange and teal patches
+ * brighter than anything the car was lit by.
+ */
+const ENV_NIGHT = 0.62;
+
 /** Radial falloff with a hot core, for lamp glows. */
 function glowTexture(): THREE.CanvasTexture {
   const cv = document.createElement('canvas');
@@ -355,8 +362,9 @@ void main() {
   vUv = uv;
   // aCol.w picks the lamp: 0 the headlights' warm reach, 1 the short red wash under brake lamps.
   vCol = mix(vec3(1.0, 0.66, 0.27), vec3(1.0, 0.05, 0.02), aCol.w) * aCol.z;
+  // The direction's length stretches the pool along its beam and leaves its width alone.
   vec2 f = aCol.xy;
-  vec2 r = vec2(-f.y, f.x);
+  vec2 r = normalize(vec2(-f.y, f.x));
   vec2 p = r * position.x * mix(6.6, 3.6, aCol.w) + f * (position.y + 0.5) * mix(16.5, 3.4, aCol.w);
   gl_Position = projectionMatrix * viewMatrix * vec4(aPos.x + p.x, aPos.y, aPos.z + p.y, 1.0);
 }`;
@@ -698,6 +706,11 @@ export class Vehicles implements VehiclesApi {
   private envWait = 0;
   private envAt = new THREE.Vector3();
   private envMats: THREE.MeshStandardMaterial[] = [];
+  /** Each enrolled material's own reflection strength, and the night it was last scaled for (see ENV_NIGHT). */
+  private envBase: number[] = [];
+  private envNight = 0;
+  /** The lamps' reach toward the eye on a wet road (see lamps()). A switch for tools/bench.mjs's A/B; takes effect at the next update. */
+  wetReach = true;
   /** CPU milliseconds the capture has cost: the frame just drawn, and the worst frame so far (for the bench). */
   envMs = 0; envMax = 0;
 
@@ -747,7 +760,7 @@ export class Vehicles implements VehiclesApi {
       assets.hold(loadVehicleAssets((a) => this.adopt(a), { textures: !low && sheetFits && new URLSearchParams(location.search).get('cartex') !== '0', send, far }).opening, 'cars');
     }
     this.glow = new Sprites(1024, GLOW_VS, glowTexture(), 6);
-    this.pool = new Sprites(96, POOL_VS, poolTexture(), 5);
+    this.pool = new Sprites(160, POOL_VS, poolTexture(), 5);
     this.shadow = new Sprites(160, GROUND_VS, shadowTexture(), 2, new THREE.Color(0x0b1322));
     this.marks = new Sprites(MARKS, GROUND_VS, markTexture(), 3, new THREE.Color(0x0a0c11));
     this.smoke = new Sprites(PUFFS, PUFF_VS, puffTexture(), 7, this.smokeTint);
@@ -853,6 +866,10 @@ export class Vehicles implements VehiclesApi {
     this.reflect(dt);
     const night = sky ? sky.night : 0;
     // A zero-length step would divide by it; there is nothing to simulate anyway.
+    if (Math.abs(night - this.envNight) > 0.01 || (night === 0) !== (this.envNight === 0)) {
+      this.envNight = night;
+      for (let i = 0; i < this.envMats.length; i++) this.envMats[i].envMapIntensity = this.envBase[i] * (1 - ENV_NIGHT * night);
+    }
     if (dt <= 0) { this.sync(night); return; }
     this.time += dt;
     const eye = game.view ? game.view.pos : game.camera.position;
@@ -1624,7 +1641,8 @@ export class Vehicles implements VehiclesApi {
   private mirror<T extends THREE.MeshStandardMaterial>(m: T, intensity: number): T {
     if (!this.envRT) return m;
     this.envMats.push(m);
-    m.envMapIntensity = intensity;
+    this.envBase.push(intensity);
+    m.envMapIntensity = intensity * (1 - ENV_NIGHT * this.envNight);
     if (this.envFace >= 0) m.envMap = this.envRT.texture;
     return m;
   }
@@ -1845,6 +1863,8 @@ export class Vehicles implements VehiclesApi {
     const cam = game.view ? game.view.pos : game.camera.position;
     const far = game.quality.drawDist * 0.7, far2 = far * far;
     const glow = this.glow, pool = this.pool, shadow = this.shadow;
+    // (Low has no bloom and no limit on brightness: it keeps the levels and the glow sizes it had.)
+    const brakeLit = 3.6 - (this.game.post ? 1.8 * night : 0);
     for (const b of this.batchList) for (const s of b.sets) { s.n = 0; s.nw = 0; s.dirty = 0; }
     glow.n = 0; pool.n = 0; shadow.n = 0;
 
@@ -1896,8 +1916,9 @@ export class Vehicles implements VehiclesApi {
       // The lenses themselves light up; the glow sprites in lamps() are the halo round them.
       if (s.lamps && s.lamps2) {
         // One lens does both jobs on most cars: the brake section glows dimly with the tail lamps and flares when braking.
-        if (put4(s.lamps, i * 4, c.lights ? 2.8 : 0, b.sections ? (c.lights ? 1.1 : 0) : c.braking ? 3.5 : c.lights ? 0.9 : 0,
-          c.braking ? 3.6 : c.lights ? 0.8 : 0, c.reversing ? 2.6 : 0)) dirty |= D_LAMP;
+        // Against the sun a brake lamp has to shout; after dark the same level floods the whole tail red.
+        if (put4(s.lamps, i * 4, c.lights ? 2.8 : 0, b.sections ? (c.lights ? 1.1 : 0) : c.braking ? brakeLit : c.lights ? 0.9 : 0,
+          c.braking ? brakeLit : c.lights ? 0.8 : 0, c.reversing ? 2.6 : 0)) dirty |= D_LAMP;
         // Indicators: on while a driver holds a real turn at town speed, and for a moment after, like a stalk that cancels late.
         if (c.driver !== null && Math.abs(c.ctl.steer) > 0.45 && c.vx * c.vx + c.vz * c.vz < 170) { c.turn = c.ctl.steer > 0 ? -1 : 1; c.turnEnd = this.time + 1.3; }
         else if (c.turn !== 0 && (this.time > c.turnEnd || c.driver === null)) c.turn = 0;
@@ -1956,10 +1977,13 @@ export class Vehicles implements VehiclesApi {
     }
     if (astern > 0.01) {
       // Brake lamps show by day as well, only fainter against the sun.
+      // With the post pass the halo round a lamp is the bloom's work and the sprite only its hot middle, so it sits
+      // on the lens; without it (low) the sprite is all the glow there is, and keeps the size it had.
+      const post = this.game.post !== null;
       let r = 0, g = 0, b = 0, s = 0;
-      if (c.braking) { const k = 0.75 + 0.6 * night; r = 1.5 * k; g = 0.1 * k; b = 0.05 * k; s = 0.85; }
+      if (c.braking) { const k = 0.75 + 0.6 * night; r = 1.5 * k; g = 0.1 * k; b = 0.05 * k; s = post ? 0.6 : 0.85; }
       else if (c.reversing) { r = 0.8; g = 0.8; b = 0.72; s = 0.6; }
-      else if (c.lights) { r = 0.6; g = 0.04; b = 0.02; s = 0.55; }
+      else if (c.lights) { r = 0.6; g = 0.04; b = 0.02; s = post ? 0.42 : 0.55; }
       if (s > 0) {
         s *= grow; r *= astern; g *= astern; b *= astern;
         for (const l of model.tail) {
@@ -1972,8 +1996,20 @@ export class Vehicles implements VehiclesApi {
       // Lamps come on at half dark, when the road is still lit: the pool grows in with the night instead of arriving as a grey smudge.
       const dark = clamp01((night - 0.5) / 0.35);
       // Held a hand above the street so it still shows where the beam climbs a curb.
-      if (c.lights) this.pool.add(c.x + s * (c.hl - 0.6), c.y + 0.2, c.z + co * (c.hl - 0.6), s, co, 0.7 * dark * dark * far, 0);
+      // The pool's length follows the length of its direction. The player's own beam is the one seen from behind
+      // and above, where sixteen meters of it at full strength, starting under the bumper, was a cream cloud round
+      // the roof, bright enough for the bloom to take as a lamp. Longer, dimmer and begun a meter further on, it
+      // is a lit road ahead of the car.
+      const own = c.driver === 'player' && this.game.post !== null, reach = own ? 1.6 : 1, from = c.hl - (own ? -0.4 : 0.6);
+      if (c.lights) this.pool.add(c.x + s * from, c.y + 0.2, c.z + co * from, s * reach, co * reach, (own ? 0.44 : 0.7) * dark * dark * far, 0);
       if (c.braking && night > 0.4) this.pool.add(c.x - s * (c.hl - 0.5), c.y + 0.2, c.z - co * (c.hl - 0.5), -s, -co, 0.24 * night * night * far, 1);
+      // A wet road carries the lamps toward whoever is looking at them: the same beam shapes, laid from the car to the eye.
+      const wet = this.wetReach && this.game.post ? this.wet * dark * far : 0;
+      if (wet > 0.03 && dist > 5) {
+        const ux = dx / dist, uz = dz / dist;
+        if (c.lights && ahead > 0.05) this.pool.add(c.x + s * c.hl, c.y + 0.2, c.z + co * c.hl, ux, uz, 0.55 * wet * ahead, 0);
+        if ((c.lights || c.braking) && astern > 0.05) this.pool.add(c.x - s * c.hl, c.y + 0.2, c.z - co * c.hl, ux, uz, (c.braking ? 0.34 : 0.16) * wet * astern, 1);
+      }
     }
   }
 }

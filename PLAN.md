@@ -88,6 +88,32 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### M6 step 7, night: pushed Nov 20, about 3:00 PM ET (M6 is complete)
+
+- **Bloom at night** (`src/core/post.ts`): threshold 0.56 (was 0.40), wider levels
+  weighted 1.7x, strength 3.0, and a night-only brightness limit in the composite
+  that keeps colour (1.7x white), skipped by day. The four values are public on
+  `Post` (`nightThreshold`, `nightStrength`, `nightSpread`, `nightPeak`). Lamp
+  heads, pier lamps, Ferris bulbs and signals carry a halo; brake lamps are red
+  to the core; sodium stays orange.
+- **Ground** (`ground.ts`, `materials.ts`): lamp pools 1.7x and halos 1.5x where
+  there is a post pass; glow sprites 1.5x; a wet-streak mesh (one draw call, only
+  dark and wet, not at low) puts a thin orange streak under each street lamp.
+- **Cars** (`vehicle.ts`): night reflections cut 62% (`ENV_NIGHT`); brake lens and
+  glow sprites toned so they sit on the lamps; the player's beam is a longer,
+  dimmer patch of road ahead instead of a cream cloud; wet reach pools.
+- Noon and sunset are pixel-identical or nearly; low keeps its old look. Free:
+  night rain at heat 3 is 17.0 ms before and after in one session (A/B).
+  `scratch/m6/night/shots.mjs <folder>` retakes the ten fixed pictures.
+  An independent worker judged rain and the car clearly better, the rest the
+  same or barely better, nothing worse.
+  Owed: lit windows are still flat cream cards (raising them burns out the shop
+  shelves); signs do not glow; only street lamps and car lamps reflect in wet
+  roads; the streaks are flat quads (unchecked on the mainland hill) and two or
+  three near the kerb read like short orange posts; the beam is a soft blocky
+  patch; street lamps cast no real light on cars or people; at medium the Bolt
+  is pale blue-white at night (new or not: unknown); dawn was not pictured.
+
 ### M6 step 6, the bug bash: Nov 20, about 2:15 PM ET (no game code changed)
 
 - **The "stale frame" of step 5 was a false alarm in the check, not a stale

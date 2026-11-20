@@ -112,3 +112,7 @@ owner's ground rules for the takeover and the running state.
   12 of 13 original steps done. Gauge at 2:10 PM: NEW window 0% (resets 7:10 PM ET), week 90%:
   5 points left. Last M6 unit, night lighting [top model], launched 2:17 PM. After it: STOP for the
   week unless it is under 93%; multiplayer starts after Sunday Nov 22, 4 PM ET (see multiplayer.md).
+- Nov 20, 3:00 PM ET: pushed M6 step 7 (night). M6 IS COMPLETE: 13 of 13 original steps done.
+  Gauge at 2:51 PM: window 12% (resets 7:10 PM ET), week 91%: 4 points left before the 95% stop.
+  One small Sonnet unit on the oddities the bug bash found fits (about 1 point); then STOP for the
+  week. Multiplayer (tools/briefs/multiplayer.md) starts after Sunday Nov 22, 4 PM ET.
