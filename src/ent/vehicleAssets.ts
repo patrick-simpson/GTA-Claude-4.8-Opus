@@ -310,14 +310,26 @@ async function wheelTextures(): Promise<CarMaps | null> {
   return n && o ? { normal: texture(n.d, n.w, n.h, 2, true), ao: texture(o.d, o.w, o.h, 1, true) } : null;
 }
 
-let sheet: { maps: CarMaps; n: Uint8Array<ArrayBuffer>; o: Uint8Array<ArrayBuffer> } | null = null;
+/**
+ * Hands one cell's texels to the video card: `texels` (a square of `size`, in the sheet's own format) go into `sheet`
+ * with their corner at texel (x, y). `blank` is the byte an empty texel of that sheet holds, for a sender that has to
+ * fill the sheet's fresh storage itself. The loader has no renderer of its own, so whoever draws the cars supplies this.
+ */
+export type SendCell = (sheet: THREE.DataTexture, texels: Uint8Array<ArrayBuffer>, size: number, x: number, y: number, blank: number) => void;
 
-/** The shared sheets, made on first use: flat normals and no occlusion until a kind's pictures are copied in. */
-function sheets(): NonNullable<typeof sheet> {
+let sheet: { maps: { normal: THREE.DataTexture; ao: THREE.DataTexture }; n: Uint8Array<ArrayBuffer>; o: Uint8Array<ArrayBuffer> } | null = null;
+
+/**
+ * The shared sheets, made on first use: flat normals and no occlusion until a kind's pictures are copied in. With a
+ * sender the video card is asked for the sheets' storage only: each cell crosses on its own as its kind arrives, and
+ * the 36 MB of blank sheet never crosses at all.
+ */
+function sheets(send: SendCell | null): NonNullable<typeof sheet> {
   if (!sheet) {
     const W = COLS * CELL, H = ROWS * CELL;
     const n = new Uint8Array(W * H * 2).fill(128), o = new Uint8Array(W * H).fill(255);
     sheet = { maps: { normal: texture(n, W, H, 2, false), ao: texture(o, W, H, 1, false) }, n, o };
+    if (send) sheet.maps.normal.source.dataReady = sheet.maps.ao.source.dataReady = false;
   }
   return sheet;
 }
@@ -327,10 +339,10 @@ function sheets(): NonNullable<typeof sheet> {
  * picture that is missing or the wrong size leaves the cell blank (smooth and unshaded), which is a car with no
  * occlusion, not a broken one.
  */
-async function place(asset: VehicleAsset): Promise<void> {
+async function place(asset: VehicleAsset, send: SendCell | null): Promise<void> {
   const i = TEX_KINDS.indexOf(asset.kind);
   if (i < 0 || i >= COLS * ROWS) return;
-  const cx = i % COLS, cy = Math.floor(i / COLS), s = sheets();
+  const cx = i % COLS, cy = Math.floor(i / COLS), s = sheets(send);
   for (const l of asset.lods) {
     for (const g of [l.paint, l.detail]) {
       const uv = g?.getAttribute('uv') as THREE.BufferAttribute | undefined;
@@ -343,22 +355,31 @@ async function place(asset: VehicleAsset): Promise<void> {
   asset.maps = s.maps;
   const [n, o] = await Promise.all([pixels(`models/${asset.kind}_n.webp`, 2), pixels(`models/${asset.kind}_o.webp`, 1)]);
   const W = COLS * CELL;
-  if (n && n.w === CELL && n.h === CELL) {
-    for (let y = 0; y < CELL; y++) s.n.set(n.d.subarray(y * CELL * 2, (y + 1) * CELL * 2), ((cy * CELL + y) * W + cx * CELL) * 2);
-    s.maps.normal.needsUpdate = true;
-  }
-  if (o && o.w === CELL && o.h === CELL) {
-    for (let y = 0; y < CELL; y++) s.o.set(o.d.subarray(y * CELL, (y + 1) * CELL), (cy * CELL + y) * W + cx * CELL);
-    s.maps.ao.needsUpdate = true;
+  const nd = n && n.w === CELL && n.h === CELL ? n.d : null, od = o && o.w === CELL && o.h === CELL ? o.d : null;
+  // The sheets' own copies are kept whole: they are what a full send (after a lost context, say) would take.
+  if (nd) for (let y = 0; y < CELL; y++) s.n.set(nd.subarray(y * CELL * 2, (y + 1) * CELL * 2), ((cy * CELL + y) * W + cx * CELL) * 2);
+  if (od) for (let y = 0; y < CELL; y++) s.o.set(od.subarray(y * CELL, (y + 1) * CELL), (cy * CELL + y) * W + cx * CELL);
+  if (send) {
+    // Only this kind's cell crosses to the video card (3 MB). Marking the sheets changed instead re-sent all 36 MB
+    // and rebuilt both sheets' chains of smaller copies for every kind that arrived: twelve hitches of 3 to 13 ms
+    // while the cars load, and now and then one of 120.
+    if (nd) send(s.maps.normal, nd, CELL, cx * CELL, cy * CELL, 128);
+    if (od) send(s.maps.ao, od, CELL, cx * CELL, cy * CELL, 255);
+    // From here on a full send, should one ever be asked for, takes the whole copy kept above.
+    s.maps.normal.source.dataReady = s.maps.ao.source.dataReady = true;
+  } else {
+    if (nd) s.maps.normal.needsUpdate = true;
+    if (od) s.maps.ao.needsUpdate = true;
   }
 }
 
 /**
  * Fetch and build every listed kind, one after another so no frame carries two
  * parses. `onLoad` runs once per kind that arrives; nothing runs for one that
- * does not. Never throws and never logs an error.
+ * does not. Never throws and never logs an error. `send` is how a kind's cell of the shared sheets reaches the video
+ * card (see place); without it the whole sheets are marked changed, which costs a hitch for every kind.
  */
-export async function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, textures = true, kinds: readonly VehicleKind[] = GLB_KINDS): Promise<void> {
+export async function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, textures = true, kinds: readonly VehicleKind[] = GLB_KINDS, send: SendCell | null = null): Promise<void> {
   const loader = new GLTFLoader();
   const wheelMaps = textures && WHEEL_TEX ? await wheelTextures() : null;
   for (const kind of kinds) {
@@ -373,7 +394,7 @@ export async function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, textu
       if (!asset) { console.warn(`models/${kind}.glb: no LOD0 with a paint mesh; keeping the procedural ${kind}`); continue; }
       for (const n of asset.notes) console.warn(`models/${kind}.glb: ${n}`);
       // The maps come before the car is shown: its near levels have no occlusion of their own to fall back on.
-      if (textures) await place(asset);
+      if (textures) await place(asset, send);
       asset.wheelMaps = wheelMaps;
       onLoad(asset);
     } catch (e) {

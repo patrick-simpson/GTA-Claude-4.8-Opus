@@ -24,7 +24,7 @@ import type { Vehicle, VehicleControls, VehiclesApi } from '../core/api';
 import { RNG, clamp, clamp01, damp, smooth } from '../core/util';
 import { SPECS, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
 import { vehicleModel, wheelGeometry, type VehicleModel } from './vehicleModels';
-import { loadVehicleAssets, SHEET_TEXELS, type CarMaps, type VehicleAsset } from './vehicleAssets';
+import { loadVehicleAssets, SHEET_TEXELS, type CarMaps, type SendCell, type VehicleAsset } from './vehicleAssets';
 import { BRIDGE, groundAt, terrainAt, WATER_Y } from '../world/plan';
 import type { Box, Prop } from '../world/collide';
 
@@ -380,13 +380,50 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
+/** three.js's own text for one of its shader chunks, with one line of it changed; the chunk untouched if that line is not where it was. */
+function chunk(name: keyof typeof THREE.ShaderChunk, after: string, line: string, to: string): string {
+  const src = THREE.ShaderChunk[name], at = src.indexOf(after), i = at < 0 ? -1 : src.indexOf(line, at);
+  return i < 0 ? src : src.slice(0, i) + to + src.slice(i + line.length);
+}
+
+/**
+ * The sun in the lacquer. The coat's own lobe is a core about three degrees across, which on a bonnet is a spark a
+ * few pixels long; a real coat carries a faint bloom round that core (fine scratches, the flake under it), and the
+ * bloom is what lets the eye find the highlight and read the panel's curve from it. So: the core as it was, and a
+ * second lobe five times as wide at a seventh of the weight.
+ */
+const LACQUER_SUN = chunk('lights_physical_pars_fragment', 'vec3 BRDF_GGX_Clearcoat', 'float D = D_GGX( alpha, dotNH );',
+  'float D = D_GGX( alpha, dotNH ) + 0.15 * D_GGX( max( alpha, 0.04 ), dotNH );');
+
+/**
+ * What the lacquer shows of the street. The cube is 128 texels a face and is taken from above the camera's focus, not
+ * from the car; read nearly sharp (as a coat this smooth asks), a texel is a degree wide and a flat panel spans only a
+ * few degrees of it, so a whole roof took the colour of one sunlit wall and a flank the colour of the paving, with a
+ * hard edge wherever the texel or the panel ended. On black there is nothing under the coat to hide that. Read
+ * through a soft lens instead (about three degrees) the same cube is what a polished car shows from across the road:
+ * sky grading down to the roofs, the street's colours run together and nearly all greyed (the sky by half), and under the horizon the road,
+ * darker than the cube has it because down there a car mostly sees its own shade, and just above the horizon a
+ * brighter band, because that line across a flank is what says "polished". On pale paint the coat's share is a
+ * little under what it was; on dark paint, where the coat is all there is to see and the base's veil is taken away
+ * (sPale, below), it is a little over.
+ */
+const LACQUER_STREET = chunk('lights_fragment_maps', 'USE_CLEARCOAT', 'clearcoatRadiance += getIBLRadiance( geometryViewDir, geometryClearcoatNormal, material.clearcoatRoughness );', `{
+      vec3 ccR = inverseTransformDirection( reflect( - geometryViewDir, geometryClearcoatNormal ), viewMatrix );
+      vec3 ccE = getIBLRadiance( geometryViewDir, geometryClearcoatNormal, max( material.clearcoatRoughness, 0.15 ) );
+      float ccGnd = 1.0 - smoothstep( -0.07, 0.03, ccR.y );
+      float ccSat = mix( 0.15, 0.55, smoothstep( 0.1, 0.7, ccR.y ) ) - 0.05 * ccGnd;
+      ccE = mix( vec3( dot( ccE, vec3( 0.2126, 0.7152, 0.0722 ) ) ), ccE, ccSat );
+      ccE *= ( 1.0 - 0.6 * ccGnd ) * ( 1.0 + 0.9 * ( 1.0 - ccGnd ) * ( 1.0 - smoothstep( 0.0, 0.35, ccR.y ) ) );
+      clearcoatRadiance += ccE * mix( 1.25, 0.9, sPale );
+    }`);
+
 /**
  * A sheen that does not wait for the reflection map: sky colour added at
  * grazing angles and on faces that look up, and (glass only) rising toward the
  * top of the pane. Without it the glass is a black hole whenever the
  * environment is dim, and paint is matte plastic.
  */
-function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number, gloss = 0, pane = false, dirt = false, lacquer = false, flake = false): void {
+function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number, gloss = 0, pane = false, dirt = false, lacquer = false, flake = false, soft = false): void {
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uSky = sky;
     let vs = sh.vertexShader, fs = sh.fragmentShader;
@@ -415,7 +452,16 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
       float sMet = 1.0 - max( smoothstep( 0.6, 0.78, sLo ), step( 0.4, vColor.r ) * step( vColor.b, 0.07 ) * step( 0.1, vColor.g ) );`;
       fs = fs
         .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * mix( 1.5, 1.0, sMet );')
-        .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = metalness * mix( 0.1, 1.0, sMet );');
+        .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = metalness * mix( 0.1, 1.0, sMet );')
+        .replace('#include <lights_physical_pars_fragment>', LACQUER_SUN);
+      // With the street cube to reflect, the coat reads it softened (see LACQUER_STREET).
+      if (soft) fs = fs.replace('#include <lights_fragment_maps>', LACQUER_STREET).replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+        // How pale the paint is. three.js lets the base under the coat shine as bare plastic would, rough and broad:
+        // on black that is a dull sheen over the whole sunlit panel and a veil of the street's colours, as strong as
+        // the coat's own picture. A dark base under lacquer gives back about a third of that.
+        float sPale = smoothstep( 0.03, 0.3, max( diffuseColor.r, max( diffuseColor.g, diffuseColor.b ) ) );
+        material.specularColor *= mix( 0.3, 1.0, sPale );
+        material.specularF90 = mix( 0.3, 1.0, sPale );`);
       // After the maps and before the clearcoat takes its own copy of the smooth normal: the lacquer stays a mirror.
       if (flake) fs = fs.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
@@ -444,7 +490,7 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
       // What makes lacquer read as lacquer is a hard edge in its reflection. The environment map is a soft sky, so
       // the horizon is drawn in here: bright just above the line, cut off sharply below it.
       vec3 sR = inverseTransformDirection(reflect(-normalize(vViewPosition), normalize(normal)), viewMatrix);
-      float sH = smoothstep(-0.035, 0.0, sR.y) * (1.0 - smoothstep(0.0, 0.42, sR.y));
+      float sH = smoothstep(${soft ? '-0.12, 0.03' : '-0.035, 0.0'}, sR.y) * (1.0 - smoothstep(0.0, 0.42, sR.y));
       outgoingLight += uSky * sH * sAo * ${gloss.toFixed(3)} * (0.22 + 1.6 * sF * sF)${dirt ? ' * (1.0 - sDirt * 0.85)' : ''};` : ''}
       ${pane ? `
       // Glass by Fresnel: four percent of what is in front of it comes back when you look through it squarely,
@@ -660,7 +706,9 @@ export class Vehicles implements VehiclesApi {
     // ?cartex=0 leaves the baked maps unfetched (the near levels then have no occlusion at all: for timing only).
     // So does a video card too small for the shared sheet: a texture it refuses reads as black, which is a black car.
     const sheetFits = game.renderer.capabilities.maxTextureSize >= SHEET_TEXELS;
-    if (new URLSearchParams(location.search).get('glb') !== '0') void loadVehicleAssets((a) => this.adopt(a), !low && sheetFits && new URLSearchParams(location.search).get('cartex') !== '0');
+    // A kind's baked maps go to the video card one cell of the shared sheets at a time (place() in vehicleAssets.ts).
+    const send: SendCell = (sheet, texels, size, x, y, blank) => this.sendCell(sheet, texels, size, x, y, blank);
+    if (new URLSearchParams(location.search).get('glb') !== '0') void loadVehicleAssets((a) => this.adopt(a), !low && sheetFits && new URLSearchParams(location.search).get('cartex') !== '0', undefined, send);
     this.glow = new Sprites(1024, GLOW_VS, glowTexture(), 6);
     this.pool = new Sprites(96, POOL_VS, poolTexture(), 5);
     this.shadow = new Sprites(160, GROUND_VS, shadowTexture(), 2, new THREE.Color(0x0b1322));
@@ -1473,9 +1521,65 @@ export class Vehicles implements VehiclesApi {
     const m = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: local ? 0.35 : 0.55, roughness: local ? 0.5 : 0.4, clearcoat: 1, clearcoatRoughness: local ? 0.09 : 0.025, envMapIntensity: 1.7 });
     if (maps) { m.aoMap = maps.ao; m.aoMapIntensity = 0.6; }
     // Flake is worked out per pixel and shows only within a few meters, so only the showroom level pays for it.
-    if (local) sheen(m, this.sky, flake ? 'coatf' : 'coat', 0, 0.06, 0.02, 0, 0.1, false, true, true, flake);
+    if (local) sheen(m, this.sky, flake ? 'coatf' : 'coat', 0, 0.06, 0.02, 0, 0.1, false, true, true, flake, true);
     else sheen(m, this.sky, flake ? 'coatf' : 'coat', 0, 0.3, 0.1, 0, 0.55, false, true, true, flake);
     return this.mirror(m, 1.6);
+  }
+
+  /**
+   * One kind's cell of a shared sheet to the video card. The texels go up as a small texture of their own, which the
+   * card gives its chain of smaller copies cheaply, and each level is then copied into its place in the sheet, on
+   * the card: the sheet is never read and written at once, and its whole chain is never rebuilt. Fresh storage is
+   * filled with `blank` first, so a cell that has not arrived reads as smooth and unshaded, not as zeros.
+   *
+   * Measured on the development machine as the send plus the frame after it, a plain frame being 0.7 ms: both sheets
+   * re-sent whole, 12 to 18 ms; this, 10 to 12; an upload straight into the sheet with three.js's rebuild of the
+   * whole chain, about the same; an upload into the sheet with each level halved in place, 8 to 10. Whichever way
+   * the cell is written, most of what is left follows the sheet's size and not the cell's, so the cure for the rest
+   * is a layer for each kind (a texture array), not a cleverer copy.
+   */
+  private sendCell(sheet: THREE.DataTexture, texels: Uint8Array<ArrayBuffer>, size: number, x: number, y: number, blank: number): void {
+    const r = this.game.renderer, gl = r.getContext() as WebGL2RenderingContext;
+    const made = (): WebGLTexture | undefined => (r.properties.get(sheet) as { __webglTexture?: WebGLTexture }).__webglTexture;
+    const fresh = !made();
+    // The storage, with the whole chain, is made while the sheet still says it wants a chain.
+    r.initTexture(sheet);
+    const tex = made();
+    if (!tex || typeof gl.blitFramebuffer !== 'function') { sheet.source.dataReady = true; sheet.needsUpdate = true; return; }
+    const read = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null, draw = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
+    const scissor = gl.isEnabled(gl.SCISSOR_TEST), mask = gl.getParameter(gl.COLOR_WRITEMASK) as boolean[];
+    const from = gl.createFramebuffer(), to = gl.createFramebuffer();
+    if (scissor) gl.disable(gl.SCISSOR_TEST);
+    gl.colorMask(true, true, true, true);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, from); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, to);
+    if (fresh) {
+      const v = blank / 255, top = Math.floor(Math.log2(Math.max(sheet.image.width, sheet.image.height)));
+      for (let l = 0; l <= top; l++) {
+        gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, l);
+        gl.clearBufferfv(gl.COLOR, 0, [v, v, v, v]);
+      }
+    }
+    const cell = new THREE.DataTexture(texels, size, size, sheet.format as THREE.PixelFormat, sheet.type);
+    cell.generateMipmaps = true; cell.minFilter = THREE.LinearMipmapLinearFilter;
+    cell.needsUpdate = true;
+    r.initTexture(cell);
+    const src = (r.properties.get(cell) as { __webglTexture?: WebGLTexture }).__webglTexture ?? null;
+    let ok = !!src;
+    for (let l = 0; (size >> l) >= 1 && ok; l++) {
+      const s = size >> l, cx = x >> l, cy = y >> l;
+      gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, src, l);
+      gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, l);
+      if (l === 0) ok = gl.checkFramebufferStatus(gl.READ_FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE && gl.checkFramebufferStatus(gl.DRAW_FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+      // Texel for texel between two textures: the copy stays inside the cell at every level.
+      if (ok) gl.blitFramebuffer(0, 0, s, s, cx, cy, cx + s, cy + s, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    }
+    cell.dispose();
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, read); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, draw);
+    gl.colorMask(mask[0], mask[1], mask[2], mask[3]);
+    if (scissor) gl.enable(gl.SCISSOR_TEST);
+    gl.deleteFramebuffer(from); gl.deleteFramebuffer(to);
+    // A card that will not draw into those levels is sent the whole sheet, as before.
+    if (!ok) { sheet.source.dataReady = true; sheet.needsUpdate = true; }
   }
 
   /** Enrol a material for the local reflection cube: it takes the cube (at this strength) once the first capture is in. */

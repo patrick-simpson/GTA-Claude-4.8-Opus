@@ -42,3 +42,12 @@ owner's ground rules for the takeover and the running state.
   reflections, send only the new sheet cell at load; (3) surfacing: mirrors, handles, bumper notch;
   (4) inspect the rest (bus face, cabins, night lamps), roughness maps if budget allows. Then M6 in
   the order of its brief, starting from scratch/m6 and tools/bench.mjs.
+- Nov 20, 6:00 AM ET: pushed 16af28d (Bolt face, taxi far-level band; deploy succeeded). Gauge then:
+  5-hour window 29% with 37% of it gone (resets 9:10 AM ET), week 68%. A full window costs about 15%
+  of the week, so about 27 weekly points were left before the 95% stop: roughly 15 more units.
+  Car unit (2), paint and reflections plus the sheet re-send fix, launched 6:02 AM. Still to come:
+  (3) surfacing, (4) inspect the rest and re-export the ten kinds with the shallower lamp relief.
+- Nov 20, 6:50 AM ET: pushed the paint step (dark paint without blotches, cell-only sheet sends).
+  Gauge at 6:42 AM: window 42% with 51% gone, week 70%. Next: car unit (3) known flaws + re-export
+  all twelve, then (4) inspect the uninspected kinds; then M6. Budget: about 13 units to the 95% stop,
+  so cars get two more units at most and M6 the rest.

@@ -88,6 +88,29 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Dark paint without the blotches: pushed Nov 20, about 6:50 AM ET
+
+- **Paint (step B), high preset only:** black and charcoal cars lost their
+  hard-edged brown and teal patches. Cause: the clearcoat read the 128-pixel
+  reflection cube nearly sharp (roughness 0.09) at strength 1.6, so a whole flat
+  panel took the colour of one wall. Now the coat reads it at roughness 0.15 or
+  more, street colours are greyed (15% saturation at the horizon to 55% in the
+  sky), reflections below the horizon are darkened 60%, and dark paint's base
+  specular is cut to 0.3. The sun highlight has a second, wider lobe. Light paint
+  is unchanged. Frame time unchanged (cars' share 0.0 ms near, 0.65 mid).
+- **Loading:** only the new kind's 1024 cell is sent to the sheets
+  (`Vehicles.sendCell`, raw WebGL2 blits with a whole-sheet fallback): 10-12 ms a
+  kind against 12-18.
+  Owed: dark paint reads as satin, not mirror (the cube is too coarse for crisp
+  reflections without the patches). A faint warm cast on the Bolt's bonnet
+  downtown; at night its windscreen and roof carry soft orange and teal patches.
+  The hitch per kind is smaller, not gone (a texture array would cure it); the
+  first send of a session takes 160-175 ms, unexplained. `sendCell` is tested on
+  Chromium only. On phones the black Bolt reads slate-blue under the flat sky
+  sheen. The cube is taken 3 m up at the player, not at the car. A harness spawn
+  with no colour picks a random one (that was the "blue Bolt at low").
+  Seen by the lead: the muscle car's head lamp is an open box from the side.
+
 ### The Bolt's face, and the taxi's band on phones: pushed Nov 20, about 6:05 AM ET
 
 - **Bolt (step C):** clear swept-back head lamps with two projectors and a white
