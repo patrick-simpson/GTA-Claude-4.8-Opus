@@ -88,6 +88,27 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### The Bolt's face, and the taxi's band on phones: pushed Nov 20, about 6:05 AM ET
+
+- **Bolt (step C):** clear swept-back head lamps with two projectors and a white
+  daytime strip (the chain-mail relief is gone: the shared lamp relief is six times
+  shallower), a closed gloss-black shield with a fine diamond pattern under the bar
+  and bowtie, a black blade from each lamp down to the bumper pod, amber turn
+  signals in the pods, a hard crease along the flank, a ramped bonnet.
+- **Taxi:** the far level, which is all phones draw, now has the checker band.
+- `cars.py` now runs with Blender's window showing (`build()` works inside a window
+  and 3D-view override; about 12 s a kind). `Car.panel` gained `soft`/`soft_gap`
+  for patches that cross a sharp shoulder. `--wheel-tex` is not wrapped yet.
+- Checked by an independent worker (one repair round for a torn patch under the
+  lamps), production build boots clean three ways.
+  Owed: only the Bolt and taxi were re-exported, so ten kinds still carry the old
+  coarse lamp relief. Bolt details judged from memory, not a photograph: the strip
+  may be too bold, the diamond pattern is barely visible at 3 m, the crease is a
+  tone break more than a highlight. A zig-zag outline at the front wing's edge and
+  pale slivers at the lamps' outer corners very close up. The Bolt spawns black at
+  high but mid-blue at low (not looked into). Its far-level lamps are smoked grey,
+  so dimmer on phones at night (unchecked). Tail lamps at night unconfirmed.
+
 ### Cars, all-out pass two, first part: pushed Nov 20, about 5:25 AM ET
 
 A new lead session took over on Nov 20 (the old one died to the usage limit; see

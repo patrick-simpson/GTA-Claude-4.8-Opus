@@ -33,3 +33,12 @@ owner's ground rules for the takeover and the running state.
   The car worker's scratch is scratch/cars2/ (p1.py-p6.py are its patches in order; p6 merges every
   kind's maps into one pair of sheets because per-kind materials cost frame time; bench-loop.txt has
   its timings). Not yet run in the game since the cut-off.
+- Nov 20, 5:25 AM ET: pushed a251577 (cars share one pair of sheets; PLAN.md has the entry and the
+  owed list for steps A-E). The M6 worker's half-done post.ts change (FXAA in place of MSAA) is NOT
+  in the tree: it is saved as scratch/m6/post.wip.ts and post.wip.patch for the M6 pass to pick up.
+  One unit (a worker plus a Sonnet checker, about 30 minutes) costs about 10% of a 5-hour window and
+  about 1% of the week. Units are run through one reusable workflow script ("game-unit").
+- Car units planned, in order: (1) Bolt face + taxi far-level band [running 5:30 AM]; (2) paint and
+  reflections, send only the new sheet cell at load; (3) surfacing: mirrors, handles, bumper notch;
+  (4) inspect the rest (bus face, cabins, night lamps), roughness maps if budget allows. Then M6 in
+  the order of its brief, starting from scratch/m6 and tools/bench.mjs.
