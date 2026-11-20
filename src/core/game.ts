@@ -26,6 +26,7 @@ import { Skids } from '../fx/skids';
 import { ProgressWorks, progress } from '../world/progress';
 import { ThingsToDo } from '../game/index';
 import { savedQuality } from '../game/save';
+import { GameAudio } from '../audio/index';
 
 const PRESETS: Record<Quality['name'], Quality> = {
   low: { name: 'low', pixelRatio: 1.5, antialias: false, shadows: false, shadowSize: 1024, drawDist: 520, density: 0.5 },
@@ -72,6 +73,8 @@ export class Game {
   fx!: Fx;
   /** Milestone 4: the save, the missions, the jobs and the menu (src/game/). */
   todo!: ThingsToDo;
+  /** Milestone 5: every sound in the game (src/audio/). Silent, and no AudioContext at all, until the first key or click. */
+  audio!: GameAudio;
   /** Systems from later milestones plug in here until they earn a named slot. Updated after the world, while running. */
   readonly systems: { update(dt: number): void }[] = [];
 
@@ -154,6 +157,8 @@ export class Game {
     this.systems.push(this.player.weapons);
     this.systems.push(new ProgressWorks(this));
     this.systems.push((this.todo = new ThingsToDo(this)));
+    // Last: it listens to what everything above did this frame.
+    this.systems.push((this.audio = new GameAudio(this)));
 
     // One full step so every system has seen every other before the first picture.
     this.state = 'title';

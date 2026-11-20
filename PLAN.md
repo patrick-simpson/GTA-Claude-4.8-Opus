@@ -12,7 +12,7 @@ American units (mph, feet), Eastern Time, percent-complete updates, and
 lost). Keep token use lean: write code directly, verify cheaply, avoid large
 multi-agent fan-outs.
 
-## Where things stand (about 88% done)
+## Where things stand (about 93% done)
 
 **Milestone 1, the first playable, is live** at gta.doofus.live (switched over
 Nov 18, 2026, about 6:30 AM ET). You can walk, swim, get in and out of any of the
@@ -88,6 +88,23 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### M5 "Sound": pushed Nov 19, about 9:30 PM ET
+
+`src/audio/` (about 3,000 lines, no audio files; `game.audio`): engine synthesis
+per vehicle kind (the Bolt a whine), tyres, horns, impacts, doors; ten ambience
+beds by place and time incl. Tepid Falls (dam, mill, pines); footsteps, props,
+the duck, Gerald, the saucer; sirens, helicopter, gunshots, explosions, fire,
+pedestrian gasps; UI sounds; a radio with six generated stations (WDOOF 99.9,
+Low Tide FM, Ledger 1040, The Cannery 88, Radio Fishbone, and a Tepid Falls
+station once the bridge is complete), T or the RADIO touch key. Volume sliders in
+the menu, saved. Silent until the first click; suspended when paused or muted.
+Owed, important: NOBODY HAS HEARD ANY OF IT. Levels, spectra and note data were
+measured; whether it sounds right needs the owner's ears. Tune in the tables
+`ENGINES`, `HORNS`, `STATIONS`, `GUN_LEVEL`, `TRIM`. Also: several triggers never
+fired in tests (AI horns, fire, ricochets, officers' shots, booked, respray,
+thunder, foghorn, train, church bell); tab-hidden suspend untested; HUD sounds
+hook by wrapping hud methods; footstep surfaces are approximated; the on-screen
+quick-reference card does not list T for the radio.
 ### M4 "Things to do": pushed Nov 19, about 5:00 PM ET
 
 `src/game/` (`index.ts` registers `ThingsToDo` as `game.todo`): `save.ts` (one
@@ -431,7 +448,7 @@ Original wording for fail states (for example "CLOCKED OUT" and "BOOKED").
 
 **M4 — Things to do (DONE, first pass, unplayed by hand):** about ten story missions from a small step-based script format (go to, get vehicle, deliver, collect, destroy, lose heat, tail, race, survive, dialogue); taxi fares, street races, courier runs, stunt jumps, 30 hidden golden rubber ducks; shops, money, autosave to `localStorage`, pause menu with full map and settings.
 
-**M5 — Sound:** procedural engine, tires, impacts, sirens, horn, gunshots, sea and gulls, rain; radio stations with generated music.
+**M5 — Sound (DONE, first pass, unheard):** procedural engine, tires, impacts, sirens, horn, gunshots, sea and gulls, rain; radio stations with generated music.
 
 **M6 — Polish:** bloom at night, quality presets with auto-detect for phones, performance pass, bug bash.
 

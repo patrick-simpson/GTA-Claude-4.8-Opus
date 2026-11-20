@@ -105,6 +105,8 @@ export class TouchUI {
     act('t-horn drive', '06', GLYPH.horn + '<small>Horn</small>', 'horn');
     act('t-exit drive', '07', 'Exit', 'enter');
     act('t-cam drive', '08', GLYPH.camera + '<small>Camera</small>', 'camera');
+    // The radio dial, over the horn: one tap, one station on (src/audio/radio.ts). Placed here, not in touch.css, beside its only use.
+    act('t-radio drive', '12', 'Radio', 'radio').el.style.cssText = 'right:calc(var(--sr) + var(--u) * 3 + var(--g) * 2);bottom:calc(var(--sb) + var(--u) * 2.1 + var(--g));width:calc(var(--u) * 1.3);height:var(--u);font-size:calc(var(--u) * 0.27);';
     // Weapons: FIRE above JUMP (above the pedals at the wheel), AIM and SWAP beside it. Only when she has something to fire.
     act('t-fire arm', '09', 'Fire', 'fire').look = true;
     this.aimKey = this.key('t-aim arm', '10', 'Aim', () => this.setAim(!this.aimOn), () => { /* a latch: lifting the thumb changes nothing */ });

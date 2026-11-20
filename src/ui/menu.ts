@@ -6,7 +6,7 @@
 //             draws a route on the radar.
 //   PROGRESS  the bridge, the town, the missions, the ducks and the jumps, as a filled-in form
 //   STATS     what she has done, ending with "Mistakes made: 0*"
-//   SETTINGS  look speed, invert Y, quality, full screen on tap, reduced motion (sound waits for M5)
+//   SETTINGS  look speed, invert Y, quality, full screen on tap, reduced motion sound volumes
 //   CONTROLS  keyboard, gamepad, touch
 //
 // It replaces the M1 pause card (menu.css hides it). Flat paperwork; the only
@@ -26,6 +26,7 @@ import { clock } from '../game/script';
 import { save, type QualityPick } from '../game/save';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
+type VolKey = 'volMaster' | 'volMusic' | 'volSfx' | 'volAmbience';
 const TABS = ['Map', 'Progress', 'Stats', 'Settings', 'Controls'] as const;
 const RAMP_NAMES = ['Low Tide Beach', 'The container yard', 'The park pond', 'The arena lot', 'The cannery', 'Pelican Pier', 'The end of the bridge'];
 const MILE = 1609.344, MPH = 2.23694, FEET = 3.28084;
@@ -41,6 +42,7 @@ const CONTROLS: [string, string, string, string][] = [
   ['Fire / aim', 'LMB / RMB', 'RT / LT', 'FIRE / AIM'],
   ['Switch / reload', 'Q E / R', 'LB RB / X', 'SWAP'],
   ['Horn', 'H', 'D-pad down', 'HORN'],
+  ['Radio: next station', 'T', 'D-pad up', 'RADIO'],
   ['Camera / look back', 'V / C', 'D-pad left / R3', 'CAMERA'],
   ['Map', 'M or Tab', 'Back', 'Pause, then MAP'],
   ['Pause', 'Esc or P', 'Start', 'Pause key'],
@@ -516,6 +518,7 @@ export class Menu {
     const q = (['auto', 'low', 'medium', 'high'] as QualityPick[]).map((v) => `<button type="button" class="mn-seg ${s.quality === v ? 'on' : ''}" data-set="quality" data-v="${v}">${v}</button>`).join('');
     const running = this.game.quality.name;
     const stale = s.quality !== 'auto' && s.quality !== running;
+    const vol = (label: string, key: VolKey): string => `<div class="mn-row"><span class="mn-lbl">${label}</span><span><input type="range" min="0" max="1" step="0.05" value="${s[key]}" data-set="${key}"><b class="mn-val">${Math.round(s[key] * 100)}</b></span></div>`;
     return `
 <div class="mn-form mn-two">
   <div class="mn-sec">
@@ -527,12 +530,13 @@ export class Menu {
     <div class="mn-row"><span class="mn-lbl">Quality</span><span class="mn-segs">${q}</span></div>
     <p class="mn-note">Running at <b>${running}</b>. A change of quality rebuilds the world, so it takes effect when the page is reloaded${stale ? ': <button type="button" class="mn-link" data-set="reload">save and reload now</button>' : '.'}</p>
   </div>
-  <div class="mn-sec mn-off">
-    <h3>Form C-3 · Sound (pending: Milestone 5)</h3>
-    <div class="mn-row"><span class="mn-lbl">Master</span><span><input type="range" disabled value="80"></span></div>
-    <div class="mn-row"><span class="mn-lbl">Radio</span><span><input type="range" disabled value="70"></span></div>
-    <div class="mn-row"><span class="mn-lbl">Effects</span><span><input type="range" disabled value="80"></span></div>
-    <p class="mn-note">The Harbor Authority has not yet approved noise.</p>
+  <div class="mn-sec">
+    <h3>Form C-3 · Sound</h3>
+    ${vol('Master', 'volMaster')}
+    ${vol('Radio', 'volMusic')}
+    ${vol('Effects', 'volSfx')}
+    ${vol('Weather and town', 'volAmbience')}
+    <p class="mn-note">The Harbor Authority has approved noise, within reason. T changes the station at the wheel.</p>
   </div>
 </div>`;
   }
@@ -544,13 +548,18 @@ export class Menu {
       s.sens = Math.max(0.3, Math.min(2.5, Number((el as HTMLInputElement).value) || 1));
       const v = el.parentElement?.querySelector('.mn-val');
       if (v) v.textContent = `${s.sens.toFixed(1)}×`;
+    } else if (key === 'volMaster' || key === 'volMusic' || key === 'volSfx' || key === 'volAmbience') {
+      s[key] = Math.max(0, Math.min(1, Number((el as HTMLInputElement).value) || 0));
+      const v = el.parentElement?.querySelector('.mn-val');
+      if (v) v.textContent = String(Math.round(s[key] * 100));
+      this.game.audio?.applySettings(key);
     } else if (key === 'quality') s.quality = (el.dataset.v as QualityPick) ?? 'auto';
     else if (key === 'invertY' || key === 'fsTap' || key === 'reducedMotion') s[key] = !s[key];
     else return;
     this.todo.applySettings();
     save.write();
     // The slider keeps the pointer; everything else is redrawn with its new state.
-    if (key !== 'sens') { this.panes[3].innerHTML = this.settingsHtml(); (this.panes[3].querySelector(`[data-set="${key}"]${key === 'quality' ? `[data-v="${s.quality}"]` : ''}`) as HTMLElement | null)?.focus(); }
+    if (key !== 'sens' && !key.startsWith('vol')) { this.panes[3].innerHTML = this.settingsHtml(); (this.panes[3].querySelector(`[data-set="${key}"]${key === 'quality' ? `[data-v="${s.quality}"]` : ''}`) as HTMLElement | null)?.focus(); }
   }
 
   // ── CONTROLS ───────────────────────────────────────────────────────────────

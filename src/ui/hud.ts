@@ -1003,6 +1003,32 @@ export class Hud implements HudApi {
     this.restart(this.placeEl);
   }
 
+  // ── The radio dial (src/audio/radio.ts) ──
+  private radioEl: HTMLElement | null = null;
+  private radioUntil = 0;
+  /**
+   * The station the car radio has just been turned to: its call sign and what it calls itself, for a few seconds,
+   * bottom centre. Built on first use and styled here, so a game that never touches the dial never carries it.
+   */
+  radio(call: string, name = '', seconds = 3.5): void {
+    let el = this.radioEl;
+    if (!el) {
+      el = this.radioEl = this.root.appendChild(document.createElement('div'));
+      el.className = 'hud-radio';
+      el.setAttribute('aria-live', 'polite');
+      el.style.cssText = 'position:absolute;left:50%;bottom:15%;transform:translateX(-50%);padding:0.35em 0.9em 0.4em;background:var(--ink,#14213d);color:var(--bone,#f2e8cf);'
+        + 'border:2px solid var(--bone,#f2e8cf);font-family:var(--f-mono,monospace);font-size:clamp(11px,1.5vw,16px);letter-spacing:0.06em;text-transform:uppercase;'
+        + 'white-space:nowrap;text-align:center;pointer-events:none;opacity:0;transition:opacity 0.25s;';
+      el.appendChild(document.createElement('b'));
+      el.appendChild(document.createElement('span')).style.cssText = 'display:block;font-family:var(--f-text,sans-serif);font-size:0.8em;letter-spacing:0.03em;text-transform:none;opacity:0.85;';
+    }
+    (el.children[0] as HTMLElement).textContent = '♪ ' + call;
+    (el.children[1] as HTMLElement).textContent = name;
+    (el.children[1] as HTMLElement).style.display = name ? 'block' : 'none';
+    el.style.opacity = '1';
+    this.radioUntil = performance.now() + seconds * 1000;
+  }
+
   stamp(title: string, sub = ''): void {
     this.plate(title, sub, false);
     // The stamp has the floor for its four seconds: the notices dim and their clocks stop.
@@ -1412,6 +1438,7 @@ export class Hud implements HudApi {
     // The banner's three seconds are counted in game time, not by the
     // stylesheet, so a paused or stepped game never holds a stale name.
     if (this.placeShow > 0 && (this.placeShow -= dt) <= 0) this.placeEl.classList.remove('on');
+    if (this.radioUntil && performance.now() > this.radioUntil && this.radioEl) { this.radioUntil = 0; this.radioEl.style.opacity = '0'; }
     // A pinned camera is somebody composing a picture of somewhere else.
     const pinned = g.view !== null;
     if (pinned !== this.pinned) { this.pinned = pinned; this.root.classList.toggle('pinned', pinned); }

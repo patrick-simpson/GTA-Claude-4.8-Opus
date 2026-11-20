@@ -34,6 +34,10 @@ export interface Settings {
   /** A tap or click on the game takes the whole screen. */
   fsTap: boolean;
   reducedMotion: boolean;
+  /** Sound (src/audio/), each 0..1: everything; the car radio; engines, effects and the UI; the weather and the town. */
+  volMaster: number; volMusic: number; volSfx: number; volAmbience: number;
+  /** The station the radio was left on: -1 = off. */
+  station: number;
 }
 
 export interface Stats {
@@ -98,7 +102,7 @@ export function freshStats(): Stats {
   return { driven: 0, walked: 0, cars: 0, topSpeed: 0, airtime: 0, airDist: 0, booked: 0, deaths: 0, passed: 0, failed: 0, fares: 0, tows: 0, parcels: 0, races: 0, earned: 0, played: 0 };
 }
 export function freshSettings(): Settings {
-  return { sens: 1, invertY: false, quality: 'auto', fsTap: true, reducedMotion: false };
+  return { sens: 1, invertY: false, quality: 'auto', fsTap: true, reducedMotion: false, volMaster: 0.8, volMusic: 0.7, volSfx: 0.8, volAmbience: 0.8, station: 0 };
 }
 function fresh(): SaveDoc {
   return { v: SAVE_VERSION, when: 0, player: null, missions: [], ducks: [], jumps: [], counts: {}, best: {}, stats: freshStats(), settings: freshSettings() };
@@ -141,6 +145,11 @@ export function sanitize(raw: unknown): SaveDoc {
   d.settings.quality = t.quality === 'low' || t.quality === 'medium' || t.quality === 'high' ? t.quality : 'auto';
   d.settings.fsTap = bool(t.fsTap, true);
   d.settings.reducedMotion = bool(t.reducedMotion, false);
+  d.settings.volMaster = num(t.volMaster, 0.8, 0, 1);
+  d.settings.volMusic = num(t.volMusic, 0.7, 0, 1);
+  d.settings.volSfx = num(t.volSfx, 0.8, 0, 1);
+  d.settings.volAmbience = num(t.volAmbience, 0.8, 0, 1);
+  d.settings.station = Math.round(num(t.station, 0, -1, 5));
   return d;
 }
 

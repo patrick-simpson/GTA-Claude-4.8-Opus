@@ -6,8 +6,15 @@
 // material. Materials are told apart by NAME: paint, trim, chrome, glass, lens,
 // interior, tire, rim and the lamp sections in LAMP below. Every primitive has
 // position, normal and COLOR_0 (linear albedo times baked ambient occlusion;
-// paint and glass carry occlusion only; alpha is how opaque a pane is). No
-// textures, no UVs. Empties named HEAD* / TAIL* mark where the glow sprites go. The frame is already the
+// paint and glass carry occlusion only; alpha is how opaque a pane is). Empties
+// named HEAD* / TAIL* mark where the glow sprites go.
+//
+// Textures: a kind listed in TEX_KINDS has UVs on its two near levels and two
+// pictures beside its file, <kind>_n.webp (tangent-space normals) and
+// <kind>_o.webp (ambient occlusion, which those levels then do NOT carry in
+// their vertex colours). Tires of every kind share cars_wheel_n/_o.webp, which
+// repeats round the wheel. The far level has neither, and phones draw only it.
+// The frame is already the
 // game's: +Z forward, Y up, y = 0 the road, origin midway between the axles,
 // +X the car's left. A wheel has its hub at the origin, axle along X, outer
 // face toward +X, and is modelled at its real size.
@@ -38,6 +45,14 @@ export const GLB_KINDS: readonly VehicleKind[] = [
   'sedan', 'hatch', 'coupe', 'muscle', 'sports', 'pickup', 'van', 'taxi', 'tow', 'bus', 'cruiser', 'bolt',
 ];
 
+/** Kinds with <kind>_n.webp and <kind>_o.webp beside the model. Keep in step with that folder, as GLB_KINDS. */
+export const TEX_KINDS: readonly VehicleKind[] = GLB_KINDS;
+/** cars_wheel_n.webp and cars_wheel_o.webp are in the folder. */
+const WHEEL_TEX: boolean = true;
+
+/** Baked maps for one unwrap: normals as two channels (z is rebuilt in the shader), occlusion as one. */
+export interface CarMaps { normal: THREE.Texture; ao: THREE.Texture }
+
 export interface VehicleLod {
   paint: THREE.BufferGeometry;
   detail: THREE.BufferGeometry | null;
@@ -55,6 +70,10 @@ export interface VehicleAsset {
   /** Lamp centers, from nodes named HEAD* / TAIL* if the file has them, else from the lens meshes. May be empty. */
   head: THREE.Vector3[];
   tail: THREE.Vector3[];
+  /** The baked maps of the near levels, where the kind has them and the preset wants them. */
+  maps: CarMaps | null;
+  /** The shared tire maps, likewise. */
+  wheelMaps: CarMaps | null;
   /** From nodes named SEAT / BEACON, if present. */
   seat: THREE.Vector3 | null;
   beacon: THREE.Vector3 | null;
@@ -69,18 +88,22 @@ const _v = new THREE.Vector3(), _nm = new THREE.Matrix3();
 
 /** Several primitives poured into one geometry. */
 class Bin {
-  pos: number[] = []; nor: number[] = []; col: number[] = []; pbr: number[] = []; idx: number[] = [];
+  pos: number[] = []; nor: number[] = []; col: number[] = []; pbr: number[] = []; idx: number[] = []; uv: number[] = [];
+  /** Every primitive poured in so far had texture coordinates. */
+  hasUv = true;
   /** Colours carry alpha (the glass: how opaque each pane is). */
   constructor(readonly alpha = false) {}
 
   add(g: THREE.BufferGeometry, m: THREE.Matrix4, rough: number, metal: number, lamp: number): void {
-    const p = g.getAttribute('position'), n = g.getAttribute('normal'), c = g.getAttribute('color');
+    const p = g.getAttribute('position'), n = g.getAttribute('normal'), c = g.getAttribute('color'), u = g.getAttribute('uv');
     if (!p) return;
+    if (!u) this.hasUv = false;
     const base = this.pos.length / 3;
     _nm.getNormalMatrix(m);
     for (let i = 0; i < p.count; i++) {
       _v.fromBufferAttribute(p, i).applyMatrix4(m);
       this.pos.push(_v.x, _v.y, _v.z);
+      if (u) this.uv.push(u.getX(i), u.getY(i)); else this.uv.push(0, 0);
       const px = _v.x;
       if (n) _v.fromBufferAttribute(n, i).applyMatrix3(_nm).normalize(); else _v.set(0, 1, 0);
       this.nor.push(_v.x, _v.y, _v.z);
@@ -104,6 +127,7 @@ class Bin {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, this.alpha ? 4 : 3));
     if (pbr) g.setAttribute('aPbr', new THREE.Float32BufferAttribute(this.pbr, 3));
+    if (this.hasUv) g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     if (sky) {
       // How far up the glass each vertex is: the top of a windshield shows sky, the bottom the dash.
       let lo = Infinity, hi = -Infinity;
@@ -224,7 +248,52 @@ function buildAsset(kind: VehicleKind, scene: THREE.Object3D): VehicleAsset | nu
   let head = at('HEAD'), tail = at('TAIL');
   if (!head.length) head = lampPoints(p0, 'lamp_head', fix);
   if (!tail.length) tail = lampPoints(p0, 'lamp_tail', fix);
-  return { kind, lods, sections: p0.some((p) => p.name === 'lamp_brake'), head, tail, seat: at('SEAT')[0] ?? null, beacon: at('BEACON')[0] ?? null, notes };
+  return { kind, lods, maps: null, wheelMaps: null, sections: p0.some((p) => p.name === 'lamp_brake'), head, tail, seat: at('SEAT')[0] ?? null, beacon: at('BEACON')[0] ?? null, notes };
+}
+
+/**
+ * One baked map as a texture of `channels` bytes a texel (1: occlusion, 2: the x and y of a normal). The picture is
+ * unpacked through a canvas because a twelve-car fleet of full RGBA maps is four times the video memory for nothing.
+ * Never throws; null if the file is missing or is not a picture.
+ */
+async function map(url: string, channels: 1 | 2, repeat: boolean): Promise<THREE.Texture | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    // The dev server answers a missing file with the index page.
+    if (!blob.type.startsWith('image')) return null;
+    const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+    // Read the size BEFORE closing: a closed bitmap reports 0 by 0, and a 0 by 0 texture samples as opaque black.
+    const w = bmp.width, h = bmp.height;
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d', { willReadFrequently: true })!;
+    cx.drawImage(bmp, 0, 0);
+    const d = cx.getImageData(0, 0, w, h).data;
+    bmp.close();
+    if (!w || !h || d.length !== w * h * 4) return null;
+    const out = new Uint8Array(w * h * channels);
+    for (let i = 0, j = 0; i < d.length; i += 4) { out[j++] = d[i]; if (channels === 2) out[j++] = d[i + 1]; }
+    const t = new THREE.DataTexture(out, w, h, channels === 1 ? THREE.RedFormat : THREE.RGFormat);
+    // Row 0 of the picture is v = 0 in a glTF's coordinates, which is how a DataTexture already reads.
+    t.unpackAlignment = 1;
+    t.colorSpace = THREE.NoColorSpace;
+    t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
+    t.anisotropy = 4;
+    if (repeat) t.wrapS = THREE.RepeatWrapping;
+    t.needsUpdate = true;
+    return t;
+  } catch {
+    return null;
+  }
+}
+
+async function maps(stem: string, repeat: boolean): Promise<CarMaps | null> {
+  const [normal, ao] = await Promise.all([map(`models/${stem}_n.webp`, 2, repeat), map(`models/${stem}_o.webp`, 1, repeat)]);
+  if (normal && ao) return { normal, ao };
+  normal?.dispose(); ao?.dispose();
+  return null;
 }
 
 /**
@@ -232,8 +301,9 @@ function buildAsset(kind: VehicleKind, scene: THREE.Object3D): VehicleAsset | nu
  * parses. `onLoad` runs once per kind that arrives; nothing runs for one that
  * does not. Never throws and never logs an error.
  */
-export async function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, kinds: readonly VehicleKind[] = GLB_KINDS): Promise<void> {
+export async function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, textures = true, kinds: readonly VehicleKind[] = GLB_KINDS): Promise<void> {
   const loader = new GLTFLoader();
+  const wheelMaps = textures && WHEEL_TEX ? await maps('cars_wheel', true) : null;
   for (const kind of kinds) {
     try {
       const res = await fetch(`models/${kind}.glb`);
@@ -245,6 +315,9 @@ export async function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, kinds
       const asset = buildAsset(kind, gltf.scene);
       if (!asset) { console.warn(`models/${kind}.glb: no LOD0 with a paint mesh; keeping the procedural ${kind}`); continue; }
       for (const n of asset.notes) console.warn(`models/${kind}.glb: ${n}`);
+      // The maps come before the car is shown: its near levels have no occlusion of their own to fall back on.
+      if (textures && TEX_KINDS.includes(kind)) asset.maps = await maps(kind, false);
+      asset.wheelMaps = wheelMaps;
       onLoad(asset);
     } catch (e) {
       console.warn(`models/${kind}.glb did not load; keeping the procedural ${kind}`, e);

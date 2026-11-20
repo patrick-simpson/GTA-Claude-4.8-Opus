@@ -24,7 +24,7 @@ import type { Vehicle, VehicleControls, VehiclesApi } from '../core/api';
 import { RNG, clamp, clamp01, damp, smooth } from '../core/util';
 import { SPECS, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
 import { vehicleModel, wheelGeometry, type VehicleModel } from './vehicleModels';
-import { loadVehicleAssets, type VehicleAsset } from './vehicleAssets';
+import { loadVehicleAssets, type CarMaps, type VehicleAsset } from './vehicleAssets';
 import { BRIDGE, groundAt, terrainAt, WATER_Y } from '../world/plan';
 import type { Box, Prop } from '../world/collide';
 
@@ -80,6 +80,12 @@ const LOD_IN2 = 58 * 58, LOD_OUT2 = 64 * 64;
 /** The showroom level (interior, lamp internals, brake discs) is for the few cars within arm's reach: the player's and its neighbours. */
 const NEAR_IN2 = 13 * 13, NEAR_OUT2 = 16 * 16, NEAR_MAX = 4;
 
+/**
+ * Local reflections (high preset): a small cube of the street round the player, redrawn one face a frame every few
+ * seconds or when the player has moved on, and handed to every car material in place of the bare sky.
+ */
+const ENV_SIZE = 128, ENV_EVERY = 3, ENV_MOVE2 = 14 * 14;
+
 const _nearD = new Float32Array(NEAR_MAX), _nearC: (Car | null)[] = [null, null, null, null];
 
 type Part = [geo: THREE.BufferGeometry, mat: THREE.Material, cast: boolean];
@@ -128,6 +134,8 @@ interface KindBatch {
   pick: [number, number, number];
   /** The file lights brake lamps as their own section. */
   sections: boolean;
+  /** Paint and detail materials carrying this kind's baked maps, once it has them. */
+  tex: [THREE.Material, THREE.Material] | null;
   cap: number;
 }
 
@@ -378,36 +386,73 @@ void main() {
  * top of the pane. Without it the glass is a black hole whenever the
  * environment is dim, and paint is matte plastic.
  */
-function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number, gloss = 0, pane = false, dirt = false): void {
+function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number, gloss = 0, pane = false, dirt = false, lacquer = false): void {
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uSky = sky;
-    if (grad > 0) sh.vertexShader = 'attribute float aSky;\nvarying float vSky;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvSky = aSky;');
+    let vs = sh.vertexShader, fs = sh.fragmentShader;
+    if (grad > 0) vs = 'attribute float aSky;\nvarying float vSky;\n' + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\nvSky = aSky;');
     // Dust: a per-car amount (aDirt), thin over the whole body and thick along the sills where the road throws it.
     // It dulls the colour toward road dust, roughens the base and takes the lacquer's shine away with it.
+    if (dirt) vs = 'attribute float aDirt;\nvarying float vDirt;\n' + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\nvDirt = aDirt * (0.2 + 0.8 * (1.0 - smoothstep(0.25, 1.0, position.y)));');
+    if (lacquer) vs = 'varying vec3 vObj;\n' + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\nvObj = position;');
+    // Baked occlusion (the textured levels): it darkens the colour the way the vertex bake did, softened on paint,
+    // and three.js takes it out of the ambient light and the reflections besides.
+    let colour = `#include <color_fragment>
+      #ifdef USE_AOMAP
+        float sAo = texture2D( aoMap, vAoMapUv ).r;
+        diffuseColor.rgb *= 0.45 + 0.55 * sAo;
+      #else
+        float sAo = 1.0;
+      #endif`;
+    // With that map the dust also knows where it settles: in the shut-lines and under the handles.
+    if (dirt) colour += '\nfloat sDirt = min(1.0, vDirt * (0.75 + 2.2 * (1.0 - sAo)));\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.26, 0.2), sDirt * 0.55);';
+    if (lacquer) {
+      // Which paints are metallic is read off the colour: whites and creams are solid, and so is taxi yellow;
+      // everything else has aluminium flake in it. A solid colour is a dielectric under its lacquer, a metallic
+      // one a rough metal whose normal is jittered flake by flake, so the sun breaks into sparks on it.
+      colour += `
+      float sLo = min( vColor.r, min( vColor.g, vColor.b ) );
+      float sMet = 1.0 - max( smoothstep( 0.6, 0.78, sLo ), step( 0.4, vColor.r ) * step( vColor.b, 0.07 ) * step( 0.1, vColor.g ) );`;
+      fs = fs
+        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * mix( 1.5, 1.0, sMet );')
+        .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = metalness * mix( 0.1, 1.0, sMet );')
+        // After the maps and before the clearcoat takes its own copy of the smooth normal: the lacquer stays a mirror.
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        {
+          // Flakes about a pixel across whatever the distance (a real one is far smaller, and averages out to nothing).
+          float fPix = max( length( fwidth( vObj ) ), 1e-5 );
+          float fCell = exp2( ceil( log2( fPix * 0.55 ) ) );
+          vec3 fc = floor( vObj / fCell );
+          vec3 fh = fract( sin( vec3( dot( fc, vec3( 127.1, 311.7, 74.7 ) ), dot( fc, vec3( 269.5, 183.3, 246.1 ) ), dot( fc, vec3( 113.5, 271.9, 124.6 ) ) ) ) * 43758.5453 ) - 0.5;
+          normal = normalize( normal + fh * 0.075 * sMet * ( 1.0 - smoothstep( 0.004, 0.02, fPix ) )${dirt ? ' * ( 1.0 - sDirt )' : ''} );
+        }`);
+    }
+    fs = fs.replace('#include <color_fragment>', colour);
     if (dirt) {
-      sh.vertexShader = 'attribute float aDirt;\nvarying float vDirt;\n' + sh.vertexShader.replace('#include <begin_vertex>',
-        '#include <begin_vertex>\nvDirt = aDirt * (0.2 + 0.8 * (1.0 - smoothstep(0.25, 1.0, position.y)));');
-      sh.fragmentShader = sh.fragmentShader
-        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.26, 0.2), vDirt * 0.55);')
-        .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
-        material.roughness = mix(material.roughness, 0.95, vDirt * 0.8);
+      fs = fs.replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+        material.roughness = mix(material.roughness, 0.95, sDirt * 0.8);
         #ifdef USE_CLEARCOAT
-          material.clearcoat *= 1.0 - vDirt * 0.85;
+          material.clearcoat *= 1.0 - sDirt * 0.85;
         #endif`);
     }
-    sh.fragmentShader = 'uniform vec3 uSky;\n' + (grad > 0 ? 'varying float vSky;\n' : '') + (dirt ? 'varying float vDirt;\n' : '') + sh.fragmentShader.replace('#include <opaque_fragment>', `{
+    sh.vertexShader = vs;
+    sh.fragmentShader = 'uniform vec3 uSky;\n' + (grad > 0 ? 'varying float vSky;\n' : '') + (dirt ? 'varying float vDirt;\n' : '') + (lacquer ? 'varying vec3 vObj;\n' : '') + fs.replace('#include <opaque_fragment>', `{
       float sF = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
       float sUp = max(inverseTransformDirection(normal, viewMatrix).y, 0.0);
-      outgoingLight += uSky * (${base.toFixed(3)} + ${fres.toFixed(3)} * sF * sF * sF + ${up.toFixed(3)} * sUp${grad > 0 ? ` + ${grad.toFixed(3)} * vSky * vSky` : ''});
+      outgoingLight += uSky * (0.3 + 0.7 * sAo) * (${base.toFixed(3)} + ${fres.toFixed(3)} * sF * sF * sF + ${up.toFixed(3)} * sUp${grad > 0 ? ` + ${grad.toFixed(3)} * vSky * vSky` : ''});
       ${gloss > 0 ? `
       // What makes lacquer read as lacquer is a hard edge in its reflection. The environment map is a soft sky, so
       // the horizon is drawn in here: bright just above the line, cut off sharply below it.
       vec3 sR = inverseTransformDirection(reflect(-normalize(vViewPosition), normalize(normal)), viewMatrix);
       float sH = smoothstep(-0.035, 0.0, sR.y) * (1.0 - smoothstep(0.0, 0.42, sR.y));
-      outgoingLight += uSky * sH * ${gloss.toFixed(3)} * (0.22 + 1.6 * sF * sF)${dirt ? ' * (1.0 - vDirt * 0.85)' : ''};` : ''}
+      outgoingLight += uSky * sH * sAo * ${gloss.toFixed(3)} * (0.22 + 1.6 * sF * sF)${dirt ? ' * (1.0 - sDirt * 0.85)' : ''};` : ''}
       ${pane ? `
-      // A pane is clear where you look through it squarely and a mirror where you do not.
-      diffuseColor.a = min(1.0, diffuseColor.a + 0.75 * sF * sF + 0.5 * vSky * vSky * diffuseColor.a);` : ''}
+      // Glass by Fresnel: four percent of what is in front of it comes back when you look through it squarely,
+      // nearly all of it at a glancing angle, and what is reflected is not let through. The reflection itself must
+      // not be dimmed by the pane's transparency, so it is scaled up by what the blend will take away.
+      float sFr = 0.04 + 0.96 * pow(sF, 5.0);
+      diffuseColor.a = min(1.0, 1.0 - (1.0 - diffuseColor.a) * (1.0 - sFr) + 0.5 * vSky * vSky * diffuseColor.a);
+      outgoingLight += (reflectedLight.directSpecular + reflectedLight.indirectSpecular) * (1.0 / max(diffuseColor.a, 0.1) - 1.0);` : ''}
     }
     #include <opaque_fragment>`);
   };
@@ -422,9 +467,19 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
  * baked colour times a per-instance level (aLamp). Wheels use it too; they have
  * no aLamp, which reads as zero.
  */
-function detailMaterial(): THREE.MeshStandardMaterial {
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, envMapIntensity: 1.2 });
+function detailMaterial(maps: CarMaps | null = null): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, envMapIntensity: 1.6 });
+  if (maps) {
+    mat.normalMap = maps.normal; mat.aoMap = maps.ao; mat.aoMapIntensity = 0.7;
+    // The pictures are read top row first (no flip), which turns the bitangent the shader derives upside down.
+    mat.normalScale.set(1, -1);
+  }
   mat.onBeforeCompile = (sh) => {
+    if (maps) {
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <normal_fragment_maps>', NORMAL_RG)
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= 0.22 + 0.78 * texture2D( aoMap, vAoMapUv ).r;');
+    }
     sh.vertexShader = 'attribute vec3 aPbr;\nattribute vec4 aLamp;\nattribute vec3 aLamp2;\nvarying vec3 vPbr;\n' + sh.vertexShader.replace('#include <begin_vertex>',
       `#include <begin_vertex>
       float lk = aPbr.z;
@@ -434,9 +489,14 @@ function detailMaterial(): THREE.MeshStandardMaterial {
       .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vPbr.y;')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vPbr.z;');
   };
-  mat.customProgramCacheKey = () => 'cardetail';
+  mat.customProgramCacheKey = () => (maps ? 'cardetail-maps' : 'cardetail');
   return mat;
 }
+
+/** three.js's normal-map chunk, reading a two-channel map: x and y from the picture, z from their length. */
+const NORMAL_RG = THREE.ShaderChunk.normal_fragment_maps.replace('vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;',
+  'vec3 mapN = vec3( texture2D( normalMap, vNormalMapUv ).rg * 2.0 - 1.0, 0.0 );\n\tmapN.z = sqrt( max( 0.0, 1.0 - dot( mapN.xy, mapN.xy ) ) );');
+if (!NORMAL_RG.includes('mapN.z = sqrt')) console.warn('vehicle.ts: three.js changed its normal-map chunk; car normal maps will read flat');
 
 /** Instanced quads with our own attributes: one draw call for every lamp in town. */
 class Sprites {
@@ -512,6 +572,8 @@ export class Vehicles implements VehiclesApi {
   private bodyMat: THREE.Material;
   private detailMat: THREE.MeshStandardMaterial;
   private paneMat: THREE.MeshStandardMaterial;
+  /** The wheels' material with the shared tire maps, made when they arrive. */
+  private wheelTexMat: THREE.MeshStandardMaterial | null = null;
   private assets = new Map<VehicleKind, VehicleAsset>();
   private wheelGeo: THREE.BufferGeometry;
   private wheelMat: THREE.MeshStandardMaterial;
@@ -543,6 +605,15 @@ export class Vehicles implements VehiclesApi {
   private curS = 0; private curC = 1;
   private wet = 0;
   private frame = 0;
+  private envRT: THREE.WebGLCubeRenderTarget | null = null;
+  private envCam: THREE.CubeCamera | null = null;
+  /** -1 before the first capture, 0..5 the face due next, 6 at rest. */
+  private envFace = -1;
+  private envWait = 0;
+  private envAt = new THREE.Vector3();
+  private envMats: THREE.MeshStandardMaterial[] = [];
+  /** CPU milliseconds the capture has cost: the frame just drawn, and the worst frame so far (for the bench). */
+  envMs = 0; envMax = 0;
 
   constructor(private game: Game) {
     this.paintMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.35, roughness: 0.3, envMapIntensity: 1.3 });
@@ -552,24 +623,31 @@ export class Vehicles implements VehiclesApi {
     this.glassMat = new THREE.MeshStandardMaterial({ color: 0x1d3a52, metalness: 0.3, roughness: 0.15, envMapIntensity: 1.6 });
     this.glassTintMat = this.glassMat.clone();
     this.glassTintMat.vertexColors = true;
-    sheen(this.glassMat, this.sky, 'glass', 0.04, 0.75, 0.2, 0.44);
-    sheen(this.glassTintMat, this.sky, 'glass', 0.04, 0.75, 0.2, 0.44);
+    // With the street itself to reflect, the painted-on sky sheen steps back to a trace (k).
+    const local = game.quality.name === 'high' && new URLSearchParams(location.search).get('carenv') !== '0';
+    const k = local ? 0.3 : 1;
+    if (local) {
+      this.envRT = new THREE.WebGLCubeRenderTarget(ENV_SIZE, { type: THREE.HalfFloatType, generateMipmaps: false });
+      this.envCam = new THREE.CubeCamera(0.5, 600, this.envRT);
+    }
+    sheen(this.glassMat, this.sky, 'glass', 0.04 * k, 0.75 * k, 0.2 * k, 0.44 * k);
+    sheen(this.glassTintMat, this.sky, 'glass', 0.04 * k, 0.75 * k, 0.2 * k, 0.44 * k);
+    this.mirror(this.glassTintMat, 1.3);
     this.wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.15, roughness: 0.75 });
     this.wheelGeo = wheelGeometry();
     // Phones keep the cheap paint: a clearcoat is a second specular lobe on every pixel of every car.
     const low = game.quality.name === 'low';
-    // Metallic base under a hard lacquer: the base is left fairly rough (flake scatters), the coat is what shines.
-    const coat = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.025, envMapIntensity: 1.7 });
-    sheen(coat, this.sky, 'coat', 0, 0.3, 0.1, 0, 0.55, false, true);
-    this.bodyMat = low ? this.paintMat : coat;
-    this.detailMat = detailMaterial();
-    this.detailMat.envMapIntensity = 1.6;
+    this.bodyMat = low ? this.paintMat : this.coat(null);
+    this.detailMat = this.mirror(detailMaterial(), 1.25);
     // Near glass lets a little of the cabin through. Far glass and phones use the opaque tinted one.
     this.paneMat = this.glassTintMat.clone();
     this.paneMat.transparent = true; this.paneMat.opacity = 0.82;
-    sheen(this.paneMat, this.sky, 'pane', 0.04, 0.75, 0.2, 0.44, 0, true);
+    // A dielectric, so three.js gives it glass's own four percent; the old part-metal pane was a tinted mirror.
+    if (local) { this.paneMat.metalness = 0; this.paneMat.roughness = 0.04; this.paneMat.color.setHex(0x0c1a24); }
+    sheen(this.paneMat, this.sky, 'pane', 0.04 * k, 0.75 * k, 0.2 * k, 0.44 * k, 0, true);
+    this.mirror(this.paneMat, 1.4);
     // ?glb=0 keeps every kind procedural, for comparing.
-    if (new URLSearchParams(location.search).get('glb') !== '0') void loadVehicleAssets((a) => this.adopt(a));
+    if (new URLSearchParams(location.search).get('glb') !== '0') void loadVehicleAssets((a) => this.adopt(a), !low);
     this.glow = new Sprites(1024, GLOW_VS, glowTexture(), 6);
     this.pool = new Sprites(96, POOL_VS, poolTexture(), 5);
     this.shadow = new Sprites(160, GROUND_VS, shadowTexture(), 2, new THREE.Color(0x0b1322));
@@ -673,6 +751,7 @@ export class Vehicles implements VehiclesApi {
     // The sky is built before the vehicles, but tests stub the game with less.
     const sky = game.sky as Game['sky'] | undefined;
     this.wet = sky ? sky.wet : 0;
+    this.reflect(dt);
     const night = sky ? sky.night : 0;
     // A zero-length step would divide by it; there is nothing to simulate anyway.
     if (dt <= 0) { this.sync(night); return; }
@@ -1365,11 +1444,74 @@ export class Vehicles implements VehiclesApi {
       for (let i = 0; i < gp.count; i++) sky[i] = hi > lo ? (gp.getY(i) - lo) / (hi - lo) : 0.5;
       proc.glass.setAttribute('aSky', new THREE.BufferAttribute(sky, 1));
     }
-    b = { kind, proc, model: proc, sets: [], pick: [0, 0, 0], sections: false, cap: Math.max(8, Math.ceil(SPECS[kind].common * 8)) };
+    b = { kind, proc, model: proc, sets: [], pick: [0, 0, 0], sections: false, tex: null, cap: Math.max(8, Math.ceil(SPECS[kind].common * 8)) };
     this.dress(b);
     this.batches.set(kind, b);
     this.batchList.push(b);
     return b;
+  }
+
+  /**
+   * Metallic base under a hard lacquer. The base is left fairly rough (flake scatters) and the coat is what shines:
+   * a touch of roughness on it spreads the sun into a highlight the size of a hand instead of a single pixel.
+   */
+  private coat(maps: CarMaps | null): THREE.MeshPhysicalMaterial {
+    const local = !!this.envRT;
+    const m = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: local ? 0.45 : 0.55, roughness: local ? 0.5 : 0.4, clearcoat: 1, clearcoatRoughness: local ? 0.09 : 0.025, envMapIntensity: 1.7 });
+    if (maps) { m.aoMap = maps.ao; m.aoMapIntensity = 0.6; }
+    if (local) sheen(m, this.sky, 'coat', 0, 0.06, 0.02, 0, 0.1, false, true, true);
+    else sheen(m, this.sky, 'coat', 0, 0.3, 0.1, 0, 0.55, false, true, true);
+    return this.mirror(m, 1.6);
+  }
+
+  /** Enrol a material for the local reflection cube: it takes the cube (at this strength) once the first capture is in. */
+  private mirror<T extends THREE.MeshStandardMaterial>(m: T, intensity: number): T {
+    if (!this.envRT) return m;
+    this.envMats.push(m);
+    m.envMapIntensity = intensity;
+    if (this.envFace >= 0) m.envMap = this.envRT.texture;
+    return m;
+  }
+
+  /**
+   * Keep the reflection cube current. The first capture is all six faces at once (nothing is on screen worth a
+   * smooth frame yet); after that one face a frame, and the blurred copy the materials read is rebuilt when the
+   * sixth lands. Cars are left out of their own reflections.
+   */
+  private reflect(dt: number): void {
+    const rt = this.envRT, cc = this.envCam, game = this.game;
+    this.envMs = 0;
+    if (!rt || !cc || !game.renderer || this.frame < 4) return;
+    const focus = game.cam ? game.cam.focus : game.camera.position;
+    if (this.envFace === 6) {
+      this.envWait -= dt;
+      const dx = focus.x - this.envAt.x, dz = focus.z - this.envAt.z;
+      if (this.envWait > 0 && !(dx * dx + dz * dz > ENV_MOVE2 && this.envWait < ENV_EVERY - 0.35)) return;
+      this.envFace = 0;
+    }
+    const first = this.envFace < 0, r = game.renderer, t0 = performance.now();
+    if (first || this.envFace === 0) {
+      this.envWait = ENV_EVERY; this.envAt.copy(focus);
+      cc.position.set(focus.x, focus.y + 1.3, focus.z);
+      cc.updateMatrixWorld(true);
+    }
+    const prev = r.getRenderTarget(), auto = r.shadowMap.autoUpdate, hidden: THREE.Object3D[] = [];
+    const hide = (o: THREE.Object3D): void => { if (o.visible) { o.visible = false; hidden.push(o); } };
+    for (const b of this.batchList) for (const st of b.sets) { for (const m of st.body) hide(m); hide(st.wheels); }
+    for (const sp of [this.glow, this.pool, this.shadow, this.marks, this.smoke]) hide(sp.mesh);
+    // The sun's shadow map from the frame before is as good as new for this.
+    r.shadowMap.autoUpdate = false;
+    if (first) { cc.update(r, game.scene); this.envFace = 6; }
+    else { r.setRenderTarget(rt, this.envFace); r.render(game.scene, cc.children[this.envFace] as THREE.Camera); this.envFace++; }
+    r.shadowMap.autoUpdate = auto;
+    r.setRenderTarget(prev);
+    for (const o of hidden) o.visible = true;
+    if (this.envFace === 6) {
+      rt.texture.needsPMREMUpdate = true;
+      if (first) for (const m of this.envMats) { m.envMap = rt.texture; m.needsUpdate = true; }
+    }
+    this.envMs = performance.now() - t0;
+    if (!first && this.envMs > this.envMax) this.envMax = this.envMs;
   }
 
   /** A kind's file has arrived: from the next frame its cars are drawn from it. */
@@ -1398,16 +1540,23 @@ export class Vehicles implements VehiclesApi {
       const lods = low ? [a.lods[a.lods.length - 1]] : a.lods, n = lods.length;
       b.pick = n === 3 ? [0, 1, 2] : n === 2 ? [0, 0, 1] : [0, 0, 0];
       b.sections = a.sections;
+      const maps = low ? null : a.maps;
+      if (maps && !b.tex) b.tex = [this.coat(maps), this.mirror(detailMaterial(maps), 1.25)];
+      if (!low && a.wheelMaps && !this.wheelTexMat) this.wheelTexMat = this.mirror(detailMaterial(a.wheelMaps), 1.25);
       lods.forEach((l, i) => {
         const others: Part[] = [];
+        // A level is drawn with the maps only if every part of it was unwrapped for them.
+        const uv = !!b.tex && l.paint.hasAttribute('uv') && (!l.detail || l.detail.hasAttribute('uv'));
+        const bodyMat = uv ? b.tex![0] : this.bodyMat, detailMat = uv ? b.tex![1] : this.detailMat;
+        const wheelMat = !low && this.wheelTexMat && l.wheel?.hasAttribute('uv') ? this.wheelTexMat : this.detailMat;
         // Bumpers and mirrors add nothing to the shadow the shell already throws, except close up, where the
         // mirror, the wing and the rack are what you are looking at.
-        if (l.detail) others.push([l.detail, this.detailMat, n === 3 && i === 0]);
+        if (l.detail) others.push([l.detail, detailMat, n === 3 && i === 0]);
         // All but the far level have a cabin to show through the glass.
         if (l.glass) others.push([l.glass, n > 1 && i < n - 1 ? this.paneMat : this.glassTintMat, true]);
         list.push({
-          paint: [l.paint, this.bodyMat, true], others,
-          wheel: l.wheel ? [l.wheel, this.detailMat, true] : [this.wheelGeo, this.wheelMat, true], lampGeo: l.detail,
+          paint: [l.paint, bodyMat, true], others,
+          wheel: l.wheel ? [l.wheel, wheelMat, true] : [this.wheelGeo, this.wheelMat, true], lampGeo: l.detail,
         });
       });
     } else {
@@ -1554,7 +1703,7 @@ export class Vehicles implements VehiclesApi {
       // The lenses themselves light up; the glow sprites in lamps() are the halo round them.
       if (s.lamps && s.lamps2) {
         const L = s.lamps, L2 = s.lamps2;
-        L[i * 4] = c.lights ? 2.2 : 0;
+        L[i * 4] = c.lights ? 2.8 : 0;
         L[i * 4 + 1] = b.sections ? (c.lights ? 1.1 : 0) : c.braking ? 3.5 : c.lights ? 0.9 : 0;
         // One lens does both jobs on most cars: the brake section glows dimly with the tail lamps and flares when braking.
         L[i * 4 + 2] = c.braking ? 3.6 : c.lights ? 0.8 : 0;

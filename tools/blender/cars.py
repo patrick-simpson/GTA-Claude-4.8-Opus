@@ -45,24 +45,24 @@
 # trim / lamp_head / lamp_tail.
 
 import bpy, bmesh, sys, os, json
-from math import sin, cos, pi, radians, sqrt, hypot, asin, exp
+from math import sin, cos, pi, radians, sqrt, hypot, asin, exp, atan2
 from mathutils import Vector, Matrix
 from mathutils.bvhtree import BVHTree
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 # The lamp sections light separately in the game (src/ent/vehicleAssets.ts LAMP); 'gloss' is piano-black plastic.
 MATS = ['paint', 'trim', 'chrome', 'glass', 'lamp_head', 'lamp_tail', 'interior', 'tire', 'rim',
-        'lamp_brake', 'lamp_rev', 'lamp_ind', 'lamp_drl', 'gloss']
+        'lamp_brake', 'lamp_rev', 'lamp_ind', 'lamp_drl', 'gloss', 'grille', 'seat']
 TMP = ['tmp_grille', 'tmp_sideglass', 'tmp_white']
-REMAP = {'tmp_grille': 'trim', 'tmp_sideglass': 'glass', 'tmp_white': 'trim'}
+REMAP = {'tmp_grille': 'grille', 'tmp_sideglass': 'glass', 'tmp_white': 'trim'}
 MI = {n: i for i, n in enumerate(MATS + TMP)}
 # Linear albedo baked into the vertex colours (times occlusion).
 # A fourth number is alpha: how opaque a pane is in the game's near levels (the far level draws glass solid).
 PANE = (1.0, 1.0, 1.0, 0.5)
-TINT = {'paint': 1.0, 'trim': 0.022, 'chrome': 0.9, 'glass': PANE, 'lamp_head': (0.95, 0.95, 0.9),
+TINT = {'paint': 1.0, 'trim': 0.022, 'chrome': 0.9, 'glass': PANE, 'lamp_head': (0.8, 0.8, 0.78),
         'lamp_tail': (0.5, 0.012, 0.01), 'interior': 0.03, 'tire': 0.014, 'rim': 0.86,
         'lamp_brake': (0.72, 0.02, 0.014), 'lamp_rev': (0.9, 0.9, 0.86), 'lamp_ind': (1.0, 0.42, 0.04),
-        'lamp_drl': (0.92, 0.96, 1.0), 'gloss': 0.012,
+        'lamp_drl': (0.92, 0.96, 1.0), 'gloss': 0.012, 'grille': 0.022, 'seat': 0.09,
         'tmp_grille': 0.022, 'tmp_sideglass': PANE, 'tmp_white': 0.8}
 
 # End plates are a 5 x 3 grid of cells: a = 0 (the corner sliver) .. 4 (the centre), b = 0 (bottom) .. 2 (top band).
@@ -160,14 +160,14 @@ VEHICLES = {
     # screen starts over the front axle and runs straight on from a short bonnet, the window line climbs through the
     # doors and kicks up behind the rear one into a black pillar (the floating roof), the lamps wrap both corners.
     'bolt': dict(SEDAN, W=1.77, H=1.60, wb=2.60, track=1.50, R=0.32, tw=0.215, nose=2.14, tail=2.03, sill=0.19, arch_gap=0.06,
-        zs=1.35, n_front=2.7, n_rear=5.0, cowl=1.10, header=0.30, b1=-0.05, b2=-0.13, mid=-1.17, rhead=-1.55, deckf=-1.84,
-        hood_cowl=1.08, hood_nose=0.80, hood_crown=0.025, belt=1.01, rise=(0.03, 0.10, 0.33), deck=1.17, deck_tail=1.14,
+        zs=1.35, n_front=2.7, n_rear=5.0, cowl=1.24, header=0.36, b1=-0.05, b2=-0.13, mid=-1.17, rhead=-1.55, deckf=-1.84,
+        hood_cowl=1.085, hood_nose=0.80, hood_crown=0.025, belt=1.01, tuck=0.042, shc=0.9, twin=(5.0, 12.5), rise=(0.03, 0.10, 0.33), deck=1.17, deck_tail=1.14,
         xr=(0.56, 0.60, 0.585), roof=(1.50, 1.588, 1.592, 1.55), bow=(0.13, 0.08, -0.05, -0.05), rake=(0.10, 0.05),
         bumper_top=(0.625, 0.74), bumper_bot=(0.20, 0.26), lift=(0.21, 0.28), ends=((0.38, 0.655), (0.52, 0.74)),
         doors=[(0.84, 4), (-0.13, 4), (-1.10, 4)], pillars=[(0.84, 0.78), (-0.05, -0.13), (-1.10, -1.17)], cq=-0.5,
         fq_glass=True, floating=True, sweep=(1.5, -1.66), sweep_mat=(H_, T_), mirror_z=0.80, slats=False, trunk=False,
-        bench=False, rub=False, gate=2, flap=False, aerial=False, chmsl=(1.516, -1.765), twotone=True, spoke_t=0.015, rr=0.69,
-        front={(0, 2): H_, (1, 2): H_, (2, 2): H_, (3, 2): G_, (4, 2): G_},
+        bench=False, rub=False, gate=2, flap=False, aerial=False, chmsl=(1.516, -1.765), twotone=True, spoke_t=0.0115, rr=0.69,
+        front={(0, 2): H_, (1, 2): H_, (2, 2): H_, (3, 2): H_},
         rear={(0, 2): T_, (1, 2): 'lamp_ind', (2, 2): 'lamp_brake'}, seat=(0.2, 0.2, 0.2),
         exhausts=(), bumper_pm=['paint'] * 4 + ['trim'] * 3, shd=0.085, flare=0.02, paint=(0.004, 0.004, 0.005)),
 }
@@ -191,9 +191,10 @@ def smooth(t):
 
 def make_materials(paint):
     look = {'paint': (paint, 0.6, 0.28, 1), 'trim': ((1, 1, 1), 0.0, 0.6, 1), 'chrome': ((1, 1, 1), 1.0, 0.08, 1),
-            'glass': ((0.02, 0.03, 0.035), 0.0, 0.03, 0.45), 'lamp_head': ((1, 1, 1), 0.0, 0.08, 1),
+            'glass': ((0.02, 0.03, 0.035), 0.0, 0.03, 0.45), 'lamp_head': ((1, 1, 1), 0.9, 0.14, 1),
             'lamp_tail': ((1, 1, 1), 0.0, 0.1, 1), 'interior': ((1, 1, 1), 0.0, 0.8, 1),
-            'tire': ((1, 1, 1), 0.0, 0.85, 1), 'rim': ((1, 1, 1), 0.3, 0.3, 1), 'gloss': ((1, 1, 1), 0.0, 0.06, 1)}
+            'tire': ((1, 1, 1), 0.0, 0.85, 1), 'rim': ((1, 1, 1), 0.85, 0.24, 1), 'gloss': ((1, 1, 1), 0.0, 0.06, 1),
+            'grille': ((1, 1, 1), 0.0, 0.45, 1), 'seat': ((1, 1, 1), 0.0, 0.9, 1)}
     for n in ('lamp_brake', 'lamp_rev', 'lamp_ind', 'lamp_drl'): look[n] = look['lamp_tail']
     for n in MATS + TMP:
         m = bpy.data.materials.new(n)
@@ -308,11 +309,11 @@ def boxv(c, s, pitch=0.0):
     return vs, [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
 
 
-def box(name, c, s, mat, tint=None, bevel=0.0, pitch=0.0, drop=None, flip=False):
+def box(name, c, s, mat, tint=None, bevel=0.0, pitch=0.0, drop=None, flip=False, segs=1):
     v, f = boxv(c, s, pitch)
     if drop is not None: f = [q for i, q in enumerate(f) if i != drop]
     bm = new_bm(v, f, mat=mat)
-    if bevel: bmesh.ops.bevel(bm, geom=bm.edges[:], offset=bevel, segments=1, affect='EDGES', profile=0.5)
+    if bevel: bmesh.ops.bevel(bm, geom=bm.edges[:], offset=bevel, segments=segs, affect='EDGES', profile=0.5)
     orient(bm, ('out', c), flip)
     return to_obj(bm, name, tint)
 
@@ -398,8 +399,6 @@ class Car:
         s.hw = P['W'] / 2 - 0.008
         s.zF, s.zR = P['wb'] / 2, -P['wb'] / 2
         s.arch_r = P['R'] + P['arch_gap']
-        # One subdivision pulls a 30-degree control polygon in by this factor.
-        s.Rc = s.arch_r / 0.9665
         s.zNf, s.zNr = P['nose'] - 0.05, P['tail'] - 0.05
         # Shut-lines across the side: (z, how many rows up from the sill the cut runs).
         s.doors = P.get('doors', [(P['cowl'], 4), (P['b2'], 4), (P['rhead'], 4)])
@@ -407,9 +406,15 @@ class Car:
         # The side glass runs past the rear header into the C-pillar by this share: the rear quarter light.
         s.cq = P['rhead'] - P.get('cq', 0.3) * (P['rhead'] - P['deckf'])
         s.sg_end = P.get('sg_end', s.cq)
-        s.cells = {1: P.get('front', FRONT), -1: s.sections(P.get('rear', REAR))}
         # hi is the showroom level: everything gated on it is drawn for the few cars nearest the camera only.
-        s.hi = False; s.kind = ''; s.covers = []; s.lamp_c = {}; s.lamp_cells = {}
+        s.hi = False; s.kind = ''; s.covers = []; s.lamp_c = {}; s.lamp_cells = {}; s.skin = None
+        s.cells = {1: P.get('front', FRONT), -1: s.sections(P.get('rear', REAR))}
+
+    @property
+    def Rc(s):
+        # One subdivision pulls a control polygon in by (6 + 2 cos(step)) / 8: the arch is cut in 30-degree steps on
+        # the street car and 15 on the showroom one, where 30 showed as flats round the wheel.
+        return s.arch_r / (0.99148 if s.hi else 0.9665)
 
     @staticmethod
     def sections(cells):
@@ -500,15 +505,15 @@ class Car:
         P = s.P; c0, c1 = s.corner_z(1), s.corner_z(-1)
         keys = [P['cowl'], (P['cowl'] + P['header']) / 2, P['header'], P['b1'], P['b2'], P['mid'], P['rhead'],
                 (P['rhead'] + P['deckf']) / 2, P['deckf'], s.cq, s.zF + s.Rc + 0.205, s.zR - s.Rc - 0.235]
-        keys += [d[0] for d in s.doors] + [z for p in s.pillars for z in p] + list(s.g('bed', ())[:2])
+        keys += [d[0] for d in s.doors] + [z for p in s.pillars for z in p] + list(s.g('bed', ())[:2]) + [z for d in s.g('bus_doors', ()) for z in d]
         inside = lambda z: c1 + 0.045 < z < c0 - 0.045
         ks = []
         for z in keys:
             if inside(z) and all(abs(z - k) > 0.028 for k in ks): ks.append(z)
         arch = []
         for zc in (s.zF, s.zR):
-            arch += [zc + s.Rc + 0.035, zc - s.Rc - 0.035] + [zc + s.Rc * cos(radians(a)) for a in range(0, 181, 30)]
-        return sorted([c0, c1] + ks + [z for z in arch if inside(z) and all(abs(z - k) > 0.025 for k in ks)], reverse=True)
+            arch += [zc + s.Rc + 0.035, zc - s.Rc - 0.035] + [zc + s.Rc * cos(radians(a)) for a in range(0, 181, 15 if s.hi else 30)]
+        return sorted([c0, c1] + ks + [z for z in arch if inside(z) and all(abs(z - k) > (0.012 if s.hi else 0.025) for k in ks)], reverse=True)
 
     def side(s, z, sh, end=0):
         """Rows 0-3: the open lower edge (sill or arch), the sill line, the shoulder crease and the shoulder."""
@@ -680,6 +685,14 @@ class Car:
             if push:
                 bm.normal_update()
                 for v in {v for f in bm.faces if f.material_index == MI[mi] for v in f.verts}: v.co -= v.normal * push
+        if lod == 0 and s.g('bus_doors'):
+            # The bus's doorways are cut out of the kerb side, sill to cant rail; the flange pass below gives each a
+            # reveal, and d_bus() hangs the leaves a hand's depth inside.
+            top = max(P['roof']) - 0.2; kill = []
+            for f in bm.faces:
+                c = f.calc_center_median()
+                if c.x < -(s.hw - 0.25) and c.z < top and any(b < -c.y < a for a, b in P['bus_doors']): kill.append(f)
+            bmesh.ops.delete(bm, geom=kill, context='FACES')
         if lod == 0:
             inset('tmp_sideglass', 0.011, 'chrome')
             inset('tmp_sideglass', 0.016, 'trim', 0.006)
@@ -729,6 +742,32 @@ class Car:
         for i in range(len(names) - 1, len(MATS) - 1, -1): me.materials.pop(index=i)
         return ob
 
+    def wrap(s, pts, end=1, off=0.004):
+        """Drop (x, y) points onto the nose (end=1) or the tail: the first skin a ray along the car meets, plus off."""
+        out = []
+        for x, y in pts:
+            hit = s.skin.ray_cast(B(x, y, end * 20.0), B(0, 0, -end), 40.0) if s.skin else (None,)
+            z = -hit[0].y if hit[0] is not None else end * (s.P['nose' if end > 0 else 'tail'] - 0.03)
+            out.append((x, y, z + end * off))
+        return out
+
+    def panel(s, name, ys, hw, mat, tint, end=1, nx=8, off=0.004, xc=0.0):
+        """A patch laid on the nose or tail like a decal with thickness: rows at heights ys, each reaching hw(y)
+        either side of xc(y), every vertex dropped onto the skin. hw and xc may be numbers or functions of y."""
+        fw = hw if callable(hw) else (lambda y: hw); fc = xc if callable(xc) else (lambda y: xc)
+        v = []; f = []
+        for y in ys:
+            v += s.wrap([(fc(y) + fw(y) * (2 * j / nx - 1), y) for j in range(nx + 1)], end, off)
+        for i in range(len(ys) - 1):
+            for j in range(nx):
+                a = i * (nx + 1) + j; f.append((a, a + 1, a + nx + 2, a + nx + 1))
+        bm = new_bm(v, f, mat=mat); bm.normal_update()
+        want = B(0, 0, end)
+        for q in bm.faces:
+            if q.normal.dot(want) < 0: q.normal_flip()
+        bm.normal_update()
+        return to_obj(bm, name, tint)
+
     def cover_obj(s):
         v = [p for q in s.covers for p in q]; f = []; n = 0
         for q in s.covers: f.append(tuple(range(n, n + len(q)))); n += len(q)
@@ -751,6 +790,12 @@ class Car:
         prof = [(-0.05, T - 0.005), (-0.002, T), (0.010, T - 0.075 * d), (0.014, T - 0.31 * d), (0.014, T - 0.44 * d),
                 (0.006, T - 0.72 * d), (-0.03, Bt + 0.08 * d), (-0.09, Bt)]
         pm = s.g('bumper_pm', ['paint', 'chrome', 'paint', 'paint', 'paint', 'trim', 'trim'])
+        # A painted bumper is part of the body's surfacing: its top edge is tucked just inside the skin of the end
+        # plate and it swells out of it in one S, with the bright strip (if any) moved down onto the swell. Chrome and
+        # black-plastic bumpers stay what they are, a separate bar with a ledge on top.
+        blend = pm[0] == 'paint'
+        if blend and 'chrome' in pm: pm = ['paint'] * 3 + ['chrome', 'paint', 'trim', 'trim']
+        gap = zN - (s.zNf if end > 0 else s.zNr) + s.rake(end, T)
         path = [(th, 1) for th in ths] + [(th, -1) for th in reversed(ths[:-1])]
         verts, faces, fm = [], [], []
         for th, sx in path:
@@ -760,7 +805,9 @@ class Car:
             l = hypot(nx, nz); nx /= l; nz /= l
             k = 0.3 + 0.7 * smooth((th - th0) / radians(35))
             hug = 1 - smooth((th - th0) / radians(28))
-            for o, y in prof:
+            ot = -gap * sn
+            pr = prof if not blend else [(ot - 0.012, T + 0.008), (ot + 0.004, T - 0.05 * d), (ot * 0.35 + 0.009, T - 0.19 * d)] + prof[3:]
+            for o, y in pr:
                 o = o * k if o > 0 else o
                 q = min(1.0, max(0.0, (T + 0.1 - y) / (T + 0.1 - P['sill'])))
                 verts.append((sx * (x * (1 - hug * (0.032 * q * q - 0.004)) + nx * o), y, end * (z + nz * o)))
@@ -772,7 +819,7 @@ class Car:
         bm.verts.ensure_lookup_table()
         cr = bm.edges.layers.float.new('crease_edge')
         for i in range(len(path) - 1):
-            for p in range(1, np_ - 2):
+            for p in range(3 if blend else 1, np_ - 2):
                 e2 = bm.edges.get((bm.verts[i * np_ + p], bm.verts[(i + 1) * np_ + p]))
                 if e2: e2[cr] = 0.7
         orient(bm, ('out', (0, (T + Bt) / 2, 0)))
@@ -852,22 +899,22 @@ class Car:
         I('console', (0, 0.48 + e, cw - 0.69), (0.2, 0.3, 0.9), 'interior', 0.025, bevel=0.02)
         seat = s.g('seat', (0.11, 0.094, 0.08))
         for x in (sx, -sx):
-            I('cushion', (x, 0.44 + e, cw - 0.72), (0.5, 0.16, 0.5), 'interior', seat, bevel=0.04)
-            I('back', (x, 0.78 + e, cw - 1.04), (0.48, 0.62, 0.13), 'interior', seat, bevel=0.04, pitch=radians(14))
-            I('headrest', (x, 1.15 + e, cw - 1.13), (0.24, 0.17, 0.09), 'interior', seat, bevel=0.03, pitch=radians(10))
+            I('cushion', (x, 0.44 + e, cw - 0.72), (0.5, 0.16, 0.5), 'seat', seat, bevel=0.04)
+            I('back', (x, 0.78 + e, cw - 1.04), (0.48, 0.62, 0.13), 'seat', seat, bevel=0.04, pitch=radians(14))
+            I('headrest', (x, 1.15 + e, cw - 1.13), (0.24, 0.17, 0.09), 'seat', seat, bevel=0.03, pitch=radians(10))
         if s.g('bench', True):
             # The parcel shelf stops short of the tail skin: on the hatch it used to poke out through the rear corners.
             zb = max(P['deckf'] - 0.1, -(P['tail'] - 0.3)); za = P['rhead'] + 0.0
             I('shelf', (0, belt - 0.03, (za + zb) / 2), (xs - 0.2, 0.05, za - zb), 'interior', 0.03)
-            I('bench', (0, 0.44 + e, P['rhead'] + 0.33), (xs - 0.26, 0.16, 0.5), 'interior', seat, bevel=0.04)
-            I('benchback', (0, 0.76 + e, P['rhead'] + 0.03), (xs - 0.26, 0.58, 0.13), 'interior', seat, bevel=0.04, pitch=radians(18))
+            I('bench', (0, 0.44 + e, P['rhead'] + 0.33), (xs - 0.26, 0.16, 0.5), 'seat', seat, bevel=0.04)
+            I('benchback', (0, 0.76 + e, P['rhead'] + 0.03), (xs - 0.26, 0.58, 0.13), 'seat', seat, bevel=0.04, pitch=radians(18))
             for x in (0.4 * k, -0.4 * k):
-                I('headrest', (x, 1.10 + e, P['rhead'] - 0.07), (0.24, 0.15, 0.09), 'interior', seat, bevel=0.03, pitch=radians(14))
+                I('headrest', (x, 1.10 + e, P['rhead'] - 0.07), (0.24, 0.15, 0.09), 'seat', seat, bevel=0.03, pitch=radians(14))
         for zrow in s.g('seat_rows', ()):
             for x in (0.72, -0.72):
                 if x < 0 and any(a + 0.3 > zrow > b - 0.3 for a, b in s.g('bus_doors', ())): continue
-                I('cushion', (x, 0.44 + e, zrow), (0.88, 0.12, 0.42), 'interior', seat)
-                I('back', (x, 0.80 + e, zrow - 0.24), (0.88, 0.62, 0.07), 'interior', seat, pitch=radians(8))
+                I('cushion', (x, 0.44 + e, zrow), (0.88, 0.12, 0.42), 'seat', seat)
+                I('back', (x, 0.80 + e, zrow - 0.24), (0.88, 0.62, 0.07), 'seat', seat, pitch=radians(8))
         # Steering wheel: a rim lathed about X, then stood up in front of the driver.
         v, f, _ = lathe([(0.0, 0.19), (0.016, 0.175), (0.0, 0.16), (-0.016, 0.175), (0.0, 0.19)], 14)
         t = radians(68); c = (sx, belt + 0.045, cw - 0.44)
@@ -879,8 +926,8 @@ class Car:
         if s.hi:
             for x in (sx, -sx):
                 for q in (-1, 1):
-                    I('bolster', (x + q * 0.235, 0.465 + e, cw - 0.72), (0.06, 0.19, 0.46), 'interior', seat, bevel=0.025)
-                    I('bolster', (x + q * 0.225, 0.80 + e, cw - 1.03), (0.06, 0.5, 0.13), 'interior', seat, bevel=0.025, pitch=radians(14))
+                    I('bolster', (x + q * 0.235, 0.465 + e, cw - 0.72), (0.06, 0.19, 0.46), 'seat', seat, bevel=0.025)
+                    I('bolster', (x + q * 0.225, 0.80 + e, cw - 1.03), (0.06, 0.5, 0.13), 'seat', seat, bevel=0.025, pitch=radians(14))
             zd = min(cw - 0.10, P['nose'] - 0.6) - 0.262; hw = s.hw
             for x in (-0.66 * k, -0.19, 0.19, 0.66 * k): I('vent', (x, belt - 0.03, zd), (0.13, 0.05, 0.012), 'interior', 0.007)
             I('screen', (0, belt + 0.075, zd + 0.02), (0.25, 0.15, 0.014), 'gloss', (0.02, 0.06, 0.1), bevel=0.004, pitch=radians(-12))
@@ -893,7 +940,7 @@ class Car:
             I('rvm', (0, P['roof'][0] - 0.14, P['header'] + 0.12), (0.22, 0.06, 0.02), 'interior', 0.02, bevel=0.006)
             for q in (1, -1):
                 I('door_card', (q * (hw - 0.122), (y0 + belt) / 2 + 0.06, (cw - 0.35 + zr) / 2), (0.03, belt - y0 - 0.16, cw - 0.45 - zr), 'interior', 0.05)
-                I('armrest', (q * (hw - 0.16), belt - 0.21, cw - 0.85), (0.07, 0.05, 0.52), 'interior', seat, bevel=0.015)
+                I('armrest', (q * (hw - 0.16), belt - 0.21, cw - 0.85), (0.07, 0.05, 0.52), 'seat', seat, bevel=0.015)
                 I('pull', (q * (hw - 0.14), belt - 0.1, cw - 0.62), (0.014, 0.02, 0.1), 'chrome', 0.5)
         return out
 
@@ -903,12 +950,16 @@ class Car:
         bv = 0.0 if lod else 1.0; ms = s.g('mirror', 1.0)
         for sx in (1, -1):
             zm = s.g('mirror_z', lerp(P['cowl'], P['header'], 0.25))
-            I('mirror', (sx * (hw + 0.085), belt + 0.075 * ms, zm), (0.18, 0.115 * ms, 0.085), 'paint' if ms == 1 else 'trim', bevel=0.03 * bv)
+            # A pebble, not a brick: three bevel cuts round every edge (the cage level keeps the plain box).
+            I('mirror', (sx * (hw + 0.085), belt + 0.075 * ms, zm), (0.18, 0.115 * ms, 0.092), 'paint' if ms == 1 else 'trim', bevel=0.04 * bv, segs=3)
             I('mirror_arm', (sx * (hw - 0.01), belt + 0.035, zm + 0.01), (0.12, 0.035, 0.06), 'trim', bevel=0.008 * bv)
             if lod: continue
             I('mirror_glass', (sx * (hw + 0.085), belt + 0.075 * ms, zm - 0.0435), (0.145, 0.115 * ms - 0.03, 0.004), 'chrome', 0.55)
             for zh in s.g('handles', [dz + 0.16 for dz, _ in s.doors[1:]]):
-                I('handle', (sx * (s.xat(zh, belt - 0.07) + 0.008), belt - 0.07, zh), (0.022, 0.024, 0.15), 'chrome', bevel=0.007)
+                # A pull bar over a dished recess for the fingers.
+                xh = s.xat(zh, belt - 0.07)
+                I('handle_cup', (sx * (xh - 0.001), belt - 0.073, zh), (0.012, 0.058, 0.2), 'trim', 0.006, bevel=0.005, segs=2)
+                I('handle', (sx * (xh + 0.011), belt - 0.066, zh), (0.02, 0.026, 0.17), 'chrome', bevel=0.009, segs=2)
             if s.g('rub', True):
                 ry = lerp(P['sill'], belt - 0.12, 0.63)
                 for (z0, _), (z1, _) in zip(s.doors, s.doors[1:]):
@@ -1040,7 +1091,9 @@ class Car:
         v, f = [], []
         for i in range(ns):
             for sg in (-1, 1):
-                a0 = radians(i * 360 / ns + sg * 75 / ns); a1 = radians(i * 360 / ns + sg * 27.5 / ns)
+                # Each spoke is a pair: (half angle between the two at the hub, at the rim). The default closes toward the rim.
+                tw_ = s.g('twin', (75 / ns, 27.5 / ns))
+                a0 = radians(i * 360 / ns + sg * tw_[0]); a1 = radians(i * 360 / ns + sg * tw_[1])
                 n = len(v)
                 st = s.g('spoke_t', 0.012)
                 for r, t, xf, a in ((R * 0.12, st, h * 0.8, a0), (rr * 0.9, st + 0.001, h * 0.78, a1)):
@@ -1072,7 +1125,8 @@ for _i in range(24):
     DIRS.append((_r * cos(_p), _r * sin(_p), sqrt(1 - _r * _r)))
 
 
-def bake(ob, occluders=(), ground=True, reach=0.5, floor=0.12):
+def bake(ob, occluders=(), ground=True, reach=0.5, floor=0.12, rays=True):
+    """rays=False writes the tints (and the hand-set 'dark') alone: the level has a baked occlusion map instead."""
     me = ob.data
     bm = bmesh.new(); bm.from_mesh(me); bm.normal_update()
     gi = MI['glass']
@@ -1094,12 +1148,14 @@ def bake(ob, occluders=(), ground=True, reach=0.5, floor=0.12):
                 key = (v.index, f.material_index)
                 ao = cache.get(key)
                 if ao is None:
-                    t = n.orthogonal().normalized(); b = n.cross(t); o = v.co + n * 0.004; occ = 0.0
-                    for dx, dy, dz in DIRS:
-                        hit = tree.ray_cast(o, t * dx + b * dy + n * dz, reach)
-                        if hit[0] is not None: occ += 1 - hit[3] / reach
-                    ao = floor + (1 - floor) * max(0.0, 1 - occ / len(DIRS) * 1.25) ** 1.2
-                    if f.material_index == 0: ao = 0.3 + 0.7 * ao
+                    ao = 1.0
+                    if rays:
+                        t = n.orthogonal().normalized(); b = n.cross(t); o = v.co + n * 0.004; occ = 0.0
+                        for dx, dy, dz in DIRS:
+                            hit = tree.ray_cast(o, t * dx + b * dy + n * dz, reach)
+                            if hit[0] is not None: occ += 1 - hit[3] / reach
+                        ao = floor + (1 - floor) * max(0.0, 1 - occ / len(DIRS) * 1.25) ** 1.2
+                        if f.material_index == 0: ao = 0.3 + 0.7 * ao
                     ao *= 1 - 0.88 * dark[v.index]
                     cache[key] = ao
             i = l.index * 4
@@ -1122,6 +1178,241 @@ def shade(ob, angle=50):
 
 def tris(ob):
     return sum(len(p.vertices) - 2 for p in ob.data.polygons)
+
+
+# ── Textures: unwrap, bake, save ─────────────────────────────────────────────
+# The two near levels of a car share one unwrap and two maps, public/models/<kind>_n.webp (tangent-space normals:
+# lens fluting, reflector facets, grille mesh, seat channels, cabin grain, baked from procedural relief on the
+# materials) and <kind>_o.webp (ambient occlusion per texel, the whole car, wheels and road as occluders). Tires of
+# every kind share cars_wheel_n/_o.webp, baked from modelled tread blocks; it repeats WREP times round the wheel.
+# Share of the atlas by what is on the face: lamps need their ribs resolved, glass is never sampled.
+
+TEXN, TEXO, WREP = 1024, 1024, 8
+UVW = {'lamp': 5.0, 'grille': 3.0, 'seat': 1.0, 'paint': 1.0, 'glass': 0.04, 'interior': 0.6, 'under': 0.25, 'rest': 0.8}
+# CARS_OUT sends a trial run somewhere else: the game must never see model files its loader is not ready for.
+MODELS = os.environ.get('CARS_OUT') or os.path.join(ROOT, 'public', 'models')
+
+
+def _only(obs):
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in obs: o.select_set(True)
+    bpy.context.view_layer.objects.active = obs[0]
+
+
+def relief():
+    """Procedural height on the materials that have a texture in life, in object space (meters), for the normal bake."""
+    def bump(name, fn, dist):
+        m = bpy.data.materials[name]; nt = m.node_tree
+        bsdf = next(x for x in nt.nodes if x.type == 'BSDF_PRINCIPLED')
+        tc = nt.nodes.new('ShaderNodeTexCoord'); sep = nt.nodes.new('ShaderNodeSeparateXYZ'); nt.links.new(tc.outputs['Object'], sep.inputs[0])
+
+        def M(op, a, b=None):
+            nd = nt.nodes.new('ShaderNodeMath'); nd.operation = op
+            for i, v in enumerate((a, b)):
+                if v is None: continue
+                if isinstance(v, (int, float)): nd.inputs[i].default_value = v
+                else: nt.links.new(v, nd.inputs[i])
+            return nd.outputs[0]
+        h = fn(sep.outputs[0], sep.outputs[1], sep.outputs[2], M, nt, tc)
+        bp = nt.nodes.new('ShaderNodeBump'); bp.inputs['Strength'].default_value = 1.0; bp.inputs['Distance'].default_value = dist
+        nt.links.new(h, bp.inputs['Height']); nt.links.new(bp.outputs['Normal'], bsdf.inputs['Normal'])
+    w = lambda pitch: 2 * pi / pitch
+    # Blender's frame here: x across the car, y along it (tail positive), z up.
+    flutes = lambda x, y, z, M, nt, tc: M('SINE', M('MULTIPLY', M('ADD', x, M('MULTIPLY', y, 0.8)), w(0.009)))
+    facets = lambda x, y, z, M, nt, tc: M('MULTIPLY', M('SINE', M('MULTIPLY', M('ADD', x, M('MULTIPLY', y, 0.8)), w(0.014))), M('SINE', M('MULTIPLY', z, w(0.014))))
+    # A lattice standing proud of its holes: one minus the product of two crossed half-waves.
+    mesh = lambda x, y, z, M, nt, tc: M('SUBTRACT', 1.0, M('MULTIPLY', M('ABSOLUTE', M('SINE', M('MULTIPLY', M('ADD', M('ADD', x, M('MULTIPLY', y, 0.8)), z), pi / 0.021))),
+                                                           M('ABSOLUTE', M('SINE', M('MULTIPLY', M('SUBTRACT', M('ADD', x, M('MULTIPLY', y, 0.8)), z), pi / 0.021)))))
+    channels = lambda x, y, z, M, nt, tc: M('POWER', M('ABSOLUTE', M('SINE', M('MULTIPLY', M('ADD', y, z), pi / 0.075))), 0.5)
+
+    def grain(x, y, z, M, nt, tc):
+        nz = nt.nodes.new('ShaderNodeTexNoise'); nz.inputs['Scale'].default_value = 32.0; nz.inputs['Detail'].default_value = 2.0
+        nt.links.new(tc.outputs['Object'], nz.inputs['Vector']); return nz.outputs[0]
+    for n in ('lamp_tail', 'lamp_brake', 'lamp_rev', 'lamp_ind'): bump(n, flutes, 0.0009)
+    for n in ('lamp_head', 'lamp_drl'): bump(n, facets, 0.0012)
+    bump('grille', mesh, 0.004); bump('seat', channels, 0.007); bump('interior', grain, 0.0016)
+
+
+def unwrap(obs, sill):
+    """One shared layout for the given bodies: projected a material group at a time (so no island spans two
+    groups), brought to one texel density, scaled by UVW (and 0.5 for every body after the first), packed together."""
+    import numpy as np
+    bpy.context.scene.tool_settings.use_uv_select_sync = True
+    for oi, ob in enumerate(obs):
+        me = ob.data
+        while me.uv_layers: me.uv_layers.remove(me.uv_layers[0])
+        me.uv_layers.new(name='UVMap')
+        gid = []
+        for p in me.polygons:
+            n = MATS[p.material_index]
+            gid.append('lamp' if n.startswith('lamp') else n if n in ('grille', 'seat', 'paint', 'glass', 'interior')
+                       else 'under' if (p.center.z < sill + 0.04 and p.normal.z < -0.3) else 'rest')
+        _only([ob]); bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_mode(type='FACE')
+        for g in UVW:
+            bpy.ops.mesh.select_all(action='DESELECT')
+            bm = bmesh.from_edit_mesh(me); bm.faces.ensure_lookup_table(); k = 0
+            for f in bm.faces:
+                if gid[f.index] == g: f.select_set(True); k += 1
+            bmesh.update_edit_mesh(me)
+            if k: bpy.ops.uv.smart_project(angle_limit=radians(66), island_margin=0.0)
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.uv.average_islands_scale()
+        bpy.ops.object.mode_set(mode='OBJECT')
+        uv = np.empty(len(me.loops) * 2, np.float32); me.uv_layers.active.data.foreach_get('uv', uv); uv = uv.reshape(-1, 2)
+        wl = np.empty(len(me.loops), np.float32); a2 = a3 = 0.0
+        for p, g in zip(me.polygons, gid):
+            q = uv[p.loop_start:p.loop_start + p.loop_total]; x, y = q[:, 0], q[:, 1]
+            a2 += abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))) / 2; a3 += p.area
+            wl[p.loop_start:p.loop_start + p.loop_total] = UVW[g] * (0.5 if oi else 1.0)
+        uv *= (sqrt(a3 / max(a2, 1e-12)) * wl)[:, None]
+        me.uv_layers.active.data.foreach_set('uv', uv.ravel())
+    _only(obs); bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
+    try:
+        bpy.ops.uv.pack_islands(rotate=True, margin_method='FRACTION', margin=0.002, shape_method='CONCAVE')
+    except TypeError:
+        bpy.ops.uv.pack_islands(rotate=True, margin=0.002)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    lo, hi, area, a3, pa = [9, 9], [-9, -9], 0.0, 0.0, 0.0
+    for oi, ob in enumerate(obs):
+        me = ob.data
+        uv = np.empty(len(me.loops) * 2, np.float32); me.uv_layers.active.data.foreach_get('uv', uv); uv = uv.reshape(-1, 2)
+        lo = [min(lo[i], float(uv[:, i].min())) for i in (0, 1)]; hi = [max(hi[i], float(uv[:, i].max())) for i in (0, 1)]
+        for p in me.polygons:
+            q = uv[p.loop_start:p.loop_start + p.loop_total]; x, y = q[:, 0], q[:, 1]
+            a = abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))) / 2; area += a
+            if oi == 0 and MATS[p.material_index] == 'paint': a3 += p.area; pa += a
+    # mm of paint per texel on the nearest level: what the occlusion map resolves.
+    return {'uv_lo': [round(v, 3) for v in lo], 'uv_hi': [round(v, 3) for v in hi], 'fill': round(area, 3),
+            'mm_per_texel': round(1000 * sqrt(a3 / max(pa, 1e-9)) / TEXN, 1)}
+
+
+def _bake_setup(samples_dist=0.6):
+    sc = bpy.context.scene
+    sc.render.engine = 'CYCLES'
+    try: sc.cycles.device = 'CPU'; sc.cycles.use_denoising = False
+    except Exception: pass
+    w = bpy.data.worlds.new('bakeworld'); sc.world = w
+    try: w.light_settings.distance = samples_dist
+    except Exception: pass
+    return sc
+
+
+def _target(mats, img):
+    for m in mats:
+        nt = m.node_tree
+        nd = nt.nodes.get('bake_target') or nt.nodes.new('ShaderNodeTexImage')
+        nd.name = 'bake_target'; nd.image = img
+        for x in nt.nodes: x.select = False
+        nd.select = True; nt.nodes.active = nd
+
+
+def _save(img, path, quality):
+    img.filepath_raw = path; img.file_format = 'WEBP'; img.save(quality=quality)
+    return round(os.path.getsize(path) / 1000)
+
+
+def bake_maps(kind, sets, P):
+    sc = _bake_setup()
+    imgN = bpy.data.images.new(kind + '_n', TEXN, TEXN, alpha=False); imgN.generated_color = (0.5, 0.5, 1.0, 1.0)
+    imgO = bpy.data.images.new(kind + '_o', TEXO, TEXO, alpha=False); imgO.generated_color = (1.0, 1.0, 1.0, 1.0)
+    for im in (imgN, imgO): im.colorspace_settings.name = 'Non-Color'
+    mats = [bpy.data.materials[n] for n in MATS]
+    bm = bmesh.new(); bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=30)
+    gme = bpy.data.meshes.new('bakeground'); bm.to_mesh(gme); bm.free()
+    ground = bpy.data.objects.new('bakeground', gme); sc.collection.objects.link(ground)
+    for b, w in sets: b.hide_render = True; w.hide_render = True
+    gi = MI['glass']
+    for level in (0, 1):
+        body, wheel = sets[level]
+        dup = body.copy(); dup.data = body.data.copy(); sc.collection.objects.link(dup); dup.hide_render = False
+        bm = bmesh.new(); bm.from_mesh(dup.data)
+        bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index == gi], context='FACES')
+        bm.to_mesh(dup.data); bm.free()
+        insts = []
+        for sxn in (1, -1):
+            for z in (P['wb'] / 2, -P['wb'] / 2):
+                o = bpy.data.objects.new('bw', wheel.data); sc.collection.objects.link(o)
+                o.location = B(sxn * P['track'] / 2, P['R'], z)
+                if sxn < 0: o.rotation_euler = (0, 0, pi)
+                insts.append(o)
+        _only([dup])
+        for img, typ, smp, margin in ((imgN, 'NORMAL', 2, 2), (imgO, 'AO', 48, 2)):
+            _target(mats, img); sc.cycles.samples = smp
+            bpy.ops.object.bake(type=typ, normal_space='TANGENT', margin=margin, use_clear=False)
+        for o in insts + [dup]: bpy.data.objects.remove(o)
+    bpy.data.objects.remove(ground)
+    for b, w in sets: b.hide_render = False; w.hide_render = False
+    # The relief has done its job; the exporter should not go looking at it.
+    for m in mats:
+        nt = m.node_tree
+        for l in list(nt.links):
+            if l.to_socket.name == 'Normal' and l.to_node.type == 'BSDF_PRINCIPLED': nt.links.remove(l)
+    return {'n_kB': _save(imgN, os.path.join(MODELS, kind + '_n.webp'), 90), 'o_kB': _save(imgO, os.path.join(MODELS, kind + '_o.webp'), 80)}
+
+
+def wheel_uv(ob, P, s):
+    """Tires onto the shared strip: u round the wheel (WREP repeats), v across the tread (0.02-0.70) or up the
+    sidewall (0.76-0.99). Everything else sits on the flat gap between the two."""
+    me = ob.data; R = P['R']; h = P['tw'] / 2; rr = R * s.g('rr', 0.67); ti = MI['tire']
+    uvl = me.uv_layers.new(name='UVMap').data
+    for p in me.polygons:
+        if p.material_index != ti:
+            for li in p.loop_indices: uvl[li].uv = (0.5, 0.74)
+            continue
+        c = p.center; ac = atan2(c.z, -c.y); tread = hypot(c.z, c.y) > R * 0.96
+        for li in p.loop_indices:
+            v = me.vertices[me.loops[li].vertex_index].co
+            a = atan2(v.z, -v.y)
+            if a - ac > pi: a -= 2 * pi
+            if a - ac < -pi: a += 2 * pi
+            if tread: vv = 0.02 + 0.68 * min(1.0, max(0.0, v.x / h * 0.5 + 0.5))
+            else: vv = 0.76 + 0.23 * min(1.0, max(0.0, (hypot(v.z, v.y) - rr) / (R - rr)))
+            uvl[li].uv = (a / (2 * pi) * WREP, vv)
+
+
+def wheel_texture():
+    """cars_wheel_n/_o.webp: a strip of real tread blocks and sidewall mouldings baked down onto a flat square.
+    One unit is a quarter of a meter; x is round the tire (the strip repeats), y across it."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    sc = _bake_setup(0.12)
+    bm = bmesh.new()
+    def blk(cx, cy, sx, sy, hgt, rot=0.0, taper=0.75):
+        for dx in (-1, 0, 1):
+            vs = []
+            for zt, k in ((0.0, 1.0), (hgt, taper)):
+                for ax, ay in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+                    x = ax * sx / 2 * (k if sx < 0.9 else 1.0); y = ay * sy / 2 * k
+                    vs.append(bm.verts.new((cx + dx + x * cos(rot) - y * sin(rot), cy + x * sin(rot) + y * cos(rot), zt)))
+            for i in range(4): bm.faces.new((vs[i], vs[(i + 1) % 4], vs[4 + (i + 1) % 4], vs[4 + i]))
+            bm.faces.new(vs[4:8])
+    bm.faces.new([bm.verts.new(q) for q in ((-1.5, -0.5, 0), (2.5, -0.5, 0), (2.5, 1.5, 0), (-1.5, 1.5, 0))])
+    for i in range(5):
+        blk(i * 0.2 + 0.1, 0.075, 0.15, 0.125, 0.032, 0.12); blk(i * 0.2, 0.645, 0.15, 0.125, 0.032, -0.12)
+    for i in range(4):
+        blk(i * 0.25 + 0.06, 0.27, 0.2, 0.115, 0.032, 0.38); blk(i * 0.25 + 0.185, 0.45, 0.2, 0.115, 0.032, -0.38)
+        # A sipe's worth of relief on each centre block.
+        blk(i * 0.25 + 0.06, 0.27, 0.09, 0.02, 0.04, 0.38 + pi / 2, 0.5); blk(i * 0.25 + 0.185, 0.45, 0.09, 0.02, 0.04, -0.38 + pi / 2, 0.5)
+    blk(0.5, 0.785, 1.0, 0.035, 0.014, 0.0, 0.4); blk(0.5, 0.885, 1.0, 0.012, 0.006, 0.0, 0.5)
+    for i in range(16): blk((i + 0.5) / 16, 0.945, 0.02, 0.07, 0.009, 0.0, 0.6)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    hme = bpy.data.meshes.new('treadhi'); bm.to_mesh(hme); bm.free()
+    hi = bpy.data.objects.new('treadhi', hme); sc.collection.objects.link(hi)
+    lme = bpy.data.meshes.new('treadlo'); lme.from_pydata([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [], [(0, 1, 2, 3)])
+    uvl = lme.uv_layers.new(name='UVMap').data
+    for i, q in enumerate(((0, 0), (1, 0), (1, 1), (0, 1))): uvl[i].uv = q
+    lo = bpy.data.objects.new('treadlo', lme); sc.collection.objects.link(lo)
+    m = bpy.data.materials.new('treadmat')
+    try: m.use_nodes = True
+    except Exception: pass
+    lme.materials.append(m)
+    out = {}
+    for tag, typ, smp, q in (('n', 'NORMAL', 4, 92), ('o', 'AO', 96, 85)):
+        img = bpy.data.images.new('wheel_' + tag, 512, 512, alpha=False); img.colorspace_settings.name = 'Non-Color'
+        _target([m], img); sc.cycles.samples = smp
+        bpy.ops.object.select_all(action='DESELECT'); hi.select_set(True); lo.select_set(True); bpy.context.view_layer.objects.active = lo
+        bpy.ops.object.bake(type=typ, normal_space='TANGENT', margin=0, use_clear=True, use_selected_to_active=True, cage_extrusion=0.2, max_ray_distance=0.5)
+        out[tag + '_kB'] = _save(img, os.path.join(MODELS, 'cars_wheel_' + tag + '.webp'), q)
+    print('STATS ' + json.dumps({'wheeltex': out}))
 
 
 # ── What makes each one itself ───────────────────────────────────────────────
@@ -1331,20 +1622,21 @@ def d_bus(s, lod):
             I('door', (x, ym, zc), (0.035, hg, w), 'trim', 0.03)
             for q in (-1, 1): I('door_glass', (x - 0.019, lerp(yb, yt, 0.6), zc + q * w / 4), (0.006, hg * 0.66, w / 2 - 0.09), 'glass')
             continue
-        # The shell is not cut, so the doors are made to read as recessed: a portal standing proud of the skin, and
-        # inside it two glazed leaves a hand's depth back, each folding on a rubber centre line.
-        I('portal_top', (x - 0.03, yt + 0.035, zc), (0.085, 0.07, w + 0.12), 'gloss', bevel=0.012)
-        for q in (-1, 1): I('portal_jamb', (x - 0.03, ym, zc + q * (w / 2 + 0.03)), (0.085, hg, 0.06), 'gloss', bevel=0.012)
-        I('well', (x - 0.004, ym, zc), (0.02, hg, w), 'trim', 0.012)
+        # The shell is cut here (Car.shell): a lintel closes the opening above the leaves, and the two glazed leaves
+        # hang a hand's depth inside it, each folding on a rubber centre line.
+        xi = x + 0.06; top = roof - 0.2
+        I('lintel', (x + 0.035, (yt + top) / 2 + 0.03, zc), (0.07, top - yt + 0.12, w + 0.02), 'gloss', bevel=0.01)
+        for q in (-1, 1): I('jamb', (x + 0.035, ym, zc + q * (w / 2 - 0.012)), (0.07, hg, 0.03), 'gloss')
+        I('well', (xi + 0.012, ym, zc), (0.02, hg, w), 'trim', 0.012)
         for q in (-1, 1):
             zl = zc + q * w / 4; lw = w / 2 - 0.02
-            I('leaf', (x - 0.016, ym, zl), (0.014, hg - 0.03, lw), 'trim', 0.035, bevel=0.004)
+            I('leaf', (xi, ym, zl), (0.014, hg - 0.03, lw), 'trim', 0.035, bevel=0.004)
             for f2 in (-1, 1):
-                I('leaf_glass', (x - 0.025, lerp(yb, yt, 0.63), zl + f2 * lw / 4), (0.006, hg * 0.58, lw / 2 - 0.05), 'glass', (1.0, 1.0, 1.0, 0.75))
-                I('kick_glass', (x - 0.025, lerp(yb, yt, 0.17), zl + f2 * lw / 4), (0.006, hg * 0.2, lw / 2 - 0.05), 'glass', (1.0, 1.0, 1.0, 0.75))
-            I('fold', (x - 0.026, ym, zl), (0.008, hg - 0.05, 0.016), 'gloss')
-            I('grab', (x - 0.034, lerp(yb, yt, 0.5), zl - q * (lw / 2 - 0.035)), (0.016, hg * 0.4, 0.016), 'chrome', (0.8, 0.65, 0.08))
-        I('seal', (x - 0.027, ym, zc), (0.012, hg - 0.03, 0.03), 'gloss')
+                I('leaf_glass', (xi - 0.009, lerp(yb, yt, 0.63), zl + f2 * lw / 4), (0.006, hg * 0.58, lw / 2 - 0.05), 'glass', (1.0, 1.0, 1.0, 0.75))
+                I('kick_glass', (xi - 0.009, lerp(yb, yt, 0.17), zl + f2 * lw / 4), (0.006, hg * 0.2, lw / 2 - 0.05), 'glass', (1.0, 1.0, 1.0, 0.75))
+            I('fold', (xi - 0.01, ym, zl), (0.008, hg - 0.05, 0.016), 'gloss')
+            I('grab', (xi - 0.018, lerp(yb, yt, 0.5), zl - q * (lw / 2 - 0.035)), (0.016, hg * 0.4, 0.016), 'chrome', (0.8, 0.65, 0.08))
+        I('seal', (xi - 0.011, ym, zc), (0.012, hg - 0.03, 0.03), 'gloss')
         # The step it kneels to, with its yellow nosing.
         I('step', (x - 0.035, yb - 0.035, zc), (0.11, 0.035, w + 0.04), 'trim', 0.03)
         I('nosing', (x - 0.088, yb - 0.03, zc), (0.012, 0.03, w), 'trim', (0.75, 0.55, 0.04))
@@ -1418,20 +1710,34 @@ def d_bolt(s, lod):
     if lod: return out
     I('fin', (0, P['roof'][3] + 0.035, P['rhead'] + 0.22), (0.05, 0.05, 0.15), 'trim', 0.02, bevel=0.012, pitch=radians(-14))
     I('wiper_r', (0.12, P['deck'] + 0.07, P['deckf'] + 0.03), (0.34, 0.012, 0.018), 'trim', 0.01)
-    rk = lambda y: s.rake(1, y)
-    # The closed 'grille': a blank panel with a raised pattern, no slats. Dashes follow the curve of the nose.
-    y0, y1, zf, gw = s.face[1]
-    for r in range(3):
-        y = lerp(y0, y1, (r + 1) / 4); m = 7 - r % 2
-        for i in range(m):
-            x = (i - (m - 1) / 2) * 0.115
-            if abs(x) < 0.09 and r == 1: continue
-            I('dash', (x, y, s.zplan(x, 1) - rk(y) - 0.016), (0.07, 0.014, 0.012), 'trim', 0.09)
+    # The face. Between the lamps a closed panel, not a grille: a shield, square-shouldered under the bonnet edge and
+    # rounding in to a blunt point above the number plate, patterned (the 'grille' relief in the normal map), with a
+    # bright bar across its top carrying the bowtie. All of it is laid on the skin by Car.panel.
     T, Bt = P['bumper_top'][0], P['bumper_bot'][0]
-    # The panel runs on below the lamps, narrower: the real one is a shield, deeper than the lamps beside it.
-    I('grille_low', (0, lerp(Bt, T, 0.55), P['nose'] - 0.014), (0.74, 0.21, 0.02), 'gloss', bevel=0.012)
-    for i in range(4):
-        I('bar', (0, lerp(Bt, T, 0.36 + 0.125 * i), P['nose'] - 0.003), (0.68 - 0.04 * abs(i - 1.5), 0.012, 0.01), 'trim', 0.08)
+    shield = lambda y: 0.335 if y > 0.63 else 0.335 * max(0.0, 1 - ((0.63 - y) / 0.2) ** 2.4) ** (1 / 2.4)
+    out.append(s.panel('shield', [0.752, 0.72, 0.68, 0.64, 0.60, 0.56, 0.52, 0.485, 0.455], shield, 'grille', 0.05, off=0.005))
+    out.append(s.panel('shield_bar', [0.752, 0.737, 0.722], 0.335, 'chrome', None, off=0.009))
+    # The black mask: from the inner end of each head lamp a gloss-black blade runs down and out across the bumper to
+    # the lamp pod at its corner, so lamp, blade and pod read as one dark shape either side of the shield.
+    bx = lambda y: 0.47 + 0.20 * smooth((0.665 - y) / 0.24)
+    bw = lambda y: 0.062 - 0.012 * smooth((0.665 - y) / 0.3)
+    for sx in (1, -1):
+        out.append(s.panel('mask', [0.672, 0.63, 0.58, 0.53, 0.48, 0.43, 0.37, 0.31, 0.275], bw, 'gloss', None, nx=2, off=0.005,
+                           xc=lambda y, sx=sx: sx * bx(y)))
+        # Daytime lamp: an upright strip in the foot of the blade.
+        out.append(s.panel('drl', [0.455, 0.40, 0.345, 0.30], 0.014, 'lamp_drl', None, nx=1, off=0.009, xc=lambda y, sx=sx: sx * (bx(y) + 0.004)))
+    # The low intake, the only opening in the face: a wide dark mouth between the two pods, three bars across it.
+    mouth = lambda y: 0.52 - 0.5 * (0.365 - y)
+    out.append(s.panel('mouth', [0.365, 0.33, 0.29, 0.255, 0.235], mouth, 'trim', 0.006, off=0.004))
+    for yb_ in (0.335, 0.297, 0.262):
+        out.append(s.panel('bar', [yb_ + 0.007, yb_ - 0.007], lambda y: mouth(y) - 0.025, 'trim', 0.07, off=0.009))
+    zN = P['nose'] - 0.014; nf = P['n_front']
+    # Gold bowties, front and rear: a long bar and a short thick one across its middle.
+    yb = 0.737; zb = s.wrap([(0, yb)], 1, 0.004)[0][2]
+    I('bowtie', (0, yb, zb), (0.125, 0.024, 0.02), 'trim', GOLD); I('bowtie', (0, yb, zb), (0.062, 0.042, 0.022), 'trim', GOLD)
+    y0, y1, zr, _ = s.face[-1]
+    yb = y1 - 0.035; zb = zr + s.rake(-1, yb) - s.rake(-1, (y0 + y1) / 2) + 0.002
+    I('bowtie', (0, yb, zb), (0.11, 0.022, 0.016), 'trim', GOLD); I('bowtie', (0, yb, zb), (0.055, 0.038, 0.018), 'trim', GOLD)
     # Roof rails: a satin bar a side, following the roof, standing on a foot at each end.
     for sx in (1, -1):
         v = []; f = []; n = 10; za, zb_ = P['header'] - 0.1, P['rhead'] + 0.1
@@ -1450,20 +1756,6 @@ def d_bolt(s, lod):
     for sx in (1, -1):
         I('rev', (sx * 0.5, lerp(Br, Tr, 0.4), -(P['tail'] - 0.012)), (0.2, 0.035, 0.012), 'lamp_rev', bevel=0.004)
         I('reflector', (sx * 0.5, lerp(Br, Tr, 0.27), -(P['tail'] - 0.014)), (0.2, 0.022, 0.012), 'lamp_tail', bevel=0.004)
-    # The slim intake under it, and the upright daytime lamps at the corners of the bumper.
-    I('mouth', (0, Bt + 0.075, P['nose'] - 0.004), (0.64, 0.06, 0.014), 'trim', 0.006, bevel=0.004)
-    zN = P['nose'] - 0.014; nf = P['n_front']
-    for sx in (1, -1):
-        x = 0.68
-        z = P['zs'] + (zN - P['zs']) * (1 - (x / (hw + 0.004)) ** nf) ** (1 / nf)
-        I('drl', (sx * x, lerp(Bt, T, 0.52), z + 0.002), (0.04, 0.16, 0.03), 'lamp_drl', bevel=0.006)
-        I('drl_pod', (sx * x, lerp(Bt, T, 0.52), z - 0.008), (0.085, 0.21, 0.03), 'gloss', bevel=0.01)
-    # Gold bowties, front and rear: a long bar and a short thick one across its middle.
-    yb = lerp(y0, y1, 0.5); zb = zf - 0.012
-    I('bowtie', (0, yb, zb), (0.125, 0.024, 0.02), 'trim', GOLD); I('bowtie', (0, yb, zb), (0.062, 0.042, 0.022), 'trim', GOLD)
-    y0, y1, zr, _ = s.face[-1]
-    yb = y1 - 0.035; zb = zr + s.rake(-1, yb) - s.rake(-1, (y0 + y1) / 2) + 0.002
-    I('bowtie', (0, yb, zb), (0.11, 0.022, 0.016), 'trim', GOLD); I('bowtie', (0, yb, zb), (0.055, 0.038, 0.018), 'trim', GOLD)
     # The charge port: a flap on the driver's front wing, between the arch and the door.
     zc, yc = 1.0, P['belt'] - 0.15
     x = max(s.xat(zc, yc - 0.07), s.xat(zc, yc + 0.07))
@@ -1471,8 +1763,8 @@ def d_bolt(s, lod):
     I('port', (x - 0.002, yc, zc), (0.012, 0.15, 0.17), 'paint', bevel=0.004)
     # The rear seat, which the shared interior would put under the tailgate glass on a body this cab-forward.
     seat = (0.075, 0.062, 0.05); xs = 2 * (hw - 0.107); e = min(P['belt'] - 0.935, sill - 0.17 + 0.12)
-    I('bench', (0, 0.44 + e, -0.62), (xs - 0.26, 0.16, 0.5), 'interior', seat, bevel=0.04)
-    I('benchback', (0, 0.76 + e, -0.92), (xs - 0.26, 0.58, 0.13), 'interior', seat, bevel=0.04, pitch=radians(18))
+    I('bench', (0, 0.44 + e, -0.62), (xs - 0.26, 0.16, 0.5), 'seat', seat, bevel=0.04)
+    I('benchback', (0, 0.76 + e, -0.92), (xs - 0.26, 0.58, 0.13), 'seat', seat, bevel=0.04, pitch=radians(18))
     I('shelf', (0, P['belt'] + 0.02, -1.38), (xs - 0.2, 0.04, 0.72), 'interior', 0.03)
     return out
 
@@ -1570,16 +1862,23 @@ def render(kind, P, sets, extra=False):
 
 # ── Build one vehicle ────────────────────────────────────────────────────────
 
-def build(kind, do_render=True, do_export=True, extra=False):
+def build(kind, do_render=True, do_export=True, extra=False, do_tex=True):
     P = VEHICLES[kind]
     bpy.ops.wm.read_factory_settings(use_empty=True)
     make_materials(P['paint'])
+    if do_tex: relief()
     car = Car(P); car.kind = kind; sets = []; stats = {}
     # Three levels: 0 the showroom car (everything), 1 the street car (the same recipe without the hi-only parts),
     # 2 the unsubdivided cage for distance and for phones. The functions below still take the old two-way flag.
     for level in (0, 1, 2):
         lod = 1 if level == 2 else 0; car.hi = level == 0
-        parts = [car.shell(lod), car.bumper(1, lod), car.bumper(-1, lod)] + car.underbody(lod) + car.fittings(lod)
+        parts = [car.shell(lod), car.bumper(1, lod), car.bumper(-1, lod)]
+        # The skin, for anything that has to lie on it (Car.wrap).
+        V = []; F = []
+        for ob in parts:
+            n = len(V); V += [v.co.copy() for v in ob.data.vertices]; F += [[n + i for i in q.vertices] for q in ob.data.polygons]
+        car.skin = BVHTree.FromPolygons(V, F)
+        parts += car.underbody(lod) + car.fittings(lod)
         if kind in DETAIL: parts += DETAIL[kind](car, lod)
         if lod == 0: parts += car.interior()
         if lod == 0 and car.covers: parts.append(car.cover_obj())
@@ -1589,11 +1888,16 @@ def build(kind, do_render=True, do_export=True, extra=False):
         for sx in (1, -1):
             for z in (P['wb'] / 2, -P['wb'] / 2):
                 M.append((wheel.data, Matrix.Translation(B(sx * P['track'] / 2, P['R'], z)) @ (Matrix.Rotation(pi, 4, 'Z') if sx < 0 else Matrix.Identity(4))))
-        bake(body, M)
+        # The two near levels get their occlusion from a baked map (bake_maps), the far one keeps it in its vertices.
+        bake(body, M, rays=level == 2 or not do_tex)
         bake(wheel, ground=False, reach=0.25, floor=0.5)
         shade(body); shade(wheel, 40)
+        if do_tex and level < 2: wheel_uv(wheel, P, car)
         sets.append((body, wheel))
         stats[f'LOD{level}'] = tris(body); stats[f'WHEEL{level}'] = tris(wheel)
+    if do_tex:
+        stats['uv'] = unwrap([sets[0][0], sets[1][0]], P['sill'])
+        if do_export: stats['tex'] = bake_maps(kind, sets, P)
     marks = []
     hd = car.lamp_c.get(1, {}).get('lamp_head'); tl = car.lamp_c.get(-1, {}); tl = tl.get('lamp_brake') or tl.get('lamp_tail')
     for nm, q in (('HEAD', hd), ('TAIL', tl)):
@@ -1605,13 +1909,13 @@ def build(kind, do_render=True, do_export=True, extra=False):
     hi = [max(v.co[i] for v in sets[0][0].data.vertices) for i in range(3)]
     stats['WLH'] = [round(hi[0] - lo[0], 2), round(hi[1] - lo[1], 2), round(hi[2], 2)]
     if do_export:
-        out = os.path.join(ROOT, 'public', 'models'); os.makedirs(out, exist_ok=True)
+        out = MODELS; os.makedirs(out, exist_ok=True)
         path = os.path.join(out, kind + '.glb')
         bpy.ops.object.select_all(action='DESELECT')
         for b, w in sets: b.select_set(True); w.select_set(True)
         for o in marks: o.select_set(True)
         bpy.ops.export_scene.gltf(filepath=path, export_format='GLB', use_selection=True, export_yup=True, export_apply=False,
-                                  export_texcoords=False, export_normals=True, export_tangents=False, export_materials='EXPORT',
+                                  export_texcoords=do_tex, export_normals=True, export_tangents=False, export_materials='EXPORT',
                                   export_vertex_color='ACTIVE', export_all_vertex_colors=False,
                                   export_active_vertex_color_when_no_material=True, export_animations=False,
                                   export_skins=False, export_morph=False, export_extras=False)
@@ -1627,13 +1931,15 @@ def build(kind, do_render=True, do_export=True, extra=False):
 
 if __name__ == '__main__':
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
+    if '--wheel-tex' in argv:
+        wheel_texture(); sys.exit(0)
     kinds = [a for a in argv if not a.startswith('--')] or list(VEHICLES)
     for a in argv:
         if a.startswith('--paint='):
             for k in kinds: VEHICLES[k] = dict(VEHICLES[k], paint=tuple(float(x) for x in a[8:].split(',')))
     for k in kinds:
         try:
-            build(k, '--no-render' not in argv, '--no-export' not in argv, '--all-views' in argv)
+            build(k, '--no-render' not in argv, '--no-export' not in argv, '--all-views' in argv, '--no-tex' not in argv)
         except Exception:
             import traceback
             print('FAILED ' + k); traceback.print_exc()
