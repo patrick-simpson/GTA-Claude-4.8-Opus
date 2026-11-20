@@ -21,6 +21,7 @@ import { Cheats } from './cheats';
 import { Ambient } from '../sim/ambient';
 import { Police } from '../sim/police';
 import { Post } from './post';
+import { flip } from './flip';
 import { Fx } from '../fx/particles';
 import { Skids } from '../fx/skids';
 import { ProgressWorks, progress } from '../world/progress';
@@ -59,6 +60,8 @@ export class Game {
   readonly quality: Quality = pickQuality();
   /** Ambient occlusion, bloom, the tone map and the grade. Null on the `low` preset and with `?post=0`: a plain render straight to the canvas. */
   readonly post: Post | null;
+  /** The two-copy instance buffers (core/flip.ts), here so tools can switch them off and measure. */
+  readonly flip = flip;
 
   world!: World;
   sky!: Sky;
@@ -116,6 +119,7 @@ export class Game {
     progress.init(this.plan);
     this.post = post ? new Post(this) : null;
     this.post?.setSize(innerWidth, innerHeight, this.renderer.getPixelRatio());
+    if (new URLSearchParams(location.search).get('flip') === '0') flip.enabled = false;
     addEventListener('resize', () => this.resize());
   }
 
@@ -270,6 +274,8 @@ export class Game {
       this.camera.lookAt(this.view.target);
     }
     this.renderer.info.reset();
+    // Buffers that changed this frame move to the copy the GPU is not still reading (core/flip.ts).
+    flip.swap();
     if (this.post?.enabled) this.post.render();
     else {
       this.renderer.setRenderTarget(null);

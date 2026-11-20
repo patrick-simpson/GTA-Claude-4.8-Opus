@@ -21,6 +21,13 @@
 // below for why not gl.finish): the median batch, and the best tenth. A path is 240 frames of the player being
 // carried along a street with the simulation running (tick + render), so it also catches the
 // hitches a still cannot: level-of-detail swaps, spawns, uploads.
+// What the two numbers mean (M6, Nov 20): a still never ticks, so it sends no instance buffers and reads as the
+// GPU's own time for the picture. A path waits for the GPU after EVERY frame, so it reads CPU + GPU end to end
+// plus about 5 ms for the wait itself: it overstates what a player gets and cannot see a change that only lets
+// the CPU and the GPU work in parallel (src/core/flip.ts took the real loop from 51 to 65 frames a second
+// downtown and moved this path number by 1 ms). For the frame rate of the running game use
+// scratch/m6/rafprobe.mjs --vsync: the real loop, requestAnimationFrame, no forced wait, standing and moving,
+// with 'noFlip' as the same build with the two-copy buffers switched off.
 // One JSON line per result, then a table. Exits 1 on any console error.
 
 import { boot } from './pw.mjs';

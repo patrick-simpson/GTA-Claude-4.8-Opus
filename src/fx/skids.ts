@@ -9,6 +9,7 @@
 // revisited a few times a second and only that slice is sent to the GPU.
 
 import * as THREE from 'three';
+import { flip } from '../core/flip';
 import type { Game } from '../core/game';
 import type { Vehicle } from '../core/api';
 import { BRIDGE, WATER_Y, groundAt, terrainAt } from '../world/plan';
@@ -93,6 +94,7 @@ export class Skids {
     this.aUA = new THREE.BufferAttribute(this.ua, 2).setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('position', this.aPos);
     geo.setAttribute('aUA', this.aUA);
+    flip.geo(geo, 'position'); flip.geo(geo, 'aUA');
     const idx = new Uint16Array(SEGS * 6);
     for (let i = 0; i < SEGS; i++) {
       const v = i * 4, o = i * 6;

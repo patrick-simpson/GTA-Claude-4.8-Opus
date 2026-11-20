@@ -21,6 +21,7 @@
 // legal because the target is multisampled; onBeforeRender checks.
 
 import * as THREE from 'three';
+import { flip, sendRange } from '../core/flip';
 import type { Game } from '../core/game';
 import type { Vehicle } from '../core/api';
 import type { Prop } from '../world/collide';
@@ -253,7 +254,7 @@ class Pool {
     this.geo.setAttribute('uv', quad.getAttribute('uv'));
     const attr = (name: string): THREE.InstancedBufferAttribute => {
       const at = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4).setUsage(THREE.DynamicDrawUsage);
-      this.geo.setAttribute(name, at);
+      this.geo.setAttribute(name, at); flip.geo(this.geo, name);
       return at;
     };
     this.aPos = attr('aPos'); this.aCol = attr('aCol'); this.aVel = attr('aVel'); this.aMisc = attr('aMisc');
@@ -323,7 +324,7 @@ class Pool {
     this.mesh.visible = n > 0;
     if (n > 0) {
       for (const at of [this.aPos, this.aCol, this.aVel, this.aMisc] as const) {
-        at.clearUpdateRanges(); at.addUpdateRange(0, n * 4); at.needsUpdate = true;
+        sendRange(at, n * 4);
       }
     }
   }

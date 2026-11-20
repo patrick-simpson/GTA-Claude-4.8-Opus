@@ -19,6 +19,7 @@
 // the right, which DEcreases the heading (see core/util.ts).
 
 import * as THREE from 'three';
+import { flip, sendRange } from '../core/flip';
 import type { Game } from '../core/game';
 import type { Vehicle, VehicleControls, VehiclesApi } from '../core/api';
 import { RNG, clamp, clamp01, damp, smooth } from '../core/util';
@@ -101,6 +102,28 @@ interface SetParts {
   lampGeo: THREE.BufferGeometry | null;
 }
 
+// Instance buffers are only sent to the GPU when what is written into them differs from what is already there.
+// Parked cars do not move, so most of the hundred-odd buffers the cars own are the same from one frame to the
+// next, and on this GPU's driver every upload costs far more than its bytes (M6: 5 to 10 ms a frame for all of them).
+/** Copy `len` values in; true if any was different. */
+function put(a: Float32Array, at: number, src: Float32Array, len: number): boolean {
+  let ch = false;
+  for (let j = 0; j < len; j++) { const v = src[j]; if (a[at + j] !== v) { a[at + j] = v; ch = true; } }
+  return ch;
+}
+function put1(a: Float32Array, k: number, x: number): boolean { const o = a[k]; a[k] = x; return a[k] !== o; }
+function put3(a: Float32Array, k: number, x: number, y: number, z: number): boolean {
+  const o0 = a[k], o1 = a[k + 1], o2 = a[k + 2];
+  a[k] = x; a[k + 1] = y; a[k + 2] = z;
+  return a[k] !== o0 || a[k + 1] !== o1 || a[k + 2] !== o2;
+}
+function put4(a: Float32Array, k: number, x: number, y: number, z: number, w: number): boolean {
+  const o0 = a[k], o1 = a[k + 1], o2 = a[k + 2], o3 = a[k + 3];
+  a[k] = x; a[k + 1] = y; a[k + 2] = z; a[k + 3] = w;
+  return a[k] !== o0 || a[k + 1] !== o1 || a[k + 2] !== o2 || a[k + 3] !== o3;
+}
+const D_MAT = 1, D_COL = 2, D_DIRT = 4, D_LAMP = 8, D_LAMP2 = 16, D_WHEEL = 32;
+
 /** One kind at one level of detail: the body meshes, which share a matrix buffer, and its wheels. */
 interface DrawSet {
   parts: SetParts;
@@ -122,6 +145,10 @@ interface DrawSet {
   n: number; nw: number;
   /** How many of the n instances (and nw wheels), counted from the front, are close enough to cast a shadow into view. */
   near: number; nwNear: number;
+  /** Which buffers this frame's writes changed (D_MAT and the rest). */
+  dirty: number;
+  /** The buffers registered with core/flip.ts, to take back out when the set is rebuilt. */
+  flips: THREE.BufferAttribute[];
 }
 
 interface KindBatch {
@@ -552,6 +579,7 @@ class Sprites {
   readonly pos: Float32Array;
   readonly col: Float32Array;
   n = 0;
+  private dP = false; private dC = false;
   private geo = new THREE.InstancedBufferGeometry();
   private aPos: THREE.InstancedBufferAttribute;
   private aCol: THREE.InstancedBufferAttribute;
@@ -568,6 +596,7 @@ class Sprites {
     this.aCol = new THREE.InstancedBufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage);
     this.geo.setAttribute('aPos', this.aPos);
     this.geo.setAttribute('aCol', this.aCol);
+    flip.geo(this.geo, 'aPos'); flip.geo(this.geo, 'aCol');
     this.geo.instanceCount = 0;
     const mat = tint ? new THREE.ShaderMaterial({
       uniforms: { map: { value: map }, tint: { value: tint } }, vertexShader: vs, fragmentShader: FLAT_FS,
@@ -586,14 +615,15 @@ class Sprites {
   add(x: number, y: number, z: number, a: number, b: number, c: number, d: number): void {
     if (this.n >= this.cap) return;
     const i = this.n++;
-    this.pos[i * 3] = x; this.pos[i * 3 + 1] = y; this.pos[i * 3 + 2] = z;
-    this.col[i * 4] = a; this.col[i * 4 + 1] = b; this.col[i * 4 + 2] = c; this.col[i * 4 + 3] = d;
+    if (put3(this.pos, i * 3, x, y, z)) this.dP = true;
+    if (put4(this.col, i * 4, a, b, c, d)) this.dC = true;
   }
 
   flush(): void {
     this.geo.instanceCount = this.n;
     this.mesh.visible = this.n > 0;
-    if (this.n > 0) { this.aPos.needsUpdate = true; this.aCol.needsUpdate = true; }
+    if (this.n > 0) { if (this.dP) sendRange(this.aPos, this.n * 3); if (this.dC) sendRange(this.aCol, this.n * 4); }
+    this.dP = this.dC = false;
   }
 }
 
@@ -1691,7 +1721,7 @@ export class Vehicles implements VehiclesApi {
     b.sets = list.map((parts) => {
       const s: DrawSet = {
         parts, body: [], wheels: null!, mats: null!, cols: null!, dirt: null!, dirtAttr: null, wmats: null!, lamps: null, lamps2: null, lampAttr: null, lampAttr2: null,
-        cap: b.cap, wcap: b.cap * p.wheels.length, n: 0, nw: 0, near: 0, nwNear: 0,
+        cap: b.cap, wcap: b.cap * p.wheels.length, n: 0, nw: 0, near: 0, nwNear: 0, dirty: 0, flips: [],
       };
       this.fillSet(s);
       return s;
@@ -1716,18 +1746,30 @@ export class Vehicles implements VehiclesApi {
       return m;
     };
     s.body = [make(q.paint, false), ...q.others.map((o) => make(o, false))];
-    s.body[0].instanceColor = dyn(s.cols, 3);
+    const paint = s.body[0], cols = dyn(s.cols, 3);
+    paint.instanceColor = cols;
     s.dirt = new Float32Array(s.cap); s.dirtAttr = dyn(s.dirt, 1);
     q.paint[0].setAttribute('aDirt', s.dirtAttr);
     s.wheels = make(q.wheel, true);
+    // Every one of these is rewritten while cars move: each gets a second copy on the GPU (core/flip.ts).
+    const body = s.body, wheels = s.wheels, wm = wheels.instanceMatrix;
+    flip.add(bodyMats, (x) => { for (const m of body) m.instanceMatrix = x as THREE.InstancedBufferAttribute; });
+    flip.add(cols, (x) => { paint.instanceColor = x as THREE.InstancedBufferAttribute; });
+    flip.geo(q.paint[0], 'aDirt');
+    flip.add(wm, (x) => { wheels.instanceMatrix = x as THREE.InstancedBufferAttribute; });
+    s.flips = [bodyMats, cols, s.dirtAttr, wm];
     if (q.lampGeo) {
       s.lamps = new Float32Array(s.cap * 4); s.lamps2 = new Float32Array(s.cap * 3);
       s.lampAttr = dyn(s.lamps, 4); s.lampAttr2 = dyn(s.lamps2, 3);
       q.lampGeo.setAttribute('aLamp', s.lampAttr); q.lampGeo.setAttribute('aLamp2', s.lampAttr2);
+      flip.geo(q.lampGeo, 'aLamp'); flip.geo(q.lampGeo, 'aLamp2');
+      s.flips.push(s.lampAttr, s.lampAttr2);
     }
   }
 
   private dropSet(s: DrawSet): void {
+    for (const a of s.flips) flip.remove(a);
+    s.flips = [];
     for (const m of [...s.body, s.wheels]) { this.game.scene.remove(m); m.dispose(); }
   }
 
@@ -1774,7 +1816,7 @@ export class Vehicles implements VehiclesApi {
     const cam = game.view ? game.view.pos : game.camera.position;
     const far = game.quality.drawDist * 0.7, far2 = far * far;
     const glow = this.glow, pool = this.pool, shadow = this.shadow;
-    for (const b of this.batchList) for (const s of b.sets) { s.n = 0; s.nw = 0; }
+    for (const b of this.batchList) for (const s of b.sets) { s.n = 0; s.nw = 0; s.dirty = 0; }
     glow.n = 0; pool.n = 0; shadow.n = 0;
 
     // Two passes so the cars near enough to throw a shadow into view come first in every buffer: the shadow pass
@@ -1817,27 +1859,26 @@ export class Vehicles implements VehiclesApi {
       let s = b.sets[b.pick[c.lod]];
       if (s.n >= s.cap) this.growSet(s);
       const i = s.n++;
-      s.mats.set(c.mat, i * 16);
+      let dirty = s.dirty;
+      if (put(s.mats, i * 16, c.mat, 16)) dirty |= D_MAT;
       if (c.color !== c.shown) { _col.setHex(c.color); c.cr = _col.r; c.cg = _col.g; c.cb = _col.b; c.shown = c.color; }
-      s.cols[i * 3] = c.cr; s.cols[i * 3 + 1] = c.cg; s.cols[i * 3 + 2] = c.cb;
-      s.dirt[i] = c.wreck ? 0.7 : c.dirt;
+      if (put3(s.cols, i * 3, c.cr, c.cg, c.cb)) dirty |= D_COL;
+      if (put1(s.dirt, i, c.wreck ? 0.7 : c.dirt)) dirty |= D_DIRT;
       // The lenses themselves light up; the glow sprites in lamps() are the halo round them.
       if (s.lamps && s.lamps2) {
-        const L = s.lamps, L2 = s.lamps2;
-        L[i * 4] = c.lights ? 2.8 : 0;
-        L[i * 4 + 1] = b.sections ? (c.lights ? 1.1 : 0) : c.braking ? 3.5 : c.lights ? 0.9 : 0;
         // One lens does both jobs on most cars: the brake section glows dimly with the tail lamps and flares when braking.
-        L[i * 4 + 2] = c.braking ? 3.6 : c.lights ? 0.8 : 0;
-        L[i * 4 + 3] = c.reversing ? 2.6 : 0;
+        if (put4(s.lamps, i * 4, c.lights ? 2.8 : 0, b.sections ? (c.lights ? 1.1 : 0) : c.braking ? 3.5 : c.lights ? 0.9 : 0,
+          c.braking ? 3.6 : c.lights ? 0.8 : 0, c.reversing ? 2.6 : 0)) dirty |= D_LAMP;
         // Indicators: on while a driver holds a real turn at town speed, and for a moment after, like a stalk that cancels late.
         if (c.driver !== null && Math.abs(c.ctl.steer) > 0.45 && c.vx * c.vx + c.vz * c.vz < 170) { c.turn = c.ctl.steer > 0 ? -1 : 1; c.turnEnd = this.time + 1.3; }
         else if (c.turn !== 0 && (this.time > c.turnEnd || c.driver === null)) c.turn = 0;
-        L2[i * 3] = blink && c.turn > 0 ? 3 : 0; L2[i * 3 + 1] = blink && c.turn < 0 ? 3 : 0;
-        L2[i * 3 + 2] = c.driver !== null && !c.sunk ? (c.lights ? 1.2 : 1.8) : 0;
+        if (put3(s.lamps2, i * 3, blink && c.turn > 0 ? 3 : 0, blink && c.turn < 0 ? 3 : 0,
+          c.driver !== null && !c.sunk ? (c.lights ? 1.2 : 1.8) : 0)) dirty |= D_LAMP2;
       }
 
       // Past a few hundred meters a wheel is a pixel in the shade of its arch. (wcap is cap times the wheels per car, so these always fit.)
-      if (d3 < WHEEL_R2) { s.wmats.set(c.wmat, s.nw * 16); s.nw += c.wmat.length / 16; }
+      if (d3 < WHEEL_R2) { if (put(s.wmats, s.nw * 16, c.wmat, c.wmat.length)) dirty |= D_WHEEL; s.nw += c.wmat.length / 16; }
+      s.dirty = dirty;
 
       // The dark under the car. The sun's shadow does this at noon; at dusk, at night and with shadows off nothing
       // else does, and the car floats. It stays behind when the car leaves the ground.
@@ -1858,13 +1899,14 @@ export class Vehicles implements VehiclesApi {
       const on = s.n > 0;
       for (const m of s.body) { m.count = s.n; m.visible = on; }
       s.wheels.count = s.nw; s.wheels.visible = s.nw > 0;
-      if (!on) continue;
-      s.body[0].instanceMatrix.needsUpdate = true;
-      s.body[0].instanceColor!.needsUpdate = true;
-      if (s.dirtAttr) s.dirtAttr.needsUpdate = true;
-      if (s.lampAttr) s.lampAttr.needsUpdate = true;
-      if (s.lampAttr2) s.lampAttr2.needsUpdate = true;
-      if (s.nw) s.wheels.instanceMatrix.needsUpdate = true;
+      const d = s.dirty;
+      if (!on || !d) continue;
+      if (d & D_MAT) sendRange(s.body[0].instanceMatrix, s.n * 16);
+      if (d & D_COL) sendRange(s.body[0].instanceColor!, s.n * 3);
+      if (d & D_DIRT && s.dirtAttr) sendRange(s.dirtAttr, s.n);
+      if (d & D_LAMP && s.lampAttr) sendRange(s.lampAttr, s.n * 4);
+      if (d & D_LAMP2 && s.lampAttr2) sendRange(s.lampAttr2, s.n * 3);
+      if (d & D_WHEEL && s.nw) sendRange(s.wheels.instanceMatrix, s.nw * 16);
     }
     glow.flush(); pool.flush(); shadow.flush();
   }

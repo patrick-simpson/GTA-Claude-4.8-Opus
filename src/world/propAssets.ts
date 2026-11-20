@@ -13,6 +13,8 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { putChanged } from '../core/util';
+import { flip, sendRange } from '../core/flip';
 
 /** Inside this the modelled prop is drawn, outside it the one built in code. A hydrant is 14 pixels tall at this range. */
 export const NEAR = 42;
@@ -78,6 +80,8 @@ export class PropField {
       const cap = 96;
       const mesh = new THREE.InstancedMesh(k.geo, mat, cap);
       mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      flip.mesh(mesh, true);
       // The model built in code is still in the shadow pass, so this one need not be.
       mesh.castShadow = false; mesh.receiveShadow = true;
       mesh.frustumCulled = false; mesh.matrixAutoUpdate = false;
@@ -99,7 +103,8 @@ export class PropField {
     const R2 = (NEAR + 2.5) ** 2;
     for (const e of this.entries) {
       const out = e.mesh.instanceMatrix.array as Float32Array, oc = e.mesh.instanceColor!.array as Float32Array;
-      let n = 0;
+      // Walking a block changes which benches are near for a kind or two, not for all of them: send only those.
+      let n = 0, chM = false, chC = false;
       for (let b = 0; b < e.src.length && n < e.cap; b++) {
         const s = e.src[b], sp = e.at[b];
         if (!s.visible || Math.hypot(sp.center.x - _p.x, sp.center.z - _p.z) > sp.radius + NEAR + 3) continue;
@@ -108,13 +113,15 @@ export class PropField {
           const o = i * 16, dx = m[o + 12] - _p.x, dz = m[o + 14] - _p.z;
           // A broken prop is scaled to nothing.
           if (dx * dx + dz * dz > R2 || (m[o] === 0 && m[o + 5] === 0 && m[o + 10] === 0)) continue;
-          for (let k = 0; k < 16; k++) out[n * 16 + k] = m[o + k];
-          oc[n * 3] = c ? c[i * 3] : 1; oc[n * 3 + 1] = c ? c[i * 3 + 1] : 1; oc[n * 3 + 2] = c ? c[i * 3 + 2] : 1;
+          if (putChanged(out, n * 16, m, o, 16)) chM = true;
+          if (c) { if (putChanged(oc, n * 3, c, i * 3, 3)) chC = true; }
+          else if (oc[n * 3] !== 1 || oc[n * 3 + 1] !== 1 || oc[n * 3 + 2] !== 1) { oc[n * 3] = oc[n * 3 + 1] = oc[n * 3 + 2] = 1; chC = true; }
           n++;
         }
       }
       e.mesh.count = n; e.mesh.visible = n > 0;
-      if (n) { e.mesh.instanceMatrix.needsUpdate = true; e.mesh.instanceColor!.needsUpdate = true; }
+      if (n && chM) sendRange(e.mesh.instanceMatrix, n * 16);
+      if (n && chC) sendRange(e.mesh.instanceColor!, n * 3);
     }
   }
 }

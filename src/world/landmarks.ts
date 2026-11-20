@@ -16,6 +16,7 @@ import type { WorldPart } from '../core/api';
 import type { CityMaterials } from './materials';
 import type { AtlasRect } from './textures';
 import { Batch } from './batch';
+import { flip, sendRange } from '../core/flip';
 import {
   BREAKWATER, BRIDGE, BRIDGE_RAMP, BRIDGE_SPAN, BRIDGE_SPANS, DECK_Y, LIGHTHOUSE, PIER, PIER_HEAD, RAMPS, WATER_Y,
   bridgeBuilt, bridgeY, groundAt,
@@ -383,6 +384,8 @@ function buildWheel(c: Ctx, flat: Batch): (dt: number, t: number) => void {
   g.box(0, -2.12, 0, 2.2, 0.14, 2.2, 0xb8b8b8, 0, 7);
   const cars = new THREE.InstancedMesh(g.toGeometry(), steel, G);
   cars.name = 'gondolas';
+  // Rewritten every frame: see the note on instance buffers in core/util.ts.
+  cars.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   cars.castShadow = c.cast;
   // They ride around the whole wheel, so cull against the wheel, not against wherever they started.
   cars.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, HY, HZ), R + 5);
@@ -395,6 +398,7 @@ function buildWheel(c: Ctx, flat: Batch): (dt: number, t: number) => void {
   const cabins = new THREE.InstancedMesh(wb.toGeometry(), mats.glow, G);
   cabins.name = 'gondola-lamps';
   cabins.instanceMatrix = cars.instanceMatrix;
+  flip.add(cars.instanceMatrix, (x) => { cars.instanceMatrix = cabins.instanceMatrix = x as THREE.InstancedBufferAttribute; });
   cabins.boundingSphere = cars.boundingSphere;
   c.parent.add(cabins);
 
@@ -410,7 +414,7 @@ function buildWheel(c: Ctx, flat: Batch): (dt: number, t: number) => void {
       M.setPosition(Math.cos(a) * RP, HY + Math.sin(a) * RP, HZ);
       cars.setMatrixAt(k, M);
     }
-    cars.instanceMatrix.needsUpdate = true;
+    sendRange(cars.instanceMatrix, G * 16);
   };
 }
 

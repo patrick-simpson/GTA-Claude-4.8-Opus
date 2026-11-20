@@ -82,3 +82,10 @@ owner's ground rules for the takeover and the running state.
   Gauge at 9:52 AM: NEW window 9% (resets 2:10 PM ET), week 79%: about 8 units left before the 95%
   stop, 6 planned. M6 unit 2 (why moving costs 23-29 ms against 13-16 standing; then leaf cards and
   the bloom chain) launched right after.
+- Nov 20, 11:15 AM ET: pushed M6 step 2 (flip.ts: 51 to 65 fps at high downtown in the real loop).
+  8 of 13 steps done. Gauge at 11:10 AM: window 24% with 40% gone (resets 2:10 PM ET), week 82%.
+  That unit cost 3 weekly points (it ran 76 minutes), so only 4 to 6 units fit before the 95% stop.
+  Remaining five, in order of value to visitors: (3) quality that chooses itself [top model];
+  (4) loading [top model]; (5) the owed list [Sonnet]; (6) bug bash [Sonnet]; (7) night [top model].
+  More frame work (leaf cards, the post pass) is dropped unless budget is left. If the week reaches
+  95% first, stop, tell the owner what is left, and resume after Sunday 4 PM ET.

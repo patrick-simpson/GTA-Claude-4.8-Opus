@@ -17,6 +17,7 @@ import type { Colliders } from './collide';
 import { CURB, SIDEWALK, WATER_Y, ZS, groundAt, islandSD } from './plan';
 import { plantExtra } from './floraAssets';
 import { RNG, TAU, lerp } from '../core/util';
+import { flip, sendRange } from '../core/flip';
 
 const INK = 0x14213d, BONE = 0xf2e8cf, VERM = 0xe4572e, MUST = 0xf0a202, TEAL = 0x2a9d8f;
 const BRICK = 0x9c4a3c, TERRA = 0xc96f4a, SAGE = 0x8a9a6b;
@@ -1033,10 +1034,16 @@ export function buildPlaces(game: Game, mats: CityMaterials, parent: THREE.Group
       Sc.setScalar(b.s);
       im.setMatrixAt(i, M.compose(P, Qn, Sc));
     }
-    im.instanceMatrix.needsUpdate = true;
+    sendRange(im.instanceMatrix, list.length * 16);
   };
   float(boatMesh, boats, 0.12);
   float(buoyMesh, buoys, 0.1);
+  // Rewritten every frame they are near: the driver should keep these in memory, not treat each write as a new static mesh.
+  boatMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); buoyMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  flip.mesh(boatMesh); flip.mesh(buoyMesh);
+  /** Past this from the nearest of them a bob is under a pixel, and they are moved eight times a second, not sixty. */
+  const BOB_NEAR2 = 300 * 300;
+  let bobSkip = 0;
 
   // Boats hauled out above the tide line on the east shore, bows inland, heeled over on their bilges.
   {
@@ -1057,6 +1064,10 @@ export function buildPlaces(game: Game, mats: CityMaterials, parent: THREE.Group
   return {
     update(dt: number): void {
       t += dt;
+      const cam = game.camera.position;
+      let near = false;
+      for (const list of [boats, buoys]) for (const b of list) { const dx = b.x - cam.x, dz = b.z - cam.z; if (dx * dx + dz * dz < BOB_NEAR2) { near = true; break; } }
+      if (!near && ++bobSkip % 8) return;
       float(boatMesh, boats, 0.12);
       float(buoyMesh, buoys, 0.1);
     },

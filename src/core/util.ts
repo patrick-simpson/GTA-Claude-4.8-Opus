@@ -78,3 +78,15 @@ export const money = (n: number): string => '$' + Math.floor(n).toLocaleString('
 export const rand = (a = 1, b?: number): number =>
   b === undefined ? Math.random() * a : a + Math.random() * (b - a);
 export const pickRand = <T>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+// ── Instance buffers ─────────────────────────────────────────────────────────
+// Sending a buffer to the GPU costs far more than its bytes on the laptop GPUs this game is tuned on (M6 measured
+// 50 to 300 microseconds each, 5 to 10 ms a frame for the hundred the game used to send), so anything that refills
+// an instance buffer writes through putChanged() and only calls sendRange() (core/flip.ts) when a value really changed.
+
+/** Copy `len` values from `src[from..]` to `dst[at..]`; true if any of them was different from what was there. */
+export function putChanged(dst: Float32Array, at: number, src: Float32Array, from: number, len: number): boolean {
+  let ch = false;
+  for (let j = 0; j < len; j++) { const v = src[from + j]; if (dst[at + j] !== v) { dst[at + j] = v; ch = true; } }
+  return ch;
+}

@@ -88,6 +88,38 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### M6 step 2, the running game no longer waits on its own buffers: pushed Nov 20, about 11:15 AM ET
+
+- **What was wrong.** Not "moving": the bench's stills never ran the simulation.
+  With it running the game cost about 19 ms a frame at high downtown, standing or
+  moving (51 fps), against 15.5 for a still. The tick's CPU is only 1.2-2.1 ms;
+  the cost was the 105-118 instance-buffer uploads a frame it caused (94 of them
+  cars, parked ones included). On this driver (ANGLE/D3D11, Iris Xe), writing a
+  buffer the GPU drew from last frame makes the new frame wait for the old one.
+  It is a threshold: one upload a frame runs free, four do not.
+- **The fix, `src/core/flip.ts`:** every instance buffer rewritten while the game
+  runs has two GPU copies over one array, and a change goes to the copy that was
+  not drawn last frame (`game.flip`, `flip.swap()` in `Game.render()`; `?flip=0`
+  switches it off). Buffers are also sent only when changed, and only their used
+  part (uploads 105 to 24 standing, 118 to 35 moving). Far boats and buoys bob 8
+  times a second, not 60. Nothing else looks different: 106 of 106 pixel-equality
+  checks pass (`scratch/m6/flipcheck.mjs`).
+- **Result in a real browser loop at high, 1920x1080** (`scratch/m6/rafprobe.mjs
+  --vsync`; an independent worker reproduced it): downtown 51 to 65-68 fps,
+  Gull Heights 50-53 to 64-68, Main St 59-63 to 76-82. Low stays at the 120 cap.
+- **Reading the bench:** a still understates the running game by about 4 ms, and
+  a path overstates a player's frame by about 5 ms (its read-back forces the very
+  wait this removes). Quote real-loop numbers for frame rate.
+  Owed: ANY new buffer rewritten every frame must be registered with `flip`, or
+  the whole frame falls back in step with the GPU (about 4 ms). Not registered:
+  the box people shown before the models arrive, and ground.ts's knocked-down
+  lamps. Gull Heights still has 4% of moving frames over 18 ms. Calling
+  `flip.swap()` before the reflection cube's draw broke 2 of 106 checks,
+  unexplained, so it is not done there. Measured in headless Chromium only; other
+  GPUs unmeasured. Next costs (the frame is now the GPU's, about 15 ms): post
+  pass 4.4-5.0 ms, leaf and fence cards 3.3-4.7 at the park and Gull Heights,
+  shadows about 2.5, the cars' reflection cube in the worst frames.
+
 ### M6 step 1, the baseline and cheaper antialiasing: pushed Nov 20, about 10:00 AM ET
 
 - **`tools/bench.mjs`** is the whole-game benchmark (read its header): stills,

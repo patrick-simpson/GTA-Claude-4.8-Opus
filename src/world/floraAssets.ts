@@ -25,6 +25,8 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { putChanged } from '../core/util';
+import { flip, sendRange } from '../core/flip';
 
 export type Rect4 = readonly [number, number, number, number];
 const AW = 2048, AH = 1536, Q = 256, FAR_PX = 2048;
@@ -426,7 +428,7 @@ const BAND_N = 5, BAND_M = 10, PAD = 3.5;
 const _p = new THREE.Vector3(), _d = new THREE.Vector3();
 
 function upload(a: THREE.BufferAttribute, count: number): void {
-  a.clearUpdateRanges(); a.addUpdateRange(0, count * a.itemSize); a.needsUpdate = true;
+  sendRange(a, count * a.itemSize);
 }
 
 export class TreeField {
@@ -477,6 +479,8 @@ export class TreeField {
       const mk = (g: THREE.BufferGeometry, material: THREE.MeshStandardMaterial, cast: boolean): THREE.InstancedMesh => {
         const mesh = new THREE.InstancedMesh(g, material, n);
         mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+        flip.mesh(mesh, true);
         mesh.castShadow = cast; mesh.receiveShadow = true;
         mesh.frustumCulled = false; mesh.matrixAutoUpdate = false;
         mesh.count = 0; mesh.visible = false;
@@ -490,11 +494,13 @@ export class TreeField {
     }
     if (farCount) {
       const g = impostorGeo();
-      this.farImp = new THREE.InstancedBufferAttribute(new Float32Array(farCount * 4), 4);
-      this.farFade = new THREE.InstancedBufferAttribute(new Float32Array(farCount), 1);
+      this.farImp = new THREE.InstancedBufferAttribute(new Float32Array(farCount * 4), 4).setUsage(THREE.DynamicDrawUsage);
+      this.farFade = new THREE.InstancedBufferAttribute(new Float32Array(farCount), 1).setUsage(THREE.DynamicDrawUsage);
       g.setAttribute('aImp', this.farImp); g.setAttribute('aFade', this.farFade);
       const mesh = new THREE.InstancedMesh(g, makeMaterial(NO_FADE, true), farCount);
       mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(farCount * 3), 3);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      flip.mesh(mesh, true); flip.geo(g, 'aImp'); flip.geo(g, 'aFade');
       mesh.castShadow = false; mesh.receiveShadow = false;
       mesh.frustumCulled = false; mesh.matrixAutoUpdate = false;
       mesh.count = 0; mesh.visible = false;
@@ -515,9 +521,10 @@ export class TreeField {
     const cos2 = Math.cos(half) ** 2, F2 = this.drawDist * this.drawDist;
     const far = this.far, fm = far ? (far.instanceMatrix.array as Float32Array) : null, fc = far ? (far.instanceColor!.array as Float32Array) : null;
     const fi = this.farImp ? (this.farImp.array as Float32Array) : null, ff = this.farFade ? (this.farFade.array as Float32Array) : null;
-    let nf = 0;
+    // Each buffer is sent only if this refill changed it (bit 1 the matrices, 2 the colours, 4 and 8 the impostor's own).
+    let nf = 0, chF = 0;
     for (const k of this.kinds) {
-      let nn = 0, nm = 0;
+      let nn = 0, nm = 0, chN = 0, chM = 0;
       const nearM = k.near ? (k.near.instanceMatrix.array as Float32Array) : null, nearC = k.near ? (k.near.instanceColor!.array as Float32Array) : null;
       const midM = k.mid ? (k.mid.instanceMatrix.array as Float32Array) : null, midC = k.mid ? (k.mid.instanceColor!.array as Float32Array) : null;
       const N2 = (k.N + PAD) ** 2, M2 = (k.cast + PAD) ** 2, I2 = k.imp ? Math.max(0, k.M - BAND_M - PAD) ** 2 : Infinity;
@@ -527,25 +534,31 @@ export class TreeField {
         // Behind the camera or off to the side (a crown's width of slack close up, where the cone is narrow).
         let seen = true;
         if (cone && d2 > 196) { const dot = dx * fx + dz * fz; seen = dot > 0 && dot * dot > cos2 * d2; }
-        const mi = k.m.subarray(i * 16, i * 16 + 16), ci = k.c.subarray(i * 3, i * 3 + 3);
+        const mo = i * 16, co = i * 3;
         // The full model casts no shadow, so it need not be drawn unseen. The middle one does, so it must.
-        if (d2 < N2 && seen && nearM) { nearM.set(mi, nn * 16); nearC!.set(ci, nn * 3); nn++; }
-        if (d2 < M2 && midM) { midM.set(mi, nm * 16); midC!.set(ci, nm * 3); nm++; }
+        if (d2 < N2 && seen && nearM) { if (putChanged(nearM, nn * 16, k.m, mo, 16)) chN |= 1; if (putChanged(nearC!, nn * 3, k.c, co, 3)) chN |= 2; nn++; }
+        if (d2 < M2 && midM) { if (putChanged(midM, nm * 16, k.m, mo, 16)) chM |= 1; if (putChanged(midC!, nm * 3, k.c, co, 3)) chM |= 2; nm++; }
         if (d2 > I2 && d2 <= F2 && seen && fm && k.imp) {
-          fm.set(mi, nf * 16); fc!.set(ci, nf * 3);
-          fi!.set(k.imp, nf * 4); ff![nf] = k.M;
+          if (putChanged(fm, nf * 16, k.m, mo, 16)) chF |= 1;
+          if (putChanged(fc!, nf * 3, k.c, co, 3)) chF |= 2;
+          for (let j = 0; j < 4; j++) { const at = nf * 4 + j, was = fi![at]; fi![at] = k.imp[j]; if (fi![at] !== was) chF |= 4; }
+          if (ff![nf] !== k.M) { ff![nf] = k.M; chF |= 8; }
           nf++;
         }
       }
-      for (const [mesh, cnt] of [[k.near, nn], [k.mid, nm]] as const) {
+      for (const [mesh, cnt, ch] of [[k.near, nn, chN], [k.mid, nm, chM]] as const) {
         if (!mesh) continue;
         mesh.count = cnt; mesh.visible = cnt > 0;
-        if (cnt) { upload(mesh.instanceMatrix, cnt); upload(mesh.instanceColor!, cnt); }
+        if (cnt && ch & 1) upload(mesh.instanceMatrix, cnt);
+        if (cnt && ch & 2) upload(mesh.instanceColor!, cnt);
       }
     }
     if (far) {
       far.count = nf; far.visible = nf > 0;
-      if (nf) { upload(far.instanceMatrix, nf); upload(far.instanceColor!, nf); upload(this.farImp!, nf); upload(this.farFade!, nf); }
+      if (nf && chF & 1) upload(far.instanceMatrix, nf);
+      if (nf && chF & 2) upload(far.instanceColor!, nf);
+      if (nf && chF & 4) upload(this.farImp!, nf);
+      if (nf && chF & 8) upload(this.farFade!, nf);
     }
   }
 }

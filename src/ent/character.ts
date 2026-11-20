@@ -32,6 +32,7 @@ import * as THREE from 'three';
 import type { Look, PeopleApi, Person, Pose } from '../core/api';
 import type { Game } from '../core/game';
 import { RNG, TAU, clamp, clamp01, damp, hash2, lerp, smooth } from '../core/util';
+import { flip, sendRange } from '../core/flip';
 import { WATER_Y, groundAt } from '../world/plan';
 import { BONES, MORPHS, PARTS, loadPeople, type BodyKind, type PersonAsset } from './characterAssets';
 
@@ -793,6 +794,8 @@ export class People implements PeopleApi {
   private readonly skins: THREE.Mesh[] = [];
   private readonly rows: THREE.InstancedBufferAttribute[] = [];
   private readonly counts: number[] = [];
+  /** Which row lists changed this frame: the others are not sent to the GPU again. */
+  private readonly rowDirty: boolean[] = [];
   private readonly near = new Float64Array(NEAR);
   private readonly data = new Float32Array(TEX_W * MAX_PEOPLE * 4);
   private readonly tex = new THREE.DataTexture(this.data, TEX_W, MAX_PEOPLE, THREE.RGBAFormat, THREE.FloatType);
@@ -857,7 +860,7 @@ export class People implements PeopleApi {
         if (morph) for (let k = 0; k < MORPHS; k++) g.setAttribute(`aM${k}`, src.getAttribute(`aM${k}`));
         const row = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PEOPLE), 1);
         row.setUsage(THREE.DynamicDrawUsage);
-        g.setAttribute('aRow', row);
+        g.setAttribute('aRow', row); flip.geo(g, 'aRow');
         g.instanceCount = 0;
         const m = new THREE.Mesh(g, mats[morph ? 1 : 0]);
         m.name = `people_${a.kind}${lod}`;
@@ -987,7 +990,8 @@ export class People implements PeopleApi {
       if (skinned) {
         this.palette(b);
         const m = b.kind * NLOD + (d2 > lod3 ? 2 : d2 > lod2 || d2 > nearCut ? 1 : 0);
-        (this.rows[m].array as Float32Array)[this.counts[m]++] = row;
+        const ra = this.rows[m].array as Float32Array, ri = this.counts[m]++;
+        if (ra[ri] !== row) { ra[ri] = row; this.rowDirty[m] = true; }
         this.skin(b, row++, this.assets[b.kind].joints);
       } else {
         this.draw(b, d2 > detail2);
@@ -998,7 +1002,8 @@ export class People implements PeopleApi {
       const n = this.counts[i], r = this.rows[i];
       (this.skins[i].geometry as THREE.InstancedBufferGeometry).instanceCount = n;
       this.skins[i].visible = n > 0;
-      if (n > 0) { r.clearUpdateRanges(); r.addUpdateRange(0, n); r.needsUpdate = true; }
+      if (n > 0 && this.rowDirty[i]) sendRange(r, n);
+      this.rowDirty[i] = false;
     }
     if (row > 0) this.tex.needsUpdate = true;
 
