@@ -366,8 +366,44 @@ export class Menu {
       text('PORT CALAMITY', X(0), Z(-5), big, 'rgba(20,33,61,0.42)', false, '"Big Shoulders Display", sans-serif', 900);
       text('TEPID FALLS', X(-60), Z(-1560), big, 'rgba(20,33,61,0.42)', false, '"Big Shoulders Display", sans-serif', 900);
     }
-    if (!progress.complete && k < 1) text(`THE PERPETUAL BRIDGE · ${progress.spans} of ${BRIDGE_SPANS} spans`, X(BRIDGE.x) + 120, Z(BRIDGE.z0 - 60), 11, INK);
-    if (k >= 0.24) for (const d of this.districts) text(d.text.toUpperCase(), X(d.x), Z(d.z), Math.max(9, Math.min(20, 30 * k)), 'rgba(20,33,61,0.8)');
+    // The bridge's own label: kept clear of the hint strip (top left) and the chart's edges, on a small plaque,
+    // drawn after the district names, which stand clear of it.
+    let plaque: { x0: number; x1: number; y0: number; y1: number } | null = null;
+    if (!progress.complete && k < 1) {
+      c.font = '600 11px "IBM Plex Mono", monospace';
+      const bt = `THE PERPETUAL BRIDGE · ${progress.spans} of ${BRIDGE_SPANS} spans`, bw = c.measureText(bt).width / 2 + 8;
+      const bx = Math.max(bw, Math.min(w - bw, X(BRIDGE.x) + 120)), by = Math.max(56, Math.min(h - 64, Z(BRIDGE.z0 - 60)));
+      plaque = { x0: bx - bw, x1: bx + bw, y0: by - 10, y1: by + 10 };
+    }
+    // Every badge the chart will carry, so a district name can stand clear of them.
+    const marks: { x: number; z: number }[] = [g.player];
+    for (let i = 0; i < RAMPS.length; i++) { if (i === RAMPS.length - 1 && progress.complete) continue; marks.push(RAMPS[i]); }
+    for (const rc of todo.jobs.races) marks.push(rc.start);
+    for (const y of todo.jobs.yards) marks.push(y.at);
+    for (const s of todo.shops.list) marks.push(s.at);
+    if (!todo.busy) for (const o of todo.missions.offers()) marks.push(todo.missions.givers[o.giver].at);
+    if (k >= 0.24) {
+      const mr = Math.max(7, Math.min(11, 8 + k * 3)) * 1.3 + 2;
+      const placed: { x0: number; x1: number; y0: number; y1: number }[] = plaque ? [plaque] : [];
+      for (const d of this.districts) {
+        const px = Math.max(9, Math.min(20, 30 * k)), label = d.text.toUpperCase();
+        c.font = `600 ${px}px "IBM Plex Mono", monospace`;
+        const hw = c.measureText(label).width / 2 + 2, hh = px / 2 + 2, x = X(d.x);
+        const hit = (y: number): boolean => marks.some((m) => {
+          const bx = X(m.x), by = Z(m.z), nx = Math.max(x - hw, Math.min(bx, x + hw)), ny = Math.max(y - hh, Math.min(by, y + hh));
+          return Math.hypot(bx - nx, by - ny) < mr;
+        }) || placed.some((r) => x + hw > r.x0 && x - hw < r.x1 && y + hh > r.y0 && y - hh < r.y1);
+        let y = Z(d.z);
+        for (const dy of [0, -1, 1, -2, 2, -3, 3]) { const ty = Z(d.z) + dy * (mr + hh) * 0.9; if (!hit(ty)) { y = ty; break; } }
+        placed.push({ x0: x - hw, x1: x + hw, y0: y - hh, y1: y + hh });
+        text(label, x, y, px, 'rgba(20,33,61,0.8)');
+      }
+    }
+    if (plaque) {
+      c.fillStyle = BONE; c.strokeStyle = INK; c.lineWidth = 1.5;
+      c.fillRect(plaque.x0, plaque.y0, plaque.x1 - plaque.x0, plaque.y1 - plaque.y0); c.strokeRect(plaque.x0, plaque.y0, plaque.x1 - plaque.x0, plaque.y1 - plaque.y0);
+      text(`THE PERPETUAL BRIDGE · ${progress.spans} of ${BRIDGE_SPANS} spans`, (plaque.x0 + plaque.x1) / 2, (plaque.y0 + plaque.y1) / 2, 11, INK, false);
+    }
     if (k >= 0.55) {
       const px = Math.max(9, Math.min(15, 13 * k));
       for (const l of this.labels) {

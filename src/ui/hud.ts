@@ -1195,7 +1195,7 @@ export class Hud implements HudApi {
 
     if (live) {
       this.tickStunts(v);
-      this.tickIntro(dt, v, p.z);
+      this.tickIntro(dt, v, p.x, p.z);
       this.tickToasts(dt);
       if (this.keysT > 0 && (this.keysT -= dt) <= 0) this.keysEl.classList.remove('on');
       this.tickPlace(dt, p.x, p.z);
@@ -1395,7 +1395,7 @@ export class Hud implements HudApi {
    * business at a time, pointing a stranger at the truck and then at the pier,
    * whose badge on the radar turns mustard. Any real objective ends the tour.
    */
-  private tickIntro(dt: number, v: Vehicle | null, z: number): void {
+  private tickIntro(dt: number, v: Vehicle | null, x: number, z: number): void {
     if (this.intro === 0) return;
     this.introT += dt;
     if (this.intro === 1 && this.introT > 2.5) {
@@ -1408,7 +1408,9 @@ export class Hud implements HudApi {
       this.setObjective('Take it down Pelican Pier: due south, under the arch.');
       this.toast('There is a ramp at the end of the pier. Nobody has signed for it.', 7);
       this.setHot(0);
-    } else if (this.intro === 3 && (z > PIER_HEAD.z0 - 20 || this.introT > 180)) {
+    } else if (this.intro === 3 && (z > PIER_HEAD.z0 - 20 || this.introT > 180 || !v
+      || Math.hypot(x - (PIER_HEAD.x0 + PIER_HEAD.x1) / 2, z - PIER_HEAD.z0) > 500)) {
+      // Out of the car (stepped out, arrested, dead) or far from the pier: the line is no longer true.
       this.endIntro();
     }
   }

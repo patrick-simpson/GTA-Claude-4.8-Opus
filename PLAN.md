@@ -88,6 +88,23 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Interface leftovers from the bug bash: pushed Nov 20, about 3:25 PM ET
+
+By a Sonnet worker, checked by a second. On touch screens the pause menu's tabs,
+Resume, New game and the settings controls are 44 px tall (Resume is on screen on
+every tab). The map draws the bridge label on a plaque below the hint strip and
+moves district names clear of markers. The "Take it down Pelican Pier" line
+clears when the player leaves the car or is 500 m from the pier.
+Owed: on the PHONE map markers still cover the left end of the bridge plaque and
+most of one district name; Mercy Park's name is partly under a marker on desktop.
+The `willReadFrequently` console warning remains: the canvases are built in
+`src/world/textures.ts` (the helper near line 187; `getImageData` near lines 499
+and 552). The arrest path for clearing the pier line was not played.
+
+**Where the job stands, Nov 20, 3:25 PM ET:** cars pass two, the C-Max and all of
+M6 are done and live. Next is live multiplayer (`tools/briefs/multiplayer.md`),
+not started, waiting for the weekly usage reset on Sunday Nov 22, 4 PM ET.
+
 ### M6 step 7, night: pushed Nov 20, about 3:00 PM ET (M6 is complete)
 
 - **Bloom at night** (`src/core/post.ts`): threshold 0.56 (was 0.40), wider levels

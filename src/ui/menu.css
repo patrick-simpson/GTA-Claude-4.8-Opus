@@ -232,6 +232,14 @@ body.reduced-motion .mn-card, body.reduced-motion .mn-slip { animation: none; }
 #menu.touch .mn-tab small, #menu.touch .mn-or { display: none; }
 #menu.touch .mn-btn { font-size: 1.7em; }
 #menu.touch .mn-new { font-size: 1.3em; }
+/* Thumb targets: at least 44 CSS px tall, with room between neighbours. */
+#menu.touch .mn-tabs { gap: 6px; }
+#menu.touch .mn-tab { min-height: 44px; display: inline-flex; align-items: center; }
+#menu.touch .mn-btn { min-height: 44px; padding-top: 0.2em; padding-bottom: 0.26em; }
+#menu.touch .mn-ft { gap: 10px; margin-top: 0.6em; }
+#menu.touch .mn-tog, #menu.touch .mn-seg, #menu.touch .mn-link { min-height: 44px; }
+#menu.touch .mn-seg { margin-left: -2px; }
+#menu.touch .mn-segs { flex-wrap: wrap; row-gap: 6px !important; }
 @media (pointer: coarse) { .mn-or, .mn-tab small { display: none; } }
 @media (max-width: 900px) {
   .mn-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
