@@ -74,3 +74,11 @@ owner's ground rules for the takeover and the running state.
   and the bumper sign fix on the other twelve. 6 of 14 steps done. The cars are finished for now;
   M6 starts. M6 is planned as 7 units (measure is merged with the first frame fix), so the total is
   13 steps and 6 are done.
+  Gauge at 8:49 AM: window 84% (resets 9:10 AM ET), week 77%: about 9 units left before the 95% stop,
+  7 planned. M6 unit 1 (baseline + FXAA from scratch/m6/post.wip.ts) launched 8:48 AM. M6 units after
+  it: (2) the frame, next biggest costs; (3) quality that chooses itself; (4) loading; (5) the owed
+  list; (6) bug bash; (7) night. The M6 brief has a RESTARTED section at its top.
+- Nov 20, 10:00 AM ET: pushed M6 step 1 (baseline; high = 2x MSAA + FXAA, AO 8). 7 of 13 steps done.
+  Gauge at 9:52 AM: NEW window 9% (resets 2:10 PM ET), week 79%: about 8 units left before the 95%
+  stop, 6 planned. M6 unit 2 (why moving costs 23-29 ms against 13-16 standing; then leaf cards and
+  the bloom chain) launched right after.

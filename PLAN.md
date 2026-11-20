@@ -88,6 +88,34 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### M6 step 1, the baseline and cheaper antialiasing: pushed Nov 20, about 10:00 AM ET
+
+- **`tools/bench.mjs`** is the whole-game benchmark (read its header): stills,
+  camera paths, per-system costs, load time; `--ab` for interleaved A/B pairs; a
+  failed boot is retried. Full baseline: `scratch/m6/baseline-nov20.txt`.
+- **Baseline at 1920x1080 on the Iris Xe, high, before this push** (ms, fps):
+  start 13.6 (73), downtown 16.1 (62), park 14.8 (67), heights 17.6 (57), pier
+  9.4 (107), night rain heat 3 18.9 (53), mid-bridge 11.2 (89), Main St 13.7
+  (73), The Stacks 17.5 (57). Medium 8.1-15.3 ms; low 2.0-3.9 ms. The
+  simulation is 0.3-0.6 ms a tick: not the problem. Load: ready in 4.7 s, last
+  file at 7.5 s, 29.0 MB (models 23.3, of which cars 17.7; code 462 kB).
+- **High now draws with 2x multisampling plus FXAA** in the composite (it was 4x
+  and none) and AO takes 8 samples, not 10: 0.6-1.6 ms saved a frame (4-9%), e.g.
+  heights 57 to 62 fps, The Stacks 58 to 63. Leaf cards and fences get smoother
+  edges; distant one-pixel window mullions are slightly softer. Medium and low are
+  unchanged. `?aa=msaa` and `?aa=fxaa` switch for comparison; `post.setAA`,
+  `post.setAOSamples` at run time.
+- FXAA alone would save 2.3-4.0 ms at high and 1.4-2.3 at medium, but far lamp
+  posts and signal arms break into dashes: not shipped; a lever for the governor.
+  Owed / next, measured by A/B at high: **camera paths (tick + render while
+  moving) cost 23-29 ms a frame against 13-16 for stills in the same streets**
+  (7-8 against 3.6 at low), unexplained: probably CPU-side draw submission (370
+  calls plus the shadow pass). The post pass is a third of the frame (4.4-5.0 ms:
+  the 2x target about 2, AO 0.5-0.7, the rest bloom and composite). Alpha-tested
+  cards (leaves, fences) are 3.3-4.7 ms at Mercy Park and Gull Heights. The
+  shadow pass 1.4-1.9 ms. Half the frame is per-pixel work. Night rain at heat 3
+  is still 56 fps. Scene textures are about 464 MB, the two car sheets 85 MB each.
+
 ### The C-Max, part two, and the bumper bug: pushed Nov 20, about 8:55 AM ET
 
 - **Likeness, by measuring the exported model against the owner's tables**

@@ -1,11 +1,25 @@
 # Brief: M6 — performance and polish
 
-Read tools/briefs/common.md first and follow it. Its limits are raised for this task (about 150 tool
-calls, 30 images); its other rules stand, and no git commands that change state at all.
+Read tools/briefs/common.md first and follow it, and no git commands that change state at all.
 
-Read PLAN.md in full: it carries an "Owed" list under every push since M1. Another engineer is
-reworking the cars (src/ent/vehicle.ts, vehicleAssets.ts, vehicleModels.ts, tools/blender/cars.py,
-public/models/<kind>.*): do not touch those files. Everything else is yours for this task.
+RESTARTED Nov 20. The first worker on this brief was cut off about half an hour in. M6 is now done
+as a series of small runs, one worker at a time, each given ONE numbered section below (or part of
+one) in its prompt, each followed by an independent check and a push to the live site. Do only the
+part your prompt names. Stay inside common.md's limits (about 60 tool calls, about 14 pictures)
+unless your prompt raises them. What the first worker left:
+- tools/bench.mjs: the benchmark of section 1, written and working (read its header). It was adding
+  "several A/B pairs" and "survive a failed boot" when it stopped; check both.
+- scratch/m6/before.txt and before2.txt: its baseline measurements. census.mjs, probe.mjs, sync.mjs:
+  its helper scripts.
+- scratch/m6/post.wip.ts and post.wip.patch: its unfinished change to src/core/post.ts, NOT in the
+  tree: FXAA in the composite in place of the 4x multisampled half-float scene target (it measured
+  the resolve at 3.4 to 5.5 ms, a fifth of the frame on this GPU), and AO samples 10 to 8 at high.
+  It type-checked but was never judged in the game.
+
+Read PLAN.md's entries dated Nov 20 and the "Owed" lists under the older pushes. The car work is
+finished for now: do not touch tools/blender/cars.py or the car files in public/models, and change
+src/ent/vehicle*.ts only if your section needs it. Since this brief was written the game gained a
+thirteenth car kind (the owner's C-Max) and the cars' texture sheets grew to 4096x4096.
 
 The game now has two lands, Blender models for cars, people, trees and props, physically based
 materials, a post pass, traffic, pedestrians, police, weapons, missions, saving and sound. It grew

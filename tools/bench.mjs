@@ -11,6 +11,11 @@
 //   node tools/bench.mjs --systems                    cost of each system's update, ms per tick
 //   node tools/bench.mjs --load [--dist]              load time and the download, file by file
 //   node tools/bench.mjs --query "post=0"             extra query for every boot
+//   --n 200           renders per still (and per side of an A/B)
+//   --nopath          skip the camera paths
+//   --boottimeout 90000 --retrywait 75   a boot that fails (somebody's half-saved file, a busy
+//        machine) is closed and tried again after the wait, three times in all; if all three
+//        fail that preset is reported under "errors" and the run carries on with the next.
 //
 // A still is 200 renders in batches of eight with a one-pixel read-back after each batch (see SYNC
 // below for why not gl.finish): the median batch, and the best tenth. A path is 240 frames of the player being
@@ -31,6 +36,8 @@ const presets = String(opt.q ?? 'high,medium,low').split(',');
 const only = typeof opt.scenes === 'string' ? opt.scenes.split(',') : null;
 const extra = typeof opt.query === 'string' ? opt.query : '';
 const N = Number(opt.n ?? 200);
+const BOOT_MS = Number(opt.boottimeout ?? 90000), RETRY_MS = Number(opt.retrywait ?? 75) * 1000;
+let gpu = '';
 
 // h: 0 faces south (+Z), pi faces north. `land: 1` scenes boot with the bridge finished and the town open.
 const SCENES = [
@@ -163,12 +170,27 @@ async function runPreset(q, land) {
   if (!scenes.length) return;
   const query = [`q=${q}`, 'save=0', land ? 'bridge=8&stage=4' : '', extra].filter(Boolean).join('&');
   // Somebody else's half-saved file can sink a boot: give it a minute and try again, twice.
-  let t = null;
+  // `start: false` because pw.mjs's own start step throws when the page never made a game, and a
+  // throw there would leave its browser and server running under the timings that follow.
+  let t = null, why = '';
   for (let attempt = 0; attempt < 3 && !t; attempt++) {
-    const b = await boot({ query, width: W, height: H });
-    if (b.errors.length && attempt < 2) { console.log(`boot failed (${b.errors[0].slice(0, 120)}); waiting`); await b.close(); await new Promise((r) => setTimeout(r, 75000)); } else t = b;
+    if (attempt) await new Promise((r) => setTimeout(r, RETRY_MS));
+    let b = null;
+    try { b = await boot({ query, width: W, height: H, start: false, timeout: BOOT_MS }); } catch (e) { why = String(e); }
+    if (b && !b.errors.length) {
+      await b.page.evaluate(() => { window.__game.start(); window.__game.freeze(true); window.__game.step(2); });
+      t = b;
+    } else {
+      if (b) { why = b.errors[0]; await b.close(); }
+      console.log(`boot failed, attempt ${attempt + 1} of 3 (${why.slice(0, 160)})`);
+    }
   }
+  if (!t) throw new Error(`boot failed three times: ${why.slice(0, 200)}`);
   try {
+    if (!gpu) {
+      gpu = await t.page.evaluate(() => { const gl = window.__game.game.renderer.getContext(), e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : 'unknown'; });
+      console.log(JSON.stringify({ gpu, size: `${W}x${H}`, pixelRatio: await t.page.evaluate(() => window.__game.game.renderer.getPixelRatio()) }));
+    }
     await settleModels(t);
     for (const s of scenes) {
       await t.game((g, w) => g.setWeather(w), s.weather ?? 'clear');

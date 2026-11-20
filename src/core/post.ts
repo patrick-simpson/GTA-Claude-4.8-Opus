@@ -3,11 +3,29 @@
 // full-screen draws instead of a stack of stock passes, each of which would
 // copy the frame once more.
 //
-//   scene -> half-float colour + depth (MSAA resolved by the target)
+//   scene -> half-float colour + depth (multisampled twice)
 //   depth -> AO at half size -> two depth-aware blur passes
 //   colour -> bright pass at half size -> a short mip chain down, then back up
-//   colour * AO + bloom -> tone map (the operator and exposure the sky chose)
-//          -> sRGB -> contrast, vignette, grain -> canvas
+//   colour, edges smoothed (FXAA) * AO + bloom -> tone map (the operator and exposure the
+//          sky chose) -> sRGB -> contrast, vignette, grain -> canvas
+//
+// Antialiasing. The scene target used to be multisampled four times at high and
+// twice at medium, and nothing else smoothed an edge. On the baseline laptop GPU
+// (Iris Xe, 1080p) a multisampled half-float target is dear: about 2 ms of the
+// frame for two samples and 3 to 4.5 ms for four, measured A/B with
+// tools/bench.mjs. The composite now runs FXAA on the scene colour (five taps
+// everywhere, more only on an edge), in a folded 0..1 space so a bright sky
+// against a dark roof blends the way it will look after the tone map.
+//   high    two samples and FXAA. In enlarged crops it is as clean as four
+//           samples were, and smoother on leaf cards and fences, which
+//           multisampling never touched; 0.6 to 1.6 ms cheaper than four.
+//   medium  two samples and no FXAA, exactly as before.
+// FXAA alone (`?aa=fxaa`) is the big saving, 2.3 to 4 ms at high and 1.4 to
+// 2.3 ms at medium, but anything thinner than a pixel (a far lamp post, a signal
+// arm) breaks into dashes, because no filter can put back what the rasteriser
+// never drew. So it is a switch, not the default: set a tier's `msaa` to 0 (and
+// `fxaa` to true) to take it. `?aa=msaa` brings the old multisampled target
+// back (4x or 2x, no FXAA). scratch/m6/aacmp.mjs makes the comparison crops.
 //
 // Rendering to a target makes three skip tone mapping and the sRGB encode in
 // every material, so the scene arrives here linear and unclipped and is mapped
@@ -20,10 +38,12 @@
 import * as THREE from 'three';
 import type { Game } from './game';
 
-interface Tier { ao: number; levels: number; msaa: number }
+/** `msaa` and `fxaa`: how the tier smooths edges. `msaaAlone`: the samples it had before there was FXAA (`?aa=msaa`). */
+interface Tier { ao: number; levels: number; msaa: number; fxaa: boolean; msaaAlone: number }
 const TIERS: Record<'medium' | 'high', Tier> = {
-  medium: { ao: 6, levels: 3, msaa: 2 },
-  high: { ao: 10, levels: 5, msaa: 4 },
+  medium: { ao: 6, levels: 3, msaa: 2, fxaa: false, msaaAlone: 2 },
+  // Eight AO samples, not ten: in crops under a parked car and in a doorway the two cannot be told apart.
+  high: { ao: 8, levels: 5, msaa: 2, fxaa: true, msaaAlone: 4 },
 };
 
 /** World radius of the occlusion search, meters: kerbs, door recesses, the gap under a car. */
@@ -172,13 +192,73 @@ uniform float uExposure;
 uniform float uFogDensity;
 uniform float uGrade;
 uniform float uDebug;
+uniform float uFxaa;
+uniform vec2 uEdge;
+uniform vec2 uTexel;
 varying vec2 vUv;
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+// Into 0..1 and back, so that averaging two pixels gives the average of how they will look.
+vec3 fold(vec3 c) { c = max(c, 0.0) * uExposure; return c / (1.0 + max(c.r, max(c.g, c.b))); }
+vec3 unfold(vec3 c) { return c / (max(1.0 - max(c.r, max(c.g, c.b)), 0.002) * uExposure); }
+vec3 tap(vec2 uv) { return fold(texture2D(tColor, uv).rgb); }
+float luma(vec3 c) { return sqrt(dot(c, LUMA)); }
+float lumaAt(vec2 uv) { return luma(tap(uv)); }
+// FXAA, the form that walks along an edge to find where it ends, so a long roof line or a car's
+// trim gets an even ramp from end to end instead of a row of teeth.
+vec3 sceneColour() {
+  vec3 m = tap(vUv);
+  if (uFxaa < 0.5) return unfold(m);
+  vec2 px = uTexel;
+  float lM = luma(m);
+  float lD = lumaAt(vUv - vec2(0.0, px.y)), lU = lumaAt(vUv + vec2(0.0, px.y));
+  float lL = lumaAt(vUv - vec2(px.x, 0.0)), lR = lumaAt(vUv + vec2(px.x, 0.0));
+  float lo = min(lM, min(min(lD, lU), min(lL, lR))), hi = max(lM, max(max(lD, lU), max(lL, lR)));
+  float range = hi - lo;
+  // No edge here: most of the screen leaves now.
+  if (range < max(uEdge.x, hi * uEdge.y)) return unfold(m);
+  float lDL = lumaAt(vUv - px), lUR = lumaAt(vUv + px);
+  float lDR = lumaAt(vUv + vec2(px.x, -px.y)), lUL = lumaAt(vUv + vec2(-px.x, px.y));
+  // Which way the edge runs: brightness bends hardest across it.
+  float bendV = abs(lDL + lUL - 2.0 * lL) + 2.0 * abs(lD + lU - 2.0 * lM) + abs(lDR + lUR - 2.0 * lR);
+  float bendH = abs(lDL + lDR - 2.0 * lD) + 2.0 * abs(lL + lR - 2.0 * lM) + abs(lUL + lUR - 2.0 * lU);
+  bool horz = bendV >= bendH;
+  // The neighbour on the far side of the edge is the one that differs more.
+  float l1 = horz ? lD : lL, l2 = horz ? lU : lR;
+  float g1 = abs(l1 - lM), g2 = abs(l2 - lM);
+  bool first = g1 >= g2;
+  float grad = 0.25 * max(g1, g2);
+  float pairAvg = 0.5 * ((first ? l1 : l2) + lM);
+  vec2 perp = horz ? vec2(0.0, px.y) : vec2(px.x, 0.0);
+  if (first) perp = -perp;
+  vec2 run = horz ? vec2(px.x, 0.0) : vec2(0.0, px.y);
+  // Walk both ways along the seam between the two rows until the edge stops being one.
+  vec2 pN = vUv + perp * 0.5 - run, pP = vUv + perp * 0.5 + run;
+  float eN = lumaAt(pN) - pairAvg, eP = lumaAt(pP) - pairAvg;
+  bool doneN = abs(eN) >= grad, doneP = abs(eP) >= grad;
+  for (int i = 1; i < 6; i++) {
+    if (doneN && doneP) break;
+    float s = i < 2 ? 1.5 : i < 4 ? 2.0 : i < 5 ? 4.0 : 8.0;
+    if (!doneN) { pN -= run * s; eN = lumaAt(pN) - pairAvg; doneN = abs(eN) >= grad; }
+    if (!doneP) { pP += run * s; eP = lumaAt(pP) - pairAvg; doneP = abs(eP) >= grad; }
+  }
+  float dN = horz ? vUv.x - pN.x : vUv.y - pN.y, dP = horz ? pP.x - vUv.x : pP.y - vUv.y;
+  // The nearer end says how far along the step this pixel is; it only counts if the edge
+  // ends there the right way round.
+  bool below = lM < pairAvg;
+  bool good = dN < dP ? (eN < 0.0) != below : (eP < 0.0) != below;
+  float blend = good ? 0.5 - min(dN, dP) / (dN + dP) : 0.0;
+  // A lone pixel, or a line one pixel wide, has no step to measure: it is blended by how far it
+  // stands out from the eight round it, and only lightly, so a lamp post keeps its weight.
+  float sub = clamp(abs((2.0 * (lD + lU + lL + lR) + lDL + lDR + lUL + lUR) / 12.0 - lM) / range, 0.0, 1.0);
+  sub = sub * sub * (3.0 - 2.0 * sub);
+  blend = max(blend, sub * sub * 0.25);
+  return unfold(mix(m, tap(vUv + perp), blend));
+}
 void main() {
-  vec3 col = max(texture2D(tColor, vUv).rgb, 0.0);
+  vec3 col = sceneColour();
   float d = texture2D(tDepth, vUv).x;
   float shown = 1.0;
-  if (d < 0.99995) {
+  if (d < 0.99995 && uAO > 0.0) {
     // Half-size AO brought up to full size by the four nearest texels, each
     // trusted only as far as its depth agrees with this pixel's: a plain
     // bilinear fetch would leak a dark fringe around every silhouette.
@@ -237,6 +317,12 @@ export class Post {
   grade = 1;
   /** 1 shows the occlusion alone, 2 the bloom alone. */
   debug = 0;
+  /** The occlusion passes, on or off (a lever for the quality governor of M6 section 3). Costs nothing while off. */
+  aoOn = true;
+  /** Edge smoothing (FXAA) in the composite: the tier's choice, unless `?aa=` says otherwise. */
+  fxaa = true;
+  /** What FXAA takes for an edge: a brightness step (0..1, as it will look on screen) of at least x, and at least y of the brighter side. */
+  readonly fxaaEdge = new THREE.Vector2(0.04, 0.125);
 
   private readonly tier: Tier;
   private readonly sceneRT: THREE.WebGLRenderTarget;
@@ -259,11 +345,14 @@ export class Post {
   constructor(private game: Game) {
     const q = game.quality;
     this.tier = TIERS[q.name === 'medium' ? 'medium' : 'high'];
+    const aa = new URLSearchParams(location.search).get('aa');
+    const samples = !q.antialias ? 0 : aa === 'msaa' ? this.tier.msaaAlone : aa === 'fxaa' ? 0 : this.tier.msaa;
+    this.fxaa = q.antialias && (aa === 'fxaa' || (aa !== 'msaa' && this.tier.fxaa));
 
     const depth = new THREE.DepthTexture(2, 2, THREE.UnsignedIntType);
     depth.minFilter = depth.magFilter = THREE.NearestFilter;
     this.sceneRT = new THREE.WebGLRenderTarget(2, 2, {
-      type: THREE.HalfFloatType, samples: q.antialias ? this.tier.msaa : 0,
+      type: THREE.HalfFloatType, samples,
       depthTexture: depth, depthBuffer: true, stencilBuffer: false, generateMipmaps: false,
     });
     const small = (format: THREE.PixelFormat): THREE.WebGLRenderTarget => new THREE.WebGLRenderTarget(2, 2, {
@@ -289,7 +378,7 @@ export class Post {
     this.upMat = pass(UP_FRAG, { tSrc: tex(), uTexel: v2() }, { blending: THREE.AdditiveBlending, transparent: true });
     this.compMat = pass(COMPOSITE_FRAG, {
       tColor: tex(this.sceneRT.texture), tDepth: tex(depth), tAO: tex(this.aoA.texture), tBloom: tex(this.mips[0].texture),
-      uNearFar: v2(), uHalf: v2(), uAO: num(1), uBloom: num(0), uExposure: num(1), uFogDensity: num(0), uGrade: num(1), uDebug: num(0),
+      uNearFar: v2(), uHalf: v2(), uAO: num(1), uBloom: num(0), uExposure: num(1), uFogDensity: num(0), uGrade: num(1), uDebug: num(0), uFxaa: num(1), uTexel: v2(), uEdge: { value: this.fxaaEdge },
     }, { toneMapped: true });
 
     // One triangle that covers the screen: no diagonal seam, and nothing to cull.
@@ -319,6 +408,24 @@ export class Post {
     (this.aoMat.uniforms.uTexel.value as THREE.Vector2).set(1 / W, 1 / H);
     (this.brightMat.uniforms.uTexel.value as THREE.Vector2).set(1 / W, 1 / H);
     (this.compMat.uniforms.uHalf.value as THREE.Vector2).set(hw, hh);
+    (this.compMat.uniforms.uTexel.value as THREE.Vector2).set(1 / W, 1 / H);
+  }
+
+  /**
+   * Change the antialiasing while running, for tools/bench.mjs's A/B and for comparing pictures
+   * from one camera: `samples` is the scene target's multisampling (0 for none), `fxaa` the
+   * composite's edge smoothing. The target is rebuilt on its next use.
+   */
+  setAA(samples: number, fxaa: boolean): void {
+    if (this.sceneRT.samples !== samples) { this.sceneRT.samples = samples; this.sceneRT.dispose(); }
+    this.fxaa = fxaa;
+  }
+
+  /** The AO sample count is a shader constant, so this recompiles: for the same comparisons. */
+  setAOSamples(n: number): void {
+    if (this.aoMat.defines.SAMPLES === n) return;
+    this.aoMat.defines.SAMPLES = n;
+    this.aoMat.needsUpdate = true;
   }
 
   private draw(mat: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget | null): void {
@@ -347,12 +454,14 @@ export class Post {
     (au.uNearFar.value as THREE.Vector2).set(cam.near, cam.far);
     (cu.uNearFar.value as THREE.Vector2).set(cam.near, cam.far);
     (au.uInvP.value as THREE.Vector2).set(1 / pe[0], 1 / pe[5]);
-    this.draw(this.aoMat, this.aoA);
-    const bu = this.blurMat.uniforms, dir = bu.uDir.value as THREE.Vector2;
-    bu.tAO.value = this.aoA.texture; dir.set(1 / this.aoA.width, 0);
-    this.draw(this.blurMat, this.aoB);
-    bu.tAO.value = this.aoB.texture; dir.set(0, 1 / this.aoA.height);
-    this.draw(this.blurMat, this.aoA);
+    if (this.aoOn) {
+      this.draw(this.aoMat, this.aoA);
+      const bu = this.blurMat.uniforms, dir = bu.uDir.value as THREE.Vector2;
+      bu.tAO.value = this.aoA.texture; dir.set(1 / this.aoA.width, 0);
+      this.draw(this.blurMat, this.aoB);
+      bu.tAO.value = this.aoB.texture; dir.set(0, 1 / this.aoA.height);
+      this.draw(this.blurMat, this.aoA);
+    }
 
     // ── Bloom ──
     // By day only what is brighter than a sunlit white wall may glow; after
@@ -380,7 +489,8 @@ export class Post {
     // ── Composite, tone map, grade ──
     const fog = g.scene.fog;
     cu.uFogDensity.value = fog instanceof THREE.FogExp2 ? fog.density : 0;
-    cu.uAO.value = AO_STRENGTH * this.ao;
+    cu.uAO.value = this.aoOn ? AO_STRENGTH * this.ao : 0;
+    cu.uFxaa.value = this.fxaa ? 1 : 0;
     cu.uExposure.value = exposure;
     // The chain sums one copy per level, and it was built after exposure while
     // the composite applies exposure again: undo both here.
