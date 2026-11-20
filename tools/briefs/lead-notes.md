@@ -65,3 +65,6 @@ owner's ground rules for the takeover and the running state.
   4 of 14 steps done. Gauge at 7:34 AM: window 56% with 68% gone (resets 9:10 AM), week 72%. One unit
   costs about 12 window points and 2 weekly points, so about 11 units remain before the 95% stop and
   10 are planned. C-Max unit (a) launched 7:42 AM.
+- Nov 20, 8:20 AM ET: pushed C-Max part one (kind `cmax`, one parked at Mercy Park, x 138 z -28.6).
+  5 of 14 steps done. Part two (likeness, traffic, dent and rust chip, and the fit_bumper sign bug on
+  the other kinds) launched right after.

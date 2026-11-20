@@ -59,6 +59,8 @@ export const ENGINES: Record<VehicleKind, EngineSpec> = {
   // A hard V8: the same eight, tighter and brighter, less lope.
   cruiser: { cyl: 8, idle: 760, redline: 6400, gears: FIVE, shift: 0.18, p: 0.7, half: 0.4, low: 0.14, odd: 0.07, bright: 6000, breath: 0.6, clatter: 0, beat: 0.005, level: 1 },
   bolt: { cyl: 0, idle: 0, redline: 9000, gears: [1], shift: 0, p: 1, half: 0, low: 0, odd: 0, bright: 6000, breath: 0, clatter: 0, beat: 0, level: 0.5 },
+  // The C-Max: a hybrid's quiet two-litre four behind plenty of lagging. Soft shifts, no clatter, never loud.
+  cmax: { cyl: 4, idle: 760, redline: 4800, gears: FIVE, shift: 0.5, p: 0.9, half: 0.3, low: 0.14, odd: 0.07, bright: 2400, breath: 0.35, clatter: 0, beat: 0.003, level: 0.6 },
 };
 
 const HARMONICS = 56;
@@ -336,6 +338,7 @@ export const HORNS: Record<VehicleKind, HornSpec> = {
   cruiser: { f: [440, 587], attack: 0.006, bright: 3600, level: 0.94 },
   // The Bolt's is polite.
   bolt: { f: [415, 523], attack: 0.016, bright: 2000, level: 0.71 },
+  cmax: { f: [400, 500], attack: 0.012, bright: 2500, level: 0.8 },
 };
 
 /** A horn that sounds until it is released. Built when the button goes down, torn down when it comes up. */

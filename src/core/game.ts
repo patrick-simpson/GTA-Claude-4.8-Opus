@@ -179,6 +179,9 @@ export class Game {
     // The owner's car: a black 2017 Bolt at the same kerb, the first thing on the left as the game opens.
     const bolt = plan.curbPoint(5, 6, 2, 0.30);
     this.vehicles.spawn('bolt', bolt.x, bolt.z, bolt.h, 0x0b0c0e);
+    // The owner's other car: a grey 2015 C-Max, always parked at Mercy Park's kerb on Ledger St (the park's south side).
+    const cmax = plan.curbPoint(6, 3, 2, 0.5);
+    this.vehicles.spawn('cmax', cmax.x, cmax.z, cmax.h, 0x474a48);
     // A step out from the wall, so the opening camera has room behind her for a full-length boom.
     this.player.teleport(feet.x, feet.z + 0.9, 0);
 
@@ -192,6 +195,7 @@ export class Game {
       if (Math.abs(s.x - truck.x) < 16 && Math.abs(s.z - truck.z) < 16) continue;
       if (Math.abs(s.x - coupe.x) < 9 && Math.abs(s.z - coupe.z) < 9) continue;
       if (Math.abs(s.x - bolt.x) < 9 && Math.abs(s.z - bolt.z) < 9) continue;
+      if (Math.abs(s.x - cmax.x) < 9 && Math.abs(s.z - cmax.z) < 9) continue;
       const v = this.vehicles.spawn(kind, s.x, s.z, s.h);
       v.color = v.spec.colors[Math.floor(tint * v.spec.colors.length)];
     }

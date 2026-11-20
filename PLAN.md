@@ -88,6 +88,36 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### The owner's 2015 Ford C-Max, part one: pushed Nov 20, about 8:20 AM ET
+
+Owner request, Nov 20: "There should also be somewhere a 2015 gray Ford C-Max...
+not right next to the Bolt, and can just be driving around or parked somewhere."
+Brief: `tools/briefs/cmax.md`. It is the owner's own car; another project on
+this PC (`C:/Users/User/cmax`, not in this repo) holds a measured Blender model.
+
+- Kind `cmax` ("2015 Ford C-Max"), built in `tools/blender/cars.py` like the Bolt,
+  with its table TAKEN FROM that project's measured tables (the mapping is in the
+  comment above `VEHICLES['cmax']`): 4.41 m long, 1.83 wide, roof 1.61, wheelbase
+  2.648. Trapezoid lower grille, slim upper slot, swept head lamps, wrap-round
+  tail lamps, roof spoiler, aerial, 15-spoke silver wheels, blank fog bezels,
+  dark grey 0x474a48, invented plate "5CM 2015". 14.9k / 11.2k / 1.6k triangles.
+- One is always parked at Mercy Park's kerb on Ledger St (x 138, z -28.6), about
+  330 m from the start. Drivable; quiet hybrid sound and horn (unheard).
+- The shared car sheets grew from 4096x3072 to 4096x4096 (ROWS 3 to 4: twelve
+  kinds had filled it). Car download 21.8 MB. Frame time unchanged.
+- Nothing was copied from the other project but numbers: no plate, VIN or photos.
+  Owed (part two): it is not in traffic or the parked rotation yet (`common: 0`).
+  Likeness: the side is the best view; the checker found the bonnet too long and
+  shallow and the roof too low for a tall one-box (reads like a Prius), the
+  beltline barely rising; head lamps have a heavy chrome rim; the tail lamp is
+  several red pieces with gaps; the tailgate glass foot is 10 cm high; the lower
+  grille's chrome bars throw coloured reflections. No dent or rust chip yet.
+  Handling numbers are estimates. The stand-in before the file loads is the hatch.
+- **Bug found, live since the 7:40 AM push:** `Car.fit_bumper` reads its
+  measurement with the wrong sign, so every painted bumper stands out by about its
+  own projection again (the Bolt is 4.36 m long, not 4.17). The C-Max sets
+  `fit_true` and is right. Fix for the other kinds and re-export: part two.
+
 ### Lamps, bumpers, mirrors and handles on every car: pushed Nov 20, about 7:40 AM ET
 
 - All twelve kinds re-exported (`tools/blender/cars.py` only; no TypeScript).

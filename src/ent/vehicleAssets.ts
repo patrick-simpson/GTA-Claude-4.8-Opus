@@ -46,7 +46,7 @@ import type { VehicleKind } from './vehicleSpecs';
 
 /** Kinds with a file in public/models. Keep in step with that folder. */
 export const GLB_KINDS: readonly VehicleKind[] = [
-  'sedan', 'hatch', 'coupe', 'muscle', 'sports', 'pickup', 'van', 'taxi', 'tow', 'bus', 'cruiser', 'bolt',
+  'sedan', 'hatch', 'coupe', 'muscle', 'sports', 'pickup', 'van', 'taxi', 'tow', 'bus', 'cruiser', 'bolt', 'cmax',
 ];
 
 /** Kinds with <kind>_n.webp and <kind>_o.webp beside the model. Keep in step with that folder, as GLB_KINDS. */
@@ -55,7 +55,7 @@ export const TEX_KINDS: readonly VehicleKind[] = GLB_KINDS;
 const WHEEL_TEX: boolean = true;
 
 /** The sheet all kinds' maps are gathered on: a cell of CELL texels for each kind in TEX_KINDS, in reading order. */
-const COLS = 4, ROWS = 3, CELL = 1024;
+const COLS = 4, ROWS = 4, CELL = 1024;
 /** The longer side of that sheet in texels: a video card that cannot hold a texture this size must not be sent it. */
 export const SHEET_TEXELS = Math.max(COLS, ROWS) * CELL;
 

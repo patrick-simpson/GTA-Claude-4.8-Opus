@@ -8,7 +8,7 @@
 
 export type VehicleKind =
   | 'sedan' | 'hatch' | 'coupe' | 'muscle' | 'sports' | 'pickup'
-  | 'van' | 'taxi' | 'tow' | 'bus' | 'cruiser' | 'bolt';
+  | 'van' | 'taxi' | 'tow' | 'bus' | 'cruiser' | 'bolt' | 'cmax';
 
 export interface VehicleSpec {
   kind: VehicleKind;
@@ -117,6 +117,15 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
     length: 4.17, width: 1.77, height: 1.6, wheelbase: 2.6, track: 1.5, wheelR: 0.32, wheelW: 0.215,
     mass: 1620, topSpeed: 40.7, accel: 8.0, brake: 13.5, grip: 7.6, steer: 0.62, drive: 'fwd',
     colors: [0x0b0c0e, 0xd9581c, 0xb4b9bd, 0xf1f2f0, 0x1f5fa8, 0x8e1420], common: 2,
+  },
+  // The second real one, the owner's own: a 2015 Ford C-Max Hybrid SE in Magnetic grey. 4.41 x 1.83 x 1.61 m, 2.648 m
+  // wheelbase, 225/50R17, about 1650 kg, front-drive, 188 hp: 0-60 mph in about 8 s, limited to 115 mph. Always grey.
+  // common is 0 for now: one is parked by Mercy Park (core/game.ts); traffic and the parked rotation come next.
+  cmax: {
+    kind: 'cmax', name: '2015 Ford C-Max',
+    length: 4.41, width: 1.83, height: 1.61, wheelbase: 2.648, track: 1.54, wheelR: 0.328, wheelW: 0.225,
+    mass: 1650, topSpeed: 51, accel: 6.4, brake: 13, grip: 7.3, steer: 0.6, drive: 'fwd',
+    colors: [0x474a48], common: 0,
   },
 };
 

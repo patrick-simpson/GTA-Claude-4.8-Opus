@@ -180,6 +180,33 @@ VEHICLES = {
         exhausts=(), bumper_pm=['paint'] * 4 + ['trim'] * 3, shd=0.085, flare=0.02, bowl=0.86,
         look={'grille': ((1, 1, 1), 0.0, 0.07, 1)}, diamond=(0.014, 0.0005), uvw={'grille': 7.0},
         crease_line=(1.5, -1.17), crease_full=True, hood_pow=1.25, paint=(0.004, 0.004, 0.005)),
+    # 2015 Ford C-Max Hybrid SE, the second real car (the owner's own, in Magnetic grey): 4.41 x 1.83 x 1.61 m on a
+    # 2.648 m wheelbase, 225/50R17. Nothing here is guessed: the numbers are read off the measured tables of the
+    # owner's Blender model of this very car (C:/Users/User/cmax/cmax_build.py: traced from a studio profile, then
+    # corrected against a photogrammetry solve of a walk-round video), with X there (nose 0, front axle 0.900, tail
+    # 4.41) turned into z here as 2.224 - X.
+    #   ZT, the bonnet and roof line: 0.80 at the bonnet's lip, 1.024 at the screen base (X 0.904: 'cowl' is where the
+    #     screen meets the side, X 1.05, and 'bow' carries its middle forward), 1.535 at the header X 2.05, 1.61 on
+    #     top, 1.52 where the spoiler leaves the roof X 3.90, 1.20 at the foot of the tailgate glass X 4.20.
+    #   BELT, the window line: 1.0 at the screen base, 1.09 at the B-pillar, 1.25 at X 3.5 ('mid', where it kicks
+    #     up) and 1.42 by X 3.72: the pointed rear quarter light.
+    #   WTAB, half width in plan: 0.914 from X 0.9 to 3.6; nose 0.57 at X 0.1 and 0.76 at 0.31 (n_front 2.8); tail
+    #     0.85 at X 4.13 and 0.76 at 4.27 (n_rear 4.5). WRF, the roof's half width: 0.64 over the doors, 0.52 at the back.
+    #   label(): quarter light X 1.05-1.40, B-pillar X 2.38-2.50, rear door glass to X 3.19, quarter light X 3.27-3.70;
+    #     head lamp X 0.08-0.73 (it sweeps back along the wing), tail lamp from X 3.83 at 0.97-1.19 high.
+    'cmax': dict(SEDAN, W=1.83, H=1.61, wb=2.648, track=1.54, R=0.328, tw=0.225, nose=2.224, tail=2.186, sill=0.215, arch_gap=0.045,
+        zs=1.32, n_front=2.8, n_rear=4.5, fkey=False, cowl=1.18, header=0.084, b1=-0.16, b2=-0.28, mid=-1.276, rhead=-1.636, deckf=-1.94,
+        hood_cowl=0.995, hood_nose=0.80, hood_crown=0.03, hood_pow=1.5, belt=1.065, rise=(0.03, 0.185, 0.365), deck=1.195, deck_tail=1.19,
+        xr=(0.585, 0.60, 0.50), roof=(1.535, 1.61, 1.575, 1.52), bow=(0.14, 0.09, -0.04, -0.04), rake=(0.06, 0.04),
+        fit_true=True, window_trim='trim', cab_belt=0.95, seat_e=0.12,
+        tuck=0.035, shc=0.8, shd=0.06, flare=0.018,
+        bumper_top=(0.675, 0.71), bumper_bot=(0.20, 0.27), lift=(0.21, 0.31), ends=((0.40, 0.675), (0.74, 0.94)),
+        doors=[(0.84, 4), (-0.28, 4), (-1.046, 4)], pillars=[(0.84, 0.79), (-0.16, -0.28), (-0.966, -1.046)], cq=-0.5,
+        fq_glass=True, sweep=(1.5, -9.0), sweep_mat=(H_, T_), sweep_tip=1.6, sweep_top=1.64, mirror_z=0.78, slats=False, trunk=False,
+        bench=False, rub=False, gate=2, aerial=False, flap=False, chmsl=(1.493, -1.808), spokes=15, twin=0, spoke_t=(0.006, 0.0105),
+        front={(0, 2): H_, (1, 2): H_, (2, 2): H_}, rear={(0, 2): T_, (1, 2): 'lamp_brake', (2, 2): T_},
+        seat=(0.085, 0.08, 0.075), exhausts=(), bumper_pm=['paint'] * 6 + ['trim'],
+        crease_line=(1.5, -1.741), crease_y=(0.84, 1.06), crease_full=True, paint=(0.0905, 0.0955, 0.0902)),
 }
 
 
@@ -397,10 +424,10 @@ def ring(name, c, r0, r1, depth, axis, mat, tint=None, segs=16):
 
 # What is written on each one: the number plate, the maker's initial for the emblem, and the name on the tail.
 PLATES = {'sedan': '4MRL 207', 'hatch': 'PIP 3310', 'coupe': '7SND 451', 'muscle': 'BR8 LOUD', 'sports': 'C0R 9RS', 'pickup': 'DK 48112',
-          'van': 'BRD 6094', 'taxi': 'CAB 0117', 'tow': 'MULE 22', 'bus': 'HL 0007', 'cruiser': 'HP 1911', 'bolt': '6EV 2017'}
+          'van': 'BRD 6094', 'taxi': 'CAB 0117', 'tow': 'MULE 22', 'bus': 'HL 0007', 'cruiser': 'HP 1911', 'bolt': '6EV 2017', 'cmax': '5CM 2015'}
 BADGE = {'sedan': ('M', 'MARLIN'), 'hatch': ('P', 'PIP'), 'coupe': ('S', 'SANDPIPER'), 'muscle': ('B', 'BRAWLER'), 'sports': ('C', 'CORMORANT'),
          'pickup': ('D', 'DOCKHAND'), 'van': ('B', 'BREADBOX'), 'taxi': ('M', 'MARLIN'), 'tow': ('M', 'MULE'), 'bus': ('H', 'HARBOR LINE'),
-         'cruiser': ('M', 'INTERCEPTOR'), 'bolt': (None, 'BOLT EV')}
+         'cruiser': ('M', 'INTERCEPTOR'), 'bolt': (None, 'BOLT EV'), 'cmax': (None, 'C-MAX')}
 
 
 # ── The body shell ───────────────────────────────────────────────────────────
@@ -517,7 +544,11 @@ class Car:
     def stations(s):
         P = s.P; c0, c1 = s.corner_z(1), s.corner_z(-1)
         keys = [P['cowl'], (P['cowl'] + P['header']) / 2, P['header'], P['b1'], P['b2'], P['mid'], P['rhead'],
-                (P['rhead'] + P['deckf']) / 2, P['deckf'], s.cq, s.zF + s.Rc + 0.205, s.zR - s.Rc - 0.235]
+                (P['rhead'] + P['deckf']) / 2, P['deckf'], s.cq, s.zR - s.Rc - 0.235]
+        # 'fkey': False leaves out the station ahead of the front arch. On a long front overhang it lands 8 cm behind
+        # the corner, and the corner may only lean back as far as the station behind it (see shell): a raked nose
+        # then keeps an upright fin at each corner. (On the Bolt it falls outside 'inside' and was never there.)
+        if s.g('fkey', True): keys.append(s.zF + s.Rc + 0.205)
         keys += [d[0] for d in s.doors] + [z for p in s.pillars for z in p] + list(s.g('bed', ())[:2]) + [z for d in s.g('bus_doors', ()) for z in d]
         inside = lambda z: c1 + 0.045 < z < c0 - 0.045
         ks = []
@@ -546,10 +577,13 @@ class Car:
         yc = sh - s.g('shd', 0.075)
         # 'crease_line' (z, z) rules the crease straight between two stations instead of letting it follow the
         # window line, which sags along the front door on a body whose bonnet stands above its belt.
-        cl = s.g('crease_line')
+        cl = s.g('crease_line'); cy = s.g('crease_y')
         if cl and cl[1] < z < cl[0]:
-            ya, yb = (s.top(q)[0][0][1] - 0.045 - s.g('shd', 0.075) for q in cl)
+            ya, yb = cy or (s.top(q)[0][0][1] - 0.045 - s.g('shd', 0.075) for q in cl)
             yc = lerp(ya, yb, (cl[0] - z) / (cl[0] - cl[1]))
+        # 'crease_y' gives the line's two heights outright, for a body whose window line climbs away from its crease
+        # at the back (the C-Max): behind the line's end the crease then holds that height until it dives to the lamps.
+        elif cl and cy and z <= cl[1]: yc = cy[1]
         y2 = lerp(max(yc, a + 0.03), e[1], te)
         y1 = lerp(a + (y2 - a) * 0.2, e[0], te)
         tuck = lerp(s.g('tuck', 0.024), 0.011, te)
@@ -605,8 +639,11 @@ class Car:
             # The floating roof: the pillar behind the side glass is black from the belt to the roof and round to the rear screen.
             if s.g('floating') and ((k == 4 and s.sg_end > z > P['deckf']) or (k == 5 and P['rhead'] > z > P['deckf'])): return 'gloss'
             # Lamps that sweep back along the wings from the end plates.
-            if sweep and k in (2, 3) and z > sweep[0]: return s.g('sweep_mat', (H_, T_))[0]
+            # ('sweep_tip': from the head lamp's tail to this station only its upper band is lamp, so it ends in a point.)
+            if sweep and k in (2, 3) and z > sweep[0] and (k == 3 or z > s.g('sweep_tip', -1e9)): return s.g('sweep_mat', (H_, T_))[0]
             if sweep and k in (2, 3) and z < sweep[1]: return s.g('sweep_mat', (H_, T_))[1]
+            # 'sweep_top': ahead of this station the head lamp also laps over the top of the wing, as far as the bonnet's edge.
+            if sweep and k == 4 and z > s.g('sweep_top', 1e9): return s.g('sweep_mat', (H_, T_))[0]
             if k in (6, 7) and P['cowl'] > z > P['header']: return 'glass'
             if k in rear_ks and P['rhead'] > z > P['deckf']: return 'glass'
             if k < 4 and white and white[0] > z > white[1]: return 'tmp_white'
@@ -734,7 +771,7 @@ class Car:
                 if c.x < -(s.hw - 0.25) and c.z < top and any(b < -c.y < a for a, b in P['bus_doors']): kill.append(f)
             bmesh.ops.delete(bm, geom=kill, context='FACES')
         if lod == 0:
-            inset('tmp_sideglass', 0.011, 'chrome')
+            inset('tmp_sideglass', 0.011, s.g('window_trim', 'chrome'))
             inset('tmp_sideglass', 0.016, 'trim', 0.006)
             inset('glass', 0.024, 'trim', 0.006)
             # Lamps are housings, not stickers. The front ones sink into a chrome bowl under a clear cover (the cover
@@ -946,6 +983,11 @@ class Car:
             hit = bvh.ray_cast(B(x + nx * 0.4, y, end * (z + nz * 0.4)), B(-nx, 0.0, -end * nz), 0.8)
             if hit[0] is None: continue
             off = 0.4 - hit[3]
+            # 'fit_true'. off as measured is how far the SKIN stands outside the vertex, and the three rules below read
+            # it as how far the vertex stands outside the skin: so a bumper 12 cm proud of a raked end plate is pushed
+            # out by 12 cm more (the Bolt comes out 4.36 m long, not 4.17). A kind that sets this gets the rules with
+            # the sign they were written for and keeps the length its table gives; the others are left as they were built.
+            if s.g('fit_true'): off = -off
             if y >= T + 0.004:
                 mv = -0.014 - off
                 if not exact: mv = min(0.0, mv)
@@ -1013,7 +1055,9 @@ class Car:
         return out
 
     def interior(s):
-        P = s.P; out = []; belt = P['belt']; roof = max(P['roof']); cw = P['cowl']; k = s.hw / 0.917
+        P = s.P; out = []; roof = max(P['roof']); cw = P['cowl']; k = s.hw / 0.917
+        # 'cab_belt': the dashboard and the cabin's lining stand to the belt, which must not be above the bonnet at the screen.
+        belt = s.g('cab_belt', P['belt'])
         # d lifts the floor with the sills, e the seats with the belt: a truck sits you higher than it stands.
         d = P['sill'] - 0.17; e = s.g('seat_e', min(belt - 0.935, d + 0.12))
         I = lambda *a, **kw: out.append(box(*a, **kw))
@@ -1278,14 +1322,15 @@ class Car:
         v, f, _ = lathe([(h * 0.3, R * 0.19), (h * 0.8, R * 0.16), (h * 0.84, R * 0.12), (h * 0.84, 0)], 12)
         bm = new_bm(v, f, mat='rim'); orient(bm, ('dir', (1, 0, 0), len(f) - 1)); out.append(to_obj(bm, 'hub'))
         v, f = [], []
+        # Each spoke is a pair: (half angle between the two at the hub, at the rim). The default closes toward the rim.
+        # 'twin': 0 makes each a single spoke; 'spoke_t' may be (half width at the hub, at the rim).
+        tw_ = s.g('twin', (75 / ns, 27.5 / ns)) or (0, 0)
+        st = s.g('spoke_t', 0.012); st = st if isinstance(st, tuple) else (st, st + 0.001)
         for i in range(ns):
-            for sg in (-1, 1):
-                # Each spoke is a pair: (half angle between the two at the hub, at the rim). The default closes toward the rim.
-                tw_ = s.g('twin', (75 / ns, 27.5 / ns))
+            for sg in ((-1, 1) if tw_[0] or tw_[1] else (1,)):
                 a0 = radians(i * 360 / ns + sg * tw_[0]); a1 = radians(i * 360 / ns + sg * tw_[1])
                 n = len(v)
-                st = s.g('spoke_t', 0.012)
-                for r, t, xf, a in ((R * 0.12, st, h * 0.8, a0), (rr * 0.9, st + 0.001, h * 0.78, a1)):
+                for r, t, xf, a in ((R * 0.12, st[0], h * 0.8, a0), (rr * 0.9, st[1], h * 0.78, a1)):
                     for q in (-1, 1):
                         y = r * sin(a) + q * t * cos(a); z = r * cos(a) - q * t * sin(a)
                         v += [(xf, y, z), (xf - 0.035, y, z)]
@@ -1973,7 +2018,81 @@ def d_bolt(s, lod):
     return out
 
 
-DETAIL = {'bolt': d_bolt, 'hatch': d_hatch, 'coupe': d_coupe, 'muscle': d_muscle, 'sports': d_sports, 'pickup': d_pickup, 'van': d_van,
+def d_cmax(s, lod):
+    """2015 Ford C-Max: the parts only this car has, placed from the owner's measured model (see VEHICLES['cmax'])."""
+    P = s.P; out = []; I = _I(out); bv = 0 if lod else 1; hw = s.hw
+    SATIN = 0.8
+
+    def flank(name, zs_, lo, hi_, mat, tint=None, off=0.007, ny=2):
+        # A patch on each side of the body: columns at the stations zs_, each from lo(z) up to hi_(z), every vertex
+        # dropped onto the skin along x (as Car.panel does along z for the nose and tail).
+        for sx in (1, -1):
+            v = []; f = []
+            for z in zs_:
+                for j in range(ny + 1):
+                    y = lerp(lo(z), hi_(z), j / ny)
+                    hit = s.skin.ray_cast(B(2.0, y, z), B(-1, 0, 0), 3.0) if s.skin else (None,)
+                    x = (hit[0].x if hit[0] is not None else s.xat(z, y)) + off
+                    v.append((sx * x, y, z))
+            for i in range(len(zs_) - 1):
+                for j in range(ny):
+                    a = i * (ny + 1) + j; f.append((a, a + ny + 1, a + ny + 2, a + 1))
+            bm = new_bm(v, f, mat=mat); bm.normal_update()
+            for q in bm.faces:
+                if q.normal.dot(B(sx, 0, 0)) < 0: q.normal_flip()
+            bm.normal_update(); out.append(to_obj(bm, name, tint))
+
+    # The roof spoiler: the roof runs on 17 cm past the tailgate glass, with the stop lamp in its edge (chmsl).
+    I('spoiler', (0, P['roof'][3] - 0.014, P['rhead'] - 0.085), (2 * P['xr'][2] + 0.02, 0.03, 0.17), 'paint', bevel=0.01 * bv, pitch=radians(-9))
+    # Tail lamps. Across the tail they are cells of the end plate; along the flank the lens runs forward to a point
+    # at X 3.83, which the cage cannot draw (its rows there follow the window line up the pillar), so it is laid on.
+    zt = [-1.60, -1.80, -1.975] if lod else [-1.60, -1.70, -1.80, -1.87, -1.93, -1.975, -2.0]
+    flank('tail_side', zt, lambda z: lerp(1.035, 0.945, smooth((-1.60 - z) / 0.34)), lambda z: lerp(1.07, 1.135, smooth((-1.60 - z) / 0.28)),
+          'lamp_tail', off=0.008 if lod else 0.007)
+    # The face: one big six-sided mouth low in the bumper, widest a third of the way down and narrowing to the lip.
+    mouth = lambda y: (0.55 - 0.10 * ((y - 0.51) / 0.065) ** 2) if y > 0.51 else 0.55 - 0.19 * ((0.51 - y) / 0.23) ** 1.3
+    out.append(s.panel('mouth', [0.575, 0.51, 0.40, 0.28] if lod else [0.575, 0.56, 0.535, 0.51, 0.45, 0.40, 0.35, 0.31, 0.28],
+                       mouth, 'grille', 0.012, nx=4 if lod else 8, off=0.006 if lod else 0.004))
+    if lod: return out
+    # Five satin bars across it.
+    for yb_ in (0.535, 0.478, 0.421, 0.364, 0.312):
+        out.append(s.panel('bar', [yb_ + 0.009, yb_ - 0.009], lambda y: mouth(y) - 0.022, 'chrome', SATIN, off=0.011))
+    # The slim slot between the head lamps, a bright bar in it, and a blank oval on the bonnet's lip above (no badge).
+    slot = lambda y: 0.365 + 0.6 * (y - 0.694)
+    out.append(s.panel('slot', [0.73, 0.712, 0.694], slot, 'trim', 0.006, off=0.004))
+    out.append(s.panel('slot_bar', [0.718, 0.706], lambda y: slot(y) - 0.02, 'chrome', None, off=0.008))
+    yo = 0.776; zo = s.wrap([(0, yo)], 1, 0.002)[0][2]
+    for nm, r0, r1, d, m_, t_ in (('oval', 0, 0.023, 0.006, 'gloss', (0.004, 0.012, 0.07)), ('oval_ring', 0.0205, 0.0255, 0.009, 'chrome', None)):
+        o = ring(nm, (0, yo, zo), r0, r1, d, 'z', m_, t_, segs=20)
+        for v_ in o.data.vertices: v_.co.x *= 2.45
+        out.append(o)
+    # No fog lamps on an SE: a blank black bezel low at each corner of the bumper.
+    for sx in (1, -1):
+        out.append(s.panel('fog_blank', [0.435, 0.40, 0.36, 0.335], lambda y: 0.075 - 0.25 * (0.435 - y), 'trim', 0.014, nx=3, off=0.005,
+                           xc=lambda y, sx=sx: sx * (0.665 - 0.2 * (0.435 - y))))
+        # The tail lamp's inner end rides on the tailgate: the reversing lamp. And a reflector low in the bumper.
+        # (above it the indicator, behind a red lens.)
+        out.append(s.panel('ind_r', [1.125, 1.07, 1.0], 0.058, 'lamp_ind', (0.5, 0.04, 0.012), end=-1, nx=2, off=0.006, xc=lambda y, sx=sx: sx * 0.487))
+        out.append(s.panel('rev', [1.0, 0.975, 0.95], lambda y: 0.058 - 0.3 * (1.0 - y), 'lamp_rev', None, end=-1, nx=2, off=0.006,
+                           xc=lambda y, sx=sx: sx * (0.487 + 0.3 * (1.0 - y))))
+        Tr, Br = P['bumper_top'][1], P['bumper_bot'][1]
+        out.append(s.panel('reflector', [lerp(Br, Tr, 0.44), lerp(Br, Tr, 0.36)], 0.085, 'lamp_tail', None, end=-1, nx=2, off=0.005,
+                           xc=lambda y, sx=sx: sx * 0.60))
+    I('wiper_r', (0.11, P['deck'] + 0.075, P['deckf'] + 0.0), (0.30, 0.012, 0.018), 'trim', 0.01)
+    # The aerial: a short black mast raked back off the rear of the roof.
+    I('aerial_base', (0, 1.545, -1.556), (0.045, 0.022, 0.07), 'trim', 0.02, bevel=0.007)
+    I('aerial', (0, 1.668, -1.642), (0.007, 0.30, 0.007), 'trim', 0.02, pitch=radians(-35))
+    # The rear seat and the load cover, which the shared interior would put under the tailgate glass on a body this tall.
+    seat = P['seat']; xs = 2 * (hw - 0.107); e = P['seat_e']
+    I('bench', (0, 0.44 + e, -0.70), (xs - 0.26, 0.16, 0.5), 'seat', seat, bevel=0.04)
+    I('benchback', (0, 0.76 + e, -1.0), (xs - 0.26, 0.58, 0.13), 'seat', seat, bevel=0.04, pitch=radians(18))
+    I('shelf', (0, 1.0, -1.47), (xs - 0.2, 0.04, 0.78), 'interior', 0.03)
+    # The door linings above the cabin's tub, which stops at the bonnet's height while the window line climbs 30 cm.
+    for sx in (1, -1): I('liner', (sx * (xs / 2 - 0.006), 1.02, -0.48), (0.012, 0.2, 2.5), 'interior', 0.02, pitch=radians(6))
+    return out
+
+
+DETAIL = {'cmax': d_cmax, 'bolt': d_bolt, 'hatch': d_hatch, 'coupe': d_coupe, 'muscle': d_muscle, 'sports': d_sports, 'pickup': d_pickup, 'van': d_van,
           'taxi': d_taxi, 'cruiser': d_cruiser, 'tow': d_tow, 'bus': d_bus}
 
 
