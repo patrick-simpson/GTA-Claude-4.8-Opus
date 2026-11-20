@@ -24,7 +24,7 @@ import type { Vehicle, VehicleControls, VehiclesApi } from '../core/api';
 import { RNG, clamp, clamp01, damp, smooth } from '../core/util';
 import { SPECS, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
 import { vehicleModel, wheelGeometry, type VehicleModel } from './vehicleModels';
-import { loadVehicleAssets, type CarMaps, type VehicleAsset } from './vehicleAssets';
+import { loadVehicleAssets, SHEET_TEXELS, type CarMaps, type VehicleAsset } from './vehicleAssets';
 import { BRIDGE, groundAt, terrainAt, WATER_Y } from '../world/plan';
 import type { Box, Prop } from '../world/collide';
 
@@ -82,9 +82,11 @@ const NEAR_IN2 = 13 * 13, NEAR_OUT2 = 16 * 16, NEAR_MAX = 4;
 
 /**
  * Local reflections (high preset): a small cube of the street round the player, redrawn one face a frame every few
- * seconds or when the player has moved on, and handed to every car material in place of the bare sky.
+ * seconds or when the player has moved on, and handed to every car material in place of the bare sky. Measured on the
+ * development machine (frame 6.4 ms): a face costs about 4 ms, the blur rebuild about 5, so a refresh is seven
+ * heavier frames; hence every four seconds at rest, and no oftener than every 1.5 s however fast the player drives.
  */
-const ENV_SIZE = 128, ENV_EVERY = 3, ENV_MOVE2 = 14 * 14;
+const ENV_SIZE = 128, ENV_EVERY = 4, ENV_MOVE2 = 45 * 45, ENV_MIN = 1.5;
 
 const _nearD = new Float32Array(NEAR_MAX), _nearC: (Car | null)[] = [null, null, null, null];
 
@@ -134,8 +136,6 @@ interface KindBatch {
   pick: [number, number, number];
   /** The file lights brake lamps as their own section. */
   sections: boolean;
-  /** Paint and detail materials carrying this kind's baked maps, once it has them. */
-  tex: [THREE.Material, THREE.Material] | null;
   cap: number;
 }
 
@@ -386,7 +386,7 @@ void main() {
  * top of the pane. Without it the glass is a black hole whenever the
  * environment is dim, and paint is matte plastic.
  */
-function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number, gloss = 0, pane = false, dirt = false, lacquer = false): void {
+function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key: string, base: number, fres: number, up: number, grad: number, gloss = 0, pane = false, dirt = false, lacquer = false, flake = false): void {
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uSky = sky;
     let vs = sh.vertexShader, fs = sh.fragmentShader;
@@ -394,7 +394,7 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
     // Dust: a per-car amount (aDirt), thin over the whole body and thick along the sills where the road throws it.
     // It dulls the colour toward road dust, roughens the base and takes the lacquer's shine away with it.
     if (dirt) vs = 'attribute float aDirt;\nvarying float vDirt;\n' + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\nvDirt = aDirt * (0.2 + 0.8 * (1.0 - smoothstep(0.25, 1.0, position.y)));');
-    if (lacquer) vs = 'varying vec3 vObj;\n' + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\nvObj = position;');
+    if (flake) vs = 'varying vec3 vObj;\n' + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\nvObj = position;');
     // Baked occlusion (the textured levels): it darkens the colour the way the vertex bake did, softened on paint,
     // and three.js takes it out of the ambient light and the reflections besides.
     let colour = `#include <color_fragment>
@@ -415,9 +415,9 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
       float sMet = 1.0 - max( smoothstep( 0.6, 0.78, sLo ), step( 0.4, vColor.r ) * step( vColor.b, 0.07 ) * step( 0.1, vColor.g ) );`;
       fs = fs
         .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * mix( 1.5, 1.0, sMet );')
-        .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = metalness * mix( 0.1, 1.0, sMet );')
-        // After the maps and before the clearcoat takes its own copy of the smooth normal: the lacquer stays a mirror.
-        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = metalness * mix( 0.1, 1.0, sMet );');
+      // After the maps and before the clearcoat takes its own copy of the smooth normal: the lacquer stays a mirror.
+      if (flake) fs = fs.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
           // Flakes about a pixel across whatever the distance (a real one is far smaller, and averages out to nothing).
           float fPix = max( length( fwidth( vObj ) ), 1e-5 );
@@ -436,7 +436,7 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
         #endif`);
     }
     sh.vertexShader = vs;
-    sh.fragmentShader = 'uniform vec3 uSky;\n' + (grad > 0 ? 'varying float vSky;\n' : '') + (dirt ? 'varying float vDirt;\n' : '') + (lacquer ? 'varying vec3 vObj;\n' : '') + fs.replace('#include <opaque_fragment>', `{
+    sh.fragmentShader = 'uniform vec3 uSky;\n' + (grad > 0 ? 'varying float vSky;\n' : '') + (dirt ? 'varying float vDirt;\n' : '') + (flake ? 'varying vec3 vObj;\n' : '') + fs.replace('#include <opaque_fragment>', `{
       float sF = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
       float sUp = max(inverseTransformDirection(normal, viewMatrix).y, 0.0);
       outgoingLight += uSky * (0.3 + 0.7 * sAo) * (${base.toFixed(3)} + ${fres.toFixed(3)} * sF * sF * sF + ${up.toFixed(3)} * sUp${grad > 0 ? ` + ${grad.toFixed(3)} * vSky * vSky` : ''});
@@ -467,10 +467,12 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
  * baked colour times a per-instance level (aLamp). Wheels use it too; they have
  * no aLamp, which reads as zero.
  */
-function detailMaterial(maps: CarMaps | null = null): THREE.MeshStandardMaterial {
+function detailMaterial(maps: CarMaps | null = null, relief = true): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, envMapIntensity: 1.6 });
   if (maps) {
-    mat.normalMap = maps.normal; mat.aoMap = maps.ao; mat.aoMapIntensity = 0.7;
+    // Lens ribs and grille mesh are not there to be seen from across the street: the street level takes the occlusion only.
+    if (relief) mat.normalMap = maps.normal;
+    mat.aoMap = maps.ao; mat.aoMapIntensity = 0.7;
     // The pictures are read top row first (no flip), which turns the bitangent the shader derives upside down.
     mat.normalScale.set(1, -1);
   }
@@ -570,8 +572,15 @@ export class Vehicles implements VehiclesApi {
   private glassTintMat: THREE.MeshStandardMaterial;
   /** The Blender models' materials, shared by every kind. */
   private bodyMat: THREE.Material;
+  /** The same with flake in it, for the showroom level. */
+  private bodyNear: THREE.Material;
   private detailMat: THREE.MeshStandardMaterial;
   private paneMat: THREE.MeshStandardMaterial;
+  /**
+   * The materials that carry the baked maps (one sheet for every kind, so one set of materials): paint and detail for
+   * the showroom level, then for the street level. Made when the first textured kind arrives.
+   */
+  private texMats: THREE.Material[] | null = null;
   /** The wheels' material with the shared tire maps, made when they arrive. */
   private wheelTexMat: THREE.MeshStandardMaterial | null = null;
   private assets = new Map<VehicleKind, VehicleAsset>();
@@ -637,7 +646,8 @@ export class Vehicles implements VehiclesApi {
     this.wheelGeo = wheelGeometry();
     // Phones keep the cheap paint: a clearcoat is a second specular lobe on every pixel of every car.
     const low = game.quality.name === 'low';
-    this.bodyMat = low ? this.paintMat : this.coat(null);
+    this.bodyMat = low ? this.paintMat : this.coat(null, false);
+    this.bodyNear = low ? this.paintMat : this.coat(null, true);
     this.detailMat = this.mirror(detailMaterial(), 1.25);
     // Near glass lets a little of the cabin through. Far glass and phones use the opaque tinted one.
     this.paneMat = this.glassTintMat.clone();
@@ -647,7 +657,10 @@ export class Vehicles implements VehiclesApi {
     sheen(this.paneMat, this.sky, 'pane', 0.04 * k, 0.75 * k, 0.2 * k, 0.44 * k, 0, true);
     this.mirror(this.paneMat, 1.4);
     // ?glb=0 keeps every kind procedural, for comparing.
-    if (new URLSearchParams(location.search).get('glb') !== '0') void loadVehicleAssets((a) => this.adopt(a), !low);
+    // ?cartex=0 leaves the baked maps unfetched (the near levels then have no occlusion at all: for timing only).
+    // So does a video card too small for the shared sheet: a texture it refuses reads as black, which is a black car.
+    const sheetFits = game.renderer.capabilities.maxTextureSize >= SHEET_TEXELS;
+    if (new URLSearchParams(location.search).get('glb') !== '0') void loadVehicleAssets((a) => this.adopt(a), !low && sheetFits && new URLSearchParams(location.search).get('cartex') !== '0');
     this.glow = new Sprites(1024, GLOW_VS, glowTexture(), 6);
     this.pool = new Sprites(96, POOL_VS, poolTexture(), 5);
     this.shadow = new Sprites(160, GROUND_VS, shadowTexture(), 2, new THREE.Color(0x0b1322));
@@ -1444,7 +1457,7 @@ export class Vehicles implements VehiclesApi {
       for (let i = 0; i < gp.count; i++) sky[i] = hi > lo ? (gp.getY(i) - lo) / (hi - lo) : 0.5;
       proc.glass.setAttribute('aSky', new THREE.BufferAttribute(sky, 1));
     }
-    b = { kind, proc, model: proc, sets: [], pick: [0, 0, 0], sections: false, tex: null, cap: Math.max(8, Math.ceil(SPECS[kind].common * 8)) };
+    b = { kind, proc, model: proc, sets: [], pick: [0, 0, 0], sections: false, cap: Math.max(8, Math.ceil(SPECS[kind].common * 8)) };
     this.dress(b);
     this.batches.set(kind, b);
     this.batchList.push(b);
@@ -1455,12 +1468,13 @@ export class Vehicles implements VehiclesApi {
    * Metallic base under a hard lacquer. The base is left fairly rough (flake scatters) and the coat is what shines:
    * a touch of roughness on it spreads the sun into a highlight the size of a hand instead of a single pixel.
    */
-  private coat(maps: CarMaps | null): THREE.MeshPhysicalMaterial {
+  private coat(maps: CarMaps | null, flake: boolean): THREE.MeshPhysicalMaterial {
     const local = !!this.envRT;
-    const m = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: local ? 0.45 : 0.55, roughness: local ? 0.5 : 0.4, clearcoat: 1, clearcoatRoughness: local ? 0.09 : 0.025, envMapIntensity: 1.7 });
+    const m = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: local ? 0.35 : 0.55, roughness: local ? 0.5 : 0.4, clearcoat: 1, clearcoatRoughness: local ? 0.09 : 0.025, envMapIntensity: 1.7 });
     if (maps) { m.aoMap = maps.ao; m.aoMapIntensity = 0.6; }
-    if (local) sheen(m, this.sky, 'coat', 0, 0.06, 0.02, 0, 0.1, false, true, true);
-    else sheen(m, this.sky, 'coat', 0, 0.3, 0.1, 0, 0.55, false, true, true);
+    // Flake is worked out per pixel and shows only within a few meters, so only the showroom level pays for it.
+    if (local) sheen(m, this.sky, flake ? 'coatf' : 'coat', 0, 0.06, 0.02, 0, 0.1, false, true, true, flake);
+    else sheen(m, this.sky, flake ? 'coatf' : 'coat', 0, 0.3, 0.1, 0, 0.55, false, true, true, flake);
     return this.mirror(m, 1.6);
   }
 
@@ -1486,7 +1500,7 @@ export class Vehicles implements VehiclesApi {
     if (this.envFace === 6) {
       this.envWait -= dt;
       const dx = focus.x - this.envAt.x, dz = focus.z - this.envAt.z;
-      if (this.envWait > 0 && !(dx * dx + dz * dz > ENV_MOVE2 && this.envWait < ENV_EVERY - 0.35)) return;
+      if (this.envWait > 0 && !(dx * dx + dz * dz > ENV_MOVE2 && this.envWait < ENV_EVERY - ENV_MIN)) return;
       this.envFace = 0;
     }
     const first = this.envFace < 0, r = game.renderer, t0 = performance.now();
@@ -1541,13 +1555,15 @@ export class Vehicles implements VehiclesApi {
       b.pick = n === 3 ? [0, 1, 2] : n === 2 ? [0, 0, 1] : [0, 0, 0];
       b.sections = a.sections;
       const maps = low ? null : a.maps;
-      if (maps && !b.tex) b.tex = [this.coat(maps), this.mirror(detailMaterial(maps), 1.25)];
+      if (maps && !this.texMats) this.texMats = [this.coat(maps, true), this.mirror(detailMaterial(maps), 1.25), this.coat(maps, false), this.mirror(detailMaterial(maps, false), 1.25)];
+      const tex = maps ? this.texMats : null;
       if (!low && a.wheelMaps && !this.wheelTexMat) this.wheelTexMat = this.mirror(detailMaterial(a.wheelMaps), 1.25);
       lods.forEach((l, i) => {
         const others: Part[] = [];
         // A level is drawn with the maps only if every part of it was unwrapped for them.
-        const uv = !!b.tex && l.paint.hasAttribute('uv') && (!l.detail || l.detail.hasAttribute('uv'));
-        const bodyMat = uv ? b.tex![0] : this.bodyMat, detailMat = uv ? b.tex![1] : this.detailMat;
+        const uv = !!tex && l.paint.hasAttribute('uv') && (!l.detail || l.detail.hasAttribute('uv'));
+        const near = n === 3 && i === 0;
+        const bodyMat = uv ? tex![near ? 0 : 2] : near ? this.bodyNear : this.bodyMat, detailMat = uv ? tex![near ? 1 : 3] : this.detailMat;
         const wheelMat = !low && this.wheelTexMat && l.wheel?.hasAttribute('uv') ? this.wheelTexMat : this.detailMat;
         // Bumpers and mirrors add nothing to the shadow the shell already throws, except close up, where the
         // mirror, the wing and the rack are what you are looking at.

@@ -1,8 +1,12 @@
 # Port Calamity's cars, modelled in Blender by script and exported as .glb.
 #
-#   blender --background --factory-startup --python tools/blender/cars.py -- sedan [--no-render] [--no-export]
+#   blender --background --factory-startup --python tools/blender/cars.py -- sedan [--no-render] [--no-export] [--no-tex]
+#   blender --background --factory-startup --python tools/blender/cars.py -- --wheel-tex      (the shared tire maps)
 #
-# Writes public/models/<kind>.glb and preview stills in shots/blender/<kind>_*.png.
+# Writes public/models/<kind>.glb, its baked maps <kind>_n.webp and <kind>_o.webp (see "Textures" below; --no-tex
+# leaves them and the UVs out and bakes occlusion into the vertices of every level, as before), and preview stills
+# in shots/blender/<kind>_*.png. Set CARS_OUT to send a trial run's files somewhere other than public/models.
+# After adding or dropping a kind's maps, keep TEX_KINDS in src/ent/vehicleAssets.ts in step.
 #
 # Everything is authored in the GAME's frame (x = the car's left, y = up, z =
 # forward, y 0 = road, origin midway between the axles) and passed through B()
@@ -27,6 +31,9 @@
 #     Paint and glass carry occlusion only: the game supplies their colour.
 #   * LOD1 is the same recipe with the detail passes skipped and the cage
 #     left unsubdivided, so lamps and glass keep their outlines.
+#   * Painted bumpers swell out of the end plates in one surface (bumper(),
+#     'blend'); Car.panel() lays a patch on the nose or tail by ray casting
+#     onto the skin, which is how the Bolt's shield, mask and intake are made.
 #   * All twelve vehicles are the sedan's table with overrides (VEHICLES) plus
 #     a d_<kind>() of the parts only that vehicle has: bed, boom, wing, sign.
 #     Run with no kind to build them all; <kind>_sheet.jpg tiles the stills.
@@ -513,7 +520,9 @@ class Car:
         arch = []
         for zc in (s.zF, s.zR):
             arch += [zc + s.Rc + 0.035, zc - s.Rc - 0.035] + [zc + s.Rc * cos(radians(a)) for a in range(0, 181, 15 if s.hi else 30)]
-        return sorted([c0, c1] + ks + [z for z in arch if inside(z) and all(abs(z - k) > (0.012 if s.hi else 0.025) for k in ks)], reverse=True)
+        # An arch station too close to a key one makes a sliver the glass insets cannot fit in (it threw spikes out of the
+        # cruiser's rear quarter); the key station stands in for it, the arch height being exact at any z.
+        return sorted([c0, c1] + ks + [z for z in arch if inside(z) and all(abs(z - k) > (0.045 if s.hi else 0.025) for k in ks)], reverse=True)
 
     def side(s, z, sh, end=0):
         """Rows 0-3: the open lower edge (sill or arch), the sill line, the shoulder crease and the shoulder."""
@@ -1715,7 +1724,7 @@ def d_bolt(s, lod):
     # bright bar across its top carrying the bowtie. All of it is laid on the skin by Car.panel.
     T, Bt = P['bumper_top'][0], P['bumper_bot'][0]
     shield = lambda y: 0.335 if y > 0.63 else 0.335 * max(0.0, 1 - ((0.63 - y) / 0.2) ** 2.4) ** (1 / 2.4)
-    out.append(s.panel('shield', [0.752, 0.72, 0.68, 0.64, 0.60, 0.56, 0.52, 0.485, 0.455], shield, 'grille', 0.05, off=0.005))
+    out.append(s.panel('shield', [0.752, 0.72, 0.68, 0.64, 0.60, 0.56, 0.52, 0.485, 0.455], shield, 'grille', 0.016, off=0.005))
     out.append(s.panel('shield_bar', [0.752, 0.737, 0.722], 0.335, 'chrome', None, off=0.009))
     # The black mask: from the inner end of each head lamp a gloss-black blade runs down and out across the bumper to
     # the lamp pod at its corner, so lamp, blade and pod read as one dark shape either side of the shield.
@@ -1894,6 +1903,16 @@ def build(kind, do_render=True, do_export=True, extra=False, do_tex=True):
         shade(body); shade(wheel, 40)
         if do_tex and level < 2: wheel_uv(wheel, P, car)
         sets.append((body, wheel))
+        if level == 0:
+            # A shard check: skin (paint, glass, gloss) has no business above the roof or beyond the mirrors.
+            bad = []
+            for q in body.data.polygons:
+                if MATS[q.material_index] in ('paint', 'glass', 'gloss'):
+                    for vi in q.vertices:
+                        c = body.data.vertices[vi].co
+                        if c.z > max(P['roof']) + 0.06 or abs(c.x) > P['W'] / 2 + 0.26:
+                            bad.append((MATS[q.material_index], round(c.x, 2), round(c.z, 2), round(-c.y, 2))); break
+            stats['shards'] = [len(bad)] + bad[:6]
         stats[f'LOD{level}'] = tris(body); stats[f'WHEEL{level}'] = tris(wheel)
     if do_tex:
         stats['uv'] = unwrap([sets[0][0], sets[1][0]], P['sill'])

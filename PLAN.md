@@ -88,6 +88,31 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Cars, all-out pass two, first part: pushed Nov 20, about 5:25 AM ET
+
+A new lead session took over on Nov 20 (the old one died to the usage limit; see
+`tools/briefs/lead-notes.md` for the owner's rules: one worker at a time, push
+often, spread the usage). Brief: `tools/briefs/allout-cars-2.md`, steps A to E.
+
+- All twelve kinds carry baked normal and occlusion maps on the two near levels,
+  copied at load into ONE pair of 4096x3072 sheets so every kind shares materials.
+  With that the cars' share of the frame is back to pass one's (thirty parked cars
+  at high: +0.6 ms mid view, about zero near), and about 0.2 ms better than the
+  build that went out with M5. Low preset unchanged. Car download 20.2 MB.
+- Cars skip the maps on a video card whose largest texture is under 4096.
+- The cruiser's rear-quarter spikes are gone; the Bolt's shield is flatter.
+- Checked: an independent worker looked at every kind close up by day; production
+  build boots with no errors on the island, the mainland and the phone layout.
+  Owed: every step is only partly done. A: no roughness or metalness maps, paint
+  carries occlusion only (no panel gaps in the normal map). B: reflections on dark
+  paint are blotchy brown and teal, no clear sun highlight. C: the Bolt's head
+  lamps read as chain mail, its shield is mesh-textured, the flank crease does not
+  show. D: near level still 14-19k triangles, mirrors and handles simple, a notch
+  under the sedan's and taxi's front lamp. E: the taxi has no checker band on its
+  far level (so none on phones); the bus's face and most cabins never seen close.
+  Each kind that loads re-sends the whole sheet pair (3-9 ms, once 124 ms): send
+  only the new cell. Night lamps not re-verified by the checker.
+
 ### M5 "Sound": pushed Nov 19, about 9:30 PM ET
 
 `src/audio/` (about 3,000 lines, no audio files; `game.audio`): engine synthesis

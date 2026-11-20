@@ -14,6 +14,10 @@
 // <kind>_o.webp (ambient occlusion, which those levels then do NOT carry in
 // their vertex colours). Tires of every kind share cars_wheel_n/_o.webp, which
 // repeats round the wheel. The far level has neither, and phones draw only it.
+// Every kind's pictures are copied into ONE pair of sheets, a cell each, and
+// the kind's UVs are moved into its cell here: with a texture of its own each
+// kind needed materials of its own, and thirty parked cars then spent more
+// time changing material than drawing (measured: 0.9 ms a frame at high).
 // The frame is already the
 // game's: +Z forward, Y up, y = 0 the road, origin midway between the axles,
 // +X the car's left. A wheel has its hub at the origin, axle along X, outer
@@ -49,6 +53,11 @@ export const GLB_KINDS: readonly VehicleKind[] = [
 export const TEX_KINDS: readonly VehicleKind[] = GLB_KINDS;
 /** cars_wheel_n.webp and cars_wheel_o.webp are in the folder. */
 const WHEEL_TEX: boolean = true;
+
+/** The sheet all kinds' maps are gathered on: a cell of CELL texels for each kind in TEX_KINDS, in reading order. */
+const COLS = 4, ROWS = 3, CELL = 1024;
+/** The longer side of that sheet in texels: a video card that cannot hold a texture this size must not be sent it. */
+export const SHEET_TEXELS = Math.max(COLS, ROWS) * CELL;
 
 /** Baked maps for one unwrap: normals as two channels (z is rebuilt in the shader), occlusion as one. */
 export interface CarMaps { normal: THREE.Texture; ao: THREE.Texture }
@@ -251,12 +260,14 @@ function buildAsset(kind: VehicleKind, scene: THREE.Object3D): VehicleAsset | nu
   return { kind, lods, maps: null, wheelMaps: null, sections: p0.some((p) => p.name === 'lamp_brake'), head, tail, seat: at('SEAT')[0] ?? null, beacon: at('BEACON')[0] ?? null, notes };
 }
 
+interface Pix { w: number; h: number; d: Uint8Array<ArrayBuffer> }
+
 /**
- * One baked map as a texture of `channels` bytes a texel (1: occlusion, 2: the x and y of a normal). The picture is
- * unpacked through a canvas because a twelve-car fleet of full RGBA maps is four times the video memory for nothing.
- * Never throws; null if the file is missing or is not a picture.
+ * One baked map's texels, `channels` bytes each (1: occlusion, 2: the x and y of a normal), unpacked through a canvas:
+ * a twelve-car fleet of full RGBA maps is four times the video memory for nothing. Never throws; null if the file is
+ * missing or is not a picture.
  */
-async function map(url: string, channels: 1 | 2, repeat: boolean): Promise<THREE.Texture | null> {
+async function pixels(url: string, channels: 1 | 2): Promise<Pix | null> {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -275,25 +286,71 @@ async function map(url: string, channels: 1 | 2, repeat: boolean): Promise<THREE
     if (!w || !h || d.length !== w * h * 4) return null;
     const out = new Uint8Array(w * h * channels);
     for (let i = 0, j = 0; i < d.length; i += 4) { out[j++] = d[i]; if (channels === 2) out[j++] = d[i + 1]; }
-    const t = new THREE.DataTexture(out, w, h, channels === 1 ? THREE.RedFormat : THREE.RGFormat);
-    // Row 0 of the picture is v = 0 in a glTF's coordinates, which is how a DataTexture already reads.
-    t.unpackAlignment = 1;
-    t.colorSpace = THREE.NoColorSpace;
-    t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
-    t.anisotropy = 4;
-    if (repeat) t.wrapS = THREE.RepeatWrapping;
-    t.needsUpdate = true;
-    return t;
+    return { w, h, d: out };
   } catch {
     return null;
   }
 }
 
-async function maps(stem: string, repeat: boolean): Promise<CarMaps | null> {
-  const [normal, ao] = await Promise.all([map(`models/${stem}_n.webp`, 2, repeat), map(`models/${stem}_o.webp`, 1, repeat)]);
-  if (normal && ao) return { normal, ao };
-  normal?.dispose(); ao?.dispose();
-  return null;
+function texture(d: Uint8Array<ArrayBuffer>, w: number, h: number, channels: 1 | 2, repeat: boolean): THREE.DataTexture {
+  const t = new THREE.DataTexture(d, w, h, channels === 1 ? THREE.RedFormat : THREE.RGFormat);
+  // Row 0 of the picture is v = 0 in a glTF's coordinates, which is how a DataTexture already reads.
+  t.unpackAlignment = 1;
+  t.colorSpace = THREE.NoColorSpace;
+  t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
+  t.anisotropy = 4;
+  if (repeat) t.wrapS = THREE.RepeatWrapping;
+  t.needsUpdate = true;
+  return t;
+}
+
+/** The tires' maps: a pair of textures of their own, repeating round the wheel. */
+async function wheelTextures(): Promise<CarMaps | null> {
+  const [n, o] = await Promise.all([pixels('models/cars_wheel_n.webp', 2), pixels('models/cars_wheel_o.webp', 1)]);
+  return n && o ? { normal: texture(n.d, n.w, n.h, 2, true), ao: texture(o.d, o.w, o.h, 1, true) } : null;
+}
+
+let sheet: { maps: CarMaps; n: Uint8Array<ArrayBuffer>; o: Uint8Array<ArrayBuffer> } | null = null;
+
+/** The shared sheets, made on first use: flat normals and no occlusion until a kind's pictures are copied in. */
+function sheets(): NonNullable<typeof sheet> {
+  if (!sheet) {
+    const W = COLS * CELL, H = ROWS * CELL;
+    const n = new Uint8Array(W * H * 2).fill(128), o = new Uint8Array(W * H).fill(255);
+    sheet = { maps: { normal: texture(n, W, H, 2, false), ao: texture(o, W, H, 1, false) }, n, o };
+  }
+  return sheet;
+}
+
+/**
+ * Give a kind its cell of the sheets: move the UVs of its unwrapped levels there, then copy its two pictures in. A
+ * picture that is missing or the wrong size leaves the cell blank (smooth and unshaded), which is a car with no
+ * occlusion, not a broken one.
+ */
+async function place(asset: VehicleAsset): Promise<void> {
+  const i = TEX_KINDS.indexOf(asset.kind);
+  if (i < 0 || i >= COLS * ROWS) return;
+  const cx = i % COLS, cy = Math.floor(i / COLS), s = sheets();
+  for (const l of asset.lods) {
+    for (const g of [l.paint, l.detail]) {
+      const uv = g?.getAttribute('uv') as THREE.BufferAttribute | undefined;
+      if (!uv) continue;
+      const a = uv.array as Float32Array;
+      for (let k = 0; k < a.length; k += 2) { a[k] = (Math.min(1, Math.max(0, a[k])) + cx) / COLS; a[k + 1] = (Math.min(1, Math.max(0, a[k + 1])) + cy) / ROWS; }
+      uv.needsUpdate = true;
+    }
+  }
+  asset.maps = s.maps;
+  const [n, o] = await Promise.all([pixels(`models/${asset.kind}_n.webp`, 2), pixels(`models/${asset.kind}_o.webp`, 1)]);
+  const W = COLS * CELL;
+  if (n && n.w === CELL && n.h === CELL) {
+    for (let y = 0; y < CELL; y++) s.n.set(n.d.subarray(y * CELL * 2, (y + 1) * CELL * 2), ((cy * CELL + y) * W + cx * CELL) * 2);
+    s.maps.normal.needsUpdate = true;
+  }
+  if (o && o.w === CELL && o.h === CELL) {
+    for (let y = 0; y < CELL; y++) s.o.set(o.d.subarray(y * CELL, (y + 1) * CELL), (cy * CELL + y) * W + cx * CELL);
+    s.maps.ao.needsUpdate = true;
+  }
 }
 
 /**
@@ -303,7 +360,7 @@ async function maps(stem: string, repeat: boolean): Promise<CarMaps | null> {
  */
 export async function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, textures = true, kinds: readonly VehicleKind[] = GLB_KINDS): Promise<void> {
   const loader = new GLTFLoader();
-  const wheelMaps = textures && WHEEL_TEX ? await maps('cars_wheel', true) : null;
+  const wheelMaps = textures && WHEEL_TEX ? await wheelTextures() : null;
   for (const kind of kinds) {
     try {
       const res = await fetch(`models/${kind}.glb`);
@@ -316,7 +373,7 @@ export async function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, textu
       if (!asset) { console.warn(`models/${kind}.glb: no LOD0 with a paint mesh; keeping the procedural ${kind}`); continue; }
       for (const n of asset.notes) console.warn(`models/${kind}.glb: ${n}`);
       // The maps come before the car is shown: its near levels have no occlusion of their own to fall back on.
-      if (textures && TEX_KINDS.includes(kind)) asset.maps = await maps(kind, false);
+      if (textures) await place(asset);
       asset.wheelMaps = wheelMaps;
       onLoad(asset);
     } catch (e) {
