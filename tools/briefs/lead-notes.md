@@ -68,3 +68,9 @@ owner's ground rules for the takeover and the running state.
 - Nov 20, 8:20 AM ET: pushed C-Max part one (kind `cmax`, one parked at Mercy Park, x 138 z -28.6).
   5 of 14 steps done. Part two (likeness, traffic, dent and rust chip, and the fit_bumper sign bug on
   the other kinds) launched right after.
+  Gauge at 8:10 AM: window 71% with 80% gone (resets 9:10 AM ET), week 75%. About 10 units left
+  before the 95% stop; 9 planned (C-Max part two running, then M6 x8).
+- Nov 20, 8:55 AM ET: pushed C-Max part two (likeness by measurement, traffic, dent and rust chip)
+  and the bumper sign fix on the other twelve. 6 of 14 steps done. The cars are finished for now;
+  M6 starts. M6 is planned as 7 units (measure is merged with the first frame fix), so the total is
+  13 steps and 6 are done.

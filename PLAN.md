@@ -88,6 +88,33 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### The C-Max, part two, and the bumper bug: pushed Nov 20, about 8:55 AM ET
+
+- **Likeness, by measuring the exported model against the owner's tables**
+  (`scratch/cars4/measure.mjs`): the real fault was the side glass, a third too
+  shallow (belt 3 cm high, glass top 6-10 cm low), which made it read as a Prius.
+  Now within 1-6 cm; belt on the real line; screen bowed; the nose one curve from
+  an upright bumper into a steeper bonnet (16.7 degrees, real 16.0); head lamps a
+  thin black seal round a reflector; lower grille bars satin dark; the tail lamp
+  one red cluster split only at the tailgate shut line. Roof within 0.8 cm.
+- **Traffic:** `common: 1.5` (about one car in thirty), always grey
+  (`Vehicles.spawn` forces it). The fixed one at Mercy Park stays.
+- **The owner's marks**, near level only: a 1.2 cm dent in the left rear quarter
+  and a 5 cm rust chip on the left front wing above the arch lip.
+- **Bumper bug fixed:** `fit_bumper` has one rule with the right sign; the other
+  twelve kinds re-exported and back to their table lengths (Bolt 4.167 m); front
+  plates the over-long bumpers had swallowed are back.
+- Checked by an independent worker: better than part one in all three views.
+  Owed on the C-Max: still a fairly generic people-carrier. The tailgate glass
+  stops above the lamps and the lamp top is 5 cm low (the generator puts the lamp
+  band under the deck line; needs a rebuilt tail). Head lamps are slim pods, the
+  real ones taller teardrops. The upper slot's chrome bar shows a coloured strip.
+  Nose tip 3 cm short. Rear quarter window not the long swept shape. The dent is
+  very subtle; the rust chip can pass for a side marker. Its lamps on a DRIVEN
+  car at night were not confirmed (parked cars are unlit), and nobody saw one
+  moving in traffic in a picture (two were counted driving). Giving it a weight
+  reshuffled which kind is parked where across the city.
+
 ### The owner's 2015 Ford C-Max, part one: pushed Nov 20, about 8:20 AM ET
 
 Owner request, Nov 20: "There should also be somewhere a 2015 gray Ford C-Max...

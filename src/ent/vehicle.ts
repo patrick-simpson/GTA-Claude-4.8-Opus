@@ -726,7 +726,8 @@ export class Vehicles implements VehiclesApi {
   spawn(kind: VehicleKind, x: number, z: number, h: number, color?: number): Vehicle {
     const spec = SPECS[kind];
     const c = new Car(this.nextId++, spec, this.batch(kind));
-    c.color = color ?? spec.colors[Math.floor(this.rng.next() * spec.colors.length)];
+    // The owner's C-Max is always its own grey, also where a caller hands every kind one colour (the towed car).
+    c.color = kind === 'cmax' ? spec.colors[0] : color ?? spec.colors[Math.floor(this.rng.next() * spec.colors.length)];
     c.x = x; c.z = z; c.h = h;
     this.seat(c);
     this.cars.push(c);

@@ -196,15 +196,25 @@ VEHICLES = {
     #     head lamp X 0.08-0.73 (it sweeps back along the wing), tail lamp from X 3.83 at 0.97-1.19 high.
     'cmax': dict(SEDAN, W=1.83, H=1.61, wb=2.648, track=1.54, R=0.328, tw=0.225, nose=2.224, tail=2.186, sill=0.215, arch_gap=0.045,
         zs=1.32, n_front=2.8, n_rear=4.5, fkey=False, cowl=1.18, header=0.084, b1=-0.16, b2=-0.28, mid=-1.276, rhead=-1.636, deckf=-1.94,
-        hood_cowl=0.995, hood_nose=0.80, hood_crown=0.03, hood_pow=1.5, belt=1.065, rise=(0.03, 0.185, 0.365), deck=1.195, deck_tail=1.19,
-        xr=(0.585, 0.60, 0.50), roof=(1.535, 1.61, 1.575, 1.52), bow=(0.14, 0.09, -0.04, -0.04), rake=(0.06, 0.04),
-        fit_true=True, window_trim='trim', cab_belt=0.95, seat_e=0.12,
+        hood_cowl=0.995, hood_nose=0.80, hood_crown=0.03, hood_pow=1.5, belt=1.035, rise=(0.03, 0.185, 0.40), deck=1.195, deck_tail=1.19,
+        xr=(0.585, 0.60, 0.50), roof=(1.535, 1.615, 1.585, 1.52), bow=(0.14, 0.09, -0.04, -0.04), rake=(0.06, 0.04),
+        window_trim='trim', cab_belt=0.95, seat_e=0.12,
+        # Part two, from measuring the exported file against ZT and BELT (scratch/cars4/measure.mjs). The nose: the
+        # plate stands 3 cm behind the bumper, upright to 0.60 and then leaning back as 7.9 (y - 0.60)^2.45, which is
+        # ZT's curve from the tip to the bonnet's lip (X 0.04 at 0.67, 0.094 at 0.74, 0.175 at 0.795, 0.24 at 0.83).
+        # The glasshouse: belt 3 cm lower (the glass starts an inset above its row), the cant rail folded so the
+        # glass keeps its height, the screen bowed 5 cm, the roof held at 1.61 back to X 3.1.
+        proj=(0.03, 0.05), rake_curve=((0.60, 7.9, 2.45), None), screen_bulge=0.05, rail_crease=0.5, rail_drop=0.055,
+        lamp_rim='trim', lamp_wall=H_, lens_rim='lamp_tail', lens_depth=0.002,
+        # The owner's car has a dent at its left rear corner: a shallow dish in the quarter panel between the arch,
+        # the bumper and the lamp, on the near level only (and a rust chip on the left front wing, in d_cmax).
+        dents=[(1, 0.835, -1.865, 0.115, 0.017)],
         tuck=0.035, shc=0.8, shd=0.06, flare=0.018,
-        bumper_top=(0.675, 0.71), bumper_bot=(0.20, 0.27), lift=(0.21, 0.31), ends=((0.40, 0.675), (0.74, 0.94)),
+        bumper_top=(0.675, 0.71), bumper_bot=(0.20, 0.27), lift=(0.28, 0.31), ends=((0.40, 0.675), (0.74, 0.94)),
         doors=[(0.84, 4), (-0.28, 4), (-1.046, 4)], pillars=[(0.84, 0.79), (-0.16, -0.28), (-0.966, -1.046)], cq=-0.5,
         fq_glass=True, sweep=(1.5, -9.0), sweep_mat=(H_, T_), sweep_tip=1.6, sweep_top=1.64, mirror_z=0.78, slats=False, trunk=False,
         bench=False, rub=False, gate=2, aerial=False, flap=False, chmsl=(1.493, -1.808), spokes=15, twin=0, spoke_t=(0.006, 0.0105),
-        front={(0, 2): H_, (1, 2): H_, (2, 2): H_}, rear={(0, 2): T_, (1, 2): 'lamp_brake', (2, 2): T_},
+        front={(0, 2): H_, (1, 2): H_, (2, 2): H_}, rear={(0, 2): T_, (1, 2): T_, (2, 2): 'lamp_brake'},
         seat=(0.085, 0.08, 0.075), exhausts=(), bumper_pm=['paint'] * 6 + ['trim'],
         crease_line=(1.5, -1.741), crease_y=(0.84, 1.06), crease_full=True, paint=(0.0905, 0.0955, 0.0902)),
 }
@@ -438,7 +448,9 @@ class Car:
         s.hw = P['W'] / 2 - 0.008
         s.zF, s.zR = P['wb'] / 2, -P['wb'] / 2
         s.arch_r = P['R'] + P['arch_gap']
-        s.zNf, s.zNr = P['nose'] - 0.05, P['tail'] - 0.05
+        # 'proj': how far the bumpers stand ahead of the end plates, (front, rear). 5 cm unless a kind says otherwise.
+        pj = P.get('proj', (0.05, 0.05))
+        s.zNf, s.zNr = P['nose'] - pj[0], P['tail'] - pj[1]
         # Shut-lines across the side: (z, how many rows up from the sill the cut runs).
         s.doors = P.get('doors', [(P['cowl'], 4), (P['b2'], 4), (P['rhead'], 4)])
         s.pillars = P.get('pillars', [(P['b1'], P['b2'])])
@@ -475,6 +487,10 @@ class Car:
 
     def rake(s, end, y):
         """How far the end plates lean in with height; one number, or (front, rear)."""
+        # 'rake_curve': (front, rear), each None or (y0, A, p): upright below y0 and leaning back by A (y - y0)^p
+        # above it, for a nose that runs from an upright bumper into the bonnet in one curve (the C-Max).
+        rc = s.g('rake_curve', (None, None))[0 if end > 0 else 1]
+        if rc: return rc[1] * max(0.0, y - rc[0]) ** rc[2]
         rk = s.g('rake', 0.035)
         if isinstance(rk, tuple): rk = rk[0 if end > 0 else 1]
         return rk * (y - 0.2) / 0.5
@@ -511,7 +527,8 @@ class Car:
         return [(w - 0.04, y - 0.014), (w - 0.12, y), (w - x2, y + 0.010), (x3, y + c * 0.8), (0.0, y + c)]
 
     def cabin(s, w, belt, xr, roof):
-        return [(w - 0.055, belt), (xr + 0.055, roof - 0.07), (xr, roof - 0.022), (s.g('xc', 0.34), roof - 0.005), (0.0, roof)]
+        # 'rail_drop': how far below the roof's crown the top of the side glass (the cant rail) sits.
+        return [(w - 0.055, belt), (xr + 0.055, roof - s.g('rail_drop', 0.07)), (xr, roof - 0.022), (s.g('xc', 0.34), roof - 0.005), (0.0, roof)]
 
     def top(s, z):
         """Rows 4-8 of the section at z, and how far its centre bows along z (screens are curved in plan)."""
@@ -538,7 +555,14 @@ class Car:
         for a, b in zip(keys, keys[1:]):
             if b[0] <= z <= a[0]:
                 t = (a[0] - z) / (a[0] - b[0])
-                return [(lerp(p[0], q[0], t), lerp(p[1], q[1], t)) for p, q in zip(a[1], b[1])], lerp(a[2], b[2], t)
+                rows = [(lerp(p[0], q[0], t), lerp(p[1], q[1], t)) for p, q in zip(a[1], b[1])]
+                # 'screen_bulge': the screen and the pillars beside it stand this far above the straight line from
+                # the cowl to the header at mid height (a real screen is a bow in profile, not a ramp).
+                sb = s.g('screen_bulge')
+                if sb and P['header'] < z < P['cowl']:
+                    tt = (P['cowl'] - z) / (P['cowl'] - P['header']); dy = sb * 4 * tt * (1 - tt)
+                    rows = rows[:1] + [(x_, y_ + dy) for x_, y_ in rows[1:]]
+                return rows, lerp(a[2], b[2], t)
         raise ValueError(z)
 
     def stations(s):
@@ -695,6 +719,10 @@ class Car:
         J = lambda z: min(range(NS), key=lambda j: abs(st[j] - z))
         jc, jh, jr, jd = J(P['cowl']), J(P['header']), J(P['rhead']), J(P['deckf'])
         for j in range(jc, jr): crease(idx[j][4], idx[j + 1][4], 0.5)
+        # 'rail_crease': the top of the side glass is a fold too. Left smooth, one subdivision drops that row 5 cm
+        # toward the belt and the glass insets take 3 more: a side window a third shallower than the cage says.
+        if s.g('rail_crease'):
+            for j in range(jc, jr): crease(idx[j][5], idx[j + 1][5], s.g('rail_crease'))
         for j, c in ((jc, 0.8), (jd, 0.8), (jh, 0.4), (jr, 0.4)):
             for k in range(5, 8): crease(idx[j][k], idx[j][k + 1], c)
         between = lambda z: s.zR + s.Rc + 0.02 < z < s.zF - s.Rc - 0.02
@@ -781,7 +809,7 @@ class Car:
                 n = names_[f.material_index]
                 if n in ('lamp_head', 'lamp_drl'):
                     s.covers.append([(v.co.x, v.co.z, -v.co.y) for v in f.verts])
-            bowl = s.g('bowl'); wall = []
+            bowl = s.g('bowl'); wall = []; lips = []
             # The indicators are lenses like the tail lamps, front ones too. The front one is the sliver that turns the
             # corner beside the head lamp: as a chrome pan under the clear cover it was narrower than its own rings
             # (4 cm against 4.6), so it folded through itself and the lamp stood open at the side, an empty chrome
@@ -789,9 +817,14 @@ class Car:
             for m, depth in (('lamp_head', 0.034), ('lamp_drl', 0.02), ('lamp_ind', 0.008), ('lamp_tail', 0.008), ('lamp_brake', 0.008), ('lamp_rev', 0.008)):
                 # Behind a clear lens the housing is black plastic, rim and walls: chrome there (and gloss black as
                 # much) mirrored the sky in pale slivers where the lamp's tail faces up.
-                rim = 'trim' if bowl and depth > 0.01 else 'chrome'
-                inset(m, 0.008 if depth > 0.01 else 0.005, rim)
-                w_ = inset(m, (0.02 if bowl and m == 'lamp_head' else 0.015) if depth > 0.01 else 0.007, rim if depth > 0.01 else m, depth,
+                # 'lamp_rim' names the housing's material outright; 'lens_rim' the lip round the moulded lenses, which
+                # is chrome unless a kind's lamp is one unit made of several sections (then the lip is lens too).
+                rim = (s.g('lamp_rim') or 'trim') if bowl and depth > 0.01 else (s.g('lamp_rim') or 'chrome') if depth > 0.01 else 'chrome'
+                r1 = inset(m, 0.008 if depth > 0.01 else 0.005, rim)
+                if depth < 0.01 and r1: lips += r1
+                # ('lamp_wall': the bowl's wall in another material than its rim, e.g. the reflector's own, which
+                # leaves the rim a thin seal instead of a 2 cm frame. 'lens_depth': how far the lenses sit in.)
+                w_ = inset(m, (0.02 if bowl and m == 'lamp_head' else 0.015) if depth > 0.01 else 0.007, (s.g('lamp_wall') or rim) if depth > 0.01 else m, depth if depth > 0.01 else s.g('lens_depth', depth),
                            0.35 if sweep and depth > 0.01 else 1.0)
                 if m == 'lamp_head' and bowl: wall = list(w_ or ())
                 if s.hi and depth < 0.01:
@@ -803,6 +836,9 @@ class Car:
                             for v in f.verts: v[dark] = 0.5
                         for f in fs:
                             for v in f.verts: v[dark] = 0.0
+            if s.g('lens_rim'):
+                for f in lips:
+                    if f.is_valid: f.material_index = MI[s.g('lens_rim')]
             if bowl:
                 # A clear-lens lamp ('bowl' is how dark its housing is): behind the cover a smoked bowl, not a bright
                 # reflector, and along the foot of it a daytime strip, which is the bowl's own lower wall.
@@ -830,6 +866,14 @@ class Car:
                     else: v.co.y -= 0.02 if v.co.y > 0 else -0.02
         for e in bm.edges: e.seam = False
         orient(bm, ('up',))
+        # 'dents': (side, y, z, radius, depth) dishes pressed into the finished skin of the showroom car only (one
+        # car's own history, not its kind's shape). Done before the skin is measured, so bumpers still fit it.
+        if s.hi:
+            for sx, yd, zd, rad, dep in s.g('dents', ()):
+                for v in bm.verts:
+                    if v.co.x * sx < 0.3: continue
+                    d = hypot(v.co.z - yd, -v.co.y - zd) / rad
+                    if d < 1.0: v.co.x -= sx * dep * (1 - d * d) ** 2
         if lod and s.g('bowl'):
             for f in bm.faces:
                 if f.material_index == MI['lamp_head']: f.material_index = MI['tmp_lamp']
@@ -982,12 +1026,11 @@ class Car:
             nx /= l; nz /= l
             hit = bvh.ray_cast(B(x + nx * 0.4, y, end * (z + nz * 0.4)), B(-nx, 0.0, -end * nz), 0.8)
             if hit[0] is None: continue
-            off = 0.4 - hit[3]
-            # 'fit_true'. off as measured is how far the SKIN stands outside the vertex, and the three rules below read
-            # it as how far the vertex stands outside the skin: so a bumper 12 cm proud of a raked end plate is pushed
-            # out by 12 cm more (the Bolt comes out 4.36 m long, not 4.17). A kind that sets this gets the rules with
-            # the sign they were written for and keeps the length its table gives; the others are left as they were built.
-            if s.g('fit_true'): off = -off
+            # How far the vertex stands outside the skin (negative: inside it), which is what the three rules below
+            # are written for. From the 7:40 AM push of Nov 20 until the C-Max's part two this was read with the
+            # other sign (0.4 - hit), so a bumper 12 cm proud of a raked end plate was pushed out by 12 cm more: the
+            # Bolt came out 4.36 m long, not 4.17, and seven other kinds 13 cm over their tables.
+            off = hit[3] - 0.4
             if y >= T + 0.004:
                 mv = -0.014 - off
                 if not exact: mv = min(0.0, mv)
@@ -2021,7 +2064,7 @@ def d_bolt(s, lod):
 def d_cmax(s, lod):
     """2015 Ford C-Max: the parts only this car has, placed from the owner's measured model (see VEHICLES['cmax'])."""
     P = s.P; out = []; I = _I(out); bv = 0 if lod else 1; hw = s.hw
-    SATIN = 0.8
+    BAR = 0.085      # satin dark grey: as chrome the five bars mirrored the sky in coloured stripes
 
     def flank(name, zs_, lo, hi_, mat, tint=None, off=0.007, ny=2):
         # A patch on each side of the body: columns at the stations zs_, each from lo(z) up to hi_(z), every vertex
@@ -2056,7 +2099,7 @@ def d_cmax(s, lod):
     if lod: return out
     # Five satin bars across it.
     for yb_ in (0.535, 0.478, 0.421, 0.364, 0.312):
-        out.append(s.panel('bar', [yb_ + 0.009, yb_ - 0.009], lambda y: mouth(y) - 0.022, 'chrome', SATIN, off=0.011))
+        out.append(s.panel('bar', [yb_ + 0.009, yb_ - 0.009], lambda y: mouth(y) - 0.022, 'trim', BAR, off=0.011))
     # The slim slot between the head lamps, a bright bar in it, and a blank oval on the bonnet's lip above (no badge).
     slot = lambda y: 0.365 + 0.6 * (y - 0.694)
     out.append(s.panel('slot', [0.73, 0.712, 0.694], slot, 'trim', 0.006, off=0.004))
@@ -2079,6 +2122,20 @@ def d_cmax(s, lod):
         out.append(s.panel('reflector', [lerp(Br, Tr, 0.44), lerp(Br, Tr, 0.36)], 0.085, 'lamp_tail', None, end=-1, nx=2, off=0.005,
                            xc=lambda y, sx=sx: sx * 0.60))
     I('wiper_r', (0.11, P['deck'] + 0.075, P['deckf'] + 0.0), (0.30, 0.012, 0.018), 'trim', 0.01)
+    if s.hi:
+        # The owner's own car: a rust chip on the left front wing, a hand above the arch's lip behind the wheel (the
+        # dent at the left rear corner is 'dents' in the table). A ragged brown patch 5 cm long, dark in its middle.
+        zc, yc = 1.035, 0.665
+        for nm, k_, tint_, off_ in (('rust_chip', 1.0, (0.16, 0.062, 0.026), 0.0025), ('rust_pit', 0.45, (0.045, 0.02, 0.012), 0.0035)):
+            v = []
+            for a_, r_ in ((0, 0), (0.2, 0.027), (1.25, 0.015), (2.1, 0.019), (3.0, 0.03), (4.0, 0.013), (5.1, 0.018)):
+                dz, dy = k_ * r_ * cos(a_), k_ * r_ * sin(a_)
+                hit = s.skin.ray_cast(B(2.0, yc + dy, zc + dz), B(-1, 0, 0), 3.0) if s.skin else (None,)
+                v.append(((hit[0].x if hit[0] is not None else s.xat(zc + dz, yc + dy)) + off_, yc + dy, zc + dz))
+            bm = new_bm(v, [(0, i, i % 6 + 1) for i in range(1, 7)], mat='trim'); bm.normal_update()
+            for q in bm.faces:
+                if q.normal.dot(B(1, 0, 0)) < 0: q.normal_flip()
+            bm.normal_update(); out.append(to_obj(bm, nm, tint_))
     # The aerial: a short black mast raked back off the rear of the roof.
     I('aerial_base', (0, 1.545, -1.556), (0.045, 0.022, 0.07), 'trim', 0.02, bevel=0.007)
     I('aerial', (0, 1.668, -1.642), (0.007, 0.30, 0.007), 'trim', 0.02, pitch=radians(-35))
