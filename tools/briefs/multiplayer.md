@@ -57,3 +57,16 @@ Asked one question at a time, the owner chose:
    and record what is shared (the bridge, the city) and what stays personal (cash, the story step).
 5. **Hardening.** Joining a city already running, the host leaving mid-chase, reconnecting, a
    30-minute soak with four simulated players, message and cost counts against the free limits.
+
+## Owner decisions, Nov 21, 2026 (these override the text above)
+
+6. **Be very sparing with Cloudflare.** The free limits are shared by the owner's whole account,
+   so the game draws from the same daily pool as the church service. The game may use at most
+   **50% of any daily free limit**. The service counts its own use and, well before that line,
+   pauses multiplayer until the daily reset (midnight UTC).
+7. **When paused, players play alone** and see a notice saying multiplayer is resting and the time
+   it resumes (shown in their local time). Single player costs Cloudflare nothing.
+8. **8 players at a time, total.** One city, cap 8, NO second city. Player 9 plays alone with a
+   small "town is full" notice, and the game retries quietly every few minutes and moves them in
+   when a seat opens. A refused join must cost as little as possible.
+9. Send only what changes; a still player sends almost nothing. Measure message counts every stage.
