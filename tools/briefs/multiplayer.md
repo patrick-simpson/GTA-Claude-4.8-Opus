@@ -71,12 +71,12 @@ Asked one question at a time, the owner chose:
    when a seat opens. A refused join must cost as little as possible.
 9. Send only what changes; a still player sends almost nothing. Measure message counts every stage.
 10. **Two homes for the service (owner, Nov 21): "Both".** The MAIN service is a small Node
-    program on the owner's always-on Windows mini PC at home, reached through a free Cloudflare
+    program on the owner's always-on Debian Linux mini PC at home, reached through a free Cloudflare
     Tunnel (no router ports opened, home address hidden). It has no daily limits. The Cloudflare
     Worker is the BACKUP, used only when the mini PC cannot be reached, and it keeps decisions 6 to
     8 (half limit pause, 8 seats). The same protocol and the same room logic serve both; the client
     tries the main address first, then the backup, then single player. The lead cannot reach the
-    mini PC: the owner runs a one time PowerShell install that the lead writes; after that it
+    mini PC: the owner runs a one time shell install (a systemd service) that the lead writes; after that it
     should update itself from this repository. Box the service off (its own folder and an
     unprivileged account, no access to anything else on that PC). Keep the 8 seat cap on both
     until measurements say the mini PC can take more.
