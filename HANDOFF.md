@@ -59,11 +59,27 @@ What changes for you:
 1. **Push often**, so people watching the site keep seeing new things. Push each finished change.
 2. **Work slowly; do not burn the usage.** One worker at a time, in small steps that each end in a
    push. The owner would rather the job take longer than have a 5-hour window emptied early.
-3. **Usage limits.** Inside a 5-hour window use all of it, but spread out, reaching 100% only near
-   the end. For the week, stop at 95% and wait for the weekly reset.
-4. **Models.** The top model for craft work (design, art, lighting, performance, integration, hard
-   bugs). Sonnet for routine work (running benchmarks, scripted play-testing, small well-specified
-   fixes, and every independent check).
+3. **Usage limits, and the weekly cap above all.** The owner's plan has a 5-hour window and a
+   WEEKLY limit shared with everything else the owner does; the weekly one is the real constraint.
+   - **The week: stop at 95%** and wait for the weekly reset (it fell on Sunday at 4:00 PM ET in
+     November 2026; read the real reset time from the gauge). The last 5% is the owner's reserve.
+   - **Do not start a step that could cross the stop.** A top-model step costs 2 to 3 points of the
+     week, so start none above 92%; a Sonnet step costs about 1, so start none above 94%.
+   - **Budget the week before spending it.** At the start of each week read the gauge, count the
+     points left to 95%, and plan the steps to fit, cheapest model that does each job (rule 4). If
+     the job cannot finish this week, say so to the owner early, with what will wait.
+   - **Inside a 5-hour window** use all of it, but spread out, reaching 100% only near the end.
+   - **Your own turns cost too.** Report at each push and otherwise stay quiet; do not poll.
+4. **Use the cheapest model that does the job well.** This is the owner's standing decision
+   (`PLAN.md`, "Owner decisions since M1", item 2), and it is how the weekly cap is kept:
+   - **Haiku** for fixed-recipe work: running a script and reporting its numbers, taking a set of
+     screenshots, counting messages or bytes, validating data, checking that a build boots.
+   - **Sonnet** for well-specified code and small fixes with a clear way to reproduce them,
+     scripted play-testing, and every independent check of another worker's step.
+   - **The top model** only for work that needs judgement: design, protocol and architecture,
+     driving feel, art and lighting, performance work, integration, hard or unexplained bugs.
+   Choose per step, and say in each report which model did what. If a cheaper model's step fails
+   its check twice, move that step up one model rather than repeating it.
 5. **Tell the owner at each push** what changed, honestly, with usage so far. No five-minute
    check-ins on this job. Say so plainly if work pauses or stalls.
 6. **Every update starts with a percentage complete** (steps pushed out of steps planned; say so
@@ -170,7 +186,7 @@ Suggested first units for stage 1:
 2. **The client** (top model): `src/net/` with the connection, the made-up names, and other
    players drawn walking, swimming and driving, smoothed between updates; fall back to
    single-player if the service cannot be reached. Test with two or three headless browsers at once.
-3. **A check under load** (Sonnet): four simulated players for ten minutes, message counts against
+3. **A check under load** (Haiku to run it, Sonnet if it needs writing): four simulated players for ten minutes, message counts against
    the free-plan limits, frame rate unchanged with `rafprobe`.
 
 Then stages 2 to 5 as the brief lists them. Decide and record in `PLAN.md` what is shared and what
