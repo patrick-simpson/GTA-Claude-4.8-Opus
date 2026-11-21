@@ -405,7 +405,7 @@ async function runChecks() {
   // "Where is main" with the placeholder key that is committed until the home computer exists.
   const stranger = generateKeyPairSync('ed25519').privateKey;
   const reg = await register(signed(stranger, 'https://some-quick-tunnel.trycloudflare.com', Date.now(), Date.now()));
-  check('placeholder public key: even a well signed registration is refused (403)', reg === 403, `status ${reg}`);
+  check('the committed public key: a registration signed with any other key is refused (401, or 403 while it is the placeholder)', reg === 401 || reg === 403, `status ${reg}`);
   const where = await fetch(HTTP + P.MAIN_PATH);
   check('placeholder public key: "where is main" answers that there is none', where.status === 200 && (await where.json()).u === null);
   const hook = await (await fetch(HTTP + '/__test?add=86400000')).text();

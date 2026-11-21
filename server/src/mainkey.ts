@@ -5,4 +5,4 @@
 // computer. While this is still the placeholder below, the Worker refuses EVERY registration, so
 // nobody can name a main address and the game uses the backup only.
 
-export const MAIN_PUBLIC_KEY = 'PLACEHOLDER-PASTE-THE-KEY-THE-INSTALL-PRINTED';
+export const MAIN_PUBLIC_KEY = 'pOnNzZPvcB7KbcXRFfn1CwnF4nsPoLQItzD_58sTN9k';
