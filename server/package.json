@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "PORT CALAMITY message service: a Cloudflare Worker and one Durable Object per city.",
+  "description": "PORT CALAMITY message service: a Cloudflare Worker and one Durable Object (the town).",
   "scripts": {
     "dev": "wrangler dev --port 8787",
     "deploy": "wrangler deploy",

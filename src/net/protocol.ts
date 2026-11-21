@@ -13,14 +13,19 @@
 // Nothing a player types ever travels: names are indexes into the client's own word lists, shouts
 // are numbers, durable facts are numbers.
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 // ---- limits and rates (the service enforces the limits; the client should respect the rates) ----
 
-/** Players per city. Player 17 is put in a second city silently. */
-export const CITY_CAP = 16;
-/** How many cities the Worker will try before answering 503. */
-export const MAX_CITIES = 8;
+/**
+ * Seats in town, in total (owner, Nov 21 2026). There is ONE city and no second copy: player 9 is told `full`,
+ * plays alone, and asks again every FULL_RETRY_S or so.
+ */
+export const CITY_CAP = 8;
+/** The retry hint sent with `full`, in seconds. The client adds a random spread and never asks sooner. */
+export const FULL_RETRY_S = 180;
+/** After `rest`, a client waits until the resume time plus a random part of this, so everybody does not return in the same second. */
+export const REST_SPREAD_MS = 5 * 60 * 1000;
 /** Player state sends per second. */
 export const SEND_HZ = 10;
 /** Largest Frame.State / Frame.Event / Frame.ToHost / Frame.Keepalive, in bytes. */
@@ -73,12 +78,17 @@ export const Close = {
   TooBig: 4001,
   TooFast: 4002,
   BadMessage: 4003,
+  /** Sent after `full`: every seat is taken. Ask again later. */
+  Full: 4008,
+  /** Sent after `rest`: the service has paused itself until the time it gave. Do not ask again before then. */
+  Rest: 4009,
 } as const;
 
 /** HTTP status the Worker answers instead of an upgrade (a browser only sees "could not connect"). */
 export const HTTP_BAD_ORIGIN = 403;
 export const HTTP_BAD_HELLO = 400;
-export const HTTP_ALL_FULL = 503;
+// A full town and a resting service are NOT HTTP refusals (a browser cannot read those): the socket opens, carries
+// one `full` or `rest` message, and closes with Close.Full or Close.Rest.
 
 /**
  * The hello is the URL itself, so a socket never exists without a valid name:
@@ -89,7 +99,7 @@ export function cityUrl(base: string, name: NameIndexes): string {
   return `${base.replace(/\/+$/, '')}/?v=${PROTOCOL_VERSION}&name=${name.join('.')}`;
 }
 
-/** Text the service answers without waking the city (use for a lone player's connection check). */
+/** A connection check: the service answers PONG_TEXT. It counts as a message like any other. */
 export const PING_TEXT = 'ping';
 export const PONG_TEXT = 'pong';
 
@@ -278,7 +288,7 @@ export interface WelcomeMsg {
   v: number;
   /** Your id for this session (1..255). */
   id: number;
-  /** Which copy of the city (1 unless the first is full). */
+  /** Always 1: there is one city. */
   city: number;
   /** Current host id (your own id if you are it). */
   host: number;
@@ -293,7 +303,15 @@ export interface LeaveMsg { t: 'leave'; id: number; }
 export interface RenameMsg { t: 'name'; id: number; name: NameIndexes; }
 export interface HostMsg { t: 'host'; id: number; }
 export interface FactEchoMsg { t: 'fact'; k: string; v: FactValue; }
-export type ServerMsg = WelcomeMsg | JoinMsg | LeaveMsg | RenameMsg | HostMsg | FactEchoMsg;
+/** Instead of a welcome: every seat is taken. `retry` is a hint in seconds; `seats` is the size of the town. */
+export interface FullMsg { t: 'full'; retry: number; seats: number; }
+/**
+ * Instead of a welcome, or to everybody at once: the service has paused itself for the day. `until` is when it
+ * resumes and `now` is the service's clock at the time of sending, both in ms since 1970 (UTC), so a browser whose
+ * own clock is wrong can still wait the right length of time.
+ */
+export interface RestMsg { t: 'rest'; until: number; now: number; }
+export type ServerMsg = WelcomeMsg | JoinMsg | LeaveMsg | RenameMsg | HostMsg | FactEchoMsg | FullMsg | RestMsg;
 
 // ---- validation (used by the service on everything a client sends; total, never throws) ----
 

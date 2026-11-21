@@ -1,7 +1,7 @@
 // Local test of the message service. From server/:
-//   npm test                      the checks (about 40 s)
-//   npm run measure               4 simulated players at 10 Hz for 60 s, with the free plan sums
-//   node test/local.mjs --measure --seconds=20 --players=4
+//   npm test                      the checks (about 90 s; the daily budget is tested on a second copy with tiny limits)
+//   npm run measure               8 simulated players (4 driving at 10 Hz, 4 standing still) for 60 s, and the sums
+//   node test/local.mjs --measure --seconds=20 --players=8 --still=0
 // It starts `wrangler dev` (workerd, no Cloudflare account, no network) on a spare port with a
 // throwaway storage folder, talks to it over real WebSockets, and stops it again.
 // Needs Node 22.18 or newer: it imports the TypeScript protocol file directly.
@@ -13,6 +13,7 @@ import { dirname, join as pathJoin } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import * as P from '../../src/net/protocol.ts';
+import * as B from '../src/budget.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const serverDir = pathJoin(here, '..');
@@ -34,11 +35,14 @@ let child = null;
 let persistDir = null;
 let serverLog = '';
 
-async function startServer() {
+async function startServer(testBudget = null) {
+  serverLog = '';
   persistDir = mkdtempSync(pathJoin(tmpdir(), 'port-calamity-city-'));
   child = spawn(
     pathJoin(serverDir, 'node_modules', '.bin', 'wrangler'),
-    ['dev', '--port', String(PORT), '--ip', '127.0.0.1', '--persist-to', persistDir, '--show-interactive-dev-session=false'],
+    ['dev', '--port', String(PORT), '--ip', '127.0.0.1', '--persist-to', persistDir, '--show-interactive-dev-session=false',
+      // The ONLY way to change the limits: a var given to the local `wrangler dev`. A deployed service has none.
+      ...(testBudget ? ['--var', `TEST_BUDGET:${JSON.stringify(testBudget)}`] : [])],
     { cwd: serverDir, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CI: '1', WRANGLER_SEND_METRICS: 'false', NO_COLOR: '1' } },
   );
   child.stdout.on('data', (d) => (serverLog += d));
@@ -55,13 +59,17 @@ async function startServer() {
   throw new Error('the local Worker did not start:\n' + serverLog.slice(-2000));
 }
 
-function stopServer() {
-  if (child && child.exitCode === null) {
+async function stopServer() {
+  const c = child;
+  child = null;
+  if (c && c.exitCode === null) {
     try {
-      process.kill(-child.pid, 'SIGTERM');
+      process.kill(-c.pid, 'SIGTERM');
     } catch { /* gone */ }
+    for (let i = 0; i < 50 && c.exitCode === null; i++) await sleep(100);
   }
   if (persistDir) rmSync(persistDir, { recursive: true, force: true });
+  persistDir = null;
 }
 
 // ---- a test client ----
@@ -164,11 +172,13 @@ function open(name = [1, 2], { origin = GOOD_ORIGIN, query } = {}) {
       ws.terminate();
     });
     ws.on('error', () => resolve({ status: -1 }));
-    client.takeJson('welcome', 5000).then((w) => {
-      if (w) {
+    client.take((m) => m.json && ['welcome', 'full', 'rest'].includes(m.json.t), 5000).then(async (m) => {
+      const w = m && m.json;
+      if (w && w.t === 'welcome') {
         client.welcome = w;
         resolve({ client });
-      } else if (!client.closed) resolve({ status: -2 });
+      } else if (w) resolve({ refused: w, code: await client.waitClose(2000) }); // a seat was not given: one message, then closed
+      else if (!client.closed) resolve({ status: -2 });
     });
   });
 }
@@ -359,28 +369,108 @@ async function runChecks() {
   check('a host that goes silent for a few seconds is replaced', !!hs && hs.id === d.id, JSON.stringify(hs));
   await closeAll([d, e]);
 
-  // -- the cap --
+  // -- the cap: 8 seats, one town, no second city --
   const crowd = [];
   for (let i = 0; i < P.CITY_CAP; i++) crowd.push(await join([i, i + 1]));
-  const extra = await join([30, 31]);
   const last = crowd[crowd.length - 1];
-  check(`players 1 to ${P.CITY_CAP} share city 1`, crowd.every((p) => p.welcome.city === 1) && last.welcome.players.length === P.CITY_CAP && new Set(crowd.map((p) => p.id)).size === P.CITY_CAP);
-  check(`player ${P.CITY_CAP + 1} is put in city 2, alone and its host`, extra.welcome.city === 2 && extra.welcome.players.length === 1 && extra.welcome.host === extra.id, JSON.stringify(extra.welcome));
+  check(`the cap is 8; players 1 to ${P.CITY_CAP} share the one town`, P.CITY_CAP === 8 && crowd.every((p) => p.welcome.city === 1) && last.welcome.players.length === P.CITY_CAP && new Set(crowd.map((p) => p.id)).size === P.CITY_CAP);
+  const fullAt = Date.now();
+  r = await open([30, 31]);
+  check(`player ${P.CITY_CAP + 1} is refused: "full" with the retry hint and the seat count, closed ${P.Close.Full}`,
+    !!r.refused && r.refused.t === 'full' && r.refused.retry === P.FULL_RETRY_S && r.refused.seats === P.CITY_CAP && r.code === P.Close.Full, JSON.stringify(r).slice(0, 200));
+  check('there is no second city: nobody was told of a join, and no welcome was sent', !r.client && (await last.takeJson('join', 400)) === null);
   for (const p of crowd) p.clear();
   crowd[3].send(stateFrame(5));
   const heard = await Promise.all(crowd.map((p, i) => (i === 3 ? null : p.takeBin(P.Frame.State, 1500))));
-  check('a full city relays to all 15 others, and not into city 2', heard.filter(Boolean).length === P.CITY_CAP - 1 && (await extra.takeBin(P.Frame.State, 300)) === null);
+  check(`a full town relays to all ${P.CITY_CAP - 1} others`, heard.filter(Boolean).length === P.CITY_CAP - 1);
   await crowd[0].close();
-  const again = await join([32, 33]);
-  check('a place freed in city 1 is filled before city 2', again.welcome.city === 1 && again.welcome.players.length === P.CITY_CAP);
-  await closeAll([...crowd, extra, again]);
+  r = await open([32, 33]);
+  check('just after a seat opens the Worker still answers "full" from memory (it asks the town again within 15 s)', !!r.refused && r.refused.t === 'full');
+  await sleep(Math.max(0, B.FULL_CACHE_MS + 500 - (Date.now() - fullAt)));
+  r = await open([32, 33]);
+  check('once that memory has lapsed, the open seat is given', !!r.client && r.client.welcome.city === 1 && r.client.welcome.players.length === P.CITY_CAP, JSON.stringify(r).slice(0, 200));
+  const hook = await (await fetch(HTTP + '/__test?add=86400000')).text();
+  check('without the local test var there are no test hooks (the limits cannot be changed from outside)', hook.startsWith('port-calamity-city'), hook.slice(0, 80));
+  await closeAll([...crowd, ...(r.client ? [r.client] : [])]);
+}
+
+// ---- the daily budget (a second local Worker, started with tiny limits) ----
+
+const TEST_LIMITS = { doRequests: 100, seats: 2 };
+const probe = async (q = '') => (await fetch(`${HTTP}/__test${q}`)).json();
+
+async function runBudgetChecks() {
+  let s = await probe();
+  const line = TEST_LIMITS.doRequests * B.GAME_SHARE * B.PAUSE_AT;
+  check(`pause line = limit x ${B.GAME_SHARE} share x ${B.PAUSE_AT} margin (real: ${B.pauseLines().doRequests} of ${B.FREE_PLAN_PER_DAY.doRequests} requests; here ${line} of ${TEST_LIMITS.doRequests})`,
+    s.lines.doRequests === line && B.pauseLines().doRequests === 40000 && s.seats === 2, JSON.stringify(s.lines));
+
+  // -- the cheap refusal: the Worker answers "full" from memory, the town is not asked --
+  const a = await join([1, 2]);
+  const b = await join([3, 4]);
+  let r = await open([5, 6]);
+  check('town full (2 seats here): the third is refused', !!r.refused && r.refused.t === 'full' && r.refused.seats === 2);
+  const before = await probe();
+  let cheap = 0;
+  for (let i = 0; i < 5; i++) {
+    r = await open([5, 6]);
+    if (r.refused && r.refused.t === 'full' && r.code === P.Close.Full) cheap++;
+  }
+  const after = await probe();
+  // The two probes are themselves requests to the town: exactly one of them lies between the two readings.
+  const cost = after.used.doRequests - before.used.doRequests - 1;
+  check('five more refusals cost the town nothing: 0 Durable Object requests, 0 rows (bar the one this look wrote), 5 Worker requests',
+    cheap === 5 && Math.abs(cost) < 1e-9 && after.used.rowsWritten - before.used.rowsWritten === 1 && after.unreported - before.unreported === 6 && before.remembered === 'full',
+    `cost ${cost}, unreported ${before.unreported} to ${after.unreported}, remembered ${before.remembered}`);
+
+  // -- the count reaches the line --
+  s = await probe('?forget');
+  const need = Math.ceil((line - s.used.doRequests) * B.WS_MESSAGES_PER_REQUEST);
+  const t0 = Date.now();
+  let sentMsgs = 0;
+  const flood = setInterval(() => { for (const c of [a, b]) { c.send(P.KEEPALIVE_FRAME); sentMsgs++; } }, 40);
+  const ra = await a.takeJson('rest', 30000);
+  clearInterval(flood);
+  const rb = await b.takeJson('rest', 3000);
+  const [ca, cb] = [await a.waitClose(3000), await b.waitClose(3000)];
+  const midnight = (t) => (Math.floor(t / 86400000) + 1) * 86400000;
+  check(`after about ${need} more messages (20 to a request) everybody is told "rest"`, !!ra && !!rb && sentMsgs >= need && sentMsgs < need + 60, `sent ${sentMsgs} in ${Date.now() - t0} ms`);
+  check('the resume time is the next 00:00 UTC, with the service clock alongside', !!ra && ra.until === midnight(ra.now) && ra.until % 86400000 === 0 && Math.abs(ra.now - Date.now()) < 5000 && rb.until === ra.until, JSON.stringify(ra));
+  check(`and their sockets are closed with ${P.Close.Rest}`, ca === P.Close.Rest && cb === P.Close.Rest, `${ca} ${cb}`);
+  s = await probe();
+  check('the count stopped just past the line (and was stored: 1 row or more written)', s.spent === 'doRequests' && s.used.doRequests >= line && s.used.doRequests < line + 3 && s.size === 0 && s.used.rowsWritten >= 1, JSON.stringify(s.used));
+
+  // -- resting: joins refused, cheaply --
+  r = await open([7, 8]);
+  check('a join while resting is refused: "rest" with the resume time', !!r.refused && r.refused.t === 'rest' && r.refused.until === ra.until && r.code === P.Close.Rest, JSON.stringify(r).slice(0, 200));
+  const rest0 = await probe();
+  cheap = 0;
+  for (let i = 0; i < 5; i++) {
+    r = await open([7, 8]);
+    if (r.refused && r.refused.t === 'rest' && r.refused.until === ra.until && r.code === P.Close.Rest) cheap++;
+  }
+  const rest1 = await probe('?flush');
+  check('five more are answered by the Worker alone: 0 Durable Object requests', cheap === 5 && Math.abs(rest1.used.doRequests - rest0.used.doRequests - 1) < 1e-9 && rest0.remembered === 'rest',
+    `${rest1.used.doRequests - rest0.used.doRequests - 1}`);
+  check('the Worker reports its own requests to the town (refused ones included)', rest1.used.workerRequests >= 20 && rest1.unreported === 0, `${rest1.used.workerRequests} counted`);
+
+  // -- a new UTC day --
+  s = await probe('?add=86400000');
+  check('after the day changes the count starts from zero', s.spent === null && s.used.doRequests <= 2 && s.until === ra.until + 86400000, JSON.stringify(s.used));
+  const c = await join([9, 10]);
+  const d = await join([11, 12]);
+  c.send(stateFrame(7));
+  check('and the town is open again: two join and are relayed', c.welcome.players.length === 1 && d.welcome.players.length === 2 && !!(await d.takeBin(P.Frame.State)));
+  check('the welcome carries the (moved) service clock', Math.abs(c.welcome.now - (Date.now() + 86400000)) < 5000);
+  await closeAll([c, d]);
 }
 
 // ---- measurement ----
 
 async function runMeasure() {
   const seconds = arg('seconds', 60);
-  const players = arg('players', 4);
+  const players = arg('players', P.CITY_CAP);
+  const still = Math.min(players, arg('still', Math.floor(players / 2)));
   const hz = arg('hz', P.SEND_HZ);
   const clients = [];
   for (let i = 0; i < players; i++) clients.push(await join([i, i + 1]));
@@ -388,62 +478,75 @@ async function runMeasure() {
   for (const c of clients) {
     c.counting = true;
     c.msgsIn = c.bytesIn = c.msgsOut = c.bytesOut = 0;
+    c.anyAt = Date.now();
   }
+  // The client's real pattern (src/net/index.ts): a driver sends a State frame `hz` times a second; a player standing
+  // still sends none, only the frame time every PERF_INTERVAL_MS and a one byte keepalive when KEEPALIVE_MS have
+  // passed with nothing else sent. The first `still` clients stand still.
   const buf = new ArrayBuffer(P.PLAYER_STATE_BYTES);
   let tick = 0;
   const timers = [];
   timers.push(setInterval(() => {
     tick++;
-    for (let i = 0; i < clients.length; i++) {
+    for (let i = still; i < clients.length; i++) {
       P.encodePlayerState({ id: 0, t: tick * 100, x: i * 10 + tick * 0.1, y: 1, z: tick * 0.2, yaw: tick * 0.01, vx: 1, vz: 2, mode: 0, flags: 0, vehicle: 0 }, buf);
       clients[i].send(buf.slice(0));
+      clients[i].anyAt = Date.now();
     }
   }, 1000 / hz));
-  timers.push(setInterval(() => clients.forEach((c, i) => c.sendJson({ t: 'perf', ms: 8 + i })), P.PERF_INTERVAL_MS));
+  timers.push(setInterval(() => clients.forEach((c, i) => { c.sendJson({ t: 'perf', ms: 8 + i }); c.anyAt = Date.now(); }), P.PERF_INTERVAL_MS));
+  timers.push(setInterval(() => { const now = Date.now(); for (const c of clients) if (now - c.anyAt >= P.KEEPALIVE_MS) { c.send(P.KEEPALIVE_FRAME); c.anyAt = now; } }, 250));
   const started = Date.now();
   await sleep(seconds * 1000);
   timers.forEach(clearInterval);
   const elapsed = (Date.now() - started) / 1000;
   await sleep(500);
 
-  const sum = (f) => clients.reduce((n, c) => n + f(c), 0);
-  const msgsUp = sum((c) => c.msgsOut), bytesUp = sum((c) => c.bytesOut);
-  const msgsDown = sum((c) => c.msgsIn), bytesDown = sum((c) => c.bytesIn);
-  const expectDown = sum((c) => 0) + clients.length * (clients.length - 1) * tick;
+  const sum = (list, f) => list.reduce((n, c) => n + f(c), 0);
+  const msgsUp = sum(clients, (c) => c.msgsOut), bytesUp = sum(clients, (c) => c.bytesOut);
+  const msgsDown = sum(clients, (c) => c.msgsIn), bytesDown = sum(clients, (c) => c.bytesIn);
+  const drivers = clients.slice(still), idlers = clients.slice(0, still);
+  const expectDown = drivers.length * (clients.length - 1) * tick;
   await closeAll(clients);
 
-  // Free plan figures, from developers.cloudflare.com (Durable Objects pricing, Workers limits), read Nov 2026.
-  const FREE_DO_REQUESTS_PER_DAY = 100000;
-  const FREE_DO_GB_S_PER_DAY = 13000;
-  const WS_MESSAGES_PER_REQUEST = 20;
-  const DO_GB = 0.128;
-
-  const playerHours = (players * elapsed) / 3600;
-  const reqPerPlayerHour = msgsUp / WS_MESSAGES_PER_REQUEST / playerHours;
-  const fit = FREE_DO_REQUESTS_PER_DAY / reqPerPlayerHour;
+  // Every figure below comes from src/budget.ts (limits read from Cloudflare's documentation on Nov 21 2026).
+  const lines = B.pauseLines();
+  const perHour = (list) => (list.length ? (sum(list, (c) => c.msgsOut) / list.length) * (3600 / elapsed) : 0);
+  const dMsgs = perHour(drivers), sMsgs = perHour(idlers);
+  const dReq = dMsgs / B.WS_MESSAGES_PER_REQUEST, sReq = sMsgs / B.WS_MESSAGES_PER_REQUEST;
   const n = (v, d = 0) => v.toLocaleString('en-US', { maximumFractionDigits: d });
-  console.log(`MEASURE  ${players} players, ${hz} Hz, ${n(elapsed, 1)} s`);
-  console.log(`  into the service:   ${n(msgsUp)} messages, ${n(bytesUp)} bytes  (${n(msgsUp / elapsed, 1)} msg/s, ${n(bytesUp / elapsed)} B/s, ${n(bytesUp / msgsUp, 1)} B/msg)`);
-  console.log(`  out of the service: ${n(msgsDown)} messages, ${n(bytesDown)} bytes  (${n(msgsDown / elapsed, 1)} msg/s, ${n(bytesDown / elapsed)} B/s)`);
-  console.log(`  relay loss: ${n(expectDown - (msgsDown - 0))} of ${n(expectDown)} expected state frames not seen (perf messages are not relayed)`);
-  console.log(`  billed requests: incoming messages / ${WS_MESSAGES_PER_REQUEST} = ${n(msgsUp / WS_MESSAGES_PER_REQUEST)} for this run; outgoing messages are free`);
-  console.log(`  per player hour: ${n(msgsUp / playerHours)} messages in = ${n(reqPerPlayerHour)} requests`);
-  console.log(`  free plan: ${n(FREE_DO_REQUESTS_PER_DAY)} Durable Object requests a day / ${n(reqPerPlayerHour)} = ${n(fit, 1)} player hours a day`);
-  console.log(`             (= ${players} players together for ${n(fit / players, 1)} hours a day)`);
-  console.log(`  duration: a city awake all 24 h = ${n(86400 * DO_GB)} GB-s of the ${n(FREE_DO_GB_S_PER_DAY)} GB-s a day; requests run out first`);
-  console.log(`  at 5 Hz: about ${n(fit * 2, 0)} player hours a day; a host World frame at ${hz} Hz adds ${n((hz * 3600) / WS_MESSAGES_PER_REQUEST)} requests per city hour`);
+  const awakeHours = lines.doGbSeconds / B.DO_BILLED_GB / 3600;
+  console.log(`MEASURE  ${players} players (${drivers.length} driving at ${hz} Hz, ${idlers.length} standing still), ${n(elapsed, 1)} s`);
+  console.log(`  into the service:   ${n(msgsUp)} messages, ${n(bytesUp)} bytes  (${n(msgsUp / elapsed, 1)} msg/s, ${n(bytesUp / elapsed)} B/s)`);
+  console.log(`  out of the service: ${n(msgsDown)} messages, ${n(bytesDown)} bytes  (${n(msgsDown / elapsed, 1)} msg/s, ${n(bytesDown / elapsed)} B/s); outgoing messages are free`);
+  console.log(`  relay loss: ${n(expectDown - msgsDown)} of ${n(expectDown)} expected state frames not seen`);
+  console.log(`  a driver:        ${n(dMsgs)} messages an hour = ${n(dReq)} billed requests (20 messages to a request)`);
+  console.log(`  a still player:  ${n(sMsgs)} messages an hour = ${n(sReq)} billed requests`);
+  console.log(`  pause line: ${n(B.FREE_PLAN_PER_DAY.doRequests)} requests a day x ${B.GAME_SHARE} (the game's share) x ${B.PAUSE_AT} (margin) = ${n(lines.doRequests)} requests`);
+  if (dReq > 0) console.log(`  all driving:  ${n(lines.doRequests / dReq, 1)} player hours a day; ${P.CITY_CAP} people driving nonstop = ${n(lines.doRequests / dReq / P.CITY_CAP, 1)} hours, then rest until 00:00 UTC`);
+  if (dReq > 0 && sReq > 0) {
+    const half = lines.doRequests / ((dReq + sReq) / 2);
+    console.log(`  half idle:    ${n(half, 1)} player hours a day; ${P.CITY_CAP} people, half of them still = ${n(half / P.CITY_CAP, 1)} hours`);
+    console.log(`  all still:    requests would last ${n(lines.doRequests / sReq / P.CITY_CAP, 1)} hours for ${P.CITY_CAP}, so the duration line decides instead (next line)`);
+  }
+  console.log(`  duration line: ${n(B.FREE_PLAN_PER_DAY.doGbSeconds)} GB-s x ${B.GAME_SHARE} x ${B.PAUSE_AT} = ${n(lines.doGbSeconds)} GB-s = the town awake for ${n(awakeHours, 1)} hours a day at most,`);
+  console.log(`             however many are in it (counted as an upper bound: awake whenever messages are under ${B.AWAKE_GAP_MS / 1000} s apart)`);
+  console.log(`  a host World frame at ${hz} Hz (stage 2) would add ${n((hz * 3600) / B.WS_MESSAGES_PER_REQUEST)} requests per town hour`);
 }
 
 // ---- main ----
 
-process.on('uncaughtException', (err) => { console.log('FAIL  ' + err.stack); stopServer(); process.exit(1); });
+process.on('uncaughtException', (err) => { console.log('FAIL  ' + err.stack); void stopServer(); process.exit(1); });
 
-const hardStop = setTimeout(() => { console.log('FAIL  timed out'); stopServer(); process.exit(1); }, (MEASURE ? arg('seconds', 60) + 90 : 240) * 1000);
+const hardStop = setTimeout(() => { console.log('FAIL  timed out'); void stopServer(); process.exit(1); }, (MEASURE ? arg('seconds', 60) + 90 : 360) * 1000);
 try {
   await startServer();
   if (MEASURE) await runMeasure();
   else {
     await runChecks();
+    await stopServer();
+    await startServer(TEST_LIMITS);
+    await runBudgetChecks();
     console.log(failed === 0 ? 'ALL PASS' : `${failed} FAILED`);
   }
 } catch (err) {
@@ -451,6 +554,6 @@ try {
   console.log('FAIL  ' + (err && err.stack ? err.stack : err));
 } finally {
   clearTimeout(hardStop);
-  stopServer();
+  await stopServer();
 }
 process.exit(failed === 0 ? 0 : 1);

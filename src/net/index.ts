@@ -7,6 +7,10 @@
 // Sending (protocol.ts has the rules): a State frame up to SEND_HZ times a second, but only when something has
 // changed since the last one sent; a one byte keepalive every KEEPALIVE_MS otherwise; the measured frame time every
 // PERF_INTERVAL_MS. Alone in the city, nothing at all is sent, so the city sleeps.
+//
+// When there is no seat (the town holds 8) or the service has paused itself for the day, the game is the single
+// player game with one small line under the cash slip saying so, and one notice on entry. conn.ts decides when to ask
+// again; nothing here does.
 
 import type { Game } from '../core/game';
 import { angleDiff } from '../core/util';
@@ -16,7 +20,7 @@ import {
   Frame, blankPlayerState, decodePlayerState, encodeMsg, encodePlayerState, frameKind,
   type PlayerEntry, type ServerMsg, type WelcomeMsg,
 } from './protocol';
-import { Connection, serviceUrl, type NetStatus } from './conn';
+import { Connection, servicePlan, type NetStatus } from './conn';
 import { Remote } from './remote';
 import { myName, nameText, rerollName } from './names';
 
@@ -40,14 +44,22 @@ export class Net {
   private perfAt = 0;
   private countEl: HTMLElement | null = null;
   private countShown = -1;
+  private noteEl: HTMLElement | null = null;
+  /** What the line under the cash slip says now ('' = hidden), and which notices have had their one toast. */
+  private noteShown = '';
+  private noteKind: '' | 'full' | 'rest' = '';
+  private readonly told = { full: false, rest: false };
 
   constructor(private readonly game: Game) {
-    const c = this.conn = new Connection(serviceUrl(), myName);
+    const plan = servicePlan();
+    const c = this.conn = new Connection(plan.urls, myName, plan.fullRetryS);
     c.onWelcome = (m) => this.welcome(m);
     c.onMsg = (m) => this.msg(m);
     c.onFrame = (b) => this.frame(b);
     c.onDown = () => this.clear();
+    c.onChange = () => this.showNote();
     c.start();
+    this.showNote();
     // The game's own loop stops while paused and in a hidden tab; the keepalive must not.
     if (c.status !== 'off') setInterval(() => this.pump(performance.now()), 500);
   }
@@ -180,6 +192,7 @@ export class Net {
   update(dt: number): void {
     if (this.conn.status === 'off') return;
     const now = performance.now(), g = this.game;
+    if (this.noteKind && !this.told[this.noteKind] && g.state === 'play') this.tellOnce(this.noteKind);
     this.pump(now);
     if (this.remotes.size === 0) return;
     const eye = g.view ? g.view.pos : g.camera.position;
@@ -204,11 +217,55 @@ export class Net {
     if (n) this.countEl.textContent = `${n} in town`;
   }
 
+  // ── No seat, or no service today ───────────────────────────────────────────
+
+  /** The resume time as this player's own clock shows it: "7:00 PM", or "19:00" where that is the custom. */
+  private resumeText(): string {
+    // To the minute: the two clocks (ours and the service's) were compared over a network.
+    const t = Math.round(this.conn.resumeAt / 60000) * 60000;
+    try { return new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return new Date(t).toTimeString().slice(0, 5); }
+  }
+
+  /** The small line under the cash slip: there while waiting for a seat or for the service, gone once in town. */
+  private showNote(): void {
+    const c = this.conn;
+    const kind: '' | 'full' | 'rest' = c.status === 'online' ? '' : c.resumeAt > 0 ? 'rest' : c.status === 'full' ? 'full' : '';
+    const text = kind === 'rest' ? `Multiplayer resting\nBack at ${this.resumeText()}`
+      : kind === 'full' ? `Town full${c.seats ? ` \u00b7 ${c.seats} of ${c.seats}` : ''}\nOn the waiting list` : '';
+    this.noteKind = kind;
+    if (text === this.noteShown) return;
+    this.noteShown = text;
+    if (!this.noteEl) {
+      if (!text) return;
+      const cash = document.querySelector('#hud .hud-right .hud-cash');
+      if (!cash) { this.noteShown = ''; return; }
+      const el = this.noteEl = document.createElement('div');
+      el.className = 'hud-town hud-town-note hud-lbl';
+      cash.insertAdjacentElement('afterend', el);
+    }
+    this.noteEl.style.display = text ? '' : 'none';
+    this.noteEl.textContent = text;
+  }
+
+  /** One notice on entry, in the Harbor Authority's voice; after that the small line is all there is. */
+  private tellOnce(kind: 'full' | 'rest'): void {
+    this.told[kind] = true;
+    const n = this.conn.seats || 8;
+    this.game.hud.toast(kind === 'rest'
+      ? `Multiplayer is resting until ${this.resumeText()}. Today's allowance of other people is used up. The city is yours alone.`
+      : `Town is full: all ${n} berths are taken. You are on the waiting list. Until one opens, the city is yours alone.`, 9);
+  }
+
   /** For the tests (window.__game.net()). */
   info(): Record<string, unknown> {
     const c = this.conn, r3 = (v: number): number => +v.toFixed(3);
     return {
       status: c.status, id: c.id, host: c.host, city: c.city, name: this.name, count: this.count, attempts: c.attempts,
+      // service: which address of the list (-1 none yet). notice: 'full', 'rest' or ''. Times are ms since 1970 on
+      // this browser's clock: resumeAt when a resting service resumes, restUntil when it will next be asked,
+      // retryAt when a full town will next be asked.
+      service: c.service, notice: this.noteKind, noteText: this.noteShown, seats: c.seats,
+      resumeAt: c.resumeAt, restUntil: c.restUntil, retryAt: c.status === 'full' ? c.retryAt : 0,
       sent: { ...c.sent, states: this.statesSent }, got: { ...c.got },
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({

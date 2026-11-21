@@ -13,6 +13,9 @@ class_name = "City"
 tag = "v1"
 new_sqlite_classes = ["City"]
 
+# No [vars] here, on purpose: TEST_BUDGET (replacement limits for the local tests) may only ever be
+# given to `wrangler dev --var`. A deployed service must not have it.
+
 # No logs are kept: the code never reads or prints an address, and request logging stays off.
 [observability]
 enabled = false

@@ -88,6 +88,34 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 1, step 3, eight seats and a Cloudflare budget: pushed Nov 21, about 12:35 PM ET
+
+The owner's rules of Nov 21 (tools/briefs/multiplayer.md, items 6 to 12). By a top model worker;
+the lead re-ran the tests and looked at the resting notice. Still not live: `SERVICE_URLS` in
+`src/net/conn.ts` is empty until a service is deployed.
+
+- Server: cap 8, one town, no second city. `server/src/room.ts` holds the room logic with no
+  Cloudflare types (the Node home on the mini PC will wrap the same file); `city.ts` is a thin
+  Durable Object wrapper; `budget.ts` holds every free limit, the 50% share and the margin.
+- The budget: counted per UTC day; the pause line is 40% of each limit (50% share times 80%):
+  40,000 requests, 5,200 GB-s. At the line everyone is told `rest` with the resume time, sockets
+  close, joins are refused until 00:00 UTC. Refusals (full, resting) are answered by the Worker
+  from memory: 1 Worker request, no Durable Object request.
+- Client: an ordered list of addresses (main, backup, then single player), a "town is full" notice
+  with a quiet retry every 3 minutes, a "multiplayer resting, back at (local time)" notice and no
+  contact until then. Protocol version 3.
+- Checked: `server npm test` 61 PASS; `tools/net/notices.mjs` ALL PASS (full then moved in, rest
+  shown as "Back at 7:00 PM" for New York, no socket while resting or after a reload, phone
+  layout); `two.mjs`, `solo.mjs`; production boots with no errors at high and Auto.
+- What the backup alone gives per day: 8 people driving nonstop 2.7 hours; 8 half idle 5.2 hours.
+  That is why the mini PC is the main home.
+
+Owed: nothing is deployed, so real Cloudflare behaviour (hibernation wake with sockets attached)
+is untested; the service only counts and rests, it cannot stop a hand-written program hammering
+the Worker (a Cloudflare rate limiting rule would); a freed seat can stand empty up to 15 s; main
+and backup are separate rooms, so two groups of 8 could form if some players cannot reach main;
+the Node wrapper, the install script and the "where is main" lookup are the next step.
+
 ### Multiplayer stage 1, step 2, the game client: pushed Nov 21, about 11:40 AM ET
 
 By a top model worker; the lead re-ran every test and looked at two pictures. NOT LIVE FOR

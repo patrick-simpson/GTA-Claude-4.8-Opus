@@ -138,6 +138,16 @@
   border-left: 0.5em solid var(--vermilion);
 }
 
+/* The same strip when there is no seat ("town full") or the service is resting for the day: two short lines. */
+.hud-town-note {
+  white-space: pre-line;
+  text-align: right;
+  font-size: 0.84em;
+  line-height: 1.4;
+  opacity: 0.92;
+  border-left-color: var(--mustard);
+}
+
 /* ── Heat ──────────────────────────────────────────────────────────────── */
 
 .hud-heat {

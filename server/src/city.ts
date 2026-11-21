@@ -1,343 +1,297 @@
-// One city: a Durable Object that relays messages between up to CITY_CAP players, knows who is
-// present, chooses the host, and keeps the city's durable facts.
+// The town as a Durable Object: a thin Cloudflare wrapper round room.ts (which decides everything
+// about seats, relay, host and facts) and budget.ts (which decides when the day's allowance is spent).
+// This file owns only what is Cloudflare's: hibernatable sockets, SQLite, the alarm, and the count
+// of what Cloudflare bills.
 //
 // It uses the WebSocket Hibernation API, so:
-//  - no setTimeout or setInterval anywhere (they would block hibernation); everything timed is
-//    checked lazily when a message arrives, except the deferred fact flush, which uses an alarm;
-//  - anything that must survive hibernation lives in each socket's attachment (id, name, frame
-//    time, host flag) or in SQLite (facts). Everything else is rebuilt in the constructor.
+//  - no setTimeout or setInterval anywhere (they would block hibernation);
+//  - memory can vanish whenever the town is quiet for about 10 s. What must survive lives in each
+//    socket's attachment (the seat, and that socket's messages not yet stored) or in SQLite (facts,
+//    and one row holding the day's count).
+//
+// What is counted, per UTC day (budget.ts has the limits and the pause line):
+//  - doRequests: every fetch from the Worker, every alarm, and every incoming message / 20;
+//  - workerRequests: what the Worker says it has answered since it last said (it has no storage);
+//  - doGbSeconds: an upper bound, the gaps between events up to AWAKE_GAP_MS each, at 128 MB;
+//  - rowsWritten and rowsRead: counted where the SQL is run.
+// The count is stored (one row) on every visit from the Worker, whenever somebody leaves, and at most
+// once a minute while messages flow; never per message. Between stores each socket's attachment
+// carries its own message count (attachments are not billed), so an eviction or a crash loses at
+// most 19 messages a socket, plus a minute of the duration estimate and of the fact rows written:
+// under 1% of the game's share, against a margin of 20%.
 
 import { DurableObject } from 'cloudflare:workers';
-import {
-  CITY_CAP, Close, FACT_FLUSH_MS, FACT_MAX_KEYS, Frame, HOST_MIN_TENURE_MS, HOST_SLOW_MS, HOST_STALL_MS,
-  HOST_TAKEOVER_RATIO, MAX_HOST_FRAME_BYTES, MAX_PLAYER_FRAME_BYTES, MAX_TEXT_CHARS, PERF_CANNOT_HOST_MS,
-  PERF_UNKNOWN_MS, PING_TEXT, PONG_TEXT, PROTOCOL_VERSION, RATE_BURST, RATE_PER_SECOND,
-  isValidName, parseClientMsg,
-} from '../../src/net/protocol';
-import type { FactValue, NameIndexes, PlayerEntry, ServerMsg, WelcomeMsg } from '../../src/net/protocol';
+import { CITY_CAP, Close, FULL_RETRY_S } from '../../src/net/protocol';
+import type { FactValue, FullMsg, RestMsg } from '../../src/net/protocol';
+import { AWAKE_GAP_MS, BUDGET_FLUSH_MS, Budget, DO_BILLED_GB, WS_MESSAGES_PER_REQUEST, nextReset } from './budget';
+import type { BudgetRow, Counts } from './budget';
+import { Room, parseNameParam } from './room';
+import type { RoomEnv, RoomSocket, Seat } from './room';
 
-/** What the city answers the Worker when it has no room. Never seen by a browser. */
-export const CITY_FULL_STATUS = 409;
-/** How often, at most, the host is re-examined. */
-const HOST_CHECK_MS = 500;
+/** What the town answers the Worker when it will not seat somebody. The body says why. Never seen by a browser. */
+export const REFUSED_STATUS = 409;
 
-/** "3.17.20" to [3, 17, 20]; null for anything else. */
-export function parseNameParam(s: string | null): NameIndexes | null {
-  if (!s || s.length > 11 || !/^\d{1,3}(\.\d{1,3}){1,2}$/.test(s)) return null;
-  const name = s.split('.').map(Number);
-  return isValidName(name) ? name : null;
+export interface CityEnv {
+  /**
+   * LOCAL TESTS ONLY, and only ever set with `wrangler dev --var` (wrangler.toml has no [vars], so a
+   * deployed service never has it). JSON: replacement daily limits by meter name, and `seats`.
+   * Its presence also turns on /__test (a movable clock and a look at the count).
+   */
+  TEST_BUDGET?: string;
 }
 
 /** Survives hibernation (stored with the socket). */
-interface Attachment {
-  id: number;
-  name: NameIndexes;
-  /** Reported frame time in ms; 0 = not reported yet. */
-  ms: number;
-  host: boolean;
+interface Attachment extends Seat {
+  /** Messages from this socket since the count was last stored. */
+  n: number;
 }
 
-/** In memory only. */
-interface Conn extends Attachment {
-  ws: WebSocket;
-  /** When anything last arrived from this player. */
-  seen: number;
-  /** Rate limit token bucket. */
-  tokens: number;
-  tokensAt: number;
+class Sock implements RoomSocket {
+  seat: Seat | null = null;
+  n = 0;
+  constructor(readonly ws: WebSocket) {}
+  send(data: string | ArrayBuffer): void {
+    try {
+      this.ws.send(data);
+    } catch { /* the socket is closing; its close event will tidy up */ }
+  }
+  close(code: number, reason: string): void {
+    try {
+      this.ws.close(code, reason);
+    } catch { /* already closed */ }
+  }
+  store(): void {
+    if (!this.seat) return;
+    const a: Attachment = { ...this.seat, n: this.n };
+    try {
+      this.ws.serializeAttachment(a);
+    } catch { /* closed */ }
+  }
 }
 
-export class City extends DurableObject<object> {
-  private conns = new Map<WebSocket, Conn>();
-  private byId = new Map<number, Conn>();
-  private host: Conn | null = null;
-  private hostSince = 0;
-  private lastHostCheck = 0;
-  private lastId = 0;
+const ROW_BUDGET = 0;
+const ROW_TEST_CLOCK = 1;
 
-  private facts: Record<string, FactValue> | null = null;
-  private dirty = new Set<string>();
-  private lastFlush = 0;
-  private alarmSet = false;
+export class City extends DurableObject<CityEnv> implements RoomEnv {
+  private readonly room: Room;
+  private readonly budget: Budget;
+  private readonly socks = new Map<WebSocket, Sock>();
+  private readonly test: boolean;
+  /** Test only: ms added to the clock. */
+  private shift = 0;
+  private lastEvent = 0;
+  private lastStore: number;
 
-  constructor(ctx: DurableObjectState, env: object) {
+  constructor(ctx: DurableObjectState, env: CityEnv) {
     super(ctx, env);
-    // A lone player can check the line without waking (or billing) the city.
-    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING_TEXT, PONG_TEXT));
-    // Waking from hibernation: rebuild the in-memory picture from the sockets still attached.
-    const now = Date.now();
+    let cfg: Partial<Counts> & { seats?: number } = {};
+    try {
+      if (env.TEST_BUDGET) cfg = JSON.parse(env.TEST_BUDGET) as typeof cfg;
+    } catch { /* not JSON: no overrides */ }
+    this.test = !!env.TEST_BUDGET;
+
+    const sql = ctx.storage.sql;
+    sql.exec('CREATE TABLE IF NOT EXISTS facts (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
+    sql.exec('CREATE TABLE IF NOT EXISTS meter (k INTEGER PRIMARY KEY, v TEXT NOT NULL)');
+    let stored: BudgetRow | null = null;
+    let read = 0;
+    for (const row of sql.exec('SELECT k, v FROM meter')) {
+      read++;
+      try {
+        if (row.k === ROW_BUDGET) stored = JSON.parse(String(row.v)) as BudgetRow;
+        else if (row.k === ROW_TEST_CLOCK && this.test) this.shift = Number(row.v) || 0;
+      } catch { /* a damaged row: start the day from zero */ }
+    }
+    const now = this.now();
+    this.budget = new Budget(now, cfg, stored);
+    this.budget.add('rowsRead', read);
+    this.lastStore = now;
+
+    // Waking from hibernation: seat everybody still connected, and take up the messages they had
+    // sent since the count was last stored.
+    this.room = new Room(this, Math.max(1, Math.min(CITY_CAP, Math.floor(cfg.seats ?? CITY_CAP))));
+    let unstored = 0;
     for (const ws of ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null;
       if (!a) continue;
-      const c: Conn = { ...a, ws, seen: now, tokens: RATE_BURST, tokensAt: now };
-      this.conns.set(ws, c);
-      this.byId.set(c.id, c);
-      if (c.host) this.host = c;
-      if (c.id > this.lastId) this.lastId = c.id;
+      const s = new Sock(ws);
+      s.seat = { id: a.id, name: a.name, ms: a.ms, host: a.host };
+      s.n = a.n || 0;
+      unstored += s.n;
+      this.socks.set(ws, s);
+      this.room.restore(s, s.seat);
     }
-    this.hostSince = now;
+    this.budget.add('doRequests', unstored / WS_MESSAGES_PER_REQUEST);
   }
 
-  // ---- joining ----
+  // ---- what the room asks of its surroundings (RoomEnv) ----
 
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const name = parseNameParam(url.searchParams.get('name'));
-    if (request.headers.get('Upgrade') !== 'websocket' || !name) return new Response(null, { status: 400 });
-    if (this.conns.size >= CITY_CAP) return new Response(null, { status: CITY_FULL_STATUS });
-
-    const pair = new WebSocketPair();
-    const ws = pair[1];
-    this.ctx.acceptWebSocket(ws);
-
-    const now = Date.now();
-    const c: Conn = { id: this.newId(), name, ms: 0, host: false, ws, seen: now, tokens: RATE_BURST, tokensAt: now };
-    this.conns.set(ws, c);
-    this.byId.set(c.id, c);
-    if (!this.host) {
-      this.host = c;
-      c.host = true;
-      this.hostSince = now;
-    }
-    this.save(c);
-
-    const players: PlayerEntry[] = [];
-    for (const p of this.conns.values()) players.push([p.id, ...p.name]);
-    const welcome: WelcomeMsg = {
-      t: 'welcome', v: PROTOCOL_VERSION, id: c.id, city: Number(url.searchParams.get('city')) || 1,
-      host: this.host.id, players, facts: this.loadFacts(), now,
-    };
-    this.send(c, JSON.stringify(welcome));
-    this.broadcast({ t: 'join', id: c.id, name }, c);
-    return new Response(null, { status: 101, webSocket: pair[0] });
+  now(): number {
+    return Date.now() + this.shift;
   }
 
-  /** Ids go round 1..255 so an id is not reused the moment its owner leaves. */
-  private newId(): number {
-    let id = this.lastId;
-    do id = (id % 255) + 1; while (this.byId.has(id));
-    this.lastId = id;
-    return id;
-  }
-
-  private save(c: Conn): void {
-    const a: Attachment = { id: c.id, name: c.name, ms: c.ms, host: c.host };
-    c.ws.serializeAttachment(a);
-  }
-
-  // ---- messages ----
-
-  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
-    const c = this.conns.get(ws);
-    if (!c) return;
-    const now = Date.now();
-
-    // Rate limit: a token bucket per connection.
-    c.tokens = Math.min(RATE_BURST, c.tokens + ((now - c.tokensAt) * RATE_PER_SECOND) / 1000) - 1;
-    c.tokensAt = now;
-    if (c.tokens < 0) return this.kick(c, Close.TooFast, 'too fast');
-    c.seen = now;
-
-    if (typeof message !== 'string') {
-      const len = message.byteLength;
-      if (len === 0) return this.kick(c, Close.BadMessage, 'empty');
-      if (len > MAX_HOST_FRAME_BYTES) return this.kick(c, Close.TooBig, 'too big');
-      const u8 = new Uint8Array(message);
-      const kind = u8[0];
-      if (kind === Frame.State || kind === Frame.Event) {
-        if (len > MAX_PLAYER_FRAME_BYTES) return this.kick(c, Close.TooBig, 'too big');
-        if (len < 2) return this.kick(c, Close.BadMessage, 'short');
-        u8[1] = c.id;
-        for (const p of this.conns.values()) if (p !== c) this.send(p, message);
-      } else if (kind === Frame.World) {
-        // From someone who is not (or is no longer) the host: dropped, not punished; the job may have just moved.
-        if (c === this.host && len >= 2) {
-          u8[1] = c.id;
-          for (const p of this.conns.values()) if (p !== c) this.send(p, message);
-        }
-      } else if (kind === Frame.ToHost) {
-        if (len > MAX_PLAYER_FRAME_BYTES) return this.kick(c, Close.TooBig, 'too big');
-        if (len < 2) return this.kick(c, Close.BadMessage, 'short');
-        u8[1] = c.id;
-        if (this.host && this.host !== c) this.send(this.host, message);
-      } else if (kind === Frame.ToPlayer) {
-        if (c === this.host && len >= 2) {
-          const target = this.byId.get(u8[1]);
-          u8[1] = c.id;
-          if (target && target !== c) this.send(target, message);
-        }
-      } else if (kind === Frame.Keepalive) {
-        if (len > 1) return this.kick(c, Close.BadMessage, 'bad keepalive');
-      } else {
-        return this.kick(c, Close.BadMessage, 'unknown frame');
-      }
-    } else {
-      if (message.length > MAX_TEXT_CHARS) return this.kick(c, Close.TooBig, 'too big');
-      const m = parseClientMsg(message);
-      if (!m) return this.kick(c, Close.BadMessage, 'bad message');
-      if (m.t === 'perf') {
-        c.ms = m.ms;
-        this.save(c);
-        this.lastHostCheck = 0; // look at the host now
-      } else if (m.t === 'name') {
-        c.name = m.name;
-        this.save(c);
-        this.broadcast({ t: 'name', id: c.id, name: m.name }, c);
-      } else if (m.t === 'fact') {
-        if (c === this.host) this.writeFact(m.k, m.v, c, now);
-      }
-    }
-
-    if (now - this.lastHostCheck >= HOST_CHECK_MS) this.checkHost(now);
-    if (this.dirty.size > 0 && now - this.lastFlush >= FACT_FLUSH_MS) this.flushFacts(now);
-  }
-
-  webSocketClose(ws: WebSocket, code: number): void {
-    try {
-      // Reply to the Close frame (1005 and 1006 are not codes that may be sent).
-      ws.close(code === 1005 || code === 1006 ? 1000 : code);
-    } catch { /* already closed */ }
-    this.drop(ws);
-  }
-
-  webSocketError(ws: WebSocket): void {
-    this.drop(ws);
-  }
-
-  private kick(c: Conn, code: number, reason: string): void {
-    try {
-      c.ws.close(code, reason);
-    } catch { /* already closed */ }
-    this.drop(c.ws);
-  }
-
-  private drop(ws: WebSocket): void {
-    const c = this.conns.get(ws);
-    if (!c) return;
-    this.conns.delete(ws);
-    this.byId.delete(c.id);
-    this.broadcast({ t: 'leave', id: c.id }, null);
-    const now = Date.now();
-    if (this.host === c) {
-      this.host = null;
-      this.checkHost(now);
-    }
-    if (this.dirty.size > 0) this.flushFacts(now);
-  }
-
-  private send(c: Conn, data: string | ArrayBuffer): void {
-    try {
-      c.ws.send(data);
-    } catch { /* the socket is closing; its close event will tidy up */ }
-  }
-
-  private broadcast(m: ServerMsg, except: Conn | null): void {
-    const text = JSON.stringify(m);
-    for (const p of this.conns.values()) if (p !== except) this.send(p, text);
-  }
-
-  // ---- host choice ----
-
-  /** Frame time used for ranking; players who have not reported rank as PERF_UNKNOWN_MS. */
-  private static score(c: Conn): number {
-    return c.ms > 0 ? c.ms : PERF_UNKNOWN_MS;
-  }
-
-  /** Best candidate other than `except`: lowest frame time, lowest id on a tie. Live players before stalled ones. */
-  private best(now: number, except: Conn | null, liveOnly: boolean): Conn | null {
-    let pick: Conn | null = null;
-    let pickRank = Infinity;
-    for (const p of this.conns.values()) {
-      if (p === except) continue;
-      const stalled = now - p.seen > HOST_STALL_MS;
-      if (stalled && liveOnly) continue;
-      const rank = City.score(p) + (stalled ? 1e6 : 0) + p.id * 1e-6;
-      if (rank < pickRank) {
-        pick = p;
-        pickRank = rank;
-      }
-    }
-    return pick;
-  }
-
-  private checkHost(now: number): void {
-    this.lastHostCheck = now;
-    const host = this.host;
-    if (!host) {
-      const next = this.best(now, null, false);
-      if (next) this.setHost(next, now);
-      return;
-    }
-    if (this.conns.size < 2) return;
-    // Stalled: nothing from the host for a few seconds. Move the job to a live player at once.
-    if (now - host.seen > HOST_STALL_MS) {
-      const next = this.best(now, host, true);
-      if (next) this.setHost(next, now);
-      return;
-    }
-    // Struggling: slow, and someone who has reported is clearly faster, and the host has had its turn.
-    const hostMs = City.score(host);
-    if (hostMs > HOST_SLOW_MS && now - this.hostSince >= HOST_MIN_TENURE_MS) {
-      const next = this.best(now, host, true);
-      if (next && next.ms > 0 && next.ms < PERF_CANNOT_HOST_MS && next.ms <= hostMs * HOST_TAKEOVER_RATIO) this.setHost(next, now);
-    }
-  }
-
-  private setHost(next: Conn, now: number): void {
-    const old = this.host;
-    if (old === next) return;
-    if (old) {
-      old.host = false;
-      if (this.conns.has(old.ws)) this.save(old);
-    }
-    next.host = true;
-    this.save(next);
-    this.host = next;
-    this.hostSince = now;
-    this.broadcast({ t: 'host', id: next.id }, null);
-  }
-
-  // ---- durable facts ----
-
-  private loadFacts(): Record<string, FactValue> {
-    if (this.facts) return this.facts;
-    const sql = this.ctx.storage.sql;
-    sql.exec('CREATE TABLE IF NOT EXISTS facts (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
+  loadFacts(): Record<string, FactValue> {
     const facts: Record<string, FactValue> = {};
-    for (const row of sql.exec('SELECT k, v FROM facts')) {
+    let read = 0;
+    for (const row of this.ctx.storage.sql.exec('SELECT k, v FROM facts')) {
+      read++;
       try {
         facts[String(row.k)] = JSON.parse(String(row.v)) as FactValue;
       } catch { /* skip a damaged row */ }
     }
-    this.facts = facts;
+    this.budget.add('rowsRead', read);
     return facts;
   }
 
-  private writeFact(k: string, v: FactValue, from: Conn, now: number): void {
-    const facts = this.loadFacts();
-    if (!(k in facts) && Object.keys(facts).length >= FACT_MAX_KEYS) return;
-    facts[k] = v;
-    this.dirty.add(k);
-    this.broadcast({ t: 'fact', k, v }, from);
-    // Stored at once when writes are spaced out; a burst is stored at most every FACT_FLUSH_MS
-    // (rows written are a free plan budget). The alarm covers a burst followed by silence.
-    if (now - this.lastFlush >= FACT_FLUSH_MS) this.flushFacts(now);
-    else if (!this.alarmSet) {
-      this.alarmSet = true;
-      void this.ctx.storage.setAlarm(this.lastFlush + FACT_FLUSH_MS);
+  saveFacts(rows: [string, FactValue][]): void {
+    const sql = this.ctx.storage.sql;
+    for (const [k, v] of rows) sql.exec('INSERT OR REPLACE INTO facts (k, v) VALUES (?, ?)', k, JSON.stringify(v));
+    this.budget.add('rowsWritten', rows.length);
+  }
+
+  wakeAt(at: number): void {
+    // The alarm runs on the real clock.
+    void this.ctx.storage.setAlarm(at - this.shift);
+    this.budget.add('rowsWritten', 1);
+  }
+
+  saveSeat(sock: RoomSocket, seat: Seat): void {
+    const s = sock as Sock;
+    s.seat = seat;
+    s.store();
+  }
+
+  // ---- the count ----
+
+  /** Every event starts here: the day may have changed, and the object has been awake since the last event. */
+  private touch(): number {
+    const now = this.now();
+    this.budget.roll(now);
+    const gap = this.lastEvent > 0 ? Math.min(Math.max(0, now - this.lastEvent), AWAKE_GAP_MS) : AWAKE_GAP_MS;
+    this.budget.add('doGbSeconds', (gap / 1000) * DO_BILLED_GB);
+    this.lastEvent = now;
+    return now;
+  }
+
+  /** One row. After it, the sockets' own counts start again from zero. */
+  private store(now: number): void {
+    this.lastStore = now;
+    if (!this.budget.dirty) return;
+    this.budget.add('rowsWritten', 1);
+    this.ctx.storage.sql.exec('INSERT OR REPLACE INTO meter (k, v) VALUES (?, ?)', ROW_BUDGET, JSON.stringify(this.budget.row()));
+    this.budget.dirty = false;
+    for (const s of this.socks.values()) {
+      if (s.n > 0) {
+        s.n = 0;
+        s.store();
+      }
     }
   }
 
-  private flushFacts(now: number): void {
-    const facts = this.loadFacts();
-    const sql = this.ctx.storage.sql;
-    for (const k of this.dirty) sql.exec('INSERT OR REPLACE INTO facts (k, v) VALUES (?, ?)', k, JSON.stringify(facts[k]));
-    this.dirty.clear();
-    this.lastFlush = now;
+  private restMsg(now: number): RestMsg {
+    return { t: 'rest', until: nextReset(now), now };
+  }
+
+  /** After anything that counted: past the line, everybody is told and sent home; otherwise store now and then. */
+  private settle(now: number): void {
+    if (this.budget.spent()) {
+      if (this.room.size > 0) {
+        this.room.closeAll(this.restMsg(now), Close.Rest, 'resting');
+        this.socks.clear();
+        this.store(now);
+      } else if (now - this.lastStore >= BUDGET_FLUSH_MS) this.store(now);
+    } else if (now - this.lastStore >= BUDGET_FLUSH_MS) this.store(now);
+  }
+
+  // ---- from the Worker ----
+
+  async fetch(request: Request): Promise<Response> {
+    const now = this.touch();
+    const url = new URL(request.url);
+    this.budget.add('doRequests', 1);
+    // The Worker's own requests since it last reported (it has nowhere to keep a count).
+    const w = Number(url.searchParams.get('w'));
+    if (Number.isFinite(w) && w > 0) this.budget.add('workerRequests', Math.min(Math.floor(w), 1_000_000));
+    // Stored at once: a visit from the Worker is rare (a join, or a refusal it could not answer from memory), it
+    // may be the only event before this object is put to sleep, and what it reports exists nowhere else.
+    this.store(now);
+
+    if (url.pathname === '/__test') {
+      if (!this.test) return new Response(null, { status: 404 });
+      const add = Number(url.searchParams.get('add'));
+      if (Number.isFinite(add) && add !== 0) {
+        this.shift += add;
+        this.ctx.storage.sql.exec('INSERT OR REPLACE INTO meter (k, v) VALUES (?, ?)', ROW_TEST_CLOCK, String(this.shift));
+        this.lastEvent = 0;
+        this.budget.roll(this.now());
+      }
+      const t = this.now();
+      return Response.json({ now: t, day: this.budget.day, used: this.budget.used, lines: this.budget.lines, spent: this.budget.spent(), seats: this.room.seats, size: this.room.size, until: nextReset(t) });
+    }
+
+    const report = url.pathname === '/count';
+    const name = report ? null : parseNameParam(url.searchParams.get('name'));
+    if (!report && (request.headers.get('Upgrade') !== 'websocket' || !name)) return new Response(null, { status: 400 });
+
+    this.settle(now);
+    if (this.budget.spent()) return Response.json(this.restMsg(now), { status: REFUSED_STATUS });
+    if (report || !name) return new Response(null, { status: 204 });
+    if (this.room.full) {
+      const full: FullMsg = { t: 'full', retry: FULL_RETRY_S, seats: this.room.seats };
+      return Response.json(full, { status: REFUSED_STATUS });
+    }
+
+    const pair = new WebSocketPair();
+    const ws = pair[1];
+    this.ctx.acceptWebSocket(ws);
+    const s = new Sock(ws);
+    this.socks.set(ws, s);
+    this.room.join(s, name);
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  // ---- from the players ----
+
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+    const now = this.touch();
+    this.budget.add('doRequests', 1 / WS_MESSAGES_PER_REQUEST);
+    const s = this.socks.get(ws);
+    if (s) {
+      // Every 20th message (one billed request) the socket's own count is put where an eviction cannot lose it.
+      if (++s.n % WS_MESSAGES_PER_REQUEST === 0) s.store();
+      this.room.message(s, message);
+    }
+    this.settle(now);
+  }
+
+  webSocketClose(ws: WebSocket, code: number): void {
+    const now = this.touch();
+    try {
+      // Reply to the Close frame (1005 and 1006 are not codes that may be sent).
+      ws.close(code === 1005 || code === 1006 ? 1000 : code);
+    } catch { /* already closed */ }
+    this.gone(ws, now);
+  }
+
+  webSocketError(ws: WebSocket): void {
+    this.gone(ws, this.touch());
+  }
+
+  private gone(ws: WebSocket, now: number): void {
+    const s = this.socks.get(ws);
+    if (s) {
+      this.socks.delete(ws);
+      this.room.leave(s);
+    }
+    // The town may be about to fall silent: store the count while it is certainly still in memory.
+    this.store(now);
+    this.settle(now);
   }
 
   alarm(): void {
-    this.alarmSet = false;
-    if (this.dirty.size > 0) this.flushFacts(Date.now());
+    const now = this.touch();
+    this.budget.add('doRequests', 1);
+    this.room.wake();
+    this.settle(now);
   }
 }

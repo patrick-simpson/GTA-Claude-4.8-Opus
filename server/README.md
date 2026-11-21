@@ -9,11 +9,22 @@ people), moves that job when the host leaves, stalls or struggles, and keeps a f
 It is a package of its own. The game's root `package.json` knows nothing about it. The only shared
 code is `../src/net/protocol.ts`, which has no imports and is used by both sides.
 
-- `src/index.ts`: the Worker. Checks the Origin and the name, then hands the socket to city 1, or
-  city 2 when city 1 is full (16 players), and so on up to 8 cities.
-- `src/city.ts`: the Durable Object. SQLite backed (`new_sqlite_classes`, required on the free plan)
-  and written on the WebSocket Hibernation API (no timers), so a quiet city costs nothing.
-- `wrangler.toml`: Worker name `port-calamity-city`, binding `CITY`.
+This Worker is the BACKUP home of the service (owner, Nov 21 2026). The main home will be a Node
+program on a home computer with no daily limits; the game tries that first, then this, then single
+player. Because this one runs on a free Cloudflare account that it shares with a more important
+service, it rations itself: see "The daily budget" below.
+
+- `src/room.ts`: the room. Seats (8, one town, no second city), presence, relay, host choice,
+  facts, validation, rate caps. NO Cloudflare types: sockets, storage and the clock come in through
+  three small interfaces (`RoomSocket`, `RoomEnv`, and `Seat` for what must outlive a restart), so
+  a Node wrapper can use the same file unchanged (it has no constructor shorthand or enums, so Node
+  can run it by stripping the types).
+- `src/budget.ts`: every limit, the game's share, the margin and the pause line, with the source.
+- `src/city.ts`: the Durable Object, a thin wrapper round the room: hibernatable sockets, SQLite
+  (`new_sqlite_classes`, required on the free plan), the alarm, and the count of what is billed.
+- `src/index.ts`: the Worker. Checks the Origin and the name, hands the socket to the town, and
+  answers "full" and "resting" from its own memory whenever it can.
+- `wrangler.toml`: Worker name `port-calamity-city`, binding `CITY`. It has no `[vars]`.
 
 ## Run it locally
 
@@ -22,11 +33,24 @@ Needs Node 22.18 or newer. No Cloudflare account, no network.
     cd server
     npm install        # once
     npm run dev        # the service on http://127.0.0.1:8787
-    npm test           # starts its own copy on port 8791, runs the checks, prints PASS or FAIL per check
-    npm run measure    # 4 simulated players at 10 Hz for 60 s, message counts and free plan sums
+    npm test           # starts its own copy on port 8791 (twice: the second with tiny limits), prints PASS or FAIL per check
+    npm run measure    # 8 simulated players (4 driving at 10 Hz, 4 still) for 60 s, and the budget sums
     npm run typecheck
 
-`node test/local.mjs --measure --seconds=20 --players=8 --hz=5` changes the measurement.
+`node test/local.mjs --measure --seconds=20 --players=8 --still=0 --hz=5` changes the measurement.
+From the repository root, with `npm run dev` running here: `node tools/net/two.mjs` (two browsers
+see each other). `node tools/net/notices.mjs` starts its own copy (port 8793) and checks the
+"town full" and "resting" notices in real browsers.
+
+Testing the pause without sending 800,000 messages: the limits (and the seat count) can be replaced
+ONLY by a variable handed to the local `wrangler dev`, which is what the tests do:
+
+    npx wrangler dev --port 8787 --var 'TEST_BUDGET:{"doRequests":100,"seats":2}'
+
+With that variable present, `GET /__test` shows the count and `GET /__test?add=86400000` moves the
+service's clock a day on. A deployed service has no such variable (`wrangler.toml` has no `[vars]`
+and the deploy workflow passes none), so there `/__test` is the ordinary health line and nothing a
+client sends can change a limit.
 
 ## Deploy
 
@@ -38,9 +62,11 @@ run from there. The service then answers at `https://port-calamity-city.<account
 
 ## Protocol (all of it is in `src/net/protocol.ts`)
 
-Connect: `wss://<host>/?v=2&name=3.17.20`. The name is two or three integers, indexes into
+Connect: `wss://<host>/?v=3&name=3.17.20`. The name is two or three integers, indexes into
 the game's own word lists (part i is below `NAME_LIST_SIZES[i]`, today 40, 40 and 24). There is no hello message: a bad name, a wrong version (400), a
-disallowed Origin (403) or eight full cities (503) refuse the upgrade.
+disallowed Origin (403) refuse the upgrade. A full town and a resting service do NOT refuse it (a
+browser cannot read a refused upgrade): the socket opens, carries one `full` or `rest` message, and
+closes with 4008 or 4009.
 
 Binary frames (frequent). Byte 0 is the kind, byte 1 a player id that the service overwrites with
 the sender's id; the service reads nothing else and forwards the same buffer.
@@ -64,7 +90,9 @@ JSON text (rare).
 | `{t:"perf",ms}` | client, every 5 s | measured frame time; 1000 or more means "do not make me host" |
 | `{t:"host",id}` | service to all | the host changed |
 | `{t:"fact",k,v}` | host, then service to others | durable fact; `v` is a number or up to 16 numbers |
-| `ping` / `pong` | client / service | answered without waking the city |
+| `{t:"full",retry,seats}` then close 4008 | service to joiner | every seat is taken; `retry` is a hint in seconds (180) |
+| `{t:"rest",until,now}` then close 4009 | service to joiner, or to everybody | paused until `until` (ms since 1970, UTC; always the next 00:00 UTC); `now` is the service's clock |
+| `ping` / `pong` | client / service | a connection check; counted and rate limited like any message |
 
 Rules a client must follow:
 
@@ -73,6 +101,12 @@ Rules a client must follow:
 - World and ToPlayer frames and facts from a player who is not the host are dropped silently, so a
   client must stop simulating shared things when it sees `host` name someone else.
 - Write a fact when it changes, not every frame. Bursts are stored at most every 5 s.
+- After `full`: play alone and ask the SAME address again no sooner than the hint (the game waits 3
+  minutes plus up to a quarter more, at random). Never fall through to another address: that would
+  be a second city.
+- After `rest`: do not contact this address again before `until` plus a random 0 to 5 minutes, not
+  even after a reload (the game keeps the time in localStorage). Every request, refused or not, is
+  billed.
 - Breaking a limit closes the socket: 4001 too big, 4002 too fast (40 a second, burst 80), 4003 not
   a valid message.
 
@@ -91,21 +125,57 @@ most 70% of that, and then not within 8 s of the last move.
   and observability is off in `wrangler.toml`.
 - Clients are trusted beyond that: there is no cheat protection.
 
-## Cost on the free plan (measured Nov 2026; see `npm run measure`)
+## The daily budget (owner's rules, Nov 21 2026)
 
-Limits read from Cloudflare's documentation: 100,000 Durable Object requests a day, 13,000 GB-s of
-Durable Object duration a day, 100,000 Worker requests a day, 100,000 SQLite rows written a day.
-Incoming WebSocket messages are billed at 20 to 1; outgoing messages are free.
+The free limits belong to the whole Cloudflare account, which also runs a more important service.
+The game may use at most 50% of any daily limit and must stop itself well before that, until the
+limits reset at 00:00 UTC. All of the numbers are named constants in `src/budget.ts`.
 
-- 4 players at 10 Hz for 60 s: 2,436 messages in (63,050 bytes), 7,176 out (186,576 bytes), none lost.
-- One player hour is about 36,500 messages in, which is 1,827 billed requests. So the free plan
-  holds about **54 player hours a day** (4 players for 13.7 hours, or 16 players for 3.4 hours),
-  however they are grouped. When it runs out, new messages fail until 00:00 UTC, and the game must
-  fall back to single-player.
-- Duration is not the limit: a city awake for all 24 hours is 11,059 GB-s, under the 13,000, and a
-  hibernating city is not billed between messages at all. Worker requests are one per connection.
-- To stretch it: send State at 5 Hz (about 109 player hours); send State only while moving and a
-  Keepalive every 2 s when still (a parked player then costs 90 requests an hour instead of 1,827);
-  keep the host's World as ONE frame per tick for all cars (at 10 Hz that is 1,800 requests per city
-  hour; one frame per car would be ruinous). Packing several players into one frame does not help
-  incoming cost, since each browser must still send its own.
+| meter | free limit a day | game's share (50%) | pause line (80% of the share) | what is counted |
+| --- | --- | --- | --- | --- |
+| Durable Object requests | 100,000 | 50,000 | **40,000** | each fetch from the Worker, each alarm, incoming messages / 20 |
+| Durable Object duration | 13,000 GB-s | 6,500 | **5,200 GB-s** (the town awake 11.3 h) | an upper bound: every gap between events, up to 10 s each, at 128 MB |
+| Worker requests | 100,000 | 50,000 | **40,000** | counted in the Worker's memory, reported to the town on its next visit or every 200 |
+| SQLite rows written | 100,000 | 50,000 | **40,000** | facts, the count itself, alarms set |
+| SQLite rows read | 5,000,000 | 2,500,000 | 2,000,000 | counted, but cannot be approached (about 33 rows per wake) |
+
+Source: developers.cloudflare.com/durable-objects/platform/pricing/ and /workers/platform/limits/,
+read Nov 21 2026 (incoming WebSocket messages are billed 20 to 1, outgoing ones are free, duration
+is billed at 128 MB, limits reset at 00:00 UTC, and past a limit operations of that type fail).
+
+When any meter reaches its pause line the town sends everybody `rest` with the resume time, closes
+their sockets, stores the count, and refuses joins until the first event of the next UTC day.
+
+Why 80%: the last fifth of the share covers what the count can miss. The count is stored (one row)
+on every visit from the Worker, whenever somebody leaves, and once a minute while messages flow,
+never per message. In between, each socket's attachment carries its own message count (attachments
+are not billed), so an eviction or crash loses at most 19 messages a socket plus a minute of the
+duration estimate and of fact rows: under 1% of the share. Worker requests counted in an isolate
+that Cloudflare recycles before it reports are lost too (under 200 each time).
+
+What a refusal costs:
+
+- Bad Origin, version or name: one Worker request. The town is not woken.
+- "Full" or "resting", answered from the Worker's memory: **one Worker request and nothing else**
+  (no Durable Object request, no duration, no rows). The Worker remembers "full" for 15 s and
+  "resting" until the reset. The price of the 15 s is that a seat can stand empty that long.
+- The first such refusal in each Worker isolate: one Worker request, one Durable Object request
+  (a few ms awake) and one row for the count.
+
+What it cannot do: stop requests arriving. A hand-written program that hammers the Worker is
+still billed one Worker request each time, resting or not; the service only counts them and rests.
+A Cloudflare rate limiting rule on the hostname would be the defence if that ever happens.
+
+## Player hours (measured Nov 21 2026 with `npm run measure`, the game's real send pattern)
+
+- 8 players, 4 driving at 10 Hz and 4 standing still, 60 s: 2,576 messages in, 16,744 out, none lost.
+- A driver sends 36,539 messages an hour = **1,827 billed requests**. A player standing still sends
+  only keepalives and frame times: 2,100 messages an hour = **105 requests**.
+- Pause line 40,000 requests: **21.9 player hours a day if everybody drives** (8 people driving
+  nonstop: 2.7 hours, then rest until 00:00 UTC); **41.4 player hours a day half idle** (8 people,
+  half of them still: 5.2 hours).
+- If everybody stood still the requests would last 8 people 47 hours, so the duration line decides:
+  the town may be awake 11.3 hours a day at most, however many are in it. A lone player sends
+  nothing, so a town of one sleeps and costs nothing.
+- Stage 2 warning: a host World frame at 10 Hz adds 1,800 requests per town hour. Keep it ONE frame
+  per tick for all cars.
