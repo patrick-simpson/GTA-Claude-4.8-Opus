@@ -108,7 +108,7 @@ export function cityUrl(base: string, name: NameIndexes): string {
  * The game reaches the backup at wss://<this>/ and asks it where the main service is at
  * https://<this>/main; the home computer registers its address at the same place.
  */
-export const BACKUP_HOST: string = '';
+export const BACKUP_HOST: string = 'port-calamity-city.patricksimpson-fx.workers.dev';
 /** The Worker's "where is main" path: GET answers {u: address or null}; POST is the home computer's signed registration. */
 export const MAIN_PATH = '/main';
 
