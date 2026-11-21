@@ -87,3 +87,9 @@ Asked one question at a time, the owner chose:
     installs the service and the Cloudflare Tunnel (the owner logs in to Cloudflare once), and a
     timer that updates the service from this repository. The lead never connects to the PC.
     The PC is a Lenovo micro PC, x86-64, Debian 13, normal disk (no read-only overlay).
+12. **The tunnel (owner, Nov 21): a free temporary tunnel address.** doofus.live's DNS is not on
+    Cloudflare, so there is no permanent hostname. The mini PC runs a quick tunnel; its address
+    changes when it restarts. The PC tells the Cloudflare backup Worker its current address
+    (authenticated with a secret that lives only on the PC and as a Worker secret, never in a
+    repository), and the game asks the Worker where the main service is (one cheap, cacheable
+    request per page load, counted in the budget). No Cloudflare login on the mini PC.
