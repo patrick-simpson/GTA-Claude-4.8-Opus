@@ -11,8 +11,8 @@ import type { Game } from '../core/game';
 import type { Look, Person, Pose, Vehicle } from '../core/api';
 import { RNG, angleDiff, clamp } from '../core/util';
 import { KINDS, SPECS, type VehicleKind } from '../ent/vehicleSpecs';
-import { POSES, PlayerFlag, PlayerMode, type PlayerState } from './protocol';
-import { nameText } from './names';
+import { POSES, PlayerEvent, PlayerFlag, PlayerMode, type PlayerState } from './protocol';
+import { SAYS, nameText } from './names';
 
 /** How far in the past the others are shown, ms. A little over one send interval, so there is nearly always a frame on each side. */
 export const INTERP_MS = 130;
@@ -47,9 +47,12 @@ function lookFor(game: Game, id: number, name: readonly number[]): Look {
 
 const TAG_FONT = '600 44px "Barlow Semi Condensed", "Arial Narrow", sans-serif';
 const TAG_H = 72;
+/** How long a spoken line stays up, ms, and how much of that is the fade. */
+export const SAY_MS = 4000;
+const SAY_FADE_MS = 600;
 
 /** A bone slip with ink type and a vermilion rule, like the rest of the paperwork. Returns its width over its height. */
-function drawTag(cv: HTMLCanvasElement, text: string): number {
+function drawTag(cv: HTMLCanvasElement, text: string, say = false): number {
   let g = cv.getContext('2d') as CanvasRenderingContext2D;
   g.font = TAG_FONT;
   const w = Math.ceil(g.measureText(text).width) + 44;
@@ -57,9 +60,9 @@ function drawTag(cv: HTMLCanvasElement, text: string): number {
   g = cv.getContext('2d') as CanvasRenderingContext2D;
   g.fillStyle = '#14213d';
   g.fillRect(0, 0, w, TAG_H);
-  g.fillStyle = '#f2e8cf';
+  g.fillStyle = say ? '#ffffff' : '#f2e8cf';
   g.fillRect(4, 4, w - 8, TAG_H - 8);
-  g.fillStyle = '#e4572e';
+  g.fillStyle = say ? '#8e3fb8' : '#e4572e';
   g.fillRect(4, 4, w - 8, 7);
   g.font = TAG_FONT;
   g.fillStyle = '#14213d';
@@ -84,6 +87,17 @@ export class Remote {
   seen = false;
   labelShown = false;
   text: string;
+  /** Horn: sounding now (from their flags), and how many times it has started. */
+  horn = false;
+  horns = 0;
+  vx = 0; vz = 0;
+  /** The line they are saying now ('' = none), when it was said (this browser's clock, ms), and how many have been heard. */
+  said = '';
+  saidAt = 0;
+  /** The last line heard, kept after the tag is gone (for the tests). */
+  lastSaid = '';
+  saidCount = 0;
+  sayShown = false;
 
   private person: Person | null = null;
   private car: Vehicle | null = null;
@@ -91,6 +105,10 @@ export class Remote {
   private readonly tagCv = document.createElement('canvas');
   private readonly tagTex: THREE.CanvasTexture;
   private tagAspect = 3;
+  private hornFlag = false;
+  private readonly sayLabel: THREE.Sprite;
+  private sayTex: THREE.CanvasTexture | null = null;
+  private sayAspect = 3;
 
   private readonly buf: Sample[] = [];
   /** Sender's clock unwrapped (it sends 16 bits), and the smallest (arrival - sender time) seen lately. */
@@ -115,6 +133,11 @@ export class Remote {
     this.label.visible = false;
     this.label.renderOrder = 20;
     game.scene.add(this.label);
+    this.sayLabel = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, fog: false, toneMapped: false }));
+    this.sayLabel.name = 'net_say';
+    this.sayLabel.visible = false;
+    this.sayLabel.renderOrder = 21;
+    game.scene.add(this.sayLabel);
     this.paintTag();
     // The HUD's face may not have arrived when the first player does.
     try { void document.fonts.load(TAG_FONT).then(() => this.paintTag(), () => {}); } catch { /* no font loading API */ }
@@ -123,6 +146,28 @@ export class Remote {
   private paintTag(): void {
     this.tagAspect = drawTag(this.tagCv, this.text);
     this.tagTex.needsUpdate = true;
+  }
+
+  /** An Event frame from this player: a wave (arg ignored) or a shout (arg is the line). Anything else is ignored. */
+  hear(code: number, arg: number, now: number): void {
+    let line = '';
+    if (code === PlayerEvent.Wave) line = SAYS[0];
+    else if (code === PlayerEvent.Shout && arg >= 0 && arg + 1 < SAYS.length) line = SAYS[arg + 1];
+    if (!line) return;
+    this.said = this.lastSaid = line; this.saidAt = now; this.saidCount++;
+    // A new canvas and texture for each line: a texture keeps the size it was first uploaded at.
+    const cv = document.createElement('canvas');
+    this.sayAspect = drawTag(cv, line, true);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.generateMipmaps = true;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.anisotropy = 4;
+    const mat = this.sayLabel.material as THREE.SpriteMaterial;
+    this.sayTex?.dispose();
+    this.sayTex = tex;
+    mat.map = tex;
+    mat.needsUpdate = true;
   }
 
   rename(name: number[]): void {
@@ -172,6 +217,10 @@ export class Remote {
     a.pitch = s.pitch; a.roll = s.roll; a.steer = s.steer;
     a.mode = s.mode; a.pose = s.pose; a.flags = s.flags; a.vehicle = s.vehicle; a.color = s.color;
     buf.push(a);
+    // The horn is a flag in the state frame; each time it goes on is one to be heard.
+    const hornOn = (s.flags & PlayerFlag.Horn) !== 0;
+    if (hornOn && !this.hornFlag) this.horns++;
+    this.hornFlag = hornOn;
     this.seen = true;
   }
 
@@ -215,6 +264,8 @@ export class Remote {
     this.color = c.color;
     const fwd = c.vx * Math.sin(c.yaw) + c.vz * Math.cos(c.yaw);
     this.speed = kind ? fwd : Math.hypot(c.vx, c.vz);
+    this.vx = c.vx; this.vz = c.vz;
+    this.horn = kind !== null && (c.flags & PlayerFlag.Horn) !== 0;
 
     if (!this.person) this.person = g.people.spawn(c.x, c.z, c.yaw, lookFor(g, this.id, this.name));
     const per = this.person;
@@ -259,6 +310,18 @@ export class Remote {
       // Bone paper at full strength glares under the night exposure and the bloom until the type cannot be read.
       mat.color.setScalar(1 - 0.62 * night);
     }
+    // The spoken line sits on top of the name for a few seconds.
+    const sl = this.sayLabel, age = performance.now() - this.saidAt;
+    this.sayShown = sl.visible = this.said !== '' && age < SAY_MS && fade > 0.01 && d > 1.2;
+    if (this.said !== '' && age >= SAY_MS) this.said = '';
+    if (sl.visible) {
+      const hgt = clamp(d * 0.04, 0.16, 1.25);
+      sl.scale.set(hgt * this.sayAspect, hgt, 1);
+      sl.position.set(this.x, this.y + top + hgt * 1.6, this.z);
+      const m = sl.material as THREE.SpriteMaterial;
+      m.opacity = fade * clamp((SAY_MS - age) / SAY_FADE_MS, 0, 1);
+      m.color.setScalar(1 - 0.62 * night);
+    }
   }
 
   /** They left: take everything out of the scene. */
@@ -267,6 +330,9 @@ export class Remote {
     if (this.person) { g.people.remove(this.person); this.person = null; }
     if (this.car) { g.vehicles.unghost(this.car); this.car = null; }
     g.scene.remove(this.label);
+    g.scene.remove(this.sayLabel);
+    this.sayTex?.dispose();
+    (this.sayLabel.material as THREE.SpriteMaterial).dispose();
     this.tagTex.dispose();
     (this.label.material as THREE.SpriteMaterial).dispose();
     this.buf.length = 0;

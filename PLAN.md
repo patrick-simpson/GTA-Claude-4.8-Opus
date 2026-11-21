@@ -88,6 +88,25 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 1, step 6, dots, names, horn and shouts: pushed Nov 21, about 2:20 PM ET
+
+What changed:
+- Other players show as dots on the radar and on the pause map, with their name on the map.
+- Pause menu, Settings: a TOWN NAME button gives you a new random name. Hidden when the net is off.
+- Your horn is heard by the others (sent as an event, not sound).
+- B key or the SAY button on a phone: a wave line, plus four more fixed lines. Sent as a number, never as text. One every 2 seconds at most.
+- `?net=0` now also ignores `&netmain=`. Tests solo.mjs and main.mjs use `net=0` for "off", since the real address is set now.
+
+Checked by the lead: tsc clean, build, server `npm test` ALL PASS, tools/net two, solo, main, notices, social ALL PASS, both production boots show "errors": [], pictures in shots/net looked at.
+
+Still wrong or unseen:
+- No wave animation. The character has no wave pose, so it is a text line only.
+- The horn for other players is counted, never heard (no sound here).
+- LIVE BUG, next step: two players can land on different services (mini PC and backup) and not see each other.
+- The desktop shout picture came from a side script, not from social.mjs. Cause not found.
+
+Models: Sonnet built it. Lead checked it.
+
 ### Multiplayer is LIVE (stage 1, step 5): pushed Nov 21, about 12:35 PM ET
 
 (The times on the three entries below run about an hour fast: the lead guessed the clock. This

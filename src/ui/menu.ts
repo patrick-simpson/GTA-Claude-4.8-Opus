@@ -25,6 +25,7 @@ import { DUCKS } from '../game/activities';
 import { clock } from '../game/script';
 import { save, type QualityPick } from '../game/save';
 import { autoPresetIfKnown } from '../core/governor';
+import { PEER_COLOR } from '../net/names';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
 type VolKey = 'volMaster' | 'volMusic' | 'volSfx' | 'volAmbience';
@@ -449,6 +450,15 @@ export class Menu {
     if (goal) badge(goal.x, goal.z, MUSTARD, '', true);
     if (way) badge(way.x, way.z, MUSTARD, '', true);
 
+    // Other players (multiplayer): a violet dot with the made-up name beside it. Nothing when not connected.
+    for (const o of g.net.peers) {
+      const px = X(o.x), py = Z(o.z);
+      if (px < -20 || py < -20 || px > w + 20 || py > h + 20) continue;
+      c.beginPath(); c.arc(px, py, 6, 0, Math.PI * 2); c.fillStyle = PEER_COLOR; c.fill();
+      c.strokeStyle = BONE; c.lineWidth = 2; c.stroke(); c.strokeStyle = INK; c.lineWidth = 1; c.beginPath(); c.arc(px, py, 7.2, 0, Math.PI * 2); c.stroke();
+      text(o.text, px, py - 14, 11, INK);
+    }
+
     // Dess.
     c.save(); c.translate(X(p.x), Z(p.z)); c.rotate(Math.PI - p.h);
     const a = 11;
@@ -571,6 +581,7 @@ export class Menu {
     <div class="mn-row"><span class="mn-lbl">Full screen on tap</span><span>${tog('fsTap', s.fsTap)}</span></div>
     <div class="mn-row"><span class="mn-lbl">Reduced motion</span><span>${tog('reducedMotion', s.reducedMotion)}</span></div>
     <div class="mn-row"><span class="mn-lbl">Quality</span><span class="mn-segs">${q}</span></div>
+    ${this.nameRow()}
     <p class="mn-note">${how}${stale ? ` A change of preset rebuilds the world, so <b>${want}</b> takes effect when the page is reloaded: <button type="button" class="mn-link" data-set="reload">save and reload now</button>` : ''}</p>
   </div>
   <div class="mn-sec">
@@ -584,8 +595,16 @@ export class Menu {
 </div>`;
   }
 
+  /** The made-up multiplayer name and the button that re-rolls it. Only when a service is configured. */
+  private nameRow(): string {
+    const n = this.game.net;
+    if (n.status === 'off') return '';
+    return `<div class="mn-row"><span class="mn-lbl">Town name</span><span><button type="button" class="mn-link mn-name" data-set="newname" title="Get a new made-up name"><b>${esc(n.name)}</b> &middot; new name</button></span></div>`;
+  }
+
   private onSetting(el: HTMLElement): void {
     const s = save.data.settings, key = el.dataset.set;
+    if (key === 'newname') { const b = el.querySelector('b'); const nm = this.game.net.reroll(); if (b) b.textContent = nm; return; }
     if (key === 'reload') { this.todo.saveNow(); location.reload(); return; }
     if (key === 'sens') {
       s.sens = Math.max(0.3, Math.min(2.5, Number((el as HTMLInputElement).value) || 1));

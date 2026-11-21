@@ -54,7 +54,7 @@ export function servicePlan(): { urls: string[]; fullRetryS: number; lookup: str
   } catch { /* no location */ }
   if (q === null) return { urls: SERVICE_URLS.filter((u) => /^wss?:\/\//.test(u)), fullRetryS: 0, lookup: LOOKUP_URL };
   const urls = q.split(',').filter((u) => LOCAL_URL.test(u));
-  const lookup = m !== null && LOCAL_HTTP.test(m) ? m : '';
+  const lookup = urls.length > 0 && m !== null && LOCAL_HTTP.test(m) ? m : '';
   const n = Number(r);
   return { urls, fullRetryS: (urls.length > 0 || lookup) && r !== null && n >= 1 && n <= 600 ? n : 0, lookup };
 }

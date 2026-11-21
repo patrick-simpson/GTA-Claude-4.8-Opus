@@ -114,9 +114,9 @@ try {
   check(rest.length === 0, 'no errors from the game through all of it', rest.slice(0, 2).join(' | ').slice(0, 300) || `the browser's own "WebSocket connection failed" line, ${own.length} time(s)`);
   await t.close(); t = null;
 
-  // 7. A link cannot point the lookup anywhere else, and without ?net the (empty) production constants ask nobody.
+  // 7. A link cannot point the lookup anywhere else, and with ?net=0 nobody is asked (the production constants are set now, so a bare page would reach the real service).
   const before = asked;
-  for (const [label, q] of [['a non-local &netmain is ignored', `q=low&net=${encodeURIComponent('ws://127.0.0.1:8790')}&netmain=${encodeURIComponent('https://example.com')}`], ['&netmain without ?net is ignored: nothing connects, nothing is asked', `q=low&netmain=${encodeURIComponent(`http://127.0.0.1:${LOOKUP}`)}`]]) {
+  for (const [label, q] of [['a non-local &netmain is ignored', `q=low&net=${encodeURIComponent('ws://127.0.0.1:8790')}&netmain=${encodeURIComponent('https://example.com')}`], ['&netmain with the net switched off is ignored: nothing connects, nothing is asked', `q=low&net=0&netmain=${encodeURIComponent(`http://127.0.0.1:${LOOKUP}`)}`]]) {
     const p = await boot({ start: false, query: q, width: 480, height: 270 });
     const reqs = [];
     p.page.on('request', (r) => { if (/\/main(\?|$)/.test(r.url())) reqs.push(r.url()); });

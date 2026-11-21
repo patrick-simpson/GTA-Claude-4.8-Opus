@@ -248,3 +248,6 @@ body.reduced-motion .mn-card, body.reduced-motion .mn-slip { animation: none; }
 @media (max-width: 560px) {
   .mn-form, .mn-form.mn-two { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Multiplayer: the current made-up name is the button's label; it may wrap on a narrow phone. */
+.mn-name { white-space: normal; text-align: right; }

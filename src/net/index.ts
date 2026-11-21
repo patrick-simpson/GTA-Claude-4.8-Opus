@@ -17,14 +17,16 @@ import { angleDiff } from '../core/util';
 import { KINDS } from '../ent/vehicleSpecs';
 import {
   KEEPALIVE_FRAME, KEEPALIVE_MS, PERF_CANNOT_HOST_MS, PERF_INTERVAL_MS, PLAYER_STATE_BYTES, POSES, PlayerFlag, PlayerMode, SEND_HZ,
-  Frame, blankPlayerState, decodePlayerState, encodeMsg, encodePlayerState, frameKind,
+  Frame, PlayerEvent, blankPlayerState, decodePlayerEvent, decodePlayerState, encodePlayerEvent, encodeMsg, encodePlayerState, frameKind,
   type PlayerEntry, type ServerMsg, type WelcomeMsg,
 } from './protocol';
 import { Connection, servicePlan, type NetStatus } from './conn';
 import { Remote } from './remote';
-import { myName, nameText, rerollName } from './names';
+import { SAYS, myName, nameText, rerollName } from './names';
 
 const SEND_MS = 1000 / SEND_HZ;
+/** The fewest ms between two things said by this player. */
+export const SAY_GAP_MS = 2000;
 
 export class Net {
   readonly conn: Connection;
@@ -42,6 +44,12 @@ export class Net {
   private stateAt = 0;
   private anyAt = 0;
   private perfAt = 0;
+  private sayAt = -1e9;
+  private sayNext = 0;
+  /** Lines this player has sent, and the one most recently sent (index into SAYS, -1 none). */
+  saysSent = 0;
+  lastSay = -1;
+  private readonly peerList: Remote[] = [];
   private countEl: HTMLElement | null = null;
   private countShown = -1;
   private noteEl: HTMLElement | null = null;
@@ -66,6 +74,36 @@ export class Net {
 
   get status(): NetStatus { return this.conn.status; }
   get name(): string { return nameText(myName()); }
+  /** Others to draw on the radar and the map: empty unless connected. The list is reused; do not keep it. */
+  get peers(): readonly Remote[] {
+    const l = this.peerList; l.length = 0;
+    if (this.conn.status === 'online') for (const r of this.remotes.values()) if (r.seen) l.push(r);
+    return l;
+  }
+  /** Is there anybody to say something to? */
+  get canSay(): boolean { return this.conn.status === 'online' && this.remotes.size > 0; }
+
+  /**
+   * Say line i of SAYS (0 is the wave) to everybody: one 4 byte frame, sent only when somebody is here, and at most one
+   * every SAY_GAP_MS. Returns whether it went.
+   */
+  say(i: number, now = performance.now()): boolean {
+    if (!this.canSay || !Number.isInteger(i) || i < 0 || i >= SAYS.length || now - this.sayAt < SAY_GAP_MS) return false;
+    const f = i === 0 ? encodePlayerEvent(PlayerEvent.Wave, 0) : encodePlayerEvent(PlayerEvent.Shout, i - 1);
+    if (!this.conn.send(f)) return false;
+    this.sayAt = now; this.saysSent++; this.lastSay = i;
+    return true;
+  }
+
+  /** The say key: the next line in turn. */
+  sayCycle(): void {
+    const i = this.sayNext;
+    if (this.say(i)) {
+      this.sayNext = (i + 1) % SAYS.length;
+      this.game.hud.toast(`You: ${SAYS[i]}`, 2);
+    }
+  }
+
   /** Everybody in town, this player included; 0 when not connected. */
   get count(): number { return this.conn.status === 'online' ? this.remotes.size + 1 : 0; }
 
@@ -115,7 +153,14 @@ export class Net {
   }
 
   private frame(buf: ArrayBuffer): void {
-    if (frameKind(buf) !== Frame.State) return;
+    const k = frameKind(buf);
+    if (k === Frame.Event) {
+      const e = decodePlayerEvent(buf);
+      // The horn is heard from the flag in the state frames; only waves and shouts come this way.
+      if (e) this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
+      return;
+    }
+    if (k !== Frame.State) return;
     const s = decodePlayerState(buf, this.inState);
     if (!s) return;
     this.remotes.get(s.id)?.push(s, performance.now());
@@ -194,6 +239,7 @@ export class Net {
     const now = performance.now(), g = this.game;
     if (this.noteKind && !this.told[this.noteKind] && g.state === 'play') this.tellOnce(this.noteKind);
     this.pump(now);
+    if (g.state === 'play' && g.input.hit('say')) this.sayCycle();
     if (this.remotes.size === 0) return;
     const eye = g.view ? g.view.pos : g.camera.position;
     const night = g.sky.night;
@@ -269,11 +315,13 @@ export class Net {
       service: c.service, notice: this.noteKind, noteText: this.noteShown, seats: c.seats,
       resumeAt: c.resumeAt, restUntil: c.restUntil, retryAt: c.status === 'full' ? c.retryAt : 0,
       sent: { ...c.sent, states: this.statesSent }, got: { ...c.got },
+      saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({
         id: r.id, name: r.text, seen: r.seen, frames: r.frames,
         x: r3(r.x), y: r3(r.y), z: r3(r.z), h: r3(r.h), speed: r3(r.speed),
         mode: r.mode, pose: r.pose, vehicle: r.kind, color: r.color, label: r.labelShown,
+        horns: r.horns, hornOn: r.horn, said: r.said, lastSaid: r.lastSaid, sayShown: r.sayShown, saidCount: r.saidCount,
       })),
     };
   }

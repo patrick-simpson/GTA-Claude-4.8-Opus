@@ -82,3 +82,20 @@ export function rerollName(): NameIndexes {
   save(n);
   return (mine = n);
 }
+
+/** The dot other players wear on the radar and the map: a violet nothing else on either of them uses. */
+export const PEER_COLOR = '#8e3fb8';
+
+/**
+ * The only things one player can say to another. They travel as an index into this list and nothing else (protocol.ts
+ * PlayerEvent): index 0 is the wave (PlayerEvent.Wave), the rest are shouts (PlayerEvent.Shout, arg = index - 1).
+ * Same tone as the names: dry paperwork, clean, aimed at nobody. APPEND ONLY; a shorter list on an older client
+ * just ignores indexes it does not have.
+ */
+export const SAYS = [
+  'Hello. This is a wave.',
+  'Nobody saw that.',
+  'Please hold. I am driving.',
+  'That is not my dinghy.',
+  'Filed under: fine.',
+] as const;

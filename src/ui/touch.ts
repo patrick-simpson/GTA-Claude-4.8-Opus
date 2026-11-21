@@ -57,6 +57,8 @@ export class TouchUI {
   private byEl = new Map<Element, Key>();
   private getIn!: Key;
   private useKey!: Key;
+  private sayKey!: Key;
+  private sayOn = false;
   private using = false;
   private aimKey!: Key;
   /** AIM is a latch on glass: nobody has a spare thumb to hold it. */
@@ -113,6 +115,8 @@ export class TouchUI {
     act('t-swap arm', '11', 'Swap', 'nextWeapon');
     // Talk, start a job, pay: on the glass only while a prompt that wants it is up (missions and jobs, src/game/).
     this.useKey = act('t-use always gone', '12', 'Use', 'interact');
+    // Say: a wave and a few fixed lines, one per press, only while somebody else is in town (src/net/).
+    this.sayKey = act('t-say gone', '', 'Say', 'say');
     act('t-pause always', '', GLYPH.pause, 'pause');
 
     const card = this.div('t-rotate');
@@ -369,6 +373,12 @@ export class TouchUI {
       this.near = near;
       this.getIn.el.classList.toggle('gone', !near);
       if (!near) this.dropKey(this.getIn);
+    }
+    const talk = !paused && g.net.canSay;
+    if (talk !== this.sayOn) {
+      this.sayOn = talk;
+      this.sayKey.el.classList.toggle('gone', !talk);
+      if (!talk) this.dropKey(this.sayKey);
     }
     const using = !paused && this.game.hud.prompting;
     if (using !== this.using) {

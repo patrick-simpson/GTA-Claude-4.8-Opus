@@ -204,6 +204,17 @@
 #touch.paused .t-pause .t-play { display: block; }
 #touch.paused .t-pause .t-bars { display: none; }
 
+/* SAY: small, over the left stick and clear of the radar and the stat bars, only while others are in town (no form-box number). */
+.t-say {
+  left: calc(var(--sl) + var(--u) * 2.1);
+  bottom: calc(var(--sb) + var(--u) * 3.5);
+  width: 48px;
+  height: 34px;
+  font-size: 14px;
+}
+.t-say::before { content: none; }
+#touch:not(.paused) .t-key.t-say:not(.gone) { display: flex; }
+
 /* ── Portrait notice ───────────────────────────────────────────────────── */
 
 .t-rotate {

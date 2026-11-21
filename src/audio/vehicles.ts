@@ -14,6 +14,7 @@
 import type { Vehicle } from '../core/api';
 import type { Game } from '../core/game';
 import type { VehicleKind } from '../ent/vehicleSpecs';
+import type { Remote } from '../net/remote';
 import { mulberry, type AudioCore } from './audio';
 import * as sfx from './sfx';
 
@@ -382,6 +383,8 @@ export class VehicleSounds {
   private readonly own: AudioNode;
   private horn: HornVoice | null = null;
   private readonly aiHorns: { v: Vehicle; voice: HornVoice; g: GainNode; pan: StereoPannerNode }[] = [];
+  /** Other players' horns (src/net/): the same voice as an AI car's, at the ghost's place. */
+  private readonly netHorns: { r: Remote; voice: HornVoice; g: GainNode; pan: StereoPannerNode }[] = [];
   private readonly beep: GainNode;
   private nextBeep = 0;
   private scanT = 0;
@@ -489,6 +492,28 @@ export class VehicleSounds {
       h.g.gain.setTargetAtTime(core.gainAt(c.x, c.y, c.z, 8, 110) * 0.8, t, 0.05);
       h.pan.pan.setTargetAtTime(core.panAt(c.x, c.z), t, 0.05);
       if (!c.ctl.horn || c.driver !== 'ai') { h.voice.release(t); this.aiHorns.splice(i, 1); }
+    }
+    this.remoteHorns(t);
+  }
+
+  /** Somebody else's horn, from the flag in their state frames. Heard with the same falloff as an AI car's. */
+  private remoteHorns(t: number): void {
+    const core = this.core, g = this.game, hs = this.netHorns;
+    for (const r of g.net.peers) {
+      if (!r.horn || !r.kind || hs.length >= 2) continue;
+      let have = false;
+      for (const h of hs) if (h.r === r) have = true;
+      if (have || core.gainAt(r.x, r.y, r.z, 8, 110) < 0.02) continue;
+      const gn = core.gain(0), pan = core.ctx.createStereoPanner();
+      gn.connect(pan); pan.connect(core.bus.sfx);
+      const send = core.gain(0.3); gn.connect(send); send.connect(core.reverb);
+      hs.push({ r, voice: new HornVoice(core, r.kind, gn, t, core.doppler(r.x, r.z, r.vx, r.vz)), g: gn, pan });
+    }
+    for (let i = hs.length - 1; i >= 0; i--) {
+      const h = hs[i], r = h.r;
+      h.g.gain.setTargetAtTime(core.gainAt(r.x, r.y, r.z, 8, 110) * 0.8, t, 0.05);
+      h.pan.pan.setTargetAtTime(core.panAt(r.x, r.z), t, 0.05);
+      if (!r.horn || !r.seen) { h.voice.release(t); hs.splice(i, 1); }
     }
   }
 

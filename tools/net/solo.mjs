@@ -14,7 +14,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failed = 0;
 const check = (ok, what, detail = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${what}${detail ? '  [' + detail + ']' : ''}`); if (!ok) failed++; };
 
-for (const [label, query] of [['no ?net, high', 'q=high'], ['no ?net, low', 'q=low'], ['dead port, low', 'q=low&net=' + encodeURIComponent('ws://127.0.0.1:8799')]]) {
+for (const [label, query] of [['net off, high', 'q=high&net=0'], ['net off, low', 'q=low&net=0'], ['dead port, low', 'q=low&net=' + encodeURIComponent('ws://127.0.0.1:8799')]]) {
   const t = await boot({ start: false, query, width: 640, height: 360 });
   const sockets = [];
   t.page.on('websocket', (ws) => sockets.push(ws.url()));
@@ -25,7 +25,7 @@ for (const [label, query] of [['no ?net, high', 'q=high'], ['no ?net, low', 'q=l
     await t.page.keyboard.down('KeyW'); await sleep(4000); await t.page.keyboard.up('KeyW');
     const i = await t.info();
     let n = await t.page.evaluate(() => window.__game.net());
-    const dead = query.includes('net=');
+    const dead = query.includes('net=ws');
     // An attempt may be in the air at this very moment (they come 4 to 6 s apart at first, and a refusal takes
     // headless Chromium up to half a second): look again, briefly, for the quiet between two attempts.
     for (let k = 0; dead && n.status === 'connecting' && k < 15; k++) { await sleep(200); n = await t.page.evaluate(() => window.__game.net()); }

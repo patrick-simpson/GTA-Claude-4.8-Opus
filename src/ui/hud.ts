@@ -17,6 +17,7 @@ import {
 import { COAST, DAM_Z, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MZS, RAIL, RIVER_HW, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, riverX, streamX, tribZ } from '../world/mainland';
 import { progress } from '../world/progress';
 
+import { PEER_COLOR } from '../net/names';
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f', SAGE = '#8a9a6b';
 // Chart tints. Land is the buff of a paper chart and the sea is left as bare
 // paper, which is how the real ones do it and keeps the vermilion arrow loud.
@@ -436,7 +437,7 @@ class Radar {
    * @param faint  draw the health bar dimmed (the low-health blink)
    * @param hot    index into MARKS of the landmark to pick out in mustard, or -1
    */
-  draw(x: number, z: number, yaw: number, h: number, viewR: number, hp: number, armor: number, faint: boolean, hot: number, nav: Nav): void {
+  draw(x: number, z: number, yaw: number, h: number, viewR: number, hp: number, armor: number, faint: boolean, hot: number, nav: Nav, peers: readonly { x: number; z: number }[] = []): void {
     const c = this.ctx, H = this.size / 2;
     if (H <= 0) return;
     c.setTransform(1, 0, 0, 1, 0, 0);
@@ -495,6 +496,17 @@ class Radar {
         c.font = `900 ${Math.round(br * 1.5)}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
         c.textAlign = 'center'; c.textBaseline = 'middle';
         c.fillText(b.label, px, py + br * 0.1);
+      }
+    }
+
+    // Other players (multiplayer): small violet dots with a bone rim, on the face only, no names.
+    if (peers.length) {
+      const pr = H * 0.065;
+      c.fillStyle = PEER_COLOR; c.strokeStyle = BONE; c.lineWidth = Math.max(1.2, pr * 0.4);
+      for (const o of peers) {
+        const dx = o.x - x, dz = o.z - z;
+        if (Math.hypot(dx, dz) * kf > rf - pr * 1.6) continue;
+        c.beginPath(); c.arc((dx * ca - dz * sa) * kf, (dx * sa + dz * ca) * kf, pr, 0, TAU); c.fill(); c.stroke();
       }
     }
 
@@ -817,7 +829,10 @@ export class Hud implements HudApi {
   private viewR = 150;
   private blink = 0;
   // The radar's last picture: [x, z, yaw, h, viewR, hp, armor, faint].
-  private drawn = [NaN, 0, 0, 0, 0, 0, 0, 0];
+  private drawn = [NaN, 0, 0, 0, 0, 0, 0, 0, 0];
+  /** Other players as last drawn on the radar, flat [x, z, ...] (for the tests). */
+  peerDots: number[] = [];
+  private readonly peerList: { x: number; z: number }[] = [];
   /** Radar markers and the route line: src/game/ fills these in and bumps `rev`. */
   readonly nav: Nav = { blips: [], route: null, rev: 0 };
   private navRev = -1;
@@ -1506,6 +1521,10 @@ export class Hud implements HudApi {
     const hp = clamp01(p.health / 100), armor = clamp01(p.armor / 100);
     const faint = hp > 0 && hp <= 0.3 && this.blink % 0.7 < 0.3 ? 1 : 0;
 
+    // Other players: where each is drawn, and a number that changes when any of them moves.
+    const pl = this.peerList; pl.length = 0;
+    let psig = 0;
+    for (const r of g.net.peers) { pl.push(r); psig += r.x * 7 + r.z * 13 + 1; }
     const d = this.drawn, yaw = g.cam.yaw;
     const jumped = Math.abs(p.x - d[0]) > 4 || Math.abs(p.z - d[1]) > 4;
     this.radarT += dt;
@@ -1516,9 +1535,11 @@ export class Hud implements HudApi {
     this.navRev = this.nav.rev;
     if (
       navSame && Math.abs(p.x - d[0]) < 0.2 && Math.abs(p.z - d[1]) < 0.2 && Math.abs(yaw - d[2]) < 0.003 &&
-      Math.abs(p.h - d[3]) < 0.01 && Math.abs(this.viewR - d[4]) < 0.4 && hp === d[5] && armor === d[6] && faint === d[7]
+      Math.abs(p.h - d[3]) < 0.01 && Math.abs(this.viewR - d[4]) < 0.4 && hp === d[5] && armor === d[6] && faint === d[7] && Math.abs(psig - d[8]) < 0.2
     ) return;
-    d[0] = p.x; d[1] = p.z; d[2] = yaw; d[3] = p.h; d[4] = this.viewR; d[5] = hp; d[6] = armor; d[7] = faint;
-    this.radar.draw(p.x, p.z, yaw, p.h, this.viewR, hp, armor, faint === 1, this.hot, this.nav);
+    d[0] = p.x; d[1] = p.z; d[2] = yaw; d[3] = p.h; d[4] = this.viewR; d[5] = hp; d[6] = armor; d[7] = faint; d[8] = psig;
+    this.radar.draw(p.x, p.z, yaw, p.h, this.viewR, hp, armor, faint === 1, this.hot, this.nav, pl);
+    this.peerDots.length = 0;
+    for (const o of pl) this.peerDots.push(Math.round(o.x * 10) / 10, Math.round(o.z * 10) / 10);
   }
 }
