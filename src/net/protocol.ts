@@ -82,22 +82,29 @@ export const Close = {
   Full: 4008,
   /** Sent after `rest`: the service has paused itself until the time it gave. Do not ask again before then. */
   Rest: 4009,
+  /** Sent after `main` (the backup only): the main service is alive, go there instead. */
+  Main: 4010,
 } as const;
 
 /** HTTP status the Worker answers instead of an upgrade (a browser only sees "could not connect"). */
 export const HTTP_BAD_ORIGIN = 403;
 export const HTTP_BAD_HELLO = 400;
 // A full town and a resting service are NOT HTTP refusals (a browser cannot read those): the socket opens, carries
-// one `full` or `rest` message, and closes with Close.Full or Close.Rest.
+// one `full` or `rest` message, and closes with Close.Full or Close.Rest. The backup's "go to main" is the same
+// pattern: one `main` message, then Close.Main.
 
 /**
  * The hello is the URL itself, so a socket never exists without a valid name:
  *   new WebSocket(cityUrl('wss://port-calamity-city.<account>.workers.dev', [3, 17, 20]))
  * The first message back is the Welcome.
+ * `triedMain`: said to the BACKUP by a browser that has already tried the main service in this round and could not
+ * reach it (or was already sent there once). The backup then seats it instead of sending it to main again.
  */
-export function cityUrl(base: string, name: NameIndexes): string {
-  return `${base.replace(/\/+$/, '')}/?v=${PROTOCOL_VERSION}&name=${name.join('.')}`;
+export function cityUrl(base: string, name: NameIndexes, triedMain = false): string {
+  return `${base.replace(/\/+$/, '')}/?v=${PROTOCOL_VERSION}&name=${name.join('.')}${triedMain ? `&${TRIED_MAIN_PARAM}=1` : ''}`;
 }
+/** The query parameter for "I tried main and it did not answer". Services that do not know it ignore it. */
+export const TRIED_MAIN_PARAM = 'nm';
 
 // ---- where the service lives ----
 
@@ -329,7 +336,13 @@ export interface FullMsg { t: 'full'; retry: number; seats: number; }
  * own clock is wrong can still wait the right length of time.
  */
 export interface RestMsg { t: 'rest'; until: number; now: number; }
-export type ServerMsg = WelcomeMsg | JoinMsg | LeaveMsg | RenameMsg | HostMsg | FactEchoMsg | FullMsg | RestMsg;
+/**
+ * Instead of a welcome, from the BACKUP only: the main service is alive at `u` (https, see isMainAddress), so this
+ * browser is not seated here; everybody belongs in the one town on main. A browser that cannot reach `u` asks the
+ * backup again with TRIED_MAIN_PARAM and is seated. (A game older than this message just sees a lost socket.)
+ */
+export interface MainMsg { t: 'main'; u: string; }
+export type ServerMsg = WelcomeMsg | JoinMsg | LeaveMsg | RenameMsg | HostMsg | FactEchoMsg | FullMsg | RestMsg | MainMsg;
 
 // ---- validation (used by the service on everything a client sends; total, never throws) ----
 

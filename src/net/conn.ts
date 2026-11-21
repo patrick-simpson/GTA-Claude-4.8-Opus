@@ -13,6 +13,15 @@
 // without asking anybody; the backup is asked only when there is no remembered address or it did not answer.
 // Main is always tried before the backup, and may be used while the backup is resting.
 //
+// Everybody must end up in ONE town whenever main is alive, so three things keep a browser off the backup:
+//  - patience: time limits count only time in which the page could have noticed an answer (a page building its first
+//    frames can sit on an answer for seconds), and a main that refuses at once is asked a second time;
+//  - the backup's own answer `main`: "main is alive at this address, go there". The browser does, and comes back
+//    saying so (TRIED_MAIN_PARAM) only if main did not answer, and is then seated on the backup;
+//  - migration: while online on the backup, main is tried quietly in the background every couple of minutes with a
+//    second socket (which costs the backup nothing). When main welcomes it, that socket becomes THE socket: the game
+//    is told the old one went down and that it has been welcomed, exactly as after any reconnect.
+//
 // Two answers are not failures, and each has its own patience:
 //  - `full`: every seat in town is taken. Ask THE SAME address again in a few minutes (never the next address: a
 //    second address would be a second city). The player sees a small "town full" line meanwhile.
@@ -45,18 +54,22 @@ const LOCAL_HTTP = /^http:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?$/;
  *  - `&netretry=5` shortens the wait after "town full";
  *  - `&netmain=http://127.0.0.1:8796` names a LOCAL stand-in for the lookup. What it answers may then be a local
  *    address too (http://127.0.0.1:<port>); the real lookup may only ever name https://<name>.trycloudflare.com.
+ *  - `&netprobe=3` shortens the wait between background tries of main while on the backup (seconds).
  */
-export function servicePlan(): { urls: string[]; fullRetryS: number; lookup: string } {
-  let q: string | null = null, r: string | null = null, m: string | null = null;
+export function servicePlan(): { urls: string[]; fullRetryS: number; lookup: string; probeS: number } {
+  let q: string | null = null, r: string | null = null, m: string | null = null, p: string | null = null;
   try {
     const sp = new URLSearchParams(location.search);
-    q = sp.get('net'); r = sp.get('netretry'); m = sp.get('netmain');
+    q = sp.get('net'); r = sp.get('netretry'); m = sp.get('netmain'); p = sp.get('netprobe');
   } catch { /* no location */ }
-  if (q === null) return { urls: SERVICE_URLS.filter((u) => /^wss?:\/\//.test(u)), fullRetryS: 0, lookup: LOOKUP_URL };
+  if (q === null) return { urls: SERVICE_URLS.filter((u) => /^wss?:\/\//.test(u)), fullRetryS: 0, lookup: LOOKUP_URL, probeS: 0 };
   const urls = q.split(',').filter((u) => LOCAL_URL.test(u));
   const lookup = urls.length > 0 && m !== null && LOCAL_HTTP.test(m) ? m : '';
-  const n = Number(r);
-  return { urls, fullRetryS: (urls.length > 0 || lookup) && r !== null && n >= 1 && n <= 600 ? n : 0, lookup };
+  const n = Number(r), k = Number(p);
+  return {
+    urls, fullRetryS: (urls.length > 0 || lookup) && r !== null && n >= 1 && n <= 600 ? n : 0, lookup,
+    probeS: lookup && p !== null && k >= 1 && k <= 600 ? k : 0,
+  };
 }
 
 /**
@@ -75,8 +88,21 @@ const RETRY_MAX_NEVER_MS = 300000;
 const RETRY_RESTING_MS = 60000;
 /** A session at least this long counts as having worked: the next reconnect is quick. */
 const ONLINE_SETTLED_MS = 20000;
-/** A socket that opens but is not welcomed within this is dropped. */
+/** A socket that opens but is not welcomed within this is dropped (counted patiently, see `patient`). */
 const WELCOME_MS = 10000;
+/** The same for main, which has the backup behind it: a dead main must not hold the player up for long. */
+const MAIN_WELCOME_MS = 8000;
+/** Main gets a second try in a round when the first failed within MAIN_QUICK_MS (refused, not silent), after this wait. */
+const MAIN_AGAIN_MS = 1500;
+const MAIN_QUICK_MS = 4000;
+/** While online on the backup: main is tried in the background this often, plus up to PROBE_SPREAD of it at random. */
+const PROBE_MS = 120_000;
+const PROBE_SPREAD = 0.25;
+/**
+ * ...and when the address is unknown or did not answer, the backup is asked where main is no more often than this
+ * per browser. Each ask is a billed request: 8 players on the backup all day are 8 x 144 = 1,152 a day.
+ */
+const PROBE_LOOKUP_GAP_MS = 10 * 60_000;
 /** "Town full": never ask again sooner than this, whatever the hint says; and up to this much extra, at random. */
 const FULL_RETRY_MIN_S = 30;
 const FULL_SPREAD = 0.25;
@@ -90,14 +116,35 @@ const KEY_REST = 'pc.net.rest';
 const KEY_MAIN = 'pc.net.main';
 /** When the backup was last asked where main is: { t }. */
 const KEY_LOOKUP = 'pc.net.lookup';
-/** The lookup is abandoned after this long. */
-const LOOKUP_TIMEOUT_MS = 6000;
+/** The lookup is abandoned after this long (counted patiently, see `patient`). */
+const LOOKUP_TIMEOUT_MS = 8000;
 /** The backup is asked where main is no more often than this (its answer may be cached for as long anyway)... */
 const LOOKUP_GAP_MS = 60_000;
 /** ...and, while it is resting, no more often than this: it is meant to be left alone, but main may have come back. */
 const LOOKUP_GAP_RESTING_MS = 30 * 60_000;
 /** With a local stand-in (tests). */
 const LOOKUP_GAP_LOCAL_MS = 1000;
+
+/**
+ * A time limit that a busy page cannot use up. A plain setTimeout measures the clock, and a page that spends six
+ * seconds building its first frames finds the limit already passed when it finally looks, with the answer it was
+ * waiting for sitting unread behind the timer. (Seen on the live site: the lookup had answered, the 6 s limit fired
+ * first, and that browser went to the backup while its neighbour went to main.) This one counts short ticks instead:
+ * a stall of any length costs one tick, and between two ticks everything already queued gets its turn. On an idle
+ * page it is exactly `ms`; it never runs past three times `ms` by the clock (a hidden tab's timers are slowed).
+ * Returns the cancel.
+ */
+const TICK_MS = 250;
+function patient(ms: number, fn: () => void): () => void {
+  const end = Date.now() + ms * 3;
+  let left = Math.ceil(ms / TICK_MS), id = 0, off = false;
+  const tick = (): void => {
+    if (off) return;
+    if (--left <= 0 || Date.now() >= end) { off = true; fn(); } else id = window.setTimeout(tick, TICK_MS);
+  };
+  id = window.setTimeout(tick, TICK_MS);
+  return () => { off = true; clearTimeout(id); };
+}
 
 function load<T>(key: string): T | null {
   try { const s = localStorage.getItem(key); return s ? JSON.parse(s) as T : null; } catch { return null; }
@@ -131,6 +178,10 @@ export class Connection {
   home: 'main' | 'backup' | '' = '';
   /** Times the backup was asked where main is, since the page loaded. */
   lookups = 0;
+  /** Since the page loaded: background tries of main while on the backup, moves to main that came of them, and times the backup said "go to main". */
+  probes = 0;
+  moves = 0;
+  redirects = 0;
 
   onWelcome: (m: WelcomeMsg) => void = () => {};
   onMsg: (m: ServerMsg) => void = () => {};
@@ -162,8 +213,23 @@ export class Connection {
   private lookSeq = 0;
   /** The main address that just failed (as learnt, https), so the same answer is not tried twice in a round. */
   private failedMain = '';
+  /** This round: main was tried and did not answer; main has had its second try; the backup has said "go to main". */
+  private mainFailed = false;
+  private mainAgain = false;
+  private sentToMain = false;
+  private openedAt = 0;
+  /** The main address last heard of (https, as learnt), kept even after it failed: the background tries start with it. */
+  private lastMain = '';
+  private readonly probeMs: number;
+  private probeTimer = 0;
+  /** The background socket to main and the cancel of its time limit, while a try is in the air. */
+  private probeWs: WebSocket | null = null;
+  private probeOff: (() => void) | null = null;
+  /** Main said it is resting: no background try before this (this browser's clock). */
+  private probeRest = 0;
 
-  constructor(urls: readonly string[], name: () => NameIndexes, fullRetryS = 0, lookup = '') {
+  constructor(urls: readonly string[], name: () => NameIndexes, fullRetryS = 0, lookup = '', probeS = 0) {
+    this.probeMs = probeS > 0 ? probeS * 1000 : PROBE_MS;
     this.lookup = lookup;
     this.lookupLocal = LOCAL_HTTP.test(lookup);
     // Main's slot is first, and empty until an address is remembered or learnt.
@@ -216,10 +282,12 @@ export class Connection {
     this.lookSeq++;
     this.asked = false;
     this.failedMain = '';
+    this.mainFailed = this.mainAgain = this.sentToMain = false;
     if (this.lookup) {
       // The main address remembered from an earlier visit (or an earlier round) is tried without asking anybody.
       const m = load<{ u: string }>(KEY_MAIN);
       this.urls[0] = (m && this.mainWs(m.u)) || '';
+      if (this.urls[0] && m) this.lastMain = m.u;
       this.rests[0] = null;
     }
     for (let i = 0; i < this.urls.length; i++) {
@@ -256,20 +324,24 @@ export class Connection {
     this.home = 'main';
     if (this.restUntil === 0) this.set('connecting');
     const seq = ++this.lookSeq;
+    this.fetchMain().then((u) => {
+      if (seq !== this.lookSeq || this.stopped || this.ws) return;
+      const ws = this.mainWs(u);
+      if (!ws || u === this.failedMain) { this.next(); return; }
+      store(KEY_MAIN, { u, t: Date.now() });
+      this.lastMain = u as string;
+      this.urls[0] = ws;
+      this.open(0);
+    });
+  }
+
+  /** One GET to the lookup: whatever it names (to be checked by mainWs), or null. Never rejects. */
+  private fetchMain(): Promise<unknown> {
     const ctl = new AbortController();
-    const timer = window.setTimeout(() => ctl.abort(), LOOKUP_TIMEOUT_MS);
-    fetch(this.lookup + MAIN_PATH, { signal: ctl.signal, credentials: 'omit', referrerPolicy: 'no-referrer' })
+    const off = patient(LOOKUP_TIMEOUT_MS, () => ctl.abort());
+    return fetch(this.lookup + MAIN_PATH, { signal: ctl.signal, credentials: 'omit', referrerPolicy: 'no-referrer' })
       .then((res) => (res.ok ? res.json() : null))
-      .then((v: unknown) => (v && typeof v === 'object' ? (v as { u?: unknown }).u : null), () => null)
-      .then((u) => {
-        clearTimeout(timer);
-        if (seq !== this.lookSeq || this.stopped || this.ws) return;
-        const ws = this.mainWs(u);
-        if (!ws || u === this.failedMain) { this.next(); return; }
-        store(KEY_MAIN, { u, t: Date.now() });
-        this.urls[0] = ws;
-        this.open(0);
-      });
+      .then((v: unknown) => { off(); return v && typeof v === 'object' ? (v as { u?: unknown }).u : null; }, () => { off(); return null; });
   }
 
   /** The next address of the round, or (none left) single player until the next round. */
@@ -307,21 +379,26 @@ export class Connection {
     if (!quiet && this.restUntil === 0) this.set('connecting');
     this.attempts++;
     this.service = i;
-    this.home = this.lookup && i === 0 ? 'main' : 'backup';
+    const main = this.lookup !== '' && i === 0;
+    this.home = main ? 'main' : 'backup';
+    this.openedAt = Date.now();
     let ws: WebSocket;
     try {
-      ws = new WebSocket(cityUrl(this.urls[i], this.name()));
+      // The backup is told when main has been tried in this round and did not answer, so that it seats this browser.
+      ws = new WebSocket(cityUrl(this.urls[i], this.name(), !main && (this.mainFailed || this.sentToMain)));
     } catch {
       this.next();
       return;
     }
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
-    // A page busy building its first frames can leave the welcome waiting in its queue past the limit: the second,
-    // short timer lets anything already queued be read before the socket is given up on.
-    let late = window.setTimeout(() => {
-      late = window.setTimeout(() => { if (this.ws === ws && this.status !== 'online') this.lost(ws); }, 1500);
-    }, WELCOME_MS);
+    // A page busy building its first frames can leave the welcome waiting in its queue: the limit is counted patiently.
+    const off = patient(main ? MAIN_WELCOME_MS : WELCOME_MS, () => { if (this.ws === ws && this.status !== 'online') this.lost(ws); });
+    this.wire(ws, i, off);
+  }
+
+  /** The handlers of THE socket (also given to a background socket at the moment it is adopted). */
+  private wire(ws: WebSocket, i: number, off: () => void): void {
     ws.onmessage = (e) => {
       if (this.ws !== ws) return;
       const d: unknown = e.data;
@@ -332,7 +409,7 @@ export class Connection {
         if (!m) return;
         if (m.t === 'welcome') {
           if (m.v !== PROTOCOL_VERSION) { this.lost(ws); return; }
-          clearTimeout(late);
+          off();
           this.id = m.id; this.host = m.host; this.city = m.city;
           this.everOnline = true;
           this.onlineAt = Date.now();
@@ -340,11 +417,15 @@ export class Connection {
           store(KEY_OK, { u: this.urls[i], t: Date.now() });
           this.set('online');
           this.onWelcome(m);
+          this.watchMain();
+        } else if (m.t === 'main') {
+          off();
+          this.toMain(i, m.u);
         } else if (m.t === 'full') {
-          clearTimeout(late);
+          off();
           this.full(i, m.retry, m.seats);
         } else if (m.t === 'rest') {
-          clearTimeout(late);
+          off();
           this.rest(i, m.until, m.now);
         } else if (this.status === 'online') {
           if (m.t === 'host') this.host = m.id;
@@ -356,14 +437,155 @@ export class Connection {
       }
     };
     ws.onclose = (e) => {
-      clearTimeout(late);
+      off();
       // The message normally arrives first; the close code alone says the same thing, without the details.
       if (this.ws === ws && e.code === Close.Full) this.full(i, FULL_RETRY_S, 0);
       else if (this.ws === ws && e.code === Close.Rest) this.rest(i, 0, 0);
+      else if (this.ws === ws && e.code === Close.Main) this.toMain(i, null);
       else this.lost(ws);
     };
     // The close that follows does the work; this only keeps the event from being unhandled.
     ws.onerror = () => {};
+  }
+
+  /**
+   * The backup said: main is alive at `u`, go there. Main is tried now, and this address again after it, flagged, if
+   * main does not answer. Once a round: a second "go to main" is a lost socket and nothing more.
+   */
+  private toMain(i: number, u: unknown): void {
+    const was = this.status === 'online';
+    const again = this.sentToMain;
+    this.drop();
+    if (was) this.onDown();
+    if (this.stopped) return;
+    this.redirects++;
+    this.sentToMain = true;
+    if (again) { this.next(); return; }
+    this.queue.unshift(i);
+    const ws = this.lookup && i !== 0 ? this.mainWs(u) : null;
+    if (!ws || u === this.failedMain) { this.next(); return; }
+    store(KEY_MAIN, { u, t: Date.now() });
+    this.lastMain = u as string;
+    this.urls[0] = ws;
+    this.rests[0] = null;
+    // The backup has just said where main is: it is not asked again in this round.
+    this.asked = true;
+    this.lookSeq++;
+    this.open(0);
+  }
+
+  // ---- while online on the backup: look for main in the background, and move over when it answers ----
+
+  /** Arrange the next background try of main, if this is the backup and there is a main to look for. */
+  private watchMain(): void {
+    clearTimeout(this.probeTimer);
+    if (this.stopped || !this.lookup || this.status !== 'online' || this.service === 0) return;
+    this.probeTimer = window.setTimeout(() => this.probe(), this.probeMs * (1 + Math.random() * PROBE_SPREAD));
+  }
+
+  private endProbe(): void {
+    clearTimeout(this.probeTimer);
+    this.probeOff?.();
+    this.probeOff = null;
+    const ws = this.probeWs;
+    this.probeWs = null;
+    if (ws) {
+      ws.onmessage = ws.onclose = ws.onerror = null;
+      try { ws.close(); } catch { /* already gone */ }
+    }
+  }
+
+  /** One background try: the address last heard of; when there is none, or it does not answer, the lookup (rarely). */
+  private probe(asked = false): void {
+    if (this.stopped || !this.lookup || this.status !== 'online' || this.service === 0 || this.probeWs) return;
+    const now = Date.now();
+    // Not while main has said it is resting, and not without a network (a failed try is a line in the console).
+    if (now < this.probeRest || navigator.onLine === false) { this.watchMain(); return; }
+    const url = this.lastMain ? this.mainWs(this.lastMain) : null;
+    if (!url) { this.probeAsk(asked); return; }
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(cityUrl(url, this.name()));
+    } catch {
+      this.watchMain();
+      return;
+    }
+    this.probes++;
+    ws.binaryType = 'arraybuffer';
+    this.probeWs = ws;
+    const failed = (): void => {
+      if (this.probeWs !== ws) return;
+      this.endProbe();
+      this.probeAsk(asked);
+    };
+    this.probeOff = patient(MAIN_WELCOME_MS, failed);
+    ws.onmessage = (e) => {
+      if (this.probeWs !== ws || typeof e.data !== 'string') return;
+      const m = parseServerMsg(e.data);
+      if (!m) return;
+      if (m.t === 'welcome' && m.v === PROTOCOL_VERSION) this.adopt(ws, url, m);
+      else if (m.t === 'full') { this.endProbe(); this.watchMain(); }   // main is full: stay where we are
+      else if (m.t === 'rest') {
+        const left = m.until - m.now;
+        this.probeRest = Date.now() + (left > 0 && left <= REST_MAX_MS ? left : RETRY_RESTING_MS) + Math.random() * REST_SPREAD_MS;
+        this.endProbe();
+        this.watchMain();
+      } else failed();
+    };
+    ws.onclose = (e) => {
+      if (this.probeWs !== ws) return;
+      if (e.code === Close.Full || e.code === Close.Rest) { this.endProbe(); this.watchMain(); } else failed();
+    };
+    ws.onerror = () => {};
+  }
+
+  /** Main is unknown or did not answer: ask the lookup where it is, seldom, and try at once what it names if that is new. */
+  private probeAsk(asked: boolean): void {
+    const now = Date.now();
+    const last = load<{ t: number }>(KEY_LOOKUP);
+    const gap = this.lookupLocal ? Math.min(PROBE_LOOKUP_GAP_MS, this.probeMs) : PROBE_LOOKUP_GAP_MS;
+    if (asked || (last && now >= last.t && now - last.t < gap) || navigator.onLine === false) { this.watchMain(); return; }
+    store(KEY_LOOKUP, { t: now });
+    this.lookups++;
+    const seq = ++this.lookSeq;
+    this.fetchMain().then((u) => {
+      if (seq !== this.lookSeq || this.stopped || this.status !== 'online' || this.service === 0) return;
+      // The backup knows of no main at all: the old address is not tried any more, only the lookup, until it names one.
+      if (!this.mainWs(u)) { this.lastMain = ''; this.watchMain(); return; }
+      if (u === this.lastMain) { this.watchMain(); return; }
+      this.lastMain = u as string;
+      this.probe(true);
+    });
+  }
+
+  /** Main welcomed the background socket: it becomes THE socket. The game hears "down", then "welcome", as after any reconnect. */
+  private adopt(ws: WebSocket, url: string, m: WelcomeMsg): void {
+    this.probeOff?.();
+    this.probeOff = null;
+    this.probeWs = null;
+    const old = this.ws;
+    this.ws = null;
+    if (old) {
+      old.onmessage = old.onclose = old.onerror = null;
+      try { old.close(); } catch { /* already gone */ }
+    }
+    clearTimeout(this.timer);
+    this.id = 0; this.host = 0; this.city = 0;
+    this.onDown();
+    this.ws = ws;
+    this.urls[0] = url;
+    this.rests[0] = null;
+    this.service = 0;
+    this.home = 'main';
+    this.moves++;
+    this.id = m.id; this.host = m.host; this.city = m.city;
+    this.onlineAt = Date.now();
+    this.queue = [];
+    store(KEY_MAIN, { u: this.lastMain, t: Date.now() });
+    store(KEY_OK, { u: url, t: Date.now() });
+    this.wire(ws, 0, () => {});
+    this.onChange();
+    this.onWelcome(m);
   }
 
   /** Town full: single player, and ask this same address again later. */
@@ -413,6 +635,15 @@ export class Connection {
     this.drop();
     if (!was) {
       if (main) {
+        // Refused at once (not silence): one more try shortly, before anything is concluded. A tunnel that is up
+        // while the program behind it restarts answers like this for a few seconds.
+        if (!this.mainAgain && Date.now() - this.openedAt < MAIN_QUICK_MS && this.urls[0]) {
+          this.mainAgain = true;
+          if (this.restUntil === 0) this.set('connecting');
+          this.timer = window.setTimeout(() => { if (!this.stopped && !this.ws) this.open(0, true); }, MAIN_AGAIN_MS);
+          return;
+        }
+        this.mainFailed = true;
         // The address did not answer: it is forgotten (its tunnel has probably restarted under a new one), and the
         // backup is asked once this round where main is now.
         const m = load<{ u: string }>(KEY_MAIN);
@@ -440,6 +671,7 @@ export class Connection {
       try { ws.close(); } catch { /* already gone */ }
     }
     clearTimeout(this.timer);
+    this.endProbe();
     this.set(this.urls.length === 0 ? 'off' : this.restUntil > 0 ? 'resting' : 'waiting');
   }
 

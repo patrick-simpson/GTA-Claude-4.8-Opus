@@ -88,6 +88,29 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 1, step 7, one town not two: pushed Nov 21, about 3:00 PM ET
+
+The bug: two players could land in different towns (mini PC and backup) and never meet.
+The cause: on a busy first load, the "where is main" answer took about 6 s to be read. The 6 s limit fired first, so that browser joined the backup and stayed.
+
+What changed:
+- Time limits count ticks, so a stalled page cannot use them up. Lookup and main welcome get 8 s.
+- Main gets a second try after 1.5 s.
+- A player on the backup tries main in the background every 2 to 2.5 minutes and moves over quietly. The lookup is asked at most once per 10 minutes.
+- The backup sends new arrivals to main when main is alive (message `main`, close code 4010). A client that already failed on main says so (`nm=1`) and is seated.
+- If main is full, players wait for main. No spill to the backup: 8 total stays true.
+- Test only: `&netprobe=` shortens the background check.
+
+Checked by the lead: tsc, build, server tests, main (19 checks), two, solo, notices, social: ALL PASS.
+
+Still wrong or unseen:
+- The Worker half (the redirect) is NOT deployed until the owner presses Run on the deploy workflow. The client half works alone.
+- The real 2 minute interval was only tested shortened.
+- An old cached page that cannot reach main is redirected again and again by the new Worker until it reloads.
+- Each failed background try prints one console line.
+
+Models: top model built it (judgement). Lead checked it.
+
 ### Multiplayer stage 1, step 6, dots, names, horn and shouts: pushed Nov 21, about 2:20 PM ET
 
 What changed:

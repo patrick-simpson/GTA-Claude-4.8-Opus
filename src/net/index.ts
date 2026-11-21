@@ -60,7 +60,7 @@ export class Net {
 
   constructor(private readonly game: Game) {
     const plan = servicePlan();
-    const c = this.conn = new Connection(plan.urls, myName, plan.fullRetryS, plan.lookup);
+    const c = this.conn = new Connection(plan.urls, myName, plan.fullRetryS, plan.lookup, plan.probeS);
     c.onWelcome = (m) => this.welcome(m);
     c.onMsg = (m) => this.msg(m);
     c.onFrame = (b) => this.frame(b);
@@ -311,7 +311,9 @@ export class Net {
       // this browser's clock: resumeAt when a resting service resumes, restUntil when it will next be asked,
       // retryAt when a full town will next be asked.
       // home: 'main' or 'backup', whichever is in use or was last tried. lookups: times the backup was asked where main is.
-      home: c.home, lookups: c.lookups,
+      // probes: background tries of main while on the backup. moves: times one of them moved this browser to main.
+      // redirects: times the backup said "go to main".
+      home: c.home, lookups: c.lookups, probes: c.probes, moves: c.moves, redirects: c.redirects,
       service: c.service, notice: this.noteKind, noteText: this.noteShown, seats: c.seats,
       resumeAt: c.resumeAt, restUntil: c.restUntil, retryAt: c.status === 'full' ? c.retryAt : 0,
       sent: { ...c.sent, states: this.statesSent }, got: { ...c.got },

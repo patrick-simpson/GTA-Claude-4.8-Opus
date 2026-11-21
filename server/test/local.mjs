@@ -179,7 +179,7 @@ function open(name = [1, 2], { origin = GOOD_ORIGIN, query } = {}) {
       ws.terminate();
     });
     ws.on('error', () => resolve({ status: -1 }));
-    client.take((m) => m.json && ['welcome', 'full', 'rest'].includes(m.json.t), 5000).then(async (m) => {
+    client.take((m) => m.json && ['welcome', 'full', 'rest', 'main'].includes(m.json.t), 5000).then(async (m) => {
       const w = m && m.json;
       if (w && w.t === 'welcome') {
         client.welcome = w;
@@ -540,6 +540,33 @@ async function runMainChecks(keyDir) {
   check('the address did not change', (await (await whereIs()).json()).u === A);
   check('a later registration moves main (the tunnel restarted)', (await register(signed(key, B2, Date.now(), now + 1))) === 204 && (await (await whereIs()).json()).u === B2);
 
+  // -- "go to main": while main is alive the backup seats nobody who has not tried it --
+  const m0 = await probe('?forget');
+  let j = await open([1, 2]);
+  check(`main is alive: a join is not seated but told "main" with the address and nothing else, closed ${P.Close.Main}`,
+    !!j.refused && j.refused.t === 'main' && j.refused.u === B2 && Object.keys(j.refused).sort().join() === 't,u' && j.code === P.Close.Main, JSON.stringify(j).slice(0, 200));
+  const m1 = await probe();
+  let sent = 0;
+  for (let i = 0; i < 5; i++) {
+    j = await open([3, 4]);
+    if (j.refused && j.refused.t === 'main' && j.refused.u === B2 && j.code === P.Close.Main) sent++;
+  }
+  const m2 = await probe();
+  // Each look is itself a request to the town: one lies between two readings.
+  check('the first one asked the town (1 Durable Object request); five more are answered by the Worker alone: 0 requests, nobody seated',
+    sent === 5 && Math.abs(m1.used.doRequests - m0.used.doRequests - 2) < 1e-9 && Math.abs(m2.used.doRequests - m1.used.doRequests - 1) < 1e-9 && m2.size === 0 && m2.unreported - m1.unreported === 6,
+    `first ${m1.used.doRequests - m0.used.doRequests - 1}, next five ${m2.used.doRequests - m1.used.doRequests - 1}, size ${m2.size}`);
+  const flag = `v=${P.PROTOCOL_VERSION}&name=1.2&${P.TRIED_MAIN_PARAM}=1`;
+  const j1 = await open([1, 2], { query: flag });
+  const j2 = await open([3, 4], { query: flag.replace('1.2', '3.4') });
+  check('a join that says it could not reach main is seated here, and so is the next (they share the backup town)', !!j1.client && !!j2.client && j2.client.welcome.players.length === 2, JSON.stringify(j1).slice(0, 200));
+  await probe('?forget');
+  const j3 = await open([5, 6], { query: flag.replace('1.2', '5.6') });
+  check('the same from a fresh Worker isolate (the town itself honours the flag)', !!j3.client && j3.client.welcome.players.length === 3, JSON.stringify(j3).slice(0, 200));
+  j = await open([7, 8]);
+  check('while they are seated an unflagged join is still sent to main', !!j.refused && j.refused.t === 'main' && j.refused.u === B2);
+  await closeAll([j1.client, j2.client, j3.client].filter(Boolean));
+
   // -- the home computer's own programs: the game service, a stand-in cloudflared, and the supervisor --
   const homePort = PORT + 5;
   const stateDir = mkdtempSync(pathJoin(tmpdir(), 'port-calamity-home-'));
@@ -572,6 +599,9 @@ async function runMainChecks(keyDir) {
   check('just inside the overdue time the address is still given', (await (await whereIs()).json()).u === C);
   await probe('?add=180000');
   check(`no heartbeat for ${W.MAIN_OVERDUE_MS / 60000} minutes: the address is dropped`, (await (await whereIs()).json()).u === null);
+  const lone = await open([1, 2]);
+  check('and with no live main an unflagged join is seated on the backup as before', !!lone.client && lone.client.welcome.players.length === 1, JSON.stringify(lone).slice(0, 200));
+  if (lone.client) await closeAll([lone.client]);
   now = Date.now() + W.MAIN_OVERDUE_MS + 60000;
   check('an old registration cannot bring it back (409); the next heartbeat can', (await register(signed(key, A, now, 5))) === 409 && (await register(signed(key, A, now, now))) === 204 && (await (await whereIs()).json()).u === A);
   const perDay = 86400000 / W.MAIN_HEARTBEAT_MS, lines = B.pauseLines();

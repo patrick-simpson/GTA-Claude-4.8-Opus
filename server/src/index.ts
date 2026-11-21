@@ -9,10 +9,14 @@
 //    caller gets the same answer from memory. A browser cannot read a refused upgrade, so the
 //    answer is a socket that carries one message and closes. Such a refusal costs ONE Worker
 //    request and nothing else: no Durable Object request, no duration, no storage.
+//  - "go to main": while the main service (the home computer) is registered and alive, a caller is not seated
+//    here but told main's address, the same way (one message, then the close), from the same memory that
+//    answers GET /main. Everybody then meets in ONE town. A caller that says it could not reach main
+//    (`nm=1`) is seated here as before, so nobody is sent round in a circle.
 // Each isolate keeps its own memory, so a fresh one asks the town once.
 
-import { Close, HTTP_BAD_HELLO, HTTP_BAD_ORIGIN, MAIN_PATH, PROTOCOL_VERSION, CITY_CAP, isAllowedOrigin, isValidName } from '../../src/net/protocol';
-import type { FullMsg, RestMsg } from '../../src/net/protocol';
+import { Close, HTTP_BAD_HELLO, HTTP_BAD_ORIGIN, MAIN_PATH, PROTOCOL_VERSION, CITY_CAP, TRIED_MAIN_PARAM, isAllowedOrigin, isValidName } from '../../src/net/protocol';
+import type { FullMsg, MainMsg, RestMsg } from '../../src/net/protocol';
 import { FULL_CACHE_MS, WORKER_REPORT_EVERY } from './budget';
 import { REFUSED_STATUS } from './city';
 import type { CityEnv } from './city';
@@ -87,13 +91,19 @@ function plain(status: number, text: string): Response {
 }
 
 /** A socket that says one thing and closes. */
-function refuse(msg: FullMsg | RestMsg, now: number): Response {
+function refuse(msg: FullMsg | RestMsg | MainMsg, now: number): Response {
   const pair = new WebSocketPair();
   const server = pair[1];
   server.accept();
   server.send(JSON.stringify(msg.t === 'rest' ? { ...msg, now } : msg));
-  server.close(msg.t === 'rest' ? Close.Rest : Close.Full, msg.t === 'rest' ? 'resting' : 'full');
+  server.close(msg.t === 'rest' ? Close.Rest : msg.t === 'main' ? Close.Main : Close.Full, msg.t === 'rest' ? 'resting' : msg.t);
   return new Response(null, { status: 101, webSocket: pair[0] });
+}
+
+/** Main's address, when this isolate has heard of it within MAIN_MEMO_MS and its heartbeat is not overdue. Else null. */
+function liveMain(now: number): string | null {
+  const m = mainMemo;
+  return m && m.u && now >= m.at && now - m.at < MAIN_MEMO_MS && now - m.hb <= MAIN_OVERDUE_MS ? m.u : null;
 }
 
 function town(env: Env): DurableObjectStub {
@@ -151,13 +161,20 @@ export default {
       return plain(HTTP_BAD_HELLO, 'bad name\n');
     }
 
-    // The cheap refusal: answered from memory.
+    // The caller has tried main already and could not reach it: it is seated here, never sent there again.
+    const triedMain = url.searchParams.get(TRIED_MAIN_PARAM) === '1';
+
+    // The cheap refusals: answered from memory. Resting comes first (then nothing is said about main: the game
+    // asks for it itself), then "go to main" (even when this town is full: main is where everybody belongs).
+    if (refusal && now >= refusal.until) refusal = null;
+    const sendTo = triedMain || refusal?.msg.t === 'rest' ? null : liveMain(now);
+    if (sendTo) {
+      report(env, ctx);
+      return refuse({ t: 'main', u: sendTo }, now);
+    }
     if (refusal) {
-      if (now < refusal.until) {
-        report(env, ctx);
-        return refuse(refusal.msg, now);
-      }
-      refusal = null;
+      report(env, ctx);
+      return refuse(refusal.msg, now);
     }
 
     const w = unreported;
@@ -165,14 +182,19 @@ export default {
     let res: Response;
     try {
       // A fresh, minimal request: nothing of the caller's headers (address included) reaches the town.
-      res = await town(env).fetch(`https://city/?name=${name.join('.')}&w=${w}`, { headers: { Upgrade: 'websocket' } });
+      res = await town(env).fetch(`https://city/?name=${name.join('.')}&w=${w}${triedMain ? `&${TRIED_MAIN_PARAM}=1` : ''}`, { headers: { Upgrade: 'websocket' } });
     } catch {
       // The town cannot be reached (Cloudflare's own limit, perhaps). The game falls back to single player.
       unreported += w;
       return plain(503, 'unavailable\n');
     }
     if (res.status !== REFUSED_STATUS) return res;
-    const msg = await res.json() as FullMsg | RestMsg;
+    const msg = await res.json() as FullMsg | RestMsg | (MainMsg & { hb: number; n: number });
+    if (msg.t === 'main') {
+      // Remembered exactly as an answer to GET /main is, so the next callers are sent on without asking the town.
+      mainMemo = { u: msg.u, hb: msg.hb, n: msg.n, at: now };
+      return refuse({ t: 'main', u: msg.u }, now);
+    }
     refusal = { msg, until: msg.t === 'rest' ? msg.until : now + FULL_CACHE_MS };
     return refuse(msg, now);
   },

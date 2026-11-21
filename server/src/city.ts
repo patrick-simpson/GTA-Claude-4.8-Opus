@@ -21,7 +21,7 @@
 // under 1% of the game's share, against a margin of 20%.
 
 import { DurableObject } from 'cloudflare:workers';
-import { CITY_CAP, Close, FULL_RETRY_S, MAIN_PATH, isMainAddress } from '../../src/net/protocol';
+import { CITY_CAP, Close, FULL_RETRY_S, MAIN_PATH, TRIED_MAIN_PARAM, isMainAddress } from '../../src/net/protocol';
 import { MAIN_OVERDUE_MS } from './where';
 import type { FactValue, FullMsg, RestMsg } from '../../src/net/protocol';
 import { AWAKE_GAP_MS, BUDGET_FLUSH_MS, Budget, DO_BILLED_GB, WS_MESSAGES_PER_REQUEST, nextReset } from './budget';
@@ -263,6 +263,11 @@ export class City extends DurableObject<CityEnv> implements RoomEnv {
     this.settle(now);
     if (this.budget.spent()) return Response.json(this.restMsg(now), { status: REFUSED_STATUS });
     if (report || !name) return new Response(null, { status: 204 });
+    // The main service is alive: nobody is seated here unless they say they could not reach it. (hb and n are for
+    // the Worker, which remembers the answer and gives it from memory for a while.)
+    if (url.searchParams.get(TRIED_MAIN_PARAM) !== '1' && this.main && now - this.main.hb <= MAIN_OVERDUE_MS) {
+      return Response.json({ t: 'main', u: this.main.u, hb: this.main.hb, n: this.main.n }, { status: REFUSED_STATUS });
+    }
     if (this.room.full) {
       const full: FullMsg = { t: 'full', retry: FULL_RETRY_S, seats: this.room.seats };
       return Response.json(full, { status: REFUSED_STATUS });
