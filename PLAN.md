@@ -88,6 +88,25 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer is LIVE (stage 1, step 5): pushed Nov 21, about 12:35 PM ET
+
+(The times on the three entries below run about an hour fast: the lead guessed the clock. This
+one is from the mail and Actions timestamps.)
+
+- The owner ran the install line on the mini PC over SSH and sent back the public key (now in
+  `server/src/mainkey.ts`), then ran the deploy workflow in kvbcawana: run 1, green, Worker
+  `port-calamity-city` on the account's workers.dev subdomain. `BACKUP_HOST` in
+  `src/net/protocol.ts` is set, so the live game connects.
+- Checked on the REAL service before the push: two production-build browsers with no `?net`
+  both went online through the Cloudflare backup and saw each other, no console errors. After
+  the push the live site's boot script carries the service address.
+- One server test expected the placeholder key; it now accepts 401 or 403.
+
+Owed: at push time `GET /main` still answered null, so the mini PC had not registered yet (it
+needed this push to learn the Worker's address; it updates within five minutes and registers
+then). Until that is seen, everyone is on the backup with its daily budget. Nobody has yet seen
+a player on the main home, a tunnel carrying traffic, or the service after a reboot of the PC.
+
 ### Multiplayer stage 1, step 4, the home service and its installer: pushed Nov 21, about 1:20 PM ET
 
 By a top model worker; the lead re-ran the tests, read `install.sh` line by line and checked the
