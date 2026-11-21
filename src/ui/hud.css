@@ -130,6 +130,14 @@
   white-space: nowrap;
 }
 
+/* Multiplayer (src/net/): "3 in town", a navy strip under the cash slip. Only there while others are. */
+.hud-town {
+  padding: 0.3em 0.75em;
+  background: var(--ink);
+  color: var(--bone);
+  border-left: 0.5em solid var(--vermilion);
+}
+
 /* ── Heat ──────────────────────────────────────────────────────────────── */
 
 .hud-heat {

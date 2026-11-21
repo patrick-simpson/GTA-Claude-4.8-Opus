@@ -644,6 +644,10 @@ const OLD_MARKS: boolean = false;
 
 export class Vehicles implements VehiclesApi {
   private cars: Car[] = [];
+  /** Drawn only (see ghost()). */
+  private ghosts: Car[] = [];
+  /** `cars` then `ghosts`, rebuilt for sync() while there are ghosts. */
+  private drawn: Car[] = [];
   /** The same array as `cars`, seen through the public interface. */
   readonly list: readonly Vehicle[] = this.cars;
 
@@ -787,6 +791,41 @@ export class Vehicles implements VehiclesApi {
   remove(v: Vehicle): void {
     const i = this.cars.indexOf(v as Car);
     if (i >= 0) this.cars.splice(i, 1);
+  }
+
+  // ── Ghosts (src/net/): another player's car, drawn from what their browser sends ──────────────────────────────
+  // A ghost is not in `list`: it has no physics, nothing collides with it, nobody can get in, and no other system
+  // ever sees it. It only goes through sync() with the simulated cars, so it gets the same model, paint and lamps.
+
+  ghost(kind: VehicleKind, color: number): Vehicle {
+    const c = new Car(this.nextId++, SPECS[kind], this.batch(kind));
+    c.color = color;
+    c.asleep = false;
+    // Somebody is at the wheel: this is what lights the daytime strip and the indicators.
+    c.driver = 'ai';
+    this.ghosts.push(c);
+    return c;
+  }
+
+  unghost(v: Vehicle): void {
+    const i = this.ghosts.indexOf(v as Car);
+    if (i >= 0) this.ghosts.splice(i, 1);
+  }
+
+  /** Place a ghost for this frame. steer: -1..1 as in VehicleControls; speed: signed, along the nose. */
+  ghostPose(v: Vehicle, x: number, y: number, z: number, h: number, pitch: number, roll: number, steer: number, speed: number, braking: boolean, reversing: boolean, dt: number): void {
+    const c = v as Car;
+    c.x = x; c.y = y; c.z = z; c.h = h;
+    c.pitch = pitch; c.roll = c.groundRoll = roll;
+    c.vx = Math.sin(h) * speed; c.vz = Math.cos(h) * speed;
+    c.ctl.steer = steer;
+    c.steerAng = Math.atan(c.steerPos = steer) * 0.45 / (1 + Math.abs(speed) * 0.05);
+    const turn = speed / c.spec.wheelR * dt;
+    c.spinF = (c.spinF + turn) % (Math.PI * 2); c.spinR = (c.spinR + turn) % (Math.PI * 2);
+    c.braking = braking; c.reversing = reversing;
+    const sky = this.game.sky as Game['sky'] | undefined;
+    c.lights = !!sky && sky.night > 0.5;
+    c.stale = true;
   }
 
   nearest(x: number, z: number, maxDist: number, pred?: (v: Vehicle) => boolean): Vehicle | null {
@@ -1860,6 +1899,12 @@ export class Vehicles implements VehiclesApi {
   /** Write the instance buffers for every car near enough to matter, and the lamps of the ones that are lit. */
   private sync(night: number): void {
     const game = this.game;
+    let all = this.cars;
+    if (this.ghosts.length) {
+      all = this.drawn; all.length = 0;
+      for (const c of this.cars) all.push(c);
+      for (const c of this.ghosts) all.push(c);
+    } else this.drawn.length = 0;
     const cam = game.view ? game.view.pos : game.camera.position;
     const far = game.quality.drawDist * 0.7, far2 = far * far;
     const glow = this.glow, pool = this.pool, shadow = this.shadow;
@@ -1880,8 +1925,8 @@ export class Vehicles implements VehiclesApi {
     _frustum.setFromProjectionMatrix(_pv);
     // The few cars nearest the camera get the showroom level: four slots, kept sorted.
     const stamp = ++this.frame, nd = _nearD, nc = _nearC; let nn = 0;
-    for (let k = 0; k < this.cars.length; k++) {
-      const c = this.cars[k], dx = cam.x - c.x, dy = cam.y - c.y, dz = cam.z - c.z, d = dx * dx + dy * dy + dz * dz;
+    for (let k = 0; k < all.length; k++) {
+      const c = all[k], dx = cam.x - c.x, dy = cam.y - c.y, dz = cam.z - c.z, d = dx * dx + dy * dy + dz * dz;
       if (d > NEAR_OUT2) continue;
       let i = nn;
       if (nn < NEAR_MAX) nn++; else if (d >= nd[NEAR_MAX - 1]) continue; else i = NEAR_MAX - 1;
@@ -1891,8 +1936,8 @@ export class Vehicles implements VehiclesApi {
     for (let j = 0; j < nn; j++) { nc[j]!.nearest = stamp; nc[j] = null; }
     const blink = (this.time * 1.4) % 1 < 0.5;
     for (let pass = 0; pass < 2; pass++) {
-    for (let k = 0; k < this.cars.length; k++) {
-      const c = this.cars[k];
+    for (let k = 0; k < all.length; k++) {
+      const c = all[k];
       const fx = focus.x - c.x, fz = focus.z - c.z, near = fx * fx + fz * fz < SHADOW_R2;
       if (near !== (pass === 0)) continue;
       const dx = cam.x - c.x, dz = cam.z - c.z, dy = cam.y - c.y, d2 = dx * dx + dz * dz, d3 = d2 + dy * dy;

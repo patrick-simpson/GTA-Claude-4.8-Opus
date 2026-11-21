@@ -112,6 +112,10 @@ const hooks = {
       a.currentTime = end * fraction;
     }
   },
+  /** Multiplayer (src/net/index.ts): status ('off' | 'connecting' | 'online' | 'waiting'), own id and name, message counts, and `remotes` with their smoothed positions. */
+  net(): Record<string, unknown> { return game.net.info(); },
+  /** A new made-up name for this browser (for a later menu button). Returns it. */
+  rerollName(): string { return game.net.reroll(); },
   info(): Record<string, unknown> {
     const p = game.player, r = game.renderer.info;
     return {

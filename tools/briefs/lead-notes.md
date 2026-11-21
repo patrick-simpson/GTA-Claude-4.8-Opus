@@ -122,3 +122,4 @@ owner's ground rules for the takeover and the running state.
   (tools/briefs/multiplayer.md). Open question put to the owner: should AI traffic cross the
   finished bridge? Until the reset: answer the resume check with one line and do nothing else.
 - Nov 21, 9:45 AM ET: new lead (no laptop). Owner lifted the weekly cap, 5 hour window only; pushes to main confirmed; kvbcawana attached with the owner's yes. Multiplayer step 1 (server/ and src/net/protocol.ts) pushed, 45 local checks pass, about 54 free player hours a day at 10 Hz. Workers are plain Agent calls here (no Workflow tool).
+- Nov 21, 11:40 AM ET: multiplayer step 2 (src/net client) pushed, not live until SERVICE_URL is set. Owner decisions today: 8 players total, game may use half of any Cloudflare daily limit then rests, main service on the home Debian mini PC through a tunnel with the Worker as backup, nothing added to Family-Calendar. Do not put session links in commits here (rule 12).

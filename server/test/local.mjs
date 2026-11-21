@@ -362,7 +362,7 @@ async function runChecks() {
   // -- the cap --
   const crowd = [];
   for (let i = 0; i < P.CITY_CAP; i++) crowd.push(await join([i, i + 1]));
-  const extra = await join([100, 101]);
+  const extra = await join([30, 31]);
   const last = crowd[crowd.length - 1];
   check(`players 1 to ${P.CITY_CAP} share city 1`, crowd.every((p) => p.welcome.city === 1) && last.welcome.players.length === P.CITY_CAP && new Set(crowd.map((p) => p.id)).size === P.CITY_CAP);
   check(`player ${P.CITY_CAP + 1} is put in city 2, alone and its host`, extra.welcome.city === 2 && extra.welcome.players.length === 1 && extra.welcome.host === extra.id, JSON.stringify(extra.welcome));
@@ -371,7 +371,7 @@ async function runChecks() {
   const heard = await Promise.all(crowd.map((p, i) => (i === 3 ? null : p.takeBin(P.Frame.State, 1500))));
   check('a full city relays to all 15 others, and not into city 2', heard.filter(Boolean).length === P.CITY_CAP - 1 && (await extra.takeBin(P.Frame.State, 300)) === null);
   await crowd[0].close();
-  const again = await join([102, 103]);
+  const again = await join([32, 33]);
   check('a place freed in city 1 is filled before city 2', again.welcome.city === 1 && again.welcome.players.length === P.CITY_CAP);
   await closeAll([...crowd, extra, again]);
 }

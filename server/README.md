@@ -38,8 +38,8 @@ run from there. The service then answers at `https://port-calamity-city.<account
 
 ## Protocol (all of it is in `src/net/protocol.ts`)
 
-Connect: `wss://<host>/?v=1&name=3.17.200`. The name is two or three integers 0..255, indexes into
-the game's own word lists. There is no hello message: a bad name, a wrong version (400), a
+Connect: `wss://<host>/?v=2&name=3.17.20`. The name is two or three integers, indexes into
+the game's own word lists (part i is below `NAME_LIST_SIZES[i]`, today 40, 40 and 24). There is no hello message: a bad name, a wrong version (400), a
 disallowed Origin (403) or eight full cities (503) refuse the upgrade.
 
 Binary frames (frequent). Byte 0 is the kind, byte 1 a player id that the service overwrites with
@@ -48,7 +48,7 @@ the sender's id; the service reads nothing else and forwards the same buffer.
 | kind | name | from | goes to | size cap | use |
 | --- | --- | --- | --- | --- | --- |
 | 0 | Keepalive | anyone | nobody | 1 | "I am alive" |
-| 1 | State | anyone, 10 Hz | everyone else | 96 | own character or car (26 bytes today) |
+| 1 | State | anyone, 10 Hz | everyone else | 96 | own character or car (34 bytes today) |
 | 2 | World | host only | everyone else | 4096 | shared traffic, people, police (stage 2 on) |
 | 3 | Event | anyone, rare | everyone else | 96 | horn, wave, canned shout (4 bytes) |
 | 4 | ToHost | anyone | the host | 96 | a request to the host (stage 2 on) |

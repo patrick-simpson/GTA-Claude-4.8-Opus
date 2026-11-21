@@ -903,15 +903,16 @@ export class People implements PeopleApi {
     if (i < this.bodies.length) this.bodies[i] = last;
   }
 
-  randomLook(rng: RNG = this.rng): Look {
+  /** fixed: the look depends on `rng` alone, so every browser makes the same person from the same seed (src/net/). */
+  randomLook(rng: RNG = this.rng, fixed = false): Look {
     // Re-roll the things you notice first until they differ from the last person made.
     let top = rng.int(0, TOPS.length - 1);
-    while (TOPS[top] === TOPS[this.lastTop]) top = rng.int(0, TOPS.length - 1);
+    while (!fixed && TOPS[top] === TOPS[this.lastTop]) top = rng.int(0, TOPS.length - 1);
     let bottom = rng.int(0, BOTTOMS.length - 1);
-    while (bottom === this.lastBottom) bottom = rng.int(0, BOTTOMS.length - 1);
+    while (!fixed && bottom === this.lastBottom) bottom = rng.int(0, BOTTOMS.length - 1);
     let hair = rng.int(0, HAIRS.length - 1);
-    while (HAIRS[hair] === HAIRS[this.lastHair]) hair = rng.int(0, HAIRS.length - 1);
-    this.lastTop = top; this.lastBottom = bottom; this.lastHair = hair;
+    while (!fixed && HAIRS[hair] === HAIRS[this.lastHair]) hair = rng.int(0, HAIRS.length - 1);
+    if (!fixed) { this.lastTop = top; this.lastBottom = bottom; this.lastHair = hair; }
 
     const body: BodyKind = rng.chance(0.5) ? 'f' : 'm';
     const f = body === 'f';

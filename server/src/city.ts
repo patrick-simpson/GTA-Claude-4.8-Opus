@@ -21,7 +21,7 @@ export const CITY_FULL_STATUS = 409;
 /** How often, at most, the host is re-examined. */
 const HOST_CHECK_MS = 500;
 
-/** "3.17.200" to [3, 17, 200]; null for anything else. */
+/** "3.17.20" to [3, 17, 20]; null for anything else. */
 export function parseNameParam(s: string | null): NameIndexes | null {
   if (!s || s.length > 11 || !/^\d{1,3}(\.\d{1,3}){1,2}$/.test(s)) return null;
   const name = s.split('.').map(Number);

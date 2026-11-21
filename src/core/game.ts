@@ -28,6 +28,7 @@ import { ProgressWorks, progress } from '../world/progress';
 import { ThingsToDo } from '../game/index';
 import { Governor, pickQuality } from './governor';
 import { GameAudio } from '../audio/index';
+import { Net } from '../net/index';
 
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
@@ -64,6 +65,8 @@ export class Game {
   todo!: ThingsToDo;
   /** Milestone 5: every sound in the game (src/audio/). Silent, and no AudioContext at all, until the first key or click. */
   audio!: GameAudio;
+  /** Multiplayer stage 1 (src/net/): the other players in town, drawn only. */
+  net!: Net;
   /** Systems from later milestones plug in here until they earn a named slot. Updated after the world, while running. */
   readonly systems: { update(dt: number): void }[] = [];
 
@@ -163,6 +166,8 @@ export class Game {
     this.systems.push(this.player.weapons);
     this.systems.push(new ProgressWorks(this));
     this.systems.push((this.todo = new ThingsToDo(this)));
+    // Multiplayer (src/net/): inert, and no socket at all, unless a service URL is configured.
+    this.systems.push((this.net = new Net(this)));
     // Last: it listens to what everything above did this frame.
     this.systems.push((this.audio = new GameAudio(this)));
 

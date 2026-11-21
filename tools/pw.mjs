@@ -56,8 +56,10 @@ export async function boot(o = {}) {
     });
     await server.listen();
   }
+  // A container whose Playwright and browser versions differ: PW_CHROMIUM, or the fixed path such containers use.
+  const exe = process.env.PW_CHROMIUM || (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : '');
   const browser = await chromium.launch({
-    channel: 'chromium', headless: true,
+    ...(exe ? { executablePath: exe } : { channel: 'chromium' }), headless: true,
     args: ['--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', '--disable-gpu-vsync', '--disable-frame-rate-limit'],
   });
   const ctx = await browser.newContext(mobile

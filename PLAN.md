@@ -88,6 +88,35 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 1, step 2, the game client: pushed Nov 21, about 11:40 AM ET
+
+By a top model worker; the lead re-ran every test and looked at two pictures. NOT LIVE FOR
+PLAYERS YET: `SERVICE_URL` in `src/net/conn.ts` is empty until a service is deployed, so the
+live game connects to nothing and plays exactly as before.
+
+- `src/net/`: `conn.ts` (connect, retry at 5 s, 15 s, 45 s up to 5 min, single player when the
+  service cannot be reached), `names.ts` (made-up names from three fixed lists, only indexes
+  travel, re-roll kept in localStorage), `remote.ts` (other players drawn with the game's own
+  people and cars, smoothed about 120 ms in the past, a name tag, removed on leave), `index.ts`.
+  Protocol version 2: a 34 byte state. "N in town" in the HUD when others are present.
+- Outside `src/net`: `game.net` in `core/game.ts`; hooks `__game.net()` and `rerollName()` in
+  `boot.ts`; `ghost` cars in `ent/vehicle.ts` (drawn through the existing flip-registered
+  buffers, no physics); `randomLook(rng, fixed)` in `ent/character.ts`; `tools/pw.mjs` uses the
+  container's Chromium when present.
+- Checked: `node tools/net/two.mjs` against a local service, ALL PASS (walking gap 0.42 m worst,
+  driving 0.67 m, on foot to driving, right car kind and colour, swimming, join and leave).
+  `tools/net/solo.mjs`: no `?net` means zero sockets and no errors. Production build boots with
+  no errors at high, mainland medium, phone and Auto. `server` test ALL PASS.
+- Messages in 30 s with one other player present: standing still 17 (125 bytes), parked in a car
+  17, driving at the 10 Hz cap about 307 (10 kB). Alone in the city: nothing is sent.
+
+Owed: no GPU here, so smoothness at real frame rates is unseen and frame rate with remote
+players is unmeasured (flipcheck not run either); only the car you drive is sent, traffic and
+parked cars stay local, so a remote car passes through local traffic (stage 2); the remote
+driver is not visible inside the car; horn flag sent but not played, wave and shouts not built;
+no radar blips for other players; a dead service prints one browser console line per retry;
+slopes, jumps and the bridge not looked at; no menu button for the name re-roll yet.
+
 ### Multiplayer stage 1, step 1, the message service: pushed Nov 21, about 9:45 AM ET
 
 A new lead took over from HANDOFF.md, working without the laptop (no GPU, no Blender). The owner
