@@ -212,6 +212,8 @@ try {
       const s = Math.sin(c.h), co = Math.cos(c.h), start = { x: c.x - s * 12, z: c.z - co * 12 };
       await G.go(start.x, start.z, c.h);
       await G.page.evaluate(() => window.__game.drive('sedan'));
+      const hits0 = ng0.traffic.hitsSent;
+      let met = false;
       await G.page.keyboard.down('KeyW');
       let minAlong = 99, moved = 0, left = false, held = 0, guest = true;
       const trail = [];
@@ -219,6 +221,8 @@ try {
         const [x, i] = await Promise.all([G.net(), G.info()]);
         const now = x.traffic.cars.find((k) => k.id === c.id);
         if (x.traffic.mode !== 'guest') { guest = false; break; }
+        // (The guest's own screen reports each knock it gives a shared car.)
+        met = x.traffic.hitsSent > hits0;
         if (!now || dist(now, c) > 1.5) { left = true; break; }
         const along = (now.x - i.x) * s + (now.z - i.z) * co;
         minAlong = Math.min(minAlong, along); moved = dist(i, start);
@@ -232,10 +236,12 @@ try {
       await G.page.keyboard.up('KeyW');
       const inCar = await G.page.evaluate(() => window.__game.info().vehicle);
       if (!guest) { detail = 'the host changed in the middle'; continue; }
-      if (left) { detail = 'the car drove off before it was reached'; continue; }
+      // (Since stage 2, step 2 the host shoves the car that was struck and its driver may make off: tools/net/bump.mjs
+      // checks that. Here it only matters that the guest met it and did not go through it.)
+      if (left && !met) { detail = 'the car drove off before it was reached'; continue; }
       done = true;
       // (12 m between centres at the start; nose to tail they touch at about 4.5. Through a car that is not solid it would reach 0 and go negative.)
-      check(moved > 3 && minAlong > 2.5 && held >= 3, 'the guest\'s own car is stopped by a shared car', `${G.tag} drove ${moved.toFixed(1)} m at full throttle, never nearer than ${minAlong.toFixed(2)} m centre to centre, then went nowhere`);
+      check(moved > 3 && minAlong > 2.5 && (held >= 3 || (left && met)), 'the guest\'s own car is stopped by a shared car', `${G.tag} drove ${moved.toFixed(1)} m at full throttle, never nearer than ${minAlong.toFixed(2)} m centre to centre, then ${left ? 'the struck car made off' : 'went nowhere'}`);
       check(inCar === 'sedan', 'and the guest is still in its own car', String(inCar));
     }
     if (!done) check(false, 'the guest\'s own car is stopped by a shared car', detail);
@@ -270,6 +276,9 @@ try {
       }
       if (!guest) { detail = 'the host changed in the middle'; continue; }
       if (waited < 8 && nearest > 6) { detail = `the car turned off or stopped short (nearest ${nearest.toFixed(1)} m)`; continue; }
+      // Round it in the next lane (a lane is 3.4 m over) is not through it: drivers do pass a standing car, the more so
+      // one that was knocked in the check before and is making off. Another car is tried.
+      if (waited < 8 && nearest > 3 && gap < -4) { detail = `the car went round in the next lane (nearest ${nearest.toFixed(1)} m, middle to middle)`; continue; }
       done = true;
       check(waited >= 8 && nearest > 3, 'a shared car stops behind a guest\'s standing car instead of driving through it', `${G.tag}: it waited ${gap.toFixed(1)} m behind (middle to middle); nearest ${nearest.toFixed(2)} m`);
     }

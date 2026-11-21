@@ -2246,7 +2246,7 @@ class Ground implements WorldPart {
     const light = this.game.sky?.lightDir;
     if (light) (u.uLight.value as THREE.Vector3).copy(light);
 
-    const nodes = this.plan.nodes, time = this.game.time, last = this.sigLast;
+    const nodes = this.plan.nodes, time = this.game.signalTime, last = this.sigLast;
     // Two meshes, one loop each: the island's approaches, then the mainland's (skipped while they are not drawn).
     for (const [bulbs, from, to] of [[this.bulbs, 0, this.sigMain], [this.bulbsMain, this.sigMain, last.length]] as const) {
       if (!bulbs || !bulbs.visible) continue;

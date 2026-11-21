@@ -73,6 +73,13 @@ export class Game {
   state: GameState = 'loading';
   /** Simulated seconds since the world was built. Stops while paused. */
   time = 0;
+  /**
+   * What the traffic signals run on. Alone it is `time` exactly. In a shared town (src/net/shared.ts) it is the
+   * town's clock, the same in every browser there; on leaving, `signalShift` keeps the lamps where they were.
+   */
+  signalClock: (() => number) | null = null;
+  signalShift = 0;
+  get signalTime(): number { return this.signalClock ? this.signalClock() : this.time + this.signalShift; }
   /** Length of the step being simulated right now. */
   dt = 0;
   frame = 0;

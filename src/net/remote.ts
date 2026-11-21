@@ -1,5 +1,6 @@
 // Somebody else in town, drawn from the state frames their browser sends (about ten a second, and none at all
-// while they stand still). Drawn only: nothing here collides with anything.
+// while they stand still). The person is drawn only. Their car is drawn and SOLID (Vehicles.ghost): this browser's
+// cars and people run into it, and it is never moved from here.
 //
 // Smoothing: every frame arrives stamped with the sender's clock. The picture shows where they were INTERP_MS ago,
 // between the two frames either side of that moment, so an uneven network still gives even motion. When the next

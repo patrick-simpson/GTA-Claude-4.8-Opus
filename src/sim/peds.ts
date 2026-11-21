@@ -518,7 +518,7 @@ export class Peds {
       if (g.world.signal(node.id, w.crossH) === 'red' && !this.moving(mx, mz, 9, 3.5)) {
         for (const v of [w.cs, 2.5]) {
           const need = dist / v + 0.5;
-          if (signalState(node, w.crossH, g.time + need) === 'red' && signalState(node, w.crossH, g.time + need * 0.5) === 'red') { w.cs = v; return true; }
+          if (signalState(node, w.crossH, g.signalTime + need) === 'red' && signalState(node, w.crossH, g.signalTime + need * 0.5) === 'red') { w.cs = v; return true; }
         }
       }
       if (w.jay && w.timer > 1.5 && !this.moving(mx, mz, 30, 1.5)) { w.cs = 2.1; this.stats.jaywalks++; return true; }

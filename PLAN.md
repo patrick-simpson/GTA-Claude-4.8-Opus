@@ -88,6 +88,26 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 2, step 2, one signal clock and cars that bump: pushed Nov 21, about 5:30 PM ET
+
+What changed:
+- Traffic lights run on one town clock on main. The host stamps it in the car frames; a guest eases onto it. Single player and the backup are as before.
+- A guest can hit a shared car. The guest sends a 10 byte knock (at most 10 a second while touching). The host shoves and damages the car and the driver reacts. Everyone sees it.
+- Players' cars are solid for each other, on both homes. Each browser moves only its own car.
+- Protocol stays at version 4. New test tools/net/bump.mjs.
+
+Checked by the lead: tsc, build, server tests, bump (28), traffic (30), two, solo, main, notices, social: ALL PASS. Production boot with net=0 shows "errors": []. Picture of the knocked taxi looked at.
+
+Still wrong or unseen:
+- Signal agreement measured 0.61 s here with slow frames. Unseen on a real machine.
+- Head on between players: both bounce a little too far apart at speed.
+- A guest sees shared car health in steps of 5, never below 25, so it cannot burn on a guest's screen.
+- A guest still gets local police heat for hitting a shared car.
+- Knocks on a moving car and gentle pushing are untested.
+- main.mjs and notices.mjs take over 100 s each. That is why an earlier chained run looked hung.
+
+Models: top model built it (judgement). Lead checked it.
+
 ### Multiplayer stage 2, step 1, the same moving traffic for everyone: pushed Nov 21, about 4:15 PM ET
 
 What changed:

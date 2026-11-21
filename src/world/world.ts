@@ -67,6 +67,6 @@ export class World implements WorldApi {
   }
 
   signal(nodeId: number, horiz: boolean): Signal {
-    return signalState(this.game.plan.nodes[nodeId], horiz, this.game.time);
+    return signalState(this.game.plan.nodes[nodeId], horiz, this.game.signalTime);
   }
 }

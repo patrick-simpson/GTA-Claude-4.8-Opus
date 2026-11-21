@@ -65,6 +65,8 @@ const DITCH = 0.55;
 const MARKS = 768, MARK_LIFE = 16, PUFFS = 96;
 /** Closing speed (m/s) above which a hit is reported and costs health. */
 const HARD_HIT = 3;
+/** Multiplayer: how long a knock a guest reported and the same knock seen here count as one, seconds. */
+const NET_HIT_S = 0.3;
 const DAMAGE = 1.5;
 
 const X_AXIS = new THREE.Vector3(1, 0, 0), Y_AXIS = new THREE.Vector3(0, 1, 0);
@@ -188,6 +190,10 @@ class Car implements Vehicle {
 
   /** Placed by the network, not by physics (src/net/shared.ts): solid and immovable. See Vehicles.setShared. */
   shared = false;
+  /** Another player's car (src/net/remote.ts): placed by the network, solid, and never moved from here. See Vehicles.ghost. */
+  puppet = false;
+  /** Multiplayer host: when a guest's reported knock last landed on this car, and what its own shown car has knocked out of it lately. */
+  netT = -9; pupT = -9; pupV = 0;
 
   // Everything below is private to this file.
   asleep = true;
@@ -647,8 +653,10 @@ const OLD_MARKS: boolean = false;
 
 export class Vehicles implements VehiclesApi {
   private cars: Car[] = [];
-  /** Drawn only (see ghost()). */
+  /** The other players' cars (see ghost()): drawn and solid, not simulated. */
   private ghosts: Car[] = [];
+  /** Multiplayer guest: this browser's own car has struck a shared car. (cvx, cvz) closing speed into it; (rx, rz) contact from its middle. */
+  onSharedHit: ((b: Vehicle, cvx: number, cvz: number, rx: number, rz: number) => void) | null = null;
   /** `cars` then `ghosts`, rebuilt for sync() while there are ghosts. */
   private drawn: Car[] = [];
   /** The same array as `cars`, seen through the public interface. */
@@ -797,8 +805,11 @@ export class Vehicles implements VehiclesApi {
   }
 
   // ── Ghosts (src/net/): another player's car, drawn from what their browser sends ──────────────────────────────
-  // A ghost is not in `list`: it has no physics, nothing collides with it, nobody can get in, and no other system
-  // ever sees it. It only goes through sync() with the simulated cars, so it gets the same model, paint and lamps.
+  // A ghost is not in `list`: it has no physics of its own, nobody can get in, and no other system ever sees it. It
+  // goes through sync() with the simulated cars, so it gets the same model, paint and lamps.
+  // It IS solid (stage 2, step 2): this browser's moving cars and its people on foot run into it. The ghost itself
+  // never moves from here (its own browser is in charge of it), but the knock is worked out with its real weight, so
+  // each browser gives its own car its own half of the same crash.
 
   ghost(kind: VehicleKind, color: number): Vehicle {
     const c = new Car(this.nextId++, SPECS[kind], this.batch(kind));
@@ -806,6 +817,7 @@ export class Vehicles implements VehiclesApi {
     c.asleep = false;
     // Somebody is at the wheel: this is what lights the daytime strip and the indicators.
     c.driver = 'ai';
+    c.puppet = true;
     this.ghosts.push(c);
     return c;
   }
@@ -872,7 +884,8 @@ export class Vehicles implements VehiclesApi {
 
   resolveCircle(p: { x: number; z: number }, r: number, y: number): Vehicle | null {
     let hit: Car | null = null;
-    for (const c of this.cars) {
+    // (The other players' cars are solid to walk into as well.)
+    for (let k = this.ghosts.length ? 1 : 0; k >= 0; k--) for (const c of k ? this.ghosts : this.cars) {
       const reach = c.rad + r;
       let dx = p.x - c.x;
       if (dx > reach || dx < -reach) continue;
@@ -995,7 +1008,7 @@ export class Vehicles implements VehiclesApi {
 
   /** Once a frame: which cars could touch during it. Awake pairs are listed once; sleepers only against the awake. */
   private findPairs(dt: number): void {
-    const list = this.cars, awake = this.awake;
+    const list = this.cars, awake = this.awake, ghosts = this.ghosts;
     let n = 0;
     for (let i = 0; i < awake.length; i++) {
       const a = awake[i];
@@ -1004,6 +1017,16 @@ export class Vehicles implements VehiclesApi {
         const b = list[j];
         if (b === a || (!b.asleep && !b.shared && b.id < a.id)) continue;
         const reach = reachA + b.rad + (b.asleep ? 0 : (Math.abs(b.vx) + Math.abs(b.vz)) * dt);
+        const dx = b.x - a.x;
+        if (dx > reach || dx < -reach) continue;
+        const dz = b.z - a.z;
+        if (dz > reach || dz < -reach) continue;
+        this.pairA[n] = a; this.pairB[n] = b; n++;
+      }
+      // The other players' cars: in the way of everything that moves here.
+      for (let j = 0; j < ghosts.length; j++) {
+        const b = ghosts[j];
+        const reach = reachA + b.rad + (Math.abs(b.vx) + Math.abs(b.vz)) * dt;
         const dx = b.x - a.x;
         if (dx > reach || dx < -reach) continue;
         const dz = b.z - a.z;
@@ -1591,9 +1614,12 @@ export class Vehicles implements VehiclesApi {
     if (cnt > 0) { px /= cnt; pz /= cnt; } else { px = (a.x + b.x) / 2; pz = (a.z + b.z) / 2; }
 
     // A shared car (only ever `b`: it is never among the awake) is where the host says it is: it weighs the earth.
+    // Another player's car is not moved from here either, but it keeps its weight in the sums: this browser gives
+    // its own car the share of the knock a real crash would, and the other browser does the same for theirs.
+    const pup = b.puppet, fixed = pup || b.shared;
     const bInvM = b.shared ? 0 : b.invM, bInvI = b.shared ? 0 : b.invI;
     const im = a.invM + bInvM;
-    const pa = o * a.invM / im, pb = o * bInvM / im;
+    const pa = fixed ? o : o * a.invM / im, pb = fixed ? 0 : o * bInvM / im;
     a.x -= nx * pa; a.z -= nz * pa;
     b.x += nx * pb; b.z += nz * pb;
     if (b.asleep) { b.asleep = false; b.stale = true; }
@@ -1601,25 +1627,54 @@ export class Vehicles implements VehiclesApi {
     const rax = px - a.x, raz = pz - a.z, rbx = px - b.x, rbz = pz - b.z;
     const vn = ((b.vx + b.yawRate * rbz) - (a.vx + a.yawRate * raz)) * nx + ((b.vz - b.yawRate * rbx) - (a.vz - a.yawRate * rax)) * nz;
     if (vn >= 0) return;
+    // (Host: the guest in that car has just reported this very knock, and it has been dealt. Not twice.)
+    if (pup && this.time - a.netT < NET_HIT_S) return;
     const rna = raz * nx - rax * nz, rnb = rbz * nx - rbx * nz;
     const j = -(1 + RESTITUTION) * vn / (im + rna * rna * a.invI + rnb * rnb * bInvI);
     a.vx -= j * nx * a.invM; a.vz -= j * nz * a.invM; a.yawRate -= rna * j * a.invI;
-    b.vx += j * nx * bInvM; b.vz += j * nz * bInvM; b.yawRate += rnb * j * bInvI;
+    if (!pup) { b.vx += j * nx * bInvM; b.vz += j * nz * bInvM; b.yawRate += rnb * j * bInvI; }
     // Paint rubbing on paint.
     const tx = -nz, tz = nx;
     const vt = (b.vx - a.vx) * tx + (b.vz - a.vz) * tz;
     const jt = clamp(-vt / im, -0.25 * j, 0.25 * j);
     a.vx -= jt * tx * a.invM; a.vz -= jt * tz * a.invM;
-    b.vx += jt * tx * bInvM; b.vz += jt * tz * bInvM;
+    if (!pup) { b.vx += jt * tx * bInvM; b.vz += jt * tz * bInvM; }
     const closing = -vn;
-    if (closing > 2) { a.loose = Math.max(a.loose, 0.4); b.loose = Math.max(b.loose, 0.4); }
+    if (pup) { a.pupV = (this.time - a.pupT < NET_HIT_S ? a.pupV : 0) + closing; a.pupT = this.time; }
+    // A guest's own car against one of the host's: the host is told, and does the shoving and the denting there.
+    else if (b.shared && a.driver === 'player' && this.onSharedHit) this.onSharedHit(b, nx * closing, nz * closing, px - b.x, pz - b.z);
+    if (closing > 2) { a.loose = Math.max(a.loose, 0.4); if (!fixed) b.loose = Math.max(b.loose, 0.4); }
     if (closing > HARD_HIT) {
       // The lighter car takes the larger share of the damage.
       const dmg = (closing - HARD_HIT) * DAMAGE;
-      // (What a knock does to a shared car is the host's business: a later step.)
-      if (!b.shared) b.health = Math.max(0, b.health - dmg * b.invM / im);
+      // (What a knock does to a shared car or to another player's is their browser's business.)
+      if (!fixed) b.health = Math.max(0, b.health - dmg * b.invM / im);
       this.impact(a, closing, b, px, pz, dmg * a.invM / (a.invM + b.invM));
     }
+  }
+
+  /**
+   * Multiplayer host: a guest's car has struck `v` (one of the town's traffic cars) on the guest's own screen, where
+   * the car could not give way. Do here what the crash would have done had it happened here: shove it, dent it, and
+   * let its driver react. (cvx, cvz): the closing speed, pointing from the striker into the car. (rx, rz): the point
+   * of contact from the car's middle. by: the striker as drawn here (its weight), or null.
+   */
+  knock(v: Vehicle, by: Vehicle | null, cvx: number, cvz: number, rx: number, rz: number): void {
+    const c = v as Car, o = by as Car | null;
+    let closing = Math.hypot(cvx, cvz);
+    if (!(closing > 0.01) || c.shared || c.puppet || c.sunk) return;
+    const nx = cvx / closing, nz = cvz / closing;
+    // What the striker's shown car has already knocked out of it here in the last moments is not given again.
+    if (this.time - c.pupT < NET_HIT_S) closing -= c.pupV;
+    c.netT = this.time;
+    if (closing <= 0) return;
+    const oInvM = o ? o.invM : c.invM;
+    const rn = rz * nx - rx * nz;
+    const j = (1 + RESTITUTION) * closing / (c.invM + oInvM + rn * rn * c.invI);
+    c.vx += j * nx * c.invM; c.vz += j * nz * c.invM; c.yawRate += rn * j * c.invI;
+    c.asleep = false; c.stale = true;
+    if (closing > 2) c.loose = Math.max(c.loose, 0.4);
+    if (closing > HARD_HIT) this.impact(c, closing, o, c.x + rx, c.z + rz, (closing - HARD_HIT) * DAMAGE * c.invM / (c.invM + oInvM));
   }
 
   // ── Drawing ────────────────────────────────────────────────────────────────

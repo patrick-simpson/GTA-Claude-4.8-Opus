@@ -4,6 +4,8 @@
 // speed, steering). Parked cars, traffic, pedestrians, police and everything else stay local to each browser until
 // stage 2: another player's car is a drawn copy here (Vehicles.ghost), never one of this browser's simulated cars.
 // Stage 2, step 1 (shared.ts): on the main service the moving traffic is the host's, the same for everybody.
+// Stage 2, step 2: another player's car is solid here (each browser moves only its own car in a crash); on the main
+// service the traffic signals run on one town clock, and a guest's knocks on the host's cars are told to the host.
 //
 // Sending (protocol.ts has the rules): a State frame up to SEND_HZ times a second, but only when something has
 // changed since the last one sent; a one byte keepalive every KEEPALIVE_MS otherwise; the measured frame time every
@@ -148,6 +150,7 @@ export class Net {
     this.clear();
     for (const e of m.players) this.add(e);
     const now = performance.now();
+    this.shared.welcome(m.now, now);
     this.force = true;
     this.anyAt = now; this.perfAt = now - PERF_INTERVAL_MS + 1000;
     this.showCount();
@@ -169,6 +172,7 @@ export class Net {
       return;
     }
     if (k === Frame.World) { this.shared.frame(buf, performance.now()); return; }
+    if (k === Frame.ToHost) { this.shared.toHost(buf, performance.now()); return; }
     if (k !== Frame.State) return;
     const s = decodePlayerState(buf, this.inState);
     if (!s) return;

@@ -16,6 +16,19 @@
 // same cars carry on. A browser that drops to single player or to the backup takes its shown cars over the same way.
 //
 // Smoothing is the same as for the other players (remote.ts): shown INTERP_MS in the past, between two frames.
+//
+// Stage 2, step 2.
+// The signals. In a town on the main service the lamps run on a TOWN clock instead of each browser's own game time
+// (Game.signalClock). A browser's first idea of it is the service's clock from the welcome: one jump of the lamps.
+// The host stamps every World frame with its town clock (the 16 bits that were its private clock before: same bytes),
+// and a guest eases its own clock onto the host's as shown here, INTERP_MS back, so the lamps on a guest's screen are
+// the ones the shown cars are obeying. Easing is a clock running a little fast or slow, never a second jump. A guest
+// that becomes host keeps the clock it has, so the town's time outlives its hosts. On the backup, alone, or with no
+// service the lamps run on game time as they always did; on leaving a town they carry on from where they were.
+// Knocks. A guest's car stops against a shown car at once, on its own screen (the shown car cannot give way). It
+// tells the host how hard and where (a 10 byte ToHost frame, protocol.ts), the host shoves and dents the real car and
+// its driver reacts as to the host's own car, and that comes back to everybody in the World frames, damage included.
+// The other players' cars are solid in the host's streets too (Vehicles.ghost), so its drivers cannot drive through them.
 
 import type { Game } from '../core/game';
 import type { Vehicle } from '../core/api';
@@ -24,8 +37,8 @@ import { KINDS, SPECS } from '../ent/vehicleSpecs';
 import { Ambient } from '../sim/ambient';
 import type { Anchor, RoadPed, Traffic } from '../sim/traffic';
 import {
-  PlayerMode, TRAFFIC_CAR_BYTES, TRAFFIC_HEADER_BYTES, TRAFFIC_MAX_CARS, TrafficFlag, WORLD_HZ, WorldKind,
-  blankTrafficCar, blankTrafficFrame, decodeTraffic, encodeTraffic, frameSender, type TrafficCar,
+  CAR_HIT_BYTES, CAR_HIT_HZ, PlayerMode, TRAFFIC_CAR_BYTES, TRAFFIC_DAMAGE_SHIFT, TRAFFIC_HEADER_BYTES, TRAFFIC_MAX_CARS, TrafficFlag, WORLD_HZ, WorldKind,
+  blankTrafficCar, blankTrafficFrame, damageStep, decodeCarHit, decodeTraffic, encodeCarHit, encodeTraffic, frameSender, type TrafficCar,
 } from './protocol';
 import type { Connection } from './conn';
 import { EXTRAP_MS, INTERP_MS, type Remote } from './remote';
@@ -37,6 +50,15 @@ const REFRESH_MS = 1000;
 const GAP_MS = 450;
 const MOVE_MS = 100;
 const KEEP = 8;
+/** A guest's clock is eased onto the host's by running at most this much fast or slow. */
+const SLEW = 0.2;
+const HIT_MS = 1000 / CAR_HIT_HZ;
+/** Closing speed below this (summed over one send interval) is leaning, not a knock: not worth a message. m/s. */
+const HIT_MIN = 0.3;
+/** A report from further than this from the car it names is not believed. Meters. */
+const HIT_REACH = 25;
+/** The 16 damage steps of the wire as health on a guest's screen: never low enough to set the shown car alight here. */
+const HEALTH_STEP = 5;
 
 interface Sample { t: number; x: number; y: number; z: number; yaw: number; speed: number; steer: number; pitch: number; roll: number; flags: number }
 const blank = (): Sample => ({ t: 0, x: 0, y: 0, z: 0, yaw: 0, speed: 0, steer: 0, pitch: 0, roll: 0, flags: 0 });
@@ -59,7 +81,7 @@ export class SharedTraffic {
   mode: 'local' | 'host' | 'guest' = 'local';
   /** The host's cars shown here, by their number on the wire. Empty unless a guest. */
   readonly cars = new Map<number, Shown>();
-  readonly stats = { framesSent: 0, bytesSent: 0, framesGot: 0, bytesGot: 0, adopted: 0, dropped: 0, takeovers: 0, handovers: 0 };
+  readonly stats = { framesSent: 0, bytesSent: 0, framesGot: 0, bytesGot: 0, adopted: 0, dropped: 0, takeovers: 0, handovers: 0, hitsSent: 0, hitBytesSent: 0, hitsGot: 0, hitsDone: 0 };
 
   private readonly traffic: Traffic | null;
   // Sending.
@@ -83,10 +105,62 @@ export class SharedTraffic {
   private sendT = 0;
   private lastArrive = -1;
   private offset = 0;
+  private clockLag = 0;
+  // The town clock: performance.now() + townOff, ms since 1970 as the service counts them (near enough).
+  private townOn = false;
+  private townOff = 0;
+  /** Where a guest's clock is being eased to; equal to townOff when there is nothing to follow. */
+  private townWant = 0;
+  private svcOff = 0;
+  private clockAt = 0;
+  /** Times the lamps were put on another clock at a stroke (for the tests): once per town joined. */
+  signalJumps = 0;
+  // Knocks: what this guest's car has done to shown cars since the last report, and when each guest last reported.
+  private readonly byVeh = new Map<Vehicle, Shown>();
+  private readonly struck = new Map<number, { vx: number; vz: number; rx: number; rz: number }>();
+  private hitAt = 0;
+  private readonly hitFrom = new Map<number, number>();
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>) {
     const amb = game.systems.find((s): s is Ambient => s instanceof Ambient);
     this.traffic = amb ? amb.traffic : null;
+    game.vehicles.onSharedHit = (b, cvx, cvz, rx, rz) => {
+      const s = this.byVeh.get(b);
+      if (!s || this.mode !== 'guest') return;
+      const h = this.struck.get(s.wid);
+      if (h) { h.vx += cvx; h.vz += cvz; h.rx = rx; h.rz = rz; } else this.struck.set(s.wid, { vx: cvx, vz: cvz, rx, rz });
+    };
+  }
+
+  // ── The town clock ──────────────────────────────────────────────────────────
+
+  /** The service's clock, from its welcome (ms since 1970). now: this browser's clock at that moment. */
+  welcome(serviceNow: number, now: number): void {
+    if (Number.isFinite(serviceNow)) this.svcOff = serviceNow - now;
+  }
+
+  /** Switch the lamps onto the town clock or back, and ease a guest's clock toward the host's. */
+  private clock(now: number): void {
+    const c = this.conn, g = this.game;
+    const on = c.status === 'online' && c.home === 'main';
+    if (on !== this.townOn) {
+      this.townOn = on;
+      if (on) {
+        this.townOff = this.townWant = this.svcOff;
+        g.signalClock = () => (performance.now() + this.townOff) / 1000;
+        this.signalJumps++;
+      } else {
+        // Alone again: the lamps carry on from where they are, on game time as before.
+        g.signalShift = g.signalTime - g.time;
+        g.signalClock = null;
+      }
+    }
+    const dt = Math.min(1000, Math.max(0, now - this.clockAt));
+    this.clockAt = now;
+    if (!on) return;
+    if (this.mode !== 'guest' || now - this.lastArrive > 2000 || this.lastArrive < 0) { this.townWant = this.townOff; return; }
+    const d = this.townWant - this.townOff, step = SLEW * dt;
+    this.townOff += d > step ? step : d < -step ? -step : d;
   }
 
   /** Somebody has just arrived and knows nothing: the next frame carries every car whole. */
@@ -115,7 +189,7 @@ export class SharedTraffic {
           const s = this.show(wid, KINDS.indexOf(v.spec.kind), Math.max(0, v.spec.colors.indexOf(v.color)), v);
           const a = blank();
           a.t = now; a.x = v.x; a.y = v.y; a.z = v.z; a.yaw = v.h; a.speed = v.speed; a.pitch = v.pitch; a.roll = v.roll;
-          a.flags = driverless ? TrafficFlag.Driverless : 0;
+          a.flags = (driverless ? TrafficFlag.Driverless : 0) | (damageStep(v.health) << TRAFFIC_DAMAGE_SHIFT);
           s.buf.push(a);
           Object.assign(s.cur, a);
         });
@@ -133,6 +207,7 @@ export class SharedTraffic {
         else { g.vehicles.remove(s.v); this.stats.dropped++; }
       }
       this.cars.clear();
+      this.byVeh.clear(); this.struck.clear();
       this.stats.takeovers++;
     }
     if (want === 'host') { this.force = true; this.sendAt = 0; } else this.clearHost();
@@ -144,6 +219,7 @@ export class SharedTraffic {
     if (tr) { tr.extra = []; tr.others = []; tr.walkers = []; }
     this.anchors.clear();
     this.sent.clear();
+    this.hitFrom.clear();
   }
 
   // ── Host: the other players as the drivers see them, and the frames ─────────
@@ -190,9 +266,10 @@ export class SharedTraffic {
       r.speed = Math.abs(sp) < 0.12 ? 0 : sp;
       r.steer = driverless ? 0 : ctl.steer;
       r.pitch = v.pitch; r.roll = v.roll;
-      r.flags = driverless ? TrafficFlag.Driverless
+      r.flags = (driverless ? TrafficFlag.Driverless
         : ((ctl.accel < -0.05 && sp > 0.5) || ctl.handbrake ? TrafficFlag.Braking : 0)
-          | (sp < -0.3 && ctl.accel < 0 ? TrafficFlag.Reversing : 0) | (ctl.horn ? TrafficFlag.Horn : 0);
+          | (sp < -0.3 && ctl.accel < 0 ? TrafficFlag.Reversing : 0) | (ctl.horn ? TrafficFlag.Horn : 0))
+        | (damageStep(v.health) << TRAFFIC_DAMAGE_SHIFT);
     });
     // Whole records first, then the numbers of the cars that have not moved since theirs.
     const order = this.order, still = this.still;
@@ -212,7 +289,8 @@ export class SharedTraffic {
       else { Object.assign(s.rec, r); s.at = now; order[nFull++] = r; }
     }
     for (const [id, s] of sent) if (s.seq !== seq) sent.delete(id);
-    const len = encodeTraffic(Math.floor(now), order, nFull, still, nStill, this.out);
+    // Stamped with the town clock: it places the cars in time on the other screens, and it sets their lamps.
+    const len = encodeTraffic(Math.floor(now + this.townOff), order, nFull, still, nStill, this.out);
     // (A view of exactly the bytes used: the socket sends the view, not the buffer behind it.)
     if (this.conn.send(this.out.subarray(0, len))) {
       this.force = false;
@@ -225,17 +303,59 @@ export class SharedTraffic {
   private show(wid: number, kind: number, paint: number, v: Vehicle): Shown {
     const s: Shown = { wid, kind, paint, v, buf: [], cur: blank(), seq: this.seq };
     this.cars.set(wid, s);
+    this.byVeh.set(v, s);
     return s;
   }
 
   private unshow(s: Shown): void {
     this.game.vehicles.remove(s.v);
     this.cars.delete(s.wid);
+    this.byVeh.delete(s.v);
+    this.struck.delete(s.wid);
+  }
+
+  // ── Knocks: a guest's car against one of the host's ─────────────────────────
+
+  /** Guest: tell the host what this browser's car has just done to its cars. At most CAR_HIT_HZ frames a second. */
+  private report(now: number): void {
+    const st = this.struck;
+    if (st.size === 0 || now - this.hitAt < HIT_MS - 4) return;
+    for (const [wid, h] of st) {
+      if (Math.hypot(h.vx, h.vz) < HIT_MIN) continue;
+      if (this.conn.send(encodeCarHit(wid, h.vx, h.vz, h.rx, h.rz))) { this.stats.hitsSent++; this.stats.hitBytesSent += CAR_HIT_BYTES; }
+      this.hitAt = now;
+      // One car a turn; a second one struck in the same moment waits a tenth of a second.
+      st.delete(wid);
+      return;
+    }
+    st.clear();
+  }
+
+  /** Host: a ToHost frame. A guest's car has struck one of the cars simulated here. */
+  toHost(buf: ArrayBuffer, now: number): void {
+    const tr = this.traffic;
+    if (this.mode !== 'host' || !tr) return;
+    const h = decodeCarHit(buf);
+    if (!h) return;
+    this.stats.hitsGot++;
+    const r = this.remotes.get(h.id);
+    // Somebody known and seen, no faster than the rule allows, and no harder than a car can go.
+    if (!r || !r.seen || now - (this.hitFrom.get(h.id) ?? -1e9) < HIT_MS * 0.5) return;
+    const sp = Math.hypot(h.vx, h.vz);
+    if (!(sp >= HIT_MIN) || sp > 80) return;
+    let car: Vehicle | null = null;
+    tr.eachShared((wid, v) => { if (wid === h.car) car = v; });
+    const v = car as Vehicle | null;
+    if (!v || Math.hypot(v.x - r.x, v.z - r.z) > HIT_REACH) return;
+    this.hitFrom.set(h.id, now);
+    this.game.vehicles.knock(v, r.vehicle, h.vx, h.vz, h.rx, h.rz);
+    this.stats.hitsDone++;
   }
 
   /** A World frame. now: this browser's clock, ms. */
   frame(buf: ArrayBuffer, now: number): void {
     if (buf.byteLength < 3 || new Uint8Array(buf, 2, 1)[0] !== WorldKind.Traffic) return;
+    this.clock(now);
     this.sync();
     // Only the host's, and only while this browser is showing them.
     if (this.mode !== 'guest' || frameSender(buf) !== this.conn.host) return;
@@ -246,7 +366,11 @@ export class SharedTraffic {
     // The host's clock, unwrapped and placed on this one's, exactly as remote.ts does for a player.
     const from = frameSender(buf);
     if (this.lastArrive < 0 || from !== this.from || now - this.lastArrive > 20000) {
-      this.sendT = f.t; this.offset = now - f.t; this.from = from;
+      // The 16 bits are the low end of the host's town clock: the whole of it is the one nearest this browser's own idea.
+      const est = now + this.townOff;
+      let lo = ((est - f.t) % 65536 + 65536) % 65536;
+      if (lo >= 32768) lo -= 65536;
+      this.sendT = est - lo; this.offset = this.clockLag = now - this.sendT; this.from = from;
     } else {
       const guess = this.sendT + (now - this.lastArrive);
       let t = guess - ((guess - f.t) % 65536 + 65536) % 65536;
@@ -254,8 +378,13 @@ export class SharedTraffic {
       if (t <= this.sendT) return;
       this.sendT = t;
       this.offset = Math.min(this.offset + 0.02 * (now - this.lastArrive), now - t);
+      // The same for the lamps, but steadier: the quickest frame of the last minute or so is the best reading of the
+      // host's clock, and a clock that wanders after every late frame would be a worse one.
+      this.clockLag = Math.min(this.clockLag + 0.002 * (now - this.lastArrive), now - t);
     }
     this.lastArrive = now;
+    // The lamps belong with the cars: the host's town clock as of the moment being shown here.
+    this.townWant = -this.clockLag - INTERP_MS;
     const t = this.sendT + this.offset, seq = ++this.seq, g = this.game;
 
     for (let i = 0; i < f.n; i++) {
@@ -332,19 +461,21 @@ export class SharedTraffic {
     v.driver = driverless ? null : 'ai';
     if (driverless) v.lights = false;
     v.ctl.horn = (c.flags & TrafficFlag.Horn) !== 0;
-    // Nothing done to it here counts yet (a later step): it does not dent, burn or sink on this screen.
-    v.health = 100;
+    // Its health is the host's to count: what is shown is what the host last said, in steps.
+    v.health = 100 - ((c.flags >> TRAFFIC_DAMAGE_SHIFT) & 15) * HEALTH_STEP;
   }
 
   // ── Frame ──────────────────────────────────────────────────────────────────
 
   update(now: number, dt: number): void {
+    this.clock(now);
     if (!this.traffic) return;
     this.sync();
     if (this.mode === 'host') {
       this.watch();
       if (now - this.sendAt >= SEND_MS - 4) { this.sendAt = now; this.send(now); }
     } else if (this.mode === 'guest') {
+      this.report(now);
       for (const s of this.cars.values()) {
         this.sample(s, now);
         this.place(s, s.cur, dt);
@@ -356,8 +487,10 @@ export class SharedTraffic {
   info(): Record<string, unknown> {
     const r2 = (v: number): number => +v.toFixed(2), tr = this.traffic;
     const cars: Record<string, unknown>[] = [];
-    if (this.mode === 'guest') for (const s of this.cars.values()) cars.push({ id: s.wid, kind: s.v.spec.kind, color: s.v.color, x: r2(s.v.x), z: r2(s.v.z), h: r2(s.v.h), speed: r2(s.cur.speed), driver: s.v.driver });
-    else if (tr) tr.eachShared((wid, v, driverless) => cars.push({ id: wid, kind: v.spec.kind, color: v.color, x: r2(v.x), z: r2(v.z), h: r2(v.h), speed: r2(v.speed), driver: driverless ? null : 'ai' }));
-    return { mode: this.mode, ...this.stats, anchors: this.anchorList.length + 1, cars };
+    if (this.mode === 'guest') for (const s of this.cars.values()) cars.push({ id: s.wid, kind: s.v.spec.kind, color: s.v.color, x: r2(s.v.x), z: r2(s.v.z), h: r2(s.v.h), speed: r2(s.cur.speed), driver: s.v.driver, health: r2(s.v.health) });
+    else if (tr) tr.eachShared((wid, v, driverless) => cars.push({ id: wid, kind: v.spec.kind, color: v.color, x: r2(v.x), z: r2(v.z), h: r2(v.h), speed: r2(v.speed), driver: driverless ? null : 'ai', health: r2(v.health) }));
+    // signal: is the town clock on, the signals' time now (s), and how many times the lamps changed clock at a stroke.
+    const signal = { town: this.townOn, t: +this.game.signalTime.toFixed(3), jumps: this.signalJumps, easing: +(this.townWant - this.townOff).toFixed(1) };
+    return { mode: this.mode, ...this.stats, anchors: this.anchorList.length + 1, signal, cars };
   }
 }

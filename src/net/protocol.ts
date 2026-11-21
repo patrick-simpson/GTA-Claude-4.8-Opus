@@ -297,19 +297,52 @@ export function decodePlayerEvent(buf: ArrayBuffer): { id: number; code: number;
   return { id: u8[1], code: u8[2], arg: u8[3] };
 }
 
+// ---- ToHost frames (any guest; the service hands them to the host unread) ----
+//
+// Byte 2 says what the frame asks. Stage 2, step 2 has one: "my car has just struck your car N".
+export const ToHostKind = { CarHit: 1 } as const;
+// CarHit, 10 bytes: 0 kind (Frame.ToHost)  1 id  2 ToHostKind.CarHit  3 car u8 (its number in the World frames)
+//   4 vx i16  6 vz i16 (cm/s: how fast the two closed, pointing from the striker into the car)
+//   8 rx i8  9 rz i8 (the point of contact from the car's middle, 5 cm steps)
+// The guest's own screen has already stopped its car against the shown one; this is what lets the host shove and
+// dent the real one. Sent at most CAR_HIT_HZ times a second, and only while touching.
+export const CAR_HIT_BYTES = 10;
+export const CAR_HIT_HZ = 10;
+export interface CarHit { id: number; car: number; vx: number; vz: number; rx: number; rz: number }
+
+export function encodeCarHit(car: number, vx: number, vz: number, rx: number, rz: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, CAR_HIT_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.CarHit);
+  d.setUint8(3, car & 0xff);
+  d.setInt16(4, clampI16(vx * 100), true);
+  d.setInt16(6, clampI16(vz * 100), true);
+  d.setInt8(8, clampI8(rx * 20));
+  d.setInt8(9, clampI8(rz * 20));
+  return buf;
+}
+export function decodeCarHit(buf: ArrayBuffer): CarHit | null {
+  if (buf.byteLength < CAR_HIT_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.CarHit) return null;
+  return { id: d.getUint8(1), car: d.getUint8(3), vx: d.getInt16(4, true) / 100, vz: d.getInt16(6, true) / 100, rx: d.getInt8(8) / 20, rz: d.getInt8(9) / 20 };
+}
+
 // ---- World frames (host only; the service relays them unread) ----
 //
 // Byte 2 says what the frame carries, so later steps can add streams (parked cars, people, police) beside this one.
 export const WorldKind = { Traffic: 1 } as const;
 
 // Traffic: every car with an imaginary driver, as the host simulates it. One frame is the WHOLE list:
-//   0 kind (Frame.World)  1 id  2 WorldKind.Traffic  3 t u16 (host's clock ms, low 16 bits)  5 n u8
+//   0 kind (Frame.World)  1 id  2 WorldKind.Traffic  3 t u16 (the host's TOWN clock ms, low 16 bits: the clock its
+//     traffic signals run on, so a guest's lamps can show what the host's drivers obey; see shared.ts)  5 n u8
 //   6.. n records of TRAFFIC_CAR_BYTES, for the cars that have moved or changed since they were last sent
 //   then one byte each: the ids of the cars that are still exactly where their last record put them
 // A car in neither part is gone. A record:
 //   0 id u8 (1..255, the same for the car's whole life)  1 kind (low 4 bits) | paint (high 4 bits)
 //   2 x u16  4 z u16 (5 cm steps from TRAFFIC_X0, TRAFFIC_Z0)  6 y i16 (cm)  8 yaw u16
-//   10 speed i8 (1/4 m/s along the nose)  11 steer i8  12 pitch i8  13 roll i8 (1/200 rad)  14 flags u8
+//   10 speed i8 (1/4 m/s along the nose)  11 steer i8  12 pitch i8  13 roll i8 (1/200 rad)
+//   14 flags (low 4 bits, TrafficFlag) | damage (high 4 bits: 0 = showroom .. 15 = finished; stage 2, step 2)
 // kind is an index into the game's vehicle roster and paint an index into that kind's colours: both are the
 // client's own tables, which every page of one protocol version shares.
 export const TRAFFIC_HEADER_BYTES = 6;
@@ -320,8 +353,14 @@ export const TRAFFIC_MAX_CARS = 96;
 export const TRAFFIC_X0 = -1640;
 export const TRAFFIC_Z0 = -2400;
 export const TRAFFIC_STEP = 0.05;
-/** Bits of TrafficCar.flags. Driverless: left standing by a driver who got out. */
+/** Bits of TrafficCar.flags. Driverless: left standing by a driver who got out. The high 4 bits are the damage. */
 export const TrafficFlag = { Braking: 1, Reversing: 2, Horn: 4, Driverless: 8 } as const;
+export const TRAFFIC_DAMAGE_SHIFT = 4;
+/** Health (100 = showroom) to the 16 steps on the wire: any dent at all is at least one step. */
+export function damageStep(health: number): number {
+  const s = Math.ceil((100 - health) * 0.15 - 1e-6);
+  return s > 15 ? 15 : s > 0 ? s : 0;
+}
 
 export interface TrafficCar {
   id: number;
