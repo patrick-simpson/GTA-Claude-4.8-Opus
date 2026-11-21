@@ -80,3 +80,10 @@ Asked one question at a time, the owner chose:
     should update itself from this repository. Box the service off (its own folder and an
     unprivileged account, no access to anything else on that PC). Keep the 8 seat cap on both
     until measurements say the mini PC can take more.
+11. **How the mini PC gets set up (owner, Nov 21).** Nothing is added to the Family-Calendar
+    repository (its updater runs as the user that owns the family's private config, and a public
+    game service must not run as that user). The lead writes ONE install script in this repository;
+    the owner runs one line over SSH with sudo, once. It creates a separate locked down user,
+    installs the service and the Cloudflare Tunnel (the owner logs in to Cloudflare once), and a
+    timer that updates the service from this repository. The lead never connects to the PC.
+    The PC is a Lenovo micro PC, x86-64, Debian 13, normal disk (no read-only overlay).
