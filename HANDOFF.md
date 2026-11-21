@@ -4,8 +4,39 @@ Written Saturday Nov 21, 2026, about 8:30 AM ET, by the lead session that ran No
 closing that session and starting a new one. Read this file, then `PLAN.md` (the entries dated Nov 20
 at the top of "Where things stand"), then `tools/briefs/multiplayer.md`. That is enough to carry on.
 
-To take over, the owner only needs to tell a new agent:
-"Read HANDOFF.md in C:\Users\User\Documents\GitHub\GTA-Claude-4.8-Opus and take over as lead."
+To take over, the owner only needs to give a new agent this repository and tell it:
+"Read HANDOFF.md at the root of the repository (main branch) and take over as lead."
+
+## 0. You do not have the owner's laptop (read this first)
+
+The session that wrote this ran ON the owner's Windows laptop. The owner has decided the next lead
+works WITHOUT it, from a session that has only this repository. Everything you need is in the
+repository; paths below that begin `C:\Users\User\` are the laptop's and are not yours to use.
+What changes for you:
+
+- **Set up:** clone, `npm ci`, then `npx tsc --noEmit` and `npm run build` work anywhere. The test
+  harness (`tools/pw.mjs`, `tools/shot.mjs`) needs Playwright's Chromium; use the one your
+  environment provides (if the pinned version does not match, pass its executable path to
+  `chromium.launch` in `tools/pw.mjs` rather than installing another browser).
+- **No GPU.** Without one the browser draws in software: pictures are right but slow, and frame
+  times mean nothing. Use boots with empty error lists, pictures, counts (draw calls, uploads,
+  messages) and logic tests. Do NOT quote frame rates or compare with the numbers in `PLAN.md`
+  (those are from the laptop's Iris Xe); list performance as owed for a later check on real hardware.
+- **No Blender.** You cannot rebuild the car, people, tree or prop models (`tools/blender/*.py`
+  write the files in `public/models`). Do not change those scripts or files; if a job needs a
+  model changed, tell the owner it needs the laptop. Multiplayer needs none of it.
+- **No scratch folder.** `scratch/` and `shots/` were never in git. The tools that mattered are
+  copied to `tools/lead/`; the findings that mattered are in `PLAN.md`. Where this file or
+  `PLAN.md` names a `scratch/...` file, treat it as gone.
+- **The second repository.** Multiplayer's service is deployed by a workflow in the owner's
+  `kvbcawana` repository (same GitHub account), which holds the Cloudflare secrets. Ask your
+  environment for access to it when you reach that step; the deploy itself runs in GitHub Actions,
+  so it needs nothing from the laptop.
+- **Pushing and deploying work as before:** every push to `main` here builds and publishes the
+  site through GitHub Actions. If `gh` is not available to you, confirm a deploy by fetching
+  https://gta.doofus.live/ and checking that the script names in its HTML match your `dist/`.
+- **Rules 9 and 10 below (Blender's window, the battery) apply only on the laptop.** All the other
+  rules apply to you in full.
 
 ## 1. Where things stand
 
@@ -46,8 +77,9 @@ To take over, the owner only needs to tell a new agent:
    laptop). `tools/blender/cars.py` works that way; its header shows the command.
 10. **Battery:** before heavy work check the charge; at 20% or below start nothing heavy and wait
     until 80%. On battery the laptop sleeps after 3 minutes, so it must stay plugged in.
-11. **Work on this laptop, not in the cloud.** Blender 5.2, the GPU, `gh` (already signed in) and
-    the C-Max source project (`C:\Users\User\cmax`, not in this repo) are here.
+11. **Where the work runs.** The owner used to want everything done on the laptop (Blender 5.2, the
+    GPU and the C-Max source project are there). On Nov 21 the owner chose to hand the work to an
+    agent without the laptop: see section 0 for what that rules out.
 12. **Privacy.** The site and this repo are public. Never put the owner's name, email, real licence
     plate, VIN, photographs, account or session identifiers, or secrets in the repo or in commits.
 
@@ -158,5 +190,9 @@ stays personal before stage 4.
   cards and signs do not glow; markers still cover labels on the phone map; a reload mid-chase
   clears the police; very slow connections wait 17 s to start; later missions, shops, weapons and
   a gamepad were never played by script.
-- **The owner's standing preferences** are also saved as memory notes on this laptop for agents
-  started from `C:\Users\User`. If you can see them, they agree with section 2.
+- **The owner's standing preferences** were also saved as memory notes on the laptop. You cannot
+  see them; section 2 carries everything in them that bears on this job.
+- **Multiplayer's first unit asks for a local test with `wrangler dev` or Miniflare.** Both run
+  without a Cloudflare account, through `npx`; adding `wrangler` as a dev dependency of a `server/`
+  package of its own (not of the game) is fine and does not break the "no new dependencies" rule,
+  which is about what the game ships to players.
