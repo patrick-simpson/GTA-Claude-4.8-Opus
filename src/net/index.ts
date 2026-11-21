@@ -3,6 +3,7 @@
 // What travels: this browser's own character, or the car it is driving (kind, colour, position, full orientation,
 // speed, steering). Parked cars, traffic, pedestrians, police and everything else stay local to each browser until
 // stage 2: another player's car is a drawn copy here (Vehicles.ghost), never one of this browser's simulated cars.
+// Stage 2, step 1 (shared.ts): on the main service the moving traffic is the host's, the same for everybody.
 //
 // Sending (protocol.ts has the rules): a State frame up to SEND_HZ times a second, but only when something has
 // changed since the last one sent; a one byte keepalive every KEEPALIVE_MS otherwise; the measured frame time every
@@ -22,6 +23,7 @@ import {
 } from './protocol';
 import { Connection, servicePlan, type NetStatus } from './conn';
 import { Remote } from './remote';
+import { SharedTraffic } from './shared';
 import { SAYS, myName, nameText, rerollName } from './names';
 
 const SEND_MS = 1000 / SEND_HZ;
@@ -32,6 +34,8 @@ export class Net {
   readonly conn: Connection;
   /** Everybody else in this city, by id. */
   readonly remotes = new Map<number, Remote>();
+  /** The town's traffic: simulated here for everybody (host), shown from the host's frames (guest), or private. */
+  readonly shared: SharedTraffic;
   /** State frames sent, apart from the totals in conn.sent. */
   statesSent = 0;
 
@@ -66,6 +70,9 @@ export class Net {
     c.onFrame = (b) => this.frame(b);
     c.onDown = () => this.clear();
     c.onChange = () => this.showNote();
+    this.shared = new SharedTraffic(game, c, this.remotes);
+    // A paused game simulates nothing, so it says at once that it cannot host (and, on resuming, that it can again).
+    game.on('pause', () => { this.perfAt = 0; });
     c.start();
     this.showNote();
     // The game's own loop stops while paused and in a hidden tab; the keepalive must not.
@@ -121,6 +128,7 @@ export class Net {
     if (id === this.conn.id || this.remotes.has(id)) return;
     this.remotes.set(id, new Remote(this.game, id, e.slice(1)));
     this.force = true;
+    this.shared.refresh();
   }
 
   private drop(id: number): void {
@@ -160,6 +168,7 @@ export class Net {
       if (e) this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
       return;
     }
+    if (k === Frame.World) { this.shared.frame(buf, performance.now()); return; }
     if (k !== Frame.State) return;
     const s = decodePlayerState(buf, this.inState);
     if (!s) return;
@@ -226,7 +235,8 @@ export class Net {
     }
     if (now - this.perfAt >= PERF_INTERVAL_MS) {
       const g = this.game;
-      const ms = document.hidden ? PERF_CANNOT_HOST_MS : g.gov.ms > 0 ? g.gov.ms : 1000 / Math.max(1, g.fps);
+      // (Hidden or paused: the game loop is stopped, and a host that simulates nothing freezes everybody's traffic.)
+      const ms = document.hidden || g.state === 'paused' ? PERF_CANNOT_HOST_MS : g.gov.ms > 0 ? g.gov.ms : 1000 / Math.max(1, g.fps);
       if (c.send(encodeMsg({ t: 'perf', ms: Math.round(ms * 10) / 10 }))) this.perfAt = this.anyAt = now;
     }
     if (now - this.anyAt >= KEEPALIVE_MS && c.send(KEEPALIVE_FRAME)) this.anyAt = now;
@@ -240,10 +250,13 @@ export class Net {
     if (this.noteKind && !this.told[this.noteKind] && g.state === 'play') this.tellOnce(this.noteKind);
     this.pump(now);
     if (g.state === 'play' && g.input.hit('say')) this.sayCycle();
-    if (this.remotes.size === 0) return;
-    const eye = g.view ? g.view.pos : g.camera.position;
-    const night = g.sky.night;
-    for (const r of this.remotes.values()) r.update(now, dt, eye, night);
+    if (this.remotes.size > 0) {
+      const eye = g.view ? g.view.pos : g.camera.position;
+      const night = g.sky.night;
+      for (const r of this.remotes.values()) r.update(now, dt, eye, night);
+    }
+    // After the others have been placed: a host's drivers are told where they are.
+    this.shared.update(now, dt);
   }
 
   /** "3 in town", under the cash slip; only while connected with somebody else here. */
@@ -317,6 +330,8 @@ export class Net {
       service: c.service, notice: this.noteKind, noteText: this.noteShown, seats: c.seats,
       resumeAt: c.resumeAt, restUntil: c.restUntil, retryAt: c.status === 'full' ? c.retryAt : 0,
       sent: { ...c.sent, states: this.statesSent }, got: { ...c.got },
+      // traffic: mode ('local' | 'host' | 'guest'), World frames and bytes sent and received, and the shared cars with their numbers.
+      traffic: this.shared.info(),
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({

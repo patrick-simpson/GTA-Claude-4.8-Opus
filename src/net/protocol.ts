@@ -13,7 +13,11 @@
 // Nothing a player types ever travels: names are indexes into the client's own word lists, shouts
 // are numbers, durable facts are numbers.
 
-export const PROTOCOL_VERSION = 3;
+// Version 4 (stage 2, step 1): the host sends Frame.World with the town's moving traffic (see "World frames" below),
+// and every other browser draws those cars INSTEAD of running its own. A page that does not know this would, as
+// host, leave everybody else's streets empty, so the number went up: an older page is refused by a newer service
+// (and a newer page by an older service), and a refused page is simply the single player game.
+export const PROTOCOL_VERSION = 4;
 
 // ---- limits and rates (the service enforces the limits; the client should respect the rates) ----
 
@@ -34,6 +38,8 @@ export const MAX_PLAYER_FRAME_BYTES = 96;
 export const MAX_HOST_FRAME_BYTES = 4096;
 /** Largest JSON control message, in characters. */
 export const MAX_TEXT_CHARS = 256;
+/** World frames per second, at most (the host only, and only on the MAIN service: the backup's messages are billed). */
+export const WORLD_HZ = 10;
 /** Sustained messages per second allowed per connection, and the burst allowed on top. */
 export const RATE_PER_SECOND = 40;
 export const RATE_BURST = 80;
@@ -289,6 +295,134 @@ export function decodePlayerEvent(buf: ArrayBuffer): { id: number; code: number;
   const u8 = new Uint8Array(buf);
   if (u8[0] !== Frame.Event) return null;
   return { id: u8[1], code: u8[2], arg: u8[3] };
+}
+
+// ---- World frames (host only; the service relays them unread) ----
+//
+// Byte 2 says what the frame carries, so later steps can add streams (parked cars, people, police) beside this one.
+export const WorldKind = { Traffic: 1 } as const;
+
+// Traffic: every car with an imaginary driver, as the host simulates it. One frame is the WHOLE list:
+//   0 kind (Frame.World)  1 id  2 WorldKind.Traffic  3 t u16 (host's clock ms, low 16 bits)  5 n u8
+//   6.. n records of TRAFFIC_CAR_BYTES, for the cars that have moved or changed since they were last sent
+//   then one byte each: the ids of the cars that are still exactly where their last record put them
+// A car in neither part is gone. A record:
+//   0 id u8 (1..255, the same for the car's whole life)  1 kind (low 4 bits) | paint (high 4 bits)
+//   2 x u16  4 z u16 (5 cm steps from TRAFFIC_X0, TRAFFIC_Z0)  6 y i16 (cm)  8 yaw u16
+//   10 speed i8 (1/4 m/s along the nose)  11 steer i8  12 pitch i8  13 roll i8 (1/200 rad)  14 flags u8
+// kind is an index into the game's vehicle roster and paint an index into that kind's colours: both are the
+// client's own tables, which every page of one protocol version shares.
+export const TRAFFIC_HEADER_BYTES = 6;
+export const TRAFFIC_CAR_BYTES = 15;
+/** The most cars one frame may carry (it must fit MAX_HOST_FRAME_BYTES with room to spare). */
+export const TRAFFIC_MAX_CARS = 96;
+/** The corner positions are measured from, and the size of a step: the whole map with both lands fits in 16 bits. */
+export const TRAFFIC_X0 = -1640;
+export const TRAFFIC_Z0 = -2400;
+export const TRAFFIC_STEP = 0.05;
+/** Bits of TrafficCar.flags. Driverless: left standing by a driver who got out. */
+export const TrafficFlag = { Braking: 1, Reversing: 2, Horn: 4, Driverless: 8 } as const;
+
+export interface TrafficCar {
+  id: number;
+  /** Index into the roster (0..15) and into that kind's colours (0..15). */
+  kind: number;
+  paint: number;
+  /** The middle of the car at road level. */
+  x: number; y: number; z: number;
+  yaw: number;
+  /** Signed, along the nose, m/s (about +-31). */
+  speed: number;
+  /** -1 full left .. +1 full right. */
+  steer: number;
+  pitch: number; roll: number;
+  flags: number;
+}
+export function blankTrafficCar(): TrafficCar {
+  return { id: 0, kind: 0, paint: 0, x: 0, y: 0, z: 0, yaw: 0, speed: 0, steer: 0, pitch: 0, roll: 0, flags: 0 };
+}
+function clampI8(v: number): number {
+  return v > 127 ? 127 : v < -127 ? -127 : Math.round(v) || 0;
+}
+function clampU16(v: number): number {
+  return v > 65535 ? 65535 : v < 0 ? 0 : Math.round(v) || 0;
+}
+
+/**
+ * The first `nFull` of `cars` go in whole; `still` (the first `nStill` of it) are ids only. Writes into `out`, which
+ * must hold TRAFFIC_HEADER_BYTES + nFull * TRAFFIC_CAR_BYTES + nStill bytes, and returns the bytes used.
+ */
+export function encodeTraffic(t: number, cars: readonly TrafficCar[], nFull: number, still: ArrayLike<number>, nStill: number, out: Uint8Array): number {
+  const d = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  d.setUint8(0, Frame.World);
+  d.setUint8(1, 0);
+  d.setUint8(2, WorldKind.Traffic);
+  d.setUint16(3, t & 0xffff, true);
+  d.setUint8(5, nFull);
+  let o = TRAFFIC_HEADER_BYTES;
+  for (let i = 0; i < nFull; i++, o += TRAFFIC_CAR_BYTES) {
+    const c = cars[i];
+    d.setUint8(o, c.id & 0xff);
+    d.setUint8(o + 1, (c.kind & 15) | ((c.paint & 15) << 4));
+    d.setUint16(o + 2, clampU16((c.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+    d.setUint16(o + 4, clampU16((c.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+    d.setInt16(o + 6, clampI16(c.y * 100), true);
+    const turn = (((c.yaw % TAU) + TAU) % TAU) / TAU;
+    d.setUint16(o + 8, Math.round(turn * 65535) & 0xffff, true);
+    d.setInt8(o + 10, clampI8(c.speed * 4));
+    d.setInt8(o + 11, clampI8(c.steer * 127));
+    d.setInt8(o + 12, clampI8(c.pitch * 200));
+    d.setInt8(o + 13, clampI8(c.roll * 200));
+    d.setUint8(o + 14, c.flags & 0xff);
+  }
+  for (let i = 0; i < nStill; i++) d.setUint8(o++, still[i] & 0xff);
+  return o;
+}
+
+export interface TrafficFrame {
+  /** Host's clock, ms, low 16 bits. */
+  t: number;
+  /** Whole records: the first `n` of `cars` (the rest are spares kept for the next frame). */
+  n: number;
+  cars: TrafficCar[];
+  /** Ids only: the first `nStill` of `still`. */
+  nStill: number;
+  still: number[];
+}
+export function blankTrafficFrame(): TrafficFrame {
+  return { t: 0, n: 0, cars: [], nStill: 0, still: [] };
+}
+
+/** False when the frame is not a well formed traffic frame. Fills `out` (reuse one to avoid garbage). */
+export function decodeTraffic(buf: ArrayBuffer, out: TrafficFrame): boolean {
+  const len = buf.byteLength;
+  if (len < TRAFFIC_HEADER_BYTES) return false;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.World || d.getUint8(2) !== WorldKind.Traffic) return false;
+  const n = d.getUint8(5);
+  if (n > TRAFFIC_MAX_CARS || TRAFFIC_HEADER_BYTES + n * TRAFFIC_CAR_BYTES > len) return false;
+  out.t = d.getUint16(3, true);
+  out.n = n;
+  let o = TRAFFIC_HEADER_BYTES;
+  for (let i = 0; i < n; i++, o += TRAFFIC_CAR_BYTES) {
+    const c = out.cars[i] ?? (out.cars[i] = blankTrafficCar());
+    c.id = d.getUint8(o);
+    const kp = d.getUint8(o + 1);
+    c.kind = kp & 15; c.paint = kp >> 4;
+    c.x = d.getUint16(o + 2, true) * TRAFFIC_STEP + TRAFFIC_X0;
+    c.z = d.getUint16(o + 4, true) * TRAFFIC_STEP + TRAFFIC_Z0;
+    c.y = d.getInt16(o + 6, true) / 100;
+    c.yaw = (d.getUint16(o + 8, true) / 65535) * TAU;
+    c.speed = d.getInt8(o + 10) / 4;
+    c.steer = d.getInt8(o + 11) / 127;
+    c.pitch = d.getInt8(o + 12) / 200;
+    c.roll = d.getInt8(o + 13) / 200;
+    c.flags = d.getUint8(o + 14);
+  }
+  const ns = Math.min(len - o, TRAFFIC_MAX_CARS);
+  out.nStill = ns;
+  for (let i = 0; i < ns; i++) out.still[i] = d.getUint8(o + i);
+  return true;
 }
 
 // ---- JSON control messages ----

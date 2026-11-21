@@ -88,6 +88,33 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 2, step 1, the same moving traffic for everyone: pushed Nov 21, about 4:15 PM ET
+
+What changed:
+- On the mini PC (main) one player's browser, the host, runs the AI traffic and sends it. Everyone else shows the host's cars, about 130 ms behind.
+- The host runs traffic around every player from the one car budget, so a far player still has cars.
+- Shared cars are solid for a guest. A guest cannot enter one, and a guest's hits and shots do nothing to them yet.
+- When the host leaves, the next host takes over in place with the same car numbers.
+- On the Cloudflare backup, traffic stays private and no car frames are sent (budget).
+- Protocol is now version 4. New file src/net/shared.ts. New test tools/net/traffic.mjs.
+
+After this push: the mini PC updates itself in about 5 minutes. The Cloudflare backup stays on version 3 and refuses new pages until the owner presses Run on the deploy workflow. Until then a page that cannot reach main plays alone.
+
+Checked by the lead: tsc, build, server tests, traffic (30 checks), two, solo, main, notices, social: ALL PASS. Production boot with net=0 shows "errors": []. Pictures traffic-a and traffic-b show the same cars from both players.
+
+Measured: 142 bytes per frame for 10 cars. The host here only made 2.5 frames a second (no video card), so 360 bytes/s. At 10 a second that is about 1.5 kB/s.
+
+Still wrong or unseen:
+- Signal lights run on each browser's own clock, so a guest can see cars run a red.
+- Parked cars still differ per browser. Shared cars drive through a guest's parked cars.
+- Joining main as a guest pops your local traffic away.
+- A paused or stalled host freezes traffic for a few seconds.
+- Two far players got 4 to 5 cars each out of 12.
+- Single player traffic was reasoned to be unchanged, not compared.
+- social.mjs hung once in a long chained run, then passed twice. Not explained.
+
+Models: top model built it (judgement). Lead checked it.
+
 ### Multiplayer stage 1, step 7, one town not two: pushed Nov 21, about 3:00 PM ET
 
 The bug: two players could land in different towns (mini PC and backup) and never meet.

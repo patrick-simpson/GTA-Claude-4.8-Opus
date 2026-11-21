@@ -154,7 +154,7 @@ try {
   home = startHome(MAIN1);
   await up(MAIN1);
   const seen = [];
-  const watcher = new NodeSocket(`ws://127.0.0.1:${MAIN1}/?v=3&name=1.2`, { origin: 'http://localhost:5173' });
+  const watcher = new NodeSocket(`ws://127.0.0.1:${MAIN1}/?v=4&name=1.2`, { origin: 'http://localhost:5173' });
   watcher.on('message', (d, b) => { if (!b) seen.push(JSON.parse(String(d))); });
   watcher.on('error', () => {});
   for (let i = 0; i < 50 && !seen.some((x) => x.t === 'welcome'); i++) await sleep(100);
@@ -211,7 +211,7 @@ try {
   {
     const small = startHome(MAIN3, { PC_SEATS: '1', PC_STATE: path.join(tmp, 'small') });
     await up(MAIN3);
-    const filler = new NodeSocket(`ws://127.0.0.1:${MAIN3}/?v=3&name=1.2`, { origin: 'http://localhost:5173' });
+    const filler = new NodeSocket(`ws://127.0.0.1:${MAIN3}/?v=4&name=1.2`, { origin: 'http://localhost:5173' });
     await new Promise((r) => { filler.once('message', r); filler.once('error', r); });
     mainNow = `http://127.0.0.1:${MAIN3}`;
     standMain = null;

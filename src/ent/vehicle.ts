@@ -186,6 +186,9 @@ class Car implements Vehicle {
   readonly hl: number;
   readonly hw: number;
 
+  /** Placed by the network, not by physics (src/net/shared.ts): solid and immovable. See Vehicles.setShared. */
+  shared = false;
+
   // Everything below is private to this file.
   asleep = true;
   /** Where it fell asleep, so a teleport by other code is noticed. */
@@ -812,7 +815,37 @@ export class Vehicles implements VehiclesApi {
     if (i >= 0) this.ghosts.splice(i, 1);
   }
 
-  /** Place a ghost for this frame. steer: -1..1 as in VehicleControls; speed: signed, along the nose. */
+  // ── Shared cars (src/net/shared.ts): the town's traffic as the host's browser simulates it ─────────────────────
+  // Unlike a ghost, a shared car IS in `list`: it is drawn, heard and walked into like any other, and this browser's
+  // own cars collide with it as with something that cannot be moved. It has no physics of its own: ghostPose() puts
+  // it where the host says it is. Switching `shared` off hands it to this browser's physics from where it stands,
+  // with the speed it was last given.
+  setShared(v: Vehicle, on: boolean): void {
+    const c = v as Car;
+    if (c.shared === on) return;
+    c.shared = on;
+    c.asleep = false;
+    c.stale = true;
+    if (on) { c.yawRate = 0; c.vy = 0; c.slip = 0; c.sliding = false; c.loose = 0; c.mkOn = false; return; }
+    // On the ground where it stands, as seat() does, but still rolling.
+    const s = Math.sin(c.h), co = Math.cos(c.h), half = c.spec.wheelbase / 2, t = c.spec.track / 2;
+    c.gF = c.yF = groundAt(c.x + s * half, c.z + co * half);
+    c.gR = c.yR = groundAt(c.x - s * half, c.z - co * half);
+    c.vyF = c.vyR = 0;
+    c.onF = c.onR = c.onGround = true;
+    c.y = (c.yF + c.yR) / 2;
+    c.pitch = Math.atan2(c.yF - c.yR, c.spec.wheelbase);
+    const gl = Math.max(groundAt(c.x + co * t, c.z - s * t), c.y - 0.4);
+    const gr = Math.max(groundAt(c.x - co * t, c.z + s * t), c.y - 0.4);
+    c.groundRoll = c.roll = Math.atan2(gl - gr, c.spec.track);
+    c.lift = clamp((gl + gr) / 2 - c.y, -0.2, 0.2);
+    c.vy = c.yawRate = 0;
+    c.airTime = 0; c.rest = 0;
+    c.susp = c.suspV = c.rollV = c.pitchV = 0;
+    c.braking = c.reversing = false;
+  }
+
+  /** Place a ghost or a shared car for this frame. steer: -1..1 as in VehicleControls; speed: signed, along the nose. */
   ghostPose(v: Vehicle, x: number, y: number, z: number, h: number, pitch: number, roll: number, steer: number, speed: number, braking: boolean, reversing: boolean, dt: number): void {
     const c = v as Car;
     c.x = x; c.y = y; c.z = z; c.h = h;
@@ -921,6 +954,8 @@ export class Vehicles implements VehiclesApi {
     awake.length = 0;
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
+      // Placed by the network: nothing to simulate, but the awake cars still find it in their way (findPairs).
+      if (c.shared) continue;
       if (c.asleep) {
         if (c.x !== c.sx || c.z !== c.sz || c.h !== c.sh) { this.seat(c); c.asleep = false; }
         else if (c.driver !== null || c.vx !== 0 || c.vz !== 0 || c.vy !== 0 || c.yawRate !== 0) c.asleep = false;
@@ -967,7 +1002,7 @@ export class Vehicles implements VehiclesApi {
       const reachA = a.rad + (Math.abs(a.vx) + Math.abs(a.vz)) * dt + 0.5;
       for (let j = 0; j < list.length; j++) {
         const b = list[j];
-        if (b === a || (!b.asleep && b.id < a.id)) continue;
+        if (b === a || (!b.asleep && !b.shared && b.id < a.id)) continue;
         const reach = reachA + b.rad + (b.asleep ? 0 : (Math.abs(b.vx) + Math.abs(b.vz)) * dt);
         const dx = b.x - a.x;
         if (dx > reach || dx < -reach) continue;
@@ -1555,8 +1590,10 @@ export class Vehicles implements VehiclesApi {
     }
     if (cnt > 0) { px /= cnt; pz /= cnt; } else { px = (a.x + b.x) / 2; pz = (a.z + b.z) / 2; }
 
-    const im = a.invM + b.invM;
-    const pa = o * a.invM / im, pb = o * b.invM / im;
+    // A shared car (only ever `b`: it is never among the awake) is where the host says it is: it weighs the earth.
+    const bInvM = b.shared ? 0 : b.invM, bInvI = b.shared ? 0 : b.invI;
+    const im = a.invM + bInvM;
+    const pa = o * a.invM / im, pb = o * bInvM / im;
     a.x -= nx * pa; a.z -= nz * pa;
     b.x += nx * pb; b.z += nz * pb;
     if (b.asleep) { b.asleep = false; b.stale = true; }
@@ -1565,22 +1602,23 @@ export class Vehicles implements VehiclesApi {
     const vn = ((b.vx + b.yawRate * rbz) - (a.vx + a.yawRate * raz)) * nx + ((b.vz - b.yawRate * rbx) - (a.vz - a.yawRate * rax)) * nz;
     if (vn >= 0) return;
     const rna = raz * nx - rax * nz, rnb = rbz * nx - rbx * nz;
-    const j = -(1 + RESTITUTION) * vn / (im + rna * rna * a.invI + rnb * rnb * b.invI);
+    const j = -(1 + RESTITUTION) * vn / (im + rna * rna * a.invI + rnb * rnb * bInvI);
     a.vx -= j * nx * a.invM; a.vz -= j * nz * a.invM; a.yawRate -= rna * j * a.invI;
-    b.vx += j * nx * b.invM; b.vz += j * nz * b.invM; b.yawRate += rnb * j * b.invI;
+    b.vx += j * nx * bInvM; b.vz += j * nz * bInvM; b.yawRate += rnb * j * bInvI;
     // Paint rubbing on paint.
     const tx = -nz, tz = nx;
     const vt = (b.vx - a.vx) * tx + (b.vz - a.vz) * tz;
     const jt = clamp(-vt / im, -0.25 * j, 0.25 * j);
     a.vx -= jt * tx * a.invM; a.vz -= jt * tz * a.invM;
-    b.vx += jt * tx * b.invM; b.vz += jt * tz * b.invM;
+    b.vx += jt * tx * bInvM; b.vz += jt * tz * bInvM;
     const closing = -vn;
     if (closing > 2) { a.loose = Math.max(a.loose, 0.4); b.loose = Math.max(b.loose, 0.4); }
     if (closing > HARD_HIT) {
       // The lighter car takes the larger share of the damage.
       const dmg = (closing - HARD_HIT) * DAMAGE;
-      b.health = Math.max(0, b.health - dmg * b.invM / im);
-      this.impact(a, closing, b, px, pz, dmg * a.invM / im);
+      // (What a knock does to a shared car is the host's business: a later step.)
+      if (!b.shared) b.health = Math.max(0, b.health - dmg * b.invM / im);
+      this.impact(a, closing, b, px, pz, dmg * a.invM / (a.invM + b.invM));
     }
   }
 

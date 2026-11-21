@@ -545,7 +545,8 @@ export class Player implements PlayerApi {
     let best: Vehicle | null = null, bd = REACH;
     for (let i = 0; i < list.length; i++) {
       const v = list[i];
-      if (v.sunk || v.wreck) continue;
+      // (A shared traffic car has its driver in another browser: there is no door to open here yet.)
+      if (v.sunk || v.wreck || v.shared) continue;
       const dx = per.x - v.x, dz = per.z - v.z;
       const far = REACH + v.hl + v.hw;
       if (dx * dx + dz * dz > far * far || Math.abs(v.y - per.y) > 2.5) continue;

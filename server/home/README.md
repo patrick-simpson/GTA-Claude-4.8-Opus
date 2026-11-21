@@ -27,7 +27,7 @@ Running the line again is safe (it repairs and refreshes; the key is kept).
     sudo cat /var/lib/port-calamity/key/main.pub         # the public key again
 
 `/health` answers one line such as
-`{"ok":true,"service":"port-calamity-home","v":3,"release":"b0bd17a610c4","uptime":42,"seats":8,"players":0}`.
+`{"ok":true,"service":"port-calamity-home","v":4,"release":"b0bd17a610c4","uptime":42,"seats":8,"players":0}`.
 Until the developer has added the public key to the repository the tunnel log says
 "registration refused (403...)" or "not registering": that is expected, and it sorts itself out.
 

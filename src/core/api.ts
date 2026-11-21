@@ -103,6 +103,8 @@ export interface Vehicle {
   lights: boolean;
   /** True once it has gone into deep water; it sinks and is removed shortly after. */
   sunk: boolean;
+  /** Multiplayer: one of the town's traffic cars as the host's browser simulates it, drawn and solid here but not this browser's to drive, damage or remove. */
+  readonly shared?: boolean;
   /** Burnt out by fire and explosion (ent/weapons.ts): driverless, inert, cannot be entered, removed once the player is far away. */
   wreck?: boolean;
   /** Half length and half width of the collision box, meters. */

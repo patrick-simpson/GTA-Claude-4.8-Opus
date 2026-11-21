@@ -148,6 +148,9 @@ export class Remote {
     this.tagTex.needsUpdate = true;
   }
 
+  /** The car they are driving, as drawn here (a ghost: see Vehicles.ghost), or null on foot. */
+  get vehicle(): Vehicle | null { return this.car; }
+
   /** An Event frame from this player: a wave (arg ignored) or a shout (arg is the line). Anything else is ignored. */
   hear(code: number, arg: number, now: number): void {
     let line = '';

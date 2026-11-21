@@ -77,6 +77,22 @@ interface Driver {
   yellow: number;
   /** What it is waiting for, for the soak test's notes. */
   why: string;
+  /** Multiplayer: the car's number on the wire (1..255, 0 without a car), and which anchor it is nearest. */
+  wid: number; anchor: number;
+}
+
+/**
+ * Somebody the streets are kept busy around. Alone, that is this browser's player. A multiplayer host keeps traffic
+ * round every player in town (src/net/shared.ts fills `Traffic.extra`), out of the one budget of cars.
+ */
+export interface Anchor {
+  x: number; z: number;
+  /** Where they look from and which way, as near as is known: nothing appears or vanishes in front of it. */
+  cx: number; cz: number; yaw: number;
+  /** Just arrived or jumped: their street is filled at once, in plain view. */
+  jumped: boolean;
+  /** Cars nearer to them than to anybody else (counted each frame). */
+  n: number;
 }
 
 /**
@@ -101,6 +117,22 @@ export class Traffic {
   readonly stats = { redRuns: 0, aiHits: 0, removedStuck: 0, bails: 0, panics: 0, passes: 0, honks: 0, swerves: 0, note: '' };
   /** A hit driver has stopped and got out: (the car, where they stand). Ambient points this at the pedestrians. */
   onBail: ((v: Vehicle, x: number, z: number) => void) | null = null;
+
+  // ── Multiplayer (src/net/shared.ts) ──
+  /** The other players in town, when this browser is the host. Empty otherwise. */
+  extra: Anchor[] = [];
+  /** Their cars, which the drivers here must see (they are drawn only, so not in vehicles.list), and those of them on foot. */
+  others: readonly Vehicle[] = [];
+  walkers: readonly RoadPed[] = [];
+  /** The host's traffic is shown instead: nothing is spawned or driven here. */
+  guest = false;
+  private readonly own: Anchor = { x: 0, z: 0, cx: 0, cz: 0, yaw: 0, jumped: false, n: 0 };
+  private anchors: Anchor[] = [this.own];
+  private readonly allPeds: RoadPed[] = [];
+  private readonly widUsed = new Uint8Array(256);
+  private lastWid = 0;
+  private readonly orphanWid = new Map<Vehicle, number>();
+  private balanceT = 0;
 
   private readonly rng = new RNG(60312);
   private readonly byVeh = new Map<Vehicle, Driver>();
@@ -136,10 +168,12 @@ export class Traffic {
         near: [], nearT: 0, legit: false, wait: 0, honk: 0, honkCool: 0,
         passing: false, passEnd: 0, passAt: 0, passOff: 0, lcCool: 0, bold: 0,
         stuck: 0, back: 0, backCool: 0, jams: 0, still: 0, halt: 0, panic: 0, bail: 0, swerve: 0, swerveT: 0, prevStop: 99, slowT: 0, yellow: 0, why: '',
+        wid: 0, anchor: 0,
       };
       this.drivers.push(d);
     }
-    for (const d of this.drivers) if (this.active() < this.target()) for (let k = 0; k < 60 && !d.v; k++) this.seat(d, 18, 165, 0);
+    this.look();
+    for (const d of this.drivers) if (this.active() < this.target()) for (let k = 0; k < 60 && !d.v; k++) this.seat(d, this.own, 18, 165, 0);
 
     game.on('impact', (ev) => {
       const a = this.byVeh.get(ev.vehicle), b = ev.other ? this.byVeh.get(ev.other) : undefined;
@@ -162,35 +196,96 @@ export class Traffic {
     return n;
   }
 
-  update(dt: number, peds: readonly RoadPed[], jumped: boolean): void {
-    const g = this.game, pl = g.player, px = pl.x, pz = pl.z;
-    this.peds = peds;
-    this.frame++;
-    let active = 0;
-    for (const d of this.drivers) if (d.v) active++;
-    const target = this.target();
+  /** Where this browser's own player is and looks from. */
+  private look(): void {
+    const g = this.game, pl = g.player, a = this.own;
+    a.x = pl.x; a.z = pl.z;
+    // (The camera rig is built after the first cars are placed.)
+    const cam = g.camera.position, rig = g.cam as Game['cam'] | undefined;
+    a.cx = cam.x; a.cz = cam.z; a.yaw = rig ? rig.yaw : 0;
+  }
 
-    for (const d of this.drivers) {
-      let v = d.v;
-      // Stolen or drowned: it is somebody else's car now, and an ordinary one.
-      if (v && (v.driver !== 'ai' || v.sunk)) { this.release(d); v = null; active--; }
-      if (v) {
-        const dx = v.x - px, dz = v.z - pz, far = dx * dx + dz * dz > 185 * 185;
-        // Hopelessly wedged cars are swapped for fresh ones, but never while anyone can see.
-        const hopeless = (d.jams > 2 || d.still > 30 || d.halt > 45) && spawnOk(g, v.x, v.z, 45, 1e5, 110);
-        if (far || hopeless) {
-          if (hopeless && !far) this.stats.removedStuck++;
-          this.release(d); g.vehicles.remove(v); v = null; active--;
+  /**
+   * Is (x, z) a fair place for something to appear or vanish, whoever is in town? At least `near` from everybody,
+   * and for each of them either behind their view or at least `front` from it (0 = anywhere).
+   */
+  private unseen(x: number, z: number, near: number, front: number): boolean {
+    for (const a of this.anchors) {
+      const dx = x - a.x, dz = z - a.z;
+      if (dx * dx + dz * dz < near * near) return false;
+      if (front <= 0) continue;
+      const cx = x - a.cx, cz = z - a.cz;
+      if (cx * Math.sin(a.yaw) + cz * Math.cos(a.yaw) >= 0 && cx * cx + cz * cz <= front * front) return false;
+    }
+    return true;
+  }
+
+  update(dt: number, peds: readonly RoadPed[], jumped: boolean): void {
+    const g = this.game;
+    this.peds = peds;
+    if (this.walkers.length > 0) {
+      const all = this.allPeds;
+      all.length = 0;
+      for (const p of peds) all.push(p);
+      for (const p of this.walkers) all.push(p);
+      this.peds = all;
+    }
+    this.frame++;
+    this.look();
+    this.own.jumped = jumped;
+    const anchors = this.anchors;
+    anchors.length = 1;
+    if (!this.guest) for (const a of this.extra) anchors.push(a);
+    const many = anchors.length > 1;
+
+    if (!this.guest) {
+      let active = 0;
+      for (const a of anchors) a.n = 0;
+      for (const d of this.drivers) {
+        const v = d.v;
+        if (!v) continue;
+        active++;
+        // Whose car is it: the nearest player's.
+        let best = 0, bd = Infinity;
+        if (many) for (let i = 0; i < anchors.length; i++) {
+          const a = anchors[i], dx = v.x - a.x, dz = v.z - a.z, d2 = dx * dx + dz * dz;
+          if (d2 < bd) { bd = d2; best = i; }
         }
+        d.anchor = best;
+        anchors[best].n++;
       }
-      if (!v) {
-        if (active >= target) continue;
-        if (jumped) for (let k = 0; k < 60 && !d.v; k++) this.seat(d, 25, 160, 0);
-        else for (let k = 0; k < 3 && !d.v; k++) this.seat(d, 70, 165, 120);
-        if (d.v) active++;
-        continue;
+      const target = this.target();
+      // One budget of cars, shared out between everybody in town.
+      const share = Math.ceil(target / anchors.length);
+
+      for (const d of this.drivers) {
+        let v = d.v;
+        // Stolen or drowned: it is somebody else's car now, and an ordinary one.
+        if (v && (v.driver !== 'ai' || v.sunk)) { anchors[d.anchor].n--; this.release(d); v = null; active--; }
+        if (v) {
+          const a = anchors[d.anchor], dx = v.x - a.x, dz = v.z - a.z, far = dx * dx + dz * dz > 185 * 185;
+          // Hopelessly wedged cars are swapped for fresh ones, but never while anyone can see.
+          const hopeless = (d.jams > 2 || d.still > 30 || d.halt > 45) && this.unseen(v.x, v.z, 45, 110);
+          if (far || hopeless) {
+            if (hopeless && !far) this.stats.removedStuck++;
+            a.n--;
+            this.release(d); g.vehicles.remove(v); v = null; active--;
+          }
+        }
+        if (!v) {
+          if (active >= target) continue;
+          // For whoever has the fewest (alone, that is the player).
+          let a = anchors[0];
+          if (many) for (const b of anchors) if (b.n < a.n) a = b;
+          if (a.n >= share) continue;
+          if (a.jumped) for (let k = 0; k < 60 && !d.v; k++) this.seat(d, a, 25, 160, 0);
+          else for (let k = 0; k < 3 && !d.v; k++) this.seat(d, a, 70, 165, 120);
+          if (d.v) { active++; a.n++; d.anchor = anchors.indexOf(a); }
+          continue;
+        }
+        this.drive(d, v, dt);
       }
-      this.drive(d, v, dt);
+      if (many && (this.balanceT -= dt) <= 0) { this.balanceT = 0.2; this.balance(share); }
     }
 
     // One abandoned car looked at per frame is plenty.
@@ -198,17 +293,155 @@ export class Traffic {
     if (o.length > 0) {
       const i = this.frame % o.length, v = o[i];
       const gone = v.sunk || v.driver !== null || g.vehicles.list.indexOf(v) < 0;
-      const dx = v.x - px, dz = v.z - pz;
-      if (gone) o.splice(i, 1);
-      else if (dx * dx + dz * dz > 230 * 230 || (o.length > 6 && spawnOk(g, v.x, v.z, 60, 1e5, 130))) {
-        o.splice(i, 1); g.vehicles.remove(v);
+      let d2 = Infinity;
+      for (const a of anchors) { const dx = v.x - a.x, dz = v.z - a.z; d2 = Math.min(d2, dx * dx + dz * dz); }
+      if (gone) { o.splice(i, 1); this.dropOrphan(v); }
+      else if (d2 > 230 * 230 || (o.length > 6 && this.unseen(v.x, v.z, 60, 130))) {
+        o.splice(i, 1); this.dropOrphan(v); g.vehicles.remove(v);
       }
     }
+  }
+
+  /**
+   * Somebody in town has fewer cars than their share while somebody else has more, and the budget is spent: take one
+   * that nobody can see from the busiest streets. Its driver is free again, and the next frame seats it where it is wanted.
+   */
+  private balance(share: number): void {
+    const anchors = this.anchors;
+    let poor = 0, rich = 0;
+    for (let i = 1; i < anchors.length; i++) {
+      if (anchors[i].n < anchors[poor].n) poor = i;
+      if (anchors[i].n > anchors[rich].n) rich = i;
+    }
+    if (anchors[poor].n >= share - 1 || anchors[rich].n <= share) return;
+    for (const d of this.drivers) {
+      const v = d.v;
+      if (!v || d.anchor !== rich || !this.unseen(v.x, v.z, 60, 110)) continue;
+      anchors[rich].n--;
+      this.release(d); this.game.vehicles.remove(v);
+      return;
+    }
+  }
+
+  // ── Multiplayer: numbers on the wire, and handing the cars over ──────────────
+
+  /** A number no car here is using; they go round, so one is not reused the moment its car has gone. */
+  private newWid(): number {
+    let id = this.lastWid;
+    for (let k = 0; k < 255; k++) {
+      id = (id % 255) + 1;
+      if (!this.widUsed[id]) break;
+    }
+    this.lastWid = id;
+    this.widUsed[id] = 1;
+    return id;
+  }
+
+  private dropOrphan(v: Vehicle): void {
+    const w = this.orphanWid.get(v);
+    if (w !== undefined) { this.widUsed[w] = 0; this.orphanWid.delete(v); }
+  }
+
+  /** Every car the rest of the town should see: those being driven, then those their drivers walked away from. */
+  eachShared(fn: (wid: number, v: Vehicle, driverless: boolean) => void): void {
+    for (const d of this.drivers) if (d.v && d.v.driver === 'ai' && !d.v.sunk) fn(d.wid, d.v, false);
+    for (const v of this.orphans) {
+      const w = this.orphanWid.get(v);
+      if (w !== undefined && v.driver === null && !v.sunk && !v.wreck) fn(w, v, true);
+    }
+  }
+
+  /** Stop driving: every car is let go of (not removed) and reported, with its number. Another browser has the wheel now. */
+  handOver(fn: (wid: number, v: Vehicle, driverless: boolean) => void): void {
+    this.eachShared(fn);
+    for (const d of this.drivers) if (d.v) this.release(d);
+    const o = this.orphans;
+    for (let i = o.length - 1; i >= 0; i--) if (this.orphanWid.has(o[i])) { this.dropOrphan(o[i]); o.splice(i, 1); }
+    this.guest = true;
+  }
+
+  /** Stop driving and take every car off the street: the host's are about to be shown instead. */
+  clearCars(): void {
+    for (const d of this.drivers) {
+      const v = d.v;
+      if (!v) continue;
+      this.release(d);
+      this.game.vehicles.remove(v);
+    }
+    this.guest = true;
+  }
+
+  /**
+   * Take the wheel of a car that is already on the street (it was the last host's): find the lane it is in from where
+   * it stands and which way it points. False when it cannot be placed or there is nobody free to drive it.
+   */
+  adopt(v: Vehicle, wid: number, driverless: boolean): boolean {
+    if (this.widUsed[wid]) return false;
+    if (driverless) {
+      v.driver = null;
+      this.orphans.push(v);
+      this.orphanWid.set(v, wid);
+      this.widUsed[wid] = 1;
+      return true;
+    }
+    let d: Driver | null = null;
+    for (const c of this.drivers) if (!c.v) { d = c; break; }
+    if (!d) return false;
+    const plan = this.game.plan, sh = Math.sin(v.h), ch = Math.cos(v.h);
+    let best: RoadEdge | null = null, bestFwd = true, bestLat = 0, top = 7;
+    for (const e of plan.landEdges(v.z)) {
+      if (e.closed) continue;
+      const A = plan.nodes[e.a], B = plan.nodes[e.b];
+      const along = e.horiz ? v.x - A.x : v.z - A.z;
+      if (along < -8 || along > e.len + 8) continue;
+      // Meters to the right of someone travelling a -> b.
+      const lat0 = e.horiz ? v.z - A.z : -(v.x - A.x);
+      if (Math.abs(lat0) > e.hw + 1.5) continue;
+      const dot = e.horiz ? sh : ch;
+      // Square across the street (half way round a corner): whichever side it is on is its side.
+      const fwd = Math.abs(dot) > 0.3 ? dot > 0 : lat0 > 0;
+      const lat = fwd ? lat0 : -lat0, to = fwd ? B : A, s = fwd ? along : e.len - along;
+      const nl = this.lanes(e, to);
+      let miss = Infinity;
+      for (let l = 0; l < nl; l++) miss = Math.min(miss, Math.abs(lat - laneOff(e, l)));
+      // Past the stop line it is leaving this street, not on it: the street it is turning into is the better fit.
+      const leaving = s > e.len - (e.horiz ? to.hx : to.hz) - 1;
+      const score = miss + (1 - Math.abs(dot)) * 6 + (lat < -0.5 ? 3 : 0) + (leaving ? 5 : 0) + (along < 0 || along > e.len ? 2 : 0);
+      if (score < top) { top = score; best = e; bestFwd = fwd; bestLat = lat; }
+    }
+    if (!best) return false;
+    const e = best, to = plan.nodes[bestFwd ? e.b : e.a], nl = this.lanes(e, to);
+    let lane = 0;
+    for (let l = 1; l < nl; l++) if (Math.abs(bestLat - laneOff(e, l)) < Math.abs(bestLat - laneOff(e, lane))) lane = l;
+    const rng = this.rng, kind = v.spec.kind;
+    v.driver = 'ai';
+    d.v = v; d.e = e; d.to = to; d.lane = lane; d.turn = null;
+    // From where it is: the lane is eased back into, not jumped to.
+    d.off = clamp(bestLat, 0.6, e.hw - 0.8);
+    d.wid = wid; this.widUsed[wid] = 1;
+    this.byVeh.set(v, d);
+    d.next = this.pick(d, e, to);
+    this.plan(d);
+    d.cruise = Math.min(rng.range(8.5, 12.5) * (e.lanes === 2 ? 1.1 : 1), SPECS[kind].topSpeed * 0.5);
+    if (kind === 'bus') d.cruise = Math.min(d.cruise, 8.5);
+    this.fresh(d);
+    return true;
+  }
+
+  /** Back from showing somebody else's traffic to driving this browser's own. */
+  resume(): void { this.guest = false; }
+
+  private fresh(d: Driver): void {
+    d.near.length = 0; d.nearT = 0;
+    d.legit = d.passing = false;
+    d.wait = d.honk = d.honkCool = d.lcCool = d.bold = d.stuck = d.back = d.backCool = d.jams = d.still = d.halt = d.panic = d.bail = d.swerveT = d.slowT = 0;
+    d.prevStop = 99; d.yellow = 0;
   }
 
   private release(d: Driver): void {
     if (d.v) { this.byVeh.delete(d.v); d.v.ctl.horn = false; }
     d.v = null;
+    if (d.wid) { this.widUsed[d.wid] = 0; d.wid = 0; }
   }
 
   // ── Routes ─────────────────────────────────────────────────────────────────
@@ -279,10 +512,10 @@ export class Traffic {
   }
 
   /** Try one random spot in a lane; on success a new car is driving there. */
-  private seat(d: Driver, near: number, far: number, front: number): boolean {
+  private seat(d: Driver, a: Anchor, near: number, far: number, front: number): boolean {
     const g = this.game, plan = g.plan, rng = this.rng;
     // The streets of the land the player is on: a pick from the whole world would land out of range most of the time.
-    const e = rng.pick(plan.landEdges(g.player.z)), fwd = rng.chance(0.5);
+    const e = rng.pick(plan.landEdges(a.z)), fwd = rng.chance(0.5);
     if (e.closed) return false;
     // The avenues carry the traffic; the side streets get what is left.
     if (e.lanes === 1 && rng.chance(0.4)) return false;
@@ -296,23 +529,25 @@ export class Traffic {
     // The bus keeps to the kerb lane, as buses do.
     const lane = kind === 'bus' ? nl - 1 : rng.int(0, nl - 1), off = laneOff(e, lane);
     const x = from.x + dx * s - dz * off, z = from.z + dz * s + dx * off;
-    if (!spawnOk(g, x, z, near, far, front)) return false;
+    if ((x - a.x) * (x - a.x) + (z - a.z) * (z - a.z) > far * far || !this.unseen(x, z, near, front)) return false;
     for (const o of g.vehicles.list) {
+      const ox = o.x - x, oz = o.z - z;
+      if (Math.abs(ox * dx + oz * dz) < 13 + o.hl && Math.abs(-ox * dz + oz * dx) < 2.3) return false;
+    }
+    for (const o of this.others) {
       const ox = o.x - x, oz = o.z - z;
       if (Math.abs(ox * dx + oz * dz) < 13 + o.hl && Math.abs(-ox * dz + oz * dx) < 2.3) return false;
     }
     const v = g.vehicles.spawn(kind, x, z, Math.atan2(dx, dz));
     v.driver = 'ai';
     d.v = v; d.e = e; d.to = to; d.lane = lane; d.off = off; d.turn = null;
+    d.wid = this.newWid();
     this.byVeh.set(v, d);
     d.next = this.pick(d, e, to);
     this.plan(d);
     d.cruise = Math.min(rng.range(8.5, 12.5) * (e.lanes === 2 ? 1.1 : 1), SPECS[kind].topSpeed * 0.5);
     if (kind === 'bus') d.cruise = Math.min(d.cruise, 8.5);
-    d.near.length = 0; d.nearT = 0;
-    d.legit = d.passing = false;
-    d.wait = d.honk = d.honkCool = d.lcCool = d.bold = d.stuck = d.back = d.backCool = d.jams = d.still = d.halt = d.panic = d.bail = d.swerveT = d.slowT = 0;
-    d.prevStop = 99; d.yellow = 0;
+    this.fresh(d);
     // Already rolling, so a street does not fill with cars pulling away at once.
     v.vx = dx * d.cruise * 0.7; v.vz = dz * d.cruise * 0.7;
     return true;
@@ -397,6 +632,11 @@ export class Traffic {
       d.near.length = 0;
       for (const o of g.vehicles.list) {
         if (o === v) continue;
+        const ox = o.x - v.x, oz = o.z - v.z;
+        if (ox < 62 && ox > -62 && oz < 62 && oz > -62) d.near.push(o);
+      }
+      // The other players' cars: not this browser's to simulate, but very much in the way.
+      for (const o of this.others) {
         const ox = o.x - v.x, oz = o.z - v.z;
         if (ox < 62 && ox > -62 && oz < 62 && oz > -62) d.near.push(o);
       }
@@ -638,6 +878,10 @@ export class Traffic {
         const door = { x: v.x, z: v.z };
         v.doorPos(-1, door);
         this.orphans.push(v);
+        // It keeps its number: the rest of the town goes on seeing the same car, standing.
+        const w = d.wid;
+        d.wid = 0;
+        if (w) this.orphanWid.set(v, w);
         this.release(d);
         this.onBail?.(v, door.x, door.z);
         return;
