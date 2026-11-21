@@ -88,6 +88,32 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 1, step 1, the message service: pushed Nov 21, about 9:45 AM ET
+
+A new lead took over from HANDOFF.md, working without the laptop (no GPU, no Blender). The owner
+lifted the weekly cap for this job (stay inside the 5 hour window only) and confirmed pushes go to
+main. Built by a top model worker; the lead re-ran the test itself.
+
+- `server/`: a package of its own (wrangler is a dev dependency there, not of the game). A Worker
+  `port-calamity-city` and one SQLite backed Durable Object, `City`, on the WebSocket Hibernation
+  API. It seats players (cap 16, then a second city), sends presence, relays binary state frames
+  stamped with the sender id, picks and moves the host (leave, 4 s of silence, bad frame time,
+  with hysteresis), and keeps numeric durable facts the host writes. Origin limited to the site
+  and localhost; names are two or three list indexes, never text; size and rate caps.
+- `src/net/protocol.ts`: the one shared protocol file (no imports). Not yet imported by the game,
+  so the shipped bundle is unchanged.
+- Checked: `cd server && npm test` starts the Worker locally and prints 45 PASS lines, then ALL
+  PASS (run by the worker and again by the lead). Root `tsc` and `npm run build` clean.
+- Measured (4 simulated players, 10 Hz, 60 s): 2,436 messages in, 7,176 out, about 26 bytes each.
+  Against the free plan (100,000 requests a day, incoming messages billed 20 to 1) that is about
+  54 player hours a day. 5 Hz doubles it; sending only when moving does far better.
+
+Owed: never run on real Cloudflare yet (hibernation wake and the fact flush are untested there);
+the deploy workflow is a draft in `server/deploy/` and is not yet in kvbcawana; when the daily
+quota runs out the service is down until midnight UTC, so the client must fall back to single
+player; silent non-host players are never dropped; name index ranges are 0 to 255 until the real
+word lists exist; the client should send only when moving to stretch the free plan.
+
 ### Interface leftovers from the bug bash: pushed Nov 20, about 3:25 PM ET
 
 By a Sonnet worker, checked by a second. On touch screens the pause menu's tabs,

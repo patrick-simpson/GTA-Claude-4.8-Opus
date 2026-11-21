@@ -1,0 +1,18 @@
+# PORT CALAMITY message service. Free plan: the Durable Object class must be SQLite backed
+# (new_sqlite_classes), and it uses the WebSocket Hibernation API so idle time is not billed.
+name = "port-calamity-city"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[[durable_objects.bindings]]
+name = "CITY"
+class_name = "City"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["City"]
+
+# No logs are kept: the code never reads or prints an address, and request logging stays off.
+[observability]
+enabled = false

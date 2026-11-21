@@ -121,3 +121,4 @@ owner's ground rules for the takeover and the running state.
   and live. NEXT, after the weekly reset on Sunday Nov 22, 4 PM ET: multiplayer stage 1
   (tools/briefs/multiplayer.md). Open question put to the owner: should AI traffic cross the
   finished bridge? Until the reset: answer the resume check with one line and do nothing else.
+- Nov 21, 9:45 AM ET: new lead (no laptop). Owner lifted the weekly cap, 5 hour window only; pushes to main confirmed; kvbcawana attached with the owner's yes. Multiplayer step 1 (server/ and src/net/protocol.ts) pushed, 45 local checks pass, about 54 free player hours a day at 10 Hz. Workers are plain Agent calls here (no Workflow tool).
