@@ -88,6 +88,36 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 1, step 4, the home service and its installer: pushed Nov 21, about 1:20 PM ET
+
+By a top model worker; the lead re-ran the tests, read `install.sh` line by line and checked the
+three pinned SHA-256 values against the publishers' own lists (Node, cloudflared, ws: all match).
+NOT INSTALLED AND NOT LIVE: the installer has never run on a real machine.
+
+- `server/home/`: `main.ts` (Node wrapper round the same `Room`, loopback only, 8 seats, no
+  budget), `tunnel.ts` (runs the quick tunnel, checks it, registers its address with an Ed25519
+  signature, makes the key pair on first start), `install.sh` / `uninstall.sh` / `update.sh`,
+  `pins.env`, four sandboxed systemd units, a README with the one line for the owner.
+- No build on the PC: `update.sh` fetches pinned official Node 24 into the service's own folder
+  and Node strips the types. Updates every five minutes from `main`, started on a spare port
+  and health-checked BEFORE the switch, previous version kept, rollback on failure.
+- "Where is main": `server/src/where.ts`, `mainkey.ts` (a placeholder until the owner sends the
+  public key; all registrations are refused until then), `GET`/`POST /main` on the Worker. The
+  client tries the remembered main first, then asks, then main, backup, single player.
+  Heartbeat every 30 minutes (48 a day, about 0.1% of the request pause line).
+- Checked here: `server npm test` 140 PASS (Worker 88, Node home 52); `server/test/update-test.sh`
+  21 PASS (install, refusal before the switch, rollback, bad checksum); `tools/net/main.mjs`,
+  `notices.mjs`, `two.mjs`, `solo.mjs`; `systemd-analyze verify` clean with stand-ins;
+  production boot with no errors.
+
+Owed, all because it needs the real PC or a deployed Worker: `install.sh` and `uninstall.sh` never
+executed; the units never ran under real systemd (Node and cloudflared inside that sandbox are
+unproven); real cloudflared never run (banner parsing, traffic through a tunnel); shellcheck not
+run; a bug in `update.sh` or the units needs the owner to re-run the one line; the cloudflared pin
+needs raising about twice a year; a player who lands on the backup stays there until reconnect.
+To go live: owner runs the install line and sends the public key; lead commits it; owner runs the
+deploy workflow in kvbcawana; lead sets `BACKUP_HOST` in `src/net/protocol.ts` and pushes.
+
 ### Multiplayer stage 1, step 3, eight seats and a Cloudflare budget: pushed Nov 21, about 12:35 PM ET
 
 The owner's rules of Nov 21 (tools/briefs/multiplayer.md, items 6 to 12). By a top model worker;

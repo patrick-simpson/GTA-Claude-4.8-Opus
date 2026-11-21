@@ -7,6 +7,12 @@
 // computer, no daily limits), then the BACKUP (the Cloudflare Worker, which rations itself). They are tried in that
 // order, the one that last worked first, and when none answers the game is single player until the next round.
 //
+// The MAIN address is not fixed: the home computer sits behind a free tunnel whose address changes whenever it
+// restarts. So the home computer tells the backup where it is, and the game asks the backup ("the lookup", one small
+// cacheable GET). To spare the backup, the address learnt is kept in localStorage and tried FIRST on later visits
+// without asking anybody; the backup is asked only when there is no remembered address or it did not answer.
+// Main is always tried before the backup, and may be used while the backup is resting.
+//
 // Two answers are not failures, and each has its own patience:
 //  - `full`: every seat in town is taken. Ask THE SAME address again in a few minutes (never the next address: a
 //    second address would be a second city). The player sees a small "town full" line meanwhile.
@@ -15,36 +21,42 @@
 //    every request to it, refused or not, is billed to an account that is not ours to spend.
 
 import {
-  Close, FULL_RETRY_S, PROTOCOL_VERSION, REST_SPREAD_MS, cityUrl, parseServerMsg,
+  BACKUP_HOST, Close, FULL_RETRY_S, MAIN_PATH, PROTOCOL_VERSION, REST_SPREAD_MS, cityUrl, isMainAddress, parseServerMsg,
   type NameIndexes, type ServerMsg, type WelcomeMsg,
 } from './protocol';
 
 /**
- * Where the service lives, in the order to try: main first, then backup. EMPTY = multiplayer off: nothing connects
- * and the game is exactly the single player game. Fill it in when the services exist, for example
- * ['wss://<the home computer's tunnel>', 'wss://port-calamity-city.<account>.workers.dev'].
+ * The fixed addresses of the service, in the order to try (the main one is not here: it is looked up). Today that
+ * is the backup alone, and it is EMPTY while BACKUP_HOST in protocol.ts is empty: then multiplayer is off, nothing
+ * connects, nothing is looked up, and the game is exactly the single player game.
  */
-export const SERVICE_URLS: readonly string[] = [];
+export const SERVICE_URLS: readonly string[] = BACKUP_HOST ? [`wss://${BACKUP_HOST}`] : [];
+/** Who to ask where the main service is (MAIN_PATH is added). Empty = nobody, and there is no main. */
+export const LOOKUP_URL: string = BACKUP_HOST ? `https://${BACKUP_HOST}` : '';
 
 const LOCAL_URL = /^wss?:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?\/?$/;
+const LOCAL_HTTP = /^http:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?$/;
 
 /**
  * The addresses this visit uses: `?net=ws://127.0.0.1:8787` (LOCAL services only, for testing: a link must not be
  * able to send a visitor to somebody else's server; several may be given, separated by commas, to test the order),
- * `?net=0` for off, else SERVICE_URLS.
- * `fullRetryS` is test only too: `&netretry=5` shortens the wait after "town full", and is read ONLY alongside a
- * local `?net=`, so no link can make a visitor's browser ask the real service more often.
+ * `?net=0` for off, else SERVICE_URLS and LOOKUP_URL.
+ * Test only, and read ONLY alongside `?net=` (so no link can change what a visitor's browser does to the real service):
+ *  - `&netretry=5` shortens the wait after "town full";
+ *  - `&netmain=http://127.0.0.1:8796` names a LOCAL stand-in for the lookup. What it answers may then be a local
+ *    address too (http://127.0.0.1:<port>); the real lookup may only ever name https://<name>.trycloudflare.com.
  */
-export function servicePlan(): { urls: string[]; fullRetryS: number } {
-  let q: string | null = null, r: string | null = null;
+export function servicePlan(): { urls: string[]; fullRetryS: number; lookup: string } {
+  let q: string | null = null, r: string | null = null, m: string | null = null;
   try {
     const sp = new URLSearchParams(location.search);
-    q = sp.get('net'); r = sp.get('netretry');
+    q = sp.get('net'); r = sp.get('netretry'); m = sp.get('netmain');
   } catch { /* no location */ }
-  if (q === null) return { urls: SERVICE_URLS.filter((u) => /^wss?:\/\//.test(u)), fullRetryS: 0 };
+  if (q === null) return { urls: SERVICE_URLS.filter((u) => /^wss?:\/\//.test(u)), fullRetryS: 0, lookup: LOOKUP_URL };
   const urls = q.split(',').filter((u) => LOCAL_URL.test(u));
+  const lookup = m !== null && LOCAL_HTTP.test(m) ? m : '';
   const n = Number(r);
-  return { urls, fullRetryS: urls.length > 0 && r !== null && n >= 1 && n <= 600 ? n : 0 };
+  return { urls, fullRetryS: (urls.length > 0 || lookup) && r !== null && n >= 1 && n <= 600 ? n : 0, lookup };
 }
 
 /**
@@ -74,12 +86,27 @@ const REST_MAX_MS = 25 * 3600 * 1000;
 const REMEMBER_MS = 30 * 60 * 1000;
 const KEY_OK = 'pc.net.ok';
 const KEY_REST = 'pc.net.rest';
+/** The main address last learnt: { u, t }. Tried first on the next visit, without asking the backup. */
+const KEY_MAIN = 'pc.net.main';
+/** When the backup was last asked where main is: { t }. */
+const KEY_LOOKUP = 'pc.net.lookup';
+/** The lookup is abandoned after this long. */
+const LOOKUP_TIMEOUT_MS = 6000;
+/** The backup is asked where main is no more often than this (its answer may be cached for as long anyway)... */
+const LOOKUP_GAP_MS = 60_000;
+/** ...and, while it is resting, no more often than this: it is meant to be left alone, but main may have come back. */
+const LOOKUP_GAP_RESTING_MS = 30 * 60_000;
+/** With a local stand-in (tests). */
+const LOOKUP_GAP_LOCAL_MS = 1000;
 
 function load<T>(key: string): T | null {
   try { const s = localStorage.getItem(key); return s ? JSON.parse(s) as T : null; } catch { return null; }
 }
 function store(key: string, v: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* private browsing: it lasts for this visit */ }
+}
+function forget(key: string): void {
+  try { localStorage.removeItem(key); } catch { /* nothing was kept */ }
 }
 
 /** One address's pause: when it resumes, and when this browser may ask again (a little later). Both on this browser's clock. */
@@ -100,6 +127,10 @@ export class Connection {
   /** While status is 'full': the size of the town, and when the next ask is due (this browser's clock, ms). */
   seats = 0;
   retryAt = 0;
+  /** Which home is in use, or was last tried. */
+  home: 'main' | 'backup' | '' = '';
+  /** Times the backup was asked where main is, since the page loaded. */
+  lookups = 0;
 
   onWelcome: (m: WelcomeMsg) => void = () => {};
   onMsg: (m: ServerMsg) => void = () => {};
@@ -122,9 +153,21 @@ export class Connection {
   private everOnline = false;
   private onlineAt = 0;
   private stopped = true;
+  /** Who to ask where main is; '' = there is no main, and `urls` is the whole list. Otherwise urls[0] is main's slot. */
+  private readonly lookup: string;
+  private readonly lookupLocal: boolean;
+  /** The backup has been asked in this round. */
+  private asked = false;
+  /** Bumped whenever an answer still in the air must be ignored. */
+  private lookSeq = 0;
+  /** The main address that just failed (as learnt, https), so the same answer is not tried twice in a round. */
+  private failedMain = '';
 
-  constructor(urls: readonly string[], name: () => NameIndexes, fullRetryS = 0) {
-    this.urls = urls.slice();
+  constructor(urls: readonly string[], name: () => NameIndexes, fullRetryS = 0, lookup = '') {
+    this.lookup = lookup;
+    this.lookupLocal = LOCAL_HTTP.test(lookup);
+    // Main's slot is first, and empty until an address is remembered or learnt.
+    this.urls = lookup ? ['', ...urls] : urls.slice();
     this.name = name;
     this.fullRetryS = fullRetryS;
     // A pause declared on an earlier visit still holds: a reload must not ask a resting service anything.
@@ -154,7 +197,7 @@ export class Connection {
     this.stopped = false;
     this.round();
     // Leaving the page says so at once, rather than after the service notices the silence.
-    addEventListener('pagehide', () => { this.stopped = true; this.drop(); });
+    addEventListener('pagehide', () => { this.stopped = true; this.lookSeq++; this.drop(); });
     addEventListener('pageshow', (e) => { if (e.persisted && this.stopped) { this.stopped = false; this.round(); } });
   }
 
@@ -170,15 +213,63 @@ export class Connection {
     clearTimeout(this.timer);
     const now = Date.now();
     this.queue = [];
+    this.lookSeq++;
+    this.asked = false;
+    this.failedMain = '';
+    if (this.lookup) {
+      // The main address remembered from an earlier visit (or an earlier round) is tried without asking anybody.
+      const m = load<{ u: string }>(KEY_MAIN);
+      this.urls[0] = (m && this.mainWs(m.u)) || '';
+      this.rests[0] = null;
+    }
     for (let i = 0; i < this.urls.length; i++) {
       const r = this.rests[i];
       if (r && r.ask <= now) this.rests[i] = null;
       if (!this.rests[i]) this.queue.push(i);
     }
+    // Main always goes first. Among the fixed addresses, the one that last worked does.
+    const top = this.lookup ? 1 : 0;
     const ok = load<{ u: string; t: number }>(KEY_OK);
-    const first = ok && now - ok.t < REMEMBER_MS && now >= ok.t ? this.queue.indexOf(this.urls.indexOf(ok.u)) : -1;
-    if (first > 0) this.queue.unshift(...this.queue.splice(first, 1));
+    const first = ok && now - ok.t < REMEMBER_MS && now >= ok.t ? this.queue.indexOf(this.urls.indexOf(ok.u, top)) : -1;
+    if (first > top) this.queue.splice(top, 0, ...this.queue.splice(first, 1));
     this.next();
+  }
+
+  /** An address the lookup may name, as a socket address; null for anything else. */
+  private mainWs(u: unknown): string | null {
+    if (isMainAddress(u)) return 'wss' + u.slice(5);
+    // A local stand-in for the lookup (tests) may name a local service.
+    if (this.lookupLocal && typeof u === 'string' && LOCAL_HTTP.test(u)) return 'ws' + u.slice(4);
+    return null;
+  }
+
+  /** Ask the backup where main is, then carry on: with main if the answer is new and usable, else with the next address. */
+  private ask(): void {
+    this.asked = true;
+    const now = Date.now();
+    const last = load<{ t: number }>(KEY_LOOKUP);
+    const gap = this.lookupLocal ? LOOKUP_GAP_LOCAL_MS : this.restUntil > 0 ? LOOKUP_GAP_RESTING_MS : LOOKUP_GAP_MS;
+    if ((last && now >= last.t && now - last.t < gap) || navigator.onLine === false) { this.next(); return; }
+    store(KEY_LOOKUP, { t: now });
+    this.lookups++;
+    this.service = 0;
+    this.home = 'main';
+    if (this.restUntil === 0) this.set('connecting');
+    const seq = ++this.lookSeq;
+    const ctl = new AbortController();
+    const timer = window.setTimeout(() => ctl.abort(), LOOKUP_TIMEOUT_MS);
+    fetch(this.lookup + MAIN_PATH, { signal: ctl.signal, credentials: 'omit', referrerPolicy: 'no-referrer' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((v: unknown) => (v && typeof v === 'object' ? (v as { u?: unknown }).u : null), () => null)
+      .then((u) => {
+        clearTimeout(timer);
+        if (seq !== this.lookSeq || this.stopped || this.ws) return;
+        const ws = this.mainWs(u);
+        if (!ws || u === this.failedMain) { this.next(); return; }
+        store(KEY_MAIN, { u, t: Date.now() });
+        this.urls[0] = ws;
+        this.open(0);
+      });
   }
 
   /** The next address of the round, or (none left) single player until the next round. */
@@ -188,6 +279,8 @@ export class Connection {
     if (i === undefined) { this.idle(); return; }
     // No network at all: do not even try (a failed attempt is a line in the console).
     if (navigator.onLine === false) { this.queue = []; this.idle(); return; }
+    // Main's slot with nothing remembered: ask the backup where main is.
+    if (this.lookup && i === 0 && !this.urls[0]) { this.ask(); return; }
     this.open(i);
   }
 
@@ -214,6 +307,7 @@ export class Connection {
     if (!quiet && this.restUntil === 0) this.set('connecting');
     this.attempts++;
     this.service = i;
+    this.home = this.lookup && i === 0 ? 'main' : 'backup';
     let ws: WebSocket;
     try {
       ws = new WebSocket(cityUrl(this.urls[i], this.name()));
@@ -315,8 +409,21 @@ export class Connection {
   private lost(ws: WebSocket): void {
     if (this.ws !== ws) return;
     const was = this.status === 'online';
+    const main = this.lookup !== '' && this.service === 0;
     this.drop();
-    if (!was) { this.next(); return; }
+    if (!was) {
+      if (main) {
+        // The address did not answer: it is forgotten (its tunnel has probably restarted under a new one), and the
+        // backup is asked once this round where main is now.
+        const m = load<{ u: string }>(KEY_MAIN);
+        this.failedMain = m && typeof m.u === 'string' ? m.u : '';
+        forget(KEY_MAIN);
+        this.urls[0] = '';
+        if (!this.asked) { this.ask(); return; }
+      }
+      this.next();
+      return;
+    }
     this.onDown();
     // Back soon after a real session; a service that welcomes and drops at once is asked less and less often.
     if (Date.now() - this.onlineAt >= ONLINE_SETTLED_MS) this.wait = RETRY_MIN_MS;

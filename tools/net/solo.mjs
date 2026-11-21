@@ -23,8 +23,12 @@ for (const [label, query] of [['no ?net, high', 'q=high'], ['no ?net, low', 'q=l
     await t.page.evaluate(() => window.__game.teleport(-30, 285, 1.57));
     const x0 = (await t.info()).x;
     await t.page.keyboard.down('KeyW'); await sleep(4000); await t.page.keyboard.up('KeyW');
-    const i = await t.info(), n = await t.page.evaluate(() => window.__game.net());
+    const i = await t.info();
+    let n = await t.page.evaluate(() => window.__game.net());
     const dead = query.includes('net=');
+    // An attempt may be in the air at this very moment (they come 4 to 6 s apart at first, and a refusal takes
+    // headless Chromium up to half a second): look again, briefly, for the quiet between two attempts.
+    for (let k = 0; dead && n.status === 'connecting' && k < 15; k++) { await sleep(200); n = await t.page.evaluate(() => window.__game.net()); }
     check(i.state === 'play' && i.x - x0 > 0.1, `${label}: boots and plays`, `walked ${(i.x - x0).toFixed(1)} m, quality ${i.quality}`);
     if (dead) check(n.status === 'waiting' && n.count === 0 && n.countText === '', `${label}: single player, quietly retrying`, `status ${n.status}, ${n.attempts} attempt(s)`);
     else check(n.status === 'off' && n.attempts === 0 && sockets.length === 0, `${label}: nothing tries to connect`, `status ${n.status}, ${sockets.length} sockets`);

@@ -24,6 +24,10 @@ service, it rations itself: see "The daily budget" below.
   (`new_sqlite_classes`, required on the free plan), the alarm, and the count of what is billed.
 - `src/index.ts`: the Worker. Checks the Origin and the name, hands the socket to the town, and
   answers "full" and "resting" from its own memory whenever it can.
+- `src/where.ts`, `src/mainkey.ts`: "where is main" (below): the signed registration and its check, and
+  the home computer's PUBLIC key (a placeholder until the owner has installed; while it is, every
+  registration is refused).
+- `home/`: the MAIN home, a Node wrapper round the same room, with its install script: see `home/README.md`.
 - `wrangler.toml`: Worker name `port-calamity-city`, binding `CITY`. It has no `[vars]`.
 
 ## Run it locally
@@ -33,7 +37,7 @@ Needs Node 22.18 or newer. No Cloudflare account, no network.
     cd server
     npm install        # once
     npm run dev        # the service on http://127.0.0.1:8787
-    npm test           # starts its own copy on port 8791 (twice: the second with tiny limits), prints PASS or FAIL per check
+    npm test           # starts its own copies (port 8791: plain, tiny limits, a test key; then the Node home on 8794), PASS or FAIL per check
     npm run measure    # 8 simulated players (4 driving at 10 Hz, 4 still) for 60 s, and the budget sums
     npm run typecheck
 
@@ -51,6 +55,26 @@ With that variable present, `GET /__test` shows the count and `GET /__test?add=8
 service's clock a day on. A deployed service has no such variable (`wrangler.toml` has no `[vars]`
 and the deploy workflow passes none), so there `/__test` is the ordinary health line and nothing a
 client sends can change a limit.
+
+## Where is main
+
+The main home sits behind a free quick tunnel whose address changes when it restarts. So:
+
+- `POST /main` (the home computer): `{u, t, n, sig}`: the address, its clock, a counter that only rises,
+  and an Ed25519 signature over all three. There is no shared secret: the private key never leaves the
+  home computer, and the public key is the constant in `src/mainkey.ts`. Refused: the placeholder key
+  (403, everything), a bad signature or a clock more than 5 minutes out (401), a counter seen before
+  (409), any address that is not `https://<name>.trycloudflare.com` (400). Sent on change and every
+  30 minutes: 48 a day, each 1 Worker request, 1 Durable Object request and 2 rows, which is 0.12% of
+  the request pause lines and 1.2% of the duration line (as an upper bound).
+- `GET /main` (the game): `{"u": "https://....trycloudflare.com"}` or `{"u": null}`, cacheable for 60 s,
+  answered from the Worker's memory for 60 s at a time, counted like any request, and answered while
+  resting too. An address with no heartbeat for 70 minutes is dropped.
+- The game tries the address it remembers (localStorage) without asking; it asks only when it has none
+  or it failed; then main, then this Worker, then single player. Set `BACKUP_HOST` in
+  `../src/net/protocol.ts` after the first deploy: the game and the home computer both read it.
+- Local tests give the Worker a test key with `wrangler dev --var TEST_MAIN_KEY:<key>`, the same
+  local-only way as `TEST_BUDGET`.
 
 ## Deploy
 

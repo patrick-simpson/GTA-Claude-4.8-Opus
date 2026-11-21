@@ -7,7 +7,9 @@
 // Needs Node 22.18 or newer: it imports the TypeScript protocol file directly.
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
+import * as W from '../src/where.ts';
 import { tmpdir } from 'node:os';
 import { dirname, join as pathJoin } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +25,9 @@ const arg = (name, dflt) => {
   return a ? Number(a.split('=')[1]) : dflt;
 };
 const MEASURE = args.includes('--measure');
-const PORT = arg('port', 8791);
+// --home: the same checks against the Node home (server/home/main.ts) instead of the Worker.
+const HOME = args.includes('--home');
+const PORT = arg('port', HOME ? 8794 : 8791);
 const HTTP = `http://127.0.0.1:${PORT}`;
 const WS = `ws://127.0.0.1:${PORT}`;
 const GOOD_ORIGIN = 'http://localhost:5173';
@@ -35,14 +39,16 @@ let child = null;
 let persistDir = null;
 let serverLog = '';
 
-async function startServer(testBudget = null) {
+async function startServer(testBudget = null, vars = {}) {
   serverLog = '';
-  persistDir = mkdtempSync(pathJoin(tmpdir(), 'port-calamity-city-'));
-  child = spawn(
+  persistDir ??= mkdtempSync(pathJoin(tmpdir(), 'port-calamity-city-'));
+  child = HOME ? spawn(process.execPath, ['--disable-warning=ExperimentalWarning', pathJoin(serverDir, 'home', 'main.ts')],
+    { cwd: serverDir, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PC_PORT: String(PORT), PC_STATE: persistDir, PC_RELEASE: 'test-1', ...vars } }) : spawn(
     pathJoin(serverDir, 'node_modules', '.bin', 'wrangler'),
     ['dev', '--port', String(PORT), '--ip', '127.0.0.1', '--persist-to', persistDir, '--show-interactive-dev-session=false',
       // The ONLY way to change the limits: a var given to the local `wrangler dev`. A deployed service has none.
-      ...(testBudget ? ['--var', `TEST_BUDGET:${JSON.stringify(testBudget)}`] : [])],
+      ...(testBudget ? ['--var', `TEST_BUDGET:${JSON.stringify(testBudget)}`] : []),
+      ...Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}:${v}`])],
     { cwd: serverDir, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CI: '1', WRANGLER_SEND_METRICS: 'false', NO_COLOR: '1' } },
   );
   child.stdout.on('data', (d) => (serverLog += d));
@@ -52,14 +58,14 @@ async function startServer(testBudget = null) {
     if (child.exitCode !== null) break;
     try {
       const r = await fetch(HTTP + '/');
-      if (r.ok && (await r.text()).startsWith('port-calamity-city')) return;
+      if (r.ok && (await r.text()).startsWith('port-calamity-')) return;
     } catch { /* not up yet */ }
     await sleep(300);
   }
   throw new Error('the local Worker did not start:\n' + serverLog.slice(-2000));
 }
 
-async function stopServer() {
+async function stopServer(keepStorage = false) {
   const c = child;
   child = null;
   if (c && c.exitCode === null) {
@@ -68,6 +74,7 @@ async function stopServer() {
     } catch { /* gone */ }
     for (let i = 0; i < 50 && c.exitCode === null; i++) await sleep(100);
   }
+  if (keepStorage) return;
   if (persistDir) rmSync(persistDir, { recursive: true, force: true });
   persistDir = null;
 }
@@ -384,11 +391,23 @@ async function runChecks() {
   const heard = await Promise.all(crowd.map((p, i) => (i === 3 ? null : p.takeBin(P.Frame.State, 1500))));
   check(`a full town relays to all ${P.CITY_CAP - 1} others`, heard.filter(Boolean).length === P.CITY_CAP - 1);
   await crowd[0].close();
+  if (HOME) {
+    r = await open([32, 33]);
+    check('the Node home keeps no memory of "full": the open seat is given at once', !!r.client && r.client.welcome.players.length === P.CITY_CAP, JSON.stringify(r).slice(0, 200));
+    await closeAll([...crowd, ...(r.client ? [r.client] : [])]);
+    return;
+  }
   r = await open([32, 33]);
   check('just after a seat opens the Worker still answers "full" from memory (it asks the town again within 15 s)', !!r.refused && r.refused.t === 'full');
   await sleep(Math.max(0, B.FULL_CACHE_MS + 500 - (Date.now() - fullAt)));
   r = await open([32, 33]);
   check('once that memory has lapsed, the open seat is given', !!r.client && r.client.welcome.city === 1 && r.client.welcome.players.length === P.CITY_CAP, JSON.stringify(r).slice(0, 200));
+  // "Where is main" with the placeholder key that is committed until the home computer exists.
+  const stranger = generateKeyPairSync('ed25519').privateKey;
+  const reg = await register(signed(stranger, 'https://some-quick-tunnel.trycloudflare.com', Date.now(), Date.now()));
+  check('placeholder public key: even a well signed registration is refused (403)', reg === 403, `status ${reg}`);
+  const where = await fetch(HTTP + P.MAIN_PATH);
+  check('placeholder public key: "where is main" answers that there is none', where.status === 200 && (await where.json()).u === null);
   const hook = await (await fetch(HTTP + '/__test?add=86400000')).text();
   check('without the local test var there are no test hooks (the limits cannot be changed from outside)', hook.startsWith('port-calamity-city'), hook.slice(0, 80));
   await closeAll([...crowd, ...(r.client ? [r.client] : [])]);
@@ -454,6 +473,9 @@ async function runBudgetChecks() {
     `${rest1.used.doRequests - rest0.used.doRequests - 1}`);
   check('the Worker reports its own requests to the town (refused ones included)', rest1.used.workerRequests >= 20 && rest1.unreported === 0, `${rest1.used.workerRequests} counted`);
 
+  const resting = await fetch(HTTP + P.MAIN_PATH);
+  check('"where is main" is still answered while the backup rests', resting.status === 200 && (await resting.json()).u === null);
+
   // -- a new UTC day --
   s = await probe('?add=86400000');
   check('after the day changes the count starts from zero', s.spent === null && s.used.doRequests <= 2 && s.until === ra.until + 86400000, JSON.stringify(s.used));
@@ -463,6 +485,127 @@ async function runBudgetChecks() {
   check('and the town is open again: two join and are relayed', c.welcome.players.length === 1 && d.welcome.players.length === 2 && !!(await d.takeBin(P.Frame.State)));
   check('the welcome carries the (moved) service clock', Math.abs(c.welcome.now - (Date.now() + 86400000)) < 5000);
   await closeAll([c, d]);
+}
+
+// ---- where is main (a third local Worker, started with a test public key) ----
+
+function signed(key, u, t, n) {
+  return JSON.stringify({ u, t, n, sig: sign(null, Buffer.from(W.registrationText(u, t, n)), key).toString('base64url') });
+}
+async function register(body) {
+  return (await fetch(HTTP + P.MAIN_PATH, { method: 'POST', body })).status;
+}
+const whereIs = async (origin = GOOD_ORIGIN) => fetch(HTTP + P.MAIN_PATH, { headers: origin ? { origin } : {} });
+const node = (script, argv, env, stdio = 'ignore') => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', pathJoin(serverDir, 'home', script), ...argv], { cwd: serverDir, env: { ...process.env, ...env }, stdio });
+
+async function runMainChecks(keyDir) {
+  const key = createPrivateKey(readFileSync(pathJoin(keyDir, 'main.key'), 'utf8'));
+  const other = generateKeyPairSync('ed25519').privateKey;
+  const A = 'https://first-quick-tunnel.trycloudflare.com', B2 = 'https://second-quick-tunnel.trycloudflare.com';
+  let now = Date.now();
+
+  let r = await whereIs();
+  check('before any registration: no main; the answer is cacheable for a minute and readable by the game only',
+    r.status === 200 && (await r.json()).u === null && r.headers.get('cache-control') === `public, max-age=${W.MAIN_CACHE_S}` && r.headers.get('access-control-allow-origin') === GOOD_ORIGIN
+    && (await whereIs('https://evil.example')).headers.get('access-control-allow-origin') === null);
+
+  check('a registration signed by a different key is refused (401)', (await register(signed(other, A, now, now))) === 401);
+  const forB = JSON.parse(signed(key, B2, now, now));
+  check('a signature made for another address is refused (401)', (await register(JSON.stringify({ ...forB, u: A }))) === 401);
+  const wrong = ['https://evil.example', 'http://first-quick-tunnel.trycloudflare.com', 'https://a.trycloudflare.com.evil.example', 'https://a.trycloudflare.com/path', 'https://trycloudflare.com', 'https://a.b.trycloudflare.com', 'https://a.trycloudflare.com:8443', 'https://A.trycloudflare.com'];
+  const codes = [];
+  for (const u of wrong) codes.push(await register(signed(key, u, now, now)));
+  check(`a well signed registration for any other kind of address is refused (${wrong.length} tried, all 400)`, codes.every((c) => c === 400), codes.join());
+  check('a stale timestamp is refused (401), in the past or the future', (await register(signed(key, A, now - W.MAIN_STALE_MS - 5000, now))) === 401 && (await register(signed(key, A, now + W.MAIN_STALE_MS + 5000, now))) === 401);
+  check('junk and oversized bodies are refused (400, 413)', (await register('hello')) === 400 && (await register(JSON.stringify({ u: A, t: now, n: now, sig: 'x'.repeat(700) }))) === 413);
+  r = await whereIs();
+  check('after all those refusals there is still no main', (await r.json()).u === null);
+
+  const before = await probe('?forget');
+  const good = signed(key, A, now, now);
+  check('a well signed, fresh registration is accepted (204)', (await register(good)) === 204);
+  const after = await probe();
+  check('it cost the town 1 request and 2 rows (the address, and the count)', Math.abs(after.used.doRequests - before.used.doRequests - 2) < 1e-9 && after.used.rowsWritten - before.used.rowsWritten === 3,
+    `requests ${after.used.doRequests - before.used.doRequests - 1}, rows ${after.used.rowsWritten - before.used.rowsWritten - 1}`);
+  r = await whereIs();
+  check('"where is main" now answers the registered address', (await r.json()).u === A);
+  let same = 0;
+  for (let i = 0; i < 5; i++) if ((await (await whereIs()).json()).u === A) same++;
+  const cheap = await probe();
+  check('five more lookups are answered from the Worker\'s memory: 0 Durable Object requests', same === 5 && Math.abs(cheap.used.doRequests - after.used.doRequests - 1) < 1e-9, `${cheap.used.doRequests - after.used.doRequests - 1}`);
+  await probe('?forget');
+  check('a fresh Worker isolate learns it from the town', (await (await whereIs()).json()).u === A);
+  check('the same registration again is refused (409, replay)', (await register(good)) === 409);
+  check('a new signature with an old counter is refused (409)', (await register(signed(key, B2, Date.now(), now - 1))) === 409);
+  check('the address did not change', (await (await whereIs()).json()).u === A);
+  check('a later registration moves main (the tunnel restarted)', (await register(signed(key, B2, Date.now(), now + 1))) === 204 && (await (await whereIs()).json()).u === B2);
+
+  // -- the home computer's own programs: the game service, a stand-in cloudflared, and the supervisor --
+  const homePort = PORT + 5;
+  const stateDir = mkdtempSync(pathJoin(tmpdir(), 'port-calamity-home-'));
+  const fake = pathJoin(stateDir, 'cloudflared');
+  const C = 'https://third-quick-tunnel.trycloudflare.com';
+  writeFileSync(fake, `#!/bin/sh\necho "INF Requesting new quick Tunnel on trycloudflare.com..." >&2\necho "ERR something about https://api.trycloudflare.com and a server at 198.51.100.7" >&2\nsleep 1\necho "INF |  ${C}  |" >&2\nexec sleep 600\n`);
+  chmodSync(fake, 0o755);
+  const home = node('main.ts', [], { PC_PORT: String(homePort), PC_STATE: stateDir });
+  let out = '';
+  const sup = node('tunnel.ts', [], { PC_PORT: String(homePort), PC_KEYDIR: keyDir, PC_CLOUDFLARED: fake, PC_REGISTER: HTTP }, ['ignore', 'pipe', 'pipe']);
+  sup.stdout.on('data', (d) => (out += d));
+  sup.stderr.on('data', (d) => (out += d));
+  let found = false;
+  for (let i = 0; i < 60 && !found; i++) {
+    await sleep(500);
+    await probe('?forget');
+    found = (await (await whereIs()).json()).u === C;
+  }
+  check('the supervisor reads the tunnel address from cloudflared, signs it and registers it', found, out.slice(-300));
+  check('the private key is readable by its owner only (0600); the public key file matches', (statSync(pathJoin(keyDir, 'main.key')).mode & 0o777) === 0o600 && out.includes(readFileSync(pathJoin(keyDir, 'main.pub'), 'utf8').trim()));
+  check('the supervisor prints no numeric address and none of cloudflared\'s own lines', !/\d+\.\d+\.\d+\.\d+|api\.trycloudflare|localhost/.test(out) && out.includes(`tunnel up: ${C}`), out.slice(-300));
+  const gone = new Promise((res) => sup.once('exit', res));
+  sup.kill('SIGTERM');
+  check('stopped, it stops cloudflared too and exits cleanly', (await gone) === 0);
+  home.kill('SIGTERM');
+  rmSync(stateDir, { recursive: true, force: true });
+
+  // -- a heartbeat long overdue --
+  await probe(`?add=${W.MAIN_OVERDUE_MS - 120000}`);
+  check('just inside the overdue time the address is still given', (await (await whereIs()).json()).u === C);
+  await probe('?add=180000');
+  check(`no heartbeat for ${W.MAIN_OVERDUE_MS / 60000} minutes: the address is dropped`, (await (await whereIs()).json()).u === null);
+  now = Date.now() + W.MAIN_OVERDUE_MS + 60000;
+  check('an old registration cannot bring it back (409); the next heartbeat can', (await register(signed(key, A, now, 5))) === 409 && (await register(signed(key, A, now, now))) === 204 && (await (await whereIs()).json()).u === A);
+  const perDay = 86400000 / W.MAIN_HEARTBEAT_MS, lines = B.pauseLines();
+  console.log(`      heartbeat every ${W.MAIN_HEARTBEAT_MS / 60000} min = ${perDay} a day: ${(100 * perDay / lines.workerRequests).toFixed(2)}% of the Worker request pause line, ${(100 * perDay / lines.doRequests).toFixed(2)}% of the Durable Object one, ${(100 * 2 * perDay / lines.rowsWritten).toFixed(2)}% of rows written, ${(100 * perDay * (B.AWAKE_GAP_MS / 1000) * B.DO_BILLED_GB / lines.doGbSeconds).toFixed(2)}% of duration (upper bound)`);
+}
+
+// ---- the Node home only ----
+
+async function runHomeChecks() {
+  let h = await (await fetch(HTTP + '/health')).json();
+  check('/health: version, release, uptime and seats, and nothing else', h.ok === true && h.v === P.PROTOCOL_VERSION && h.release === 'test-1' && h.seats === P.CITY_CAP && h.players === 0 && h.uptime >= 0
+    && Object.keys(h).sort().join() === 'ok,players,release,seats,service,uptime,v', JSON.stringify(h));
+  const post = await fetch(HTTP + '/health', { method: 'POST', body: 'x' });
+  check('anything but GET is refused (405)', post.status === 405, `status ${post.status}`);
+  // Facts across a restart of the process (the file in the state folder).
+  const a = await join([1, 2]);
+  a.sendJson({ t: 'fact', k: 'restart.proof', v: [4, 5, 6] });
+  await sleep(P.FACT_FLUSH_MS + 600);
+  a.sendJson({ t: 'fact', k: P.FACT_BRIDGE, v: 0.75 }); // a write the SIGTERM must flush
+  await sleep(200);
+  await stopServer(true);
+  check('a stopped home closes its sockets (1001)', (await a.waitClose(3000)) === 1001, `closed ${a.closed && a.closed.code}`);
+  await startServer();
+  const b = await join([3, 4]);
+  const fx = b.welcome.facts;
+  check('facts survive a restart of the process', Array.isArray(fx['restart.proof']) && fx['restart.proof'].join() === '4,5,6' && fx[P.FACT_BRIDGE] === 0.75 && fx[P.FACT_WEATHER_SEED] === 777, JSON.stringify(fx));
+  await closeAll([b]);
+  // The listener: loopback only.
+  check('the log holds no address of any kind', !/\d+\.\d+\.\d+\.\d+|::1|localhost/.test(serverLog), serverLog.slice(0, 200));
+  // Fewer seats (a test variable; it cannot raise the cap).
+  await stopServer(true);
+  await startServer(null, { PC_SEATS: '99' });
+  h = await (await fetch(HTTP + '/health')).json();
+  check('PC_SEATS cannot raise the cap above 8', h.seats === P.CITY_CAP, JSON.stringify(h));
 }
 
 // ---- measurement ----
@@ -542,11 +685,26 @@ const hardStop = setTimeout(() => { console.log('FAIL  timed out'); void stopSer
 try {
   await startServer();
   if (MEASURE) await runMeasure();
-  else {
+  else if (HOME) {
+    await runChecks();
+    await runHomeChecks();
+    console.log(failed === 0 ? 'ALL PASS' : `${failed} FAILED`);
+  } else {
     await runChecks();
     await stopServer();
     await startServer(TEST_LIMITS);
     await runBudgetChecks();
+    await stopServer();
+    // The key pair is made by the home computer's own program, exactly as the install does it.
+    const keyDir = mkdtempSync(pathJoin(tmpdir(), 'port-calamity-key-'));
+    const made = node('tunnel.ts', ['--key'], { PC_KEYDIR: keyDir }, ['ignore', 'pipe', 'inherit']);
+    let pub = '';
+    made.stdout.on('data', (d) => (pub += d));
+    await new Promise((res) => made.once('exit', res));
+    check('the home computer makes its key pair and prints the public half (43 characters)', W.isRealKey(pub.trim()), pub.slice(0, 80));
+    await startServer({}, { TEST_MAIN_KEY: pub.trim() });
+    await runMainChecks(keyDir);
+    rmSync(keyDir, { recursive: true, force: true });
     console.log(failed === 0 ? 'ALL PASS' : `${failed} FAILED`);
   }
 } catch (err) {

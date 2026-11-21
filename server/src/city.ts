@@ -21,7 +21,8 @@
 // under 1% of the game's share, against a margin of 20%.
 
 import { DurableObject } from 'cloudflare:workers';
-import { CITY_CAP, Close, FULL_RETRY_S } from '../../src/net/protocol';
+import { CITY_CAP, Close, FULL_RETRY_S, MAIN_PATH, isMainAddress } from '../../src/net/protocol';
+import { MAIN_OVERDUE_MS } from './where';
 import type { FactValue, FullMsg, RestMsg } from '../../src/net/protocol';
 import { AWAKE_GAP_MS, BUDGET_FLUSH_MS, Budget, DO_BILLED_GB, WS_MESSAGES_PER_REQUEST, nextReset } from './budget';
 import type { BudgetRow, Counts } from './budget';
@@ -38,6 +39,8 @@ export interface CityEnv {
    * Its presence also turns on /__test (a movable clock and a look at the count).
    */
   TEST_BUDGET?: string;
+  /** LOCAL TESTS ONLY, same rule: a test public key that replaces the one committed in mainkey.ts. */
+  TEST_MAIN_KEY?: string;
 }
 
 /** Survives hibernation (stored with the socket). */
@@ -71,6 +74,9 @@ class Sock implements RoomSocket {
 
 const ROW_BUDGET = 0;
 const ROW_TEST_CLOCK = 1;
+/** Where the main service (the home computer) is: its address, its registration counter and its last heartbeat. */
+const ROW_MAIN = 2;
+interface MainRow { u: string; n: number; hb: number; }
 
 export class City extends DurableObject<CityEnv> implements RoomEnv {
   private readonly room: Room;
@@ -80,6 +86,7 @@ export class City extends DurableObject<CityEnv> implements RoomEnv {
   /** Test only: ms added to the clock. */
   private shift = 0;
   private lastEvent = 0;
+  private main: MainRow | null = null;
   private lastStore: number;
 
   constructor(ctx: DurableObjectState, env: CityEnv) {
@@ -100,6 +107,7 @@ export class City extends DurableObject<CityEnv> implements RoomEnv {
       try {
         if (row.k === ROW_BUDGET) stored = JSON.parse(String(row.v)) as BudgetRow;
         else if (row.k === ROW_TEST_CLOCK && this.test) this.shift = Number(row.v) || 0;
+        else if (row.k === ROW_MAIN) this.main = JSON.parse(String(row.v)) as MainRow;
       } catch { /* a damaged row: start the day from zero */ }
     }
     const now = this.now();
@@ -227,6 +235,25 @@ export class City extends DurableObject<CityEnv> implements RoomEnv {
       }
       const t = this.now();
       return Response.json({ now: t, day: this.budget.day, used: this.budget.used, lines: this.budget.lines, spent: this.budget.spent(), seats: this.room.seats, size: this.room.size, until: nextReset(t) });
+    }
+
+    if (url.pathname === MAIN_PATH) {
+      // Where the main service is. Answered even while resting: the game may still use main then.
+      if (request.method === 'POST') {
+        let m: { u?: unknown; n?: unknown } = {};
+        try {
+          m = await request.json();
+        } catch { /* refused below */ }
+        // The Worker has checked the signature, the clock and the address. The counter is checked here, where it is stored.
+        if (!isMainAddress(m.u) || !Number.isSafeInteger(m.n) || (this.main && (m.n as number) <= this.main.n)) return new Response(null, { status: 409 });
+        this.main = { u: m.u, n: m.n as number, hb: now };
+        this.ctx.storage.sql.exec('INSERT OR REPLACE INTO meter (k, v) VALUES (?, ?)', ROW_MAIN, JSON.stringify(this.main));
+        this.budget.add('rowsWritten', 1);
+        return new Response(null, { status: 204 });
+      }
+      // A heartbeat long overdue: the address is forgotten (the counter is kept, so an old registration cannot bring it back).
+      const live = this.main && now - this.main.hb <= MAIN_OVERDUE_MS;
+      return Response.json({ u: live ? this.main!.u : null, hb: this.main?.hb ?? 0, n: this.main?.n ?? 0 });
     }
 
     const report = url.pathname === '/count';

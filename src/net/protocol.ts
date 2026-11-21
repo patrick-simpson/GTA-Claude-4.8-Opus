@@ -99,6 +99,24 @@ export function cityUrl(base: string, name: NameIndexes): string {
   return `${base.replace(/\/+$/, '')}/?v=${PROTOCOL_VERSION}&name=${name.join('.')}`;
 }
 
+// ---- where the service lives ----
+
+/**
+ * The host name of the BACKUP service (the Cloudflare Worker), for example
+ * 'port-calamity-city.<account>.workers.dev'. EMPTY until it is deployed: then the game connects to
+ * nothing (single player, as before) and the home computer registers nowhere.
+ * The game reaches the backup at wss://<this>/ and asks it where the main service is at
+ * https://<this>/main; the home computer registers its address at the same place.
+ */
+export const BACKUP_HOST: string = '';
+/** The Worker's "where is main" path: GET answers {u: address or null}; POST is the home computer's signed registration. */
+export const MAIN_PATH = '/main';
+
+/** The only shape a main address may have: a free Cloudflare quick tunnel, https, nothing after the host. */
+export function isMainAddress(u: unknown): u is string {
+  return typeof u === 'string' && u.length <= 90 && /^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.trycloudflare\.com$/.test(u);
+}
+
 /** A connection check: the service answers PONG_TEXT. It counts as a message like any other. */
 export const PING_TEXT = 'ping';
 export const PONG_TEXT = 'pong';

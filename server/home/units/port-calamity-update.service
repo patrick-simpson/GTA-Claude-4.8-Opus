@@ -1,0 +1,62 @@
+# PORT CALAMITY: the self-update (server/home/update.sh, installed root-owned in /opt/port-calamity/bin).
+# It runs as the unprivileged service user. It can write the code folder and its own notes, nothing else,
+# and it cannot read the key. The running programs restart themselves when the code changes.
+[Unit]
+Description=PORT CALAMITY self-update from the repository
+Documentation=https://github.com/patrick-simpson/GTA-Claude-4.8-Opus/tree/main/server/home
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=port-calamity
+Group=port-calamity
+Environment=PC_APP=/opt/port-calamity/app
+Environment=PC_UPDATE_STATE=/var/lib/port-calamity/update
+Environment=PC_PORT=8788
+Environment=PC_SPARE_PORT=8789
+Environment=HOME=/var/lib/port-calamity/update
+Environment=NODE_OPTIONS=--max-old-space-size=160
+WorkingDirectory=/var/lib/port-calamity/update
+ExecStart=/opt/port-calamity/bin/update.sh
+TimeoutStartSec=20min
+SyslogIdentifier=port-calamity-update
+
+MemoryHigh=384M
+MemoryMax=512M
+MemorySwapMax=0
+CPUQuota=50%
+CPUWeight=10
+TasksMax=128
+Nice=15
+IOSchedulingClass=idle
+LimitNOFILE=1024
+
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+ReadWritePaths=/opt/port-calamity/app /var/lib/port-calamity/update
+InaccessiblePaths=-/var/lib/port-calamity/key -/var/lib/port-calamity/city -/opt/dashboard -/etc/dashboard
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+UMask=0077
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

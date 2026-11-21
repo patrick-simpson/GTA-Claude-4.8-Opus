@@ -1,0 +1,73 @@
+# PORT CALAMITY: the free Cloudflare quick tunnel to the message service, and its supervisor.
+# The supervisor (server/home/tunnel.ts) is the parent of cloudflared: it reads the temporary address,
+# checks the game answers through it, and registers it (signed) with the backup. If the tunnel dies or
+# stops carrying traffic the supervisor exits and this unit starts a fresh one.
+# It opens no port: cloudflared only calls OUT. No Cloudflare login is used.
+[Unit]
+Description=PORT CALAMITY quick tunnel and its supervisor
+Documentation=https://github.com/patrick-simpson/GTA-Claude-4.8-Opus/tree/main/server/home
+Wants=network-online.target
+After=network-online.target port-calamity.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=port-calamity
+Group=port-calamity
+Environment=PC_PORT=8788
+Environment=PC_KEYDIR=/var/lib/port-calamity/key
+Environment=PC_CLOUDFLARED=/opt/port-calamity/app/current/cloudflared
+Environment=PC_CURRENT=/opt/port-calamity/app/current
+Environment=HOME=/var/lib/port-calamity/key
+Environment=NODE_OPTIONS=--max-old-space-size=96
+WorkingDirectory=/var/lib/port-calamity/key
+ExecStart=/opt/port-calamity/app/current/node --disable-warning=ExperimentalWarning /opt/port-calamity/app/current/server/home/tunnel.ts
+Restart=always
+# A tunnel that keeps failing is not asked for more often than this.
+RestartSec=30
+KillMode=control-group
+TimeoutStopSec=15
+SyslogIdentifier=port-calamity-tunnel
+
+MemoryHigh=192M
+MemoryMax=256M
+MemorySwapMax=0
+CPUQuota=40%
+CPUWeight=20
+TasksMax=128
+Nice=10
+LimitNOFILE=1024
+
+# It must reach the internet (outbound only). AF_UNIX and AF_NETLINK are for name lookups and for cloudflared reading the routes.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+# The only folder it can write is the one holding its key; the game's state and the other job's folders are out of reach.
+ReadWritePaths=/var/lib/port-calamity/key
+InaccessiblePaths=-/var/lib/port-calamity/city -/var/lib/port-calamity/update -/opt/dashboard -/etc/dashboard
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+UMask=0077
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

@@ -11,12 +11,14 @@
 //    request and nothing else: no Durable Object request, no duration, no storage.
 // Each isolate keeps its own memory, so a fresh one asks the town once.
 
-import { Close, HTTP_BAD_HELLO, HTTP_BAD_ORIGIN, PROTOCOL_VERSION, CITY_CAP, isAllowedOrigin, isValidName } from '../../src/net/protocol';
+import { Close, HTTP_BAD_HELLO, HTTP_BAD_ORIGIN, MAIN_PATH, PROTOCOL_VERSION, CITY_CAP, isAllowedOrigin, isValidName } from '../../src/net/protocol';
 import type { FullMsg, RestMsg } from '../../src/net/protocol';
 import { FULL_CACHE_MS, WORKER_REPORT_EVERY } from './budget';
 import { REFUSED_STATUS } from './city';
 import type { CityEnv } from './city';
 import { parseNameParam } from './room';
+import { MAIN_PUBLIC_KEY } from './mainkey';
+import { MAIN_BODY_MAX, MAIN_CACHE_S, MAIN_MEMO_MS, MAIN_OVERDUE_MS, MAIN_STALE_MS, isRealKey, parseRegistration, verifyRegistration } from './where';
 
 export { City } from './city';
 
@@ -32,6 +34,53 @@ let refusal: { msg: FullMsg | RestMsg; until: number } | null = null;
 let unreported = 0;
 /** Local tests only: ms added to the clock (see /__test). */
 let shift = 0;
+/** Where the main service is, as the town last said: the address (or none), its last heartbeat, its counter, and when this was learnt. */
+let mainMemo: { u: string | null; hb: number; n: number; at: number } | null = null;
+
+/** GET /main: "where is the main service". One Worker request; the town is asked at most once a minute per isolate. */
+async function whereIsMain(request: Request, env: Env, ctx: ExecutionContext, now: number): Promise<Response> {
+  const origin = request.headers.get('Origin');
+  const headers: Record<string, string> = { 'content-type': 'application/json', vary: 'Origin' };
+  if (isAllowedOrigin(origin)) headers['access-control-allow-origin'] = origin as string;
+  if (!mainMemo || now - mainMemo.at >= MAIN_MEMO_MS || now < mainMemo.at) {
+    const w = unreported;
+    unreported = 0;
+    try {
+      const res = await town(env).fetch(`https://city${MAIN_PATH}?w=${w}`);
+      const m = await res.json() as { u: string | null; hb: number; n: number };
+      mainMemo = { u: m.u, hb: m.hb, n: m.n, at: now };
+    } catch {
+      unreported += w;
+      return new Response('{"u":null}\n', { status: 503, headers: { ...headers, 'cache-control': 'no-store' } });
+    }
+  } else report(env, ctx);
+  const u = mainMemo.u && now - mainMemo.hb <= MAIN_OVERDUE_MS ? mainMemo.u : null;
+  return new Response(JSON.stringify({ u }) + '\n', { headers: { ...headers, 'cache-control': `public, max-age=${MAIN_CACHE_S}` } });
+}
+
+/** POST /main: the home computer says where it is. Everything that can be refused is refused here, before the town is woken. */
+async function registerMain(request: Request, env: Env, now: number): Promise<Response> {
+  // The committed public key; a local `wrangler dev --var` may give a test key instead (a deployed service has no vars).
+  const key = env.TEST_MAIN_KEY ?? MAIN_PUBLIC_KEY;
+  if (!isRealKey(key)) return plain(403, 'no main key is set: registrations are off\n');
+  if (Number(request.headers.get('content-length')) > MAIN_BODY_MAX) return plain(413, 'too big\n');
+  const reg = parseRegistration((await request.text()).slice(0, MAIN_BODY_MAX + 1));
+  if (!reg) return plain(400, 'not a registration\n');
+  if (Math.abs(now - reg.t) > MAIN_STALE_MS) return plain(401, 'stale\n');
+  if (!(await verifyRegistration(key, reg))) return plain(401, 'bad signature\n');
+  const w = unreported;
+  unreported = 0;
+  let res: Response;
+  try {
+    res = await town(env).fetch(`https://city${MAIN_PATH}?w=${w}`, { method: 'POST', body: JSON.stringify({ u: reg.u, n: reg.n }) });
+  } catch {
+    unreported += w;
+    return plain(503, 'unavailable\n');
+  }
+  if (res.status !== 204) return plain(409, 'seen before\n');
+  mainMemo = { u: reg.u, hb: now, n: reg.n, at: now };
+  return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+}
 
 function plain(status: number, text: string): Response {
   return new Response(text, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
@@ -70,10 +119,18 @@ export default {
       const add = Number(url.searchParams.get('add')) || 0;
       shift += add;
       if (add || url.searchParams.has('forget')) refusal = null;
+      if (add || url.searchParams.has('forget')) mainMemo = null;
       const w = url.searchParams.has('flush') ? unreported : 0;
       unreported -= w;
       const res = await town(env).fetch(`https://city/__test?add=${add}&w=${w}`);
       return Response.json({ ...(await res.json() as object), unreported, remembered: refusal && now + add < refusal.until ? refusal.msg.t : null });
+    }
+
+    if (url.pathname === MAIN_PATH) {
+      if (request.method === 'GET') return whereIsMain(request, env, ctx, now);
+      if (request.method === 'POST') return registerMain(request, env, now);
+      report(env, ctx);
+      return plain(405, 'GET or POST\n');
     }
 
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {

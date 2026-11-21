@@ -52,7 +52,7 @@ export class Net {
 
   constructor(private readonly game: Game) {
     const plan = servicePlan();
-    const c = this.conn = new Connection(plan.urls, myName, plan.fullRetryS);
+    const c = this.conn = new Connection(plan.urls, myName, plan.fullRetryS, plan.lookup);
     c.onWelcome = (m) => this.welcome(m);
     c.onMsg = (m) => this.msg(m);
     c.onFrame = (b) => this.frame(b);
@@ -264,6 +264,8 @@ export class Net {
       // service: which address of the list (-1 none yet). notice: 'full', 'rest' or ''. Times are ms since 1970 on
       // this browser's clock: resumeAt when a resting service resumes, restUntil when it will next be asked,
       // retryAt when a full town will next be asked.
+      // home: 'main' or 'backup', whichever is in use or was last tried. lookups: times the backup was asked where main is.
+      home: c.home, lookups: c.lookups,
       service: c.service, notice: this.noteKind, noteText: this.noteShown, seats: c.seats,
       resumeAt: c.resumeAt, restUntil: c.restUntil, retryAt: c.status === 'full' ? c.retryAt : 0,
       sent: { ...c.sent, states: this.statesSent }, got: { ...c.got },

@@ -1,0 +1,69 @@
+# PORT CALAMITY: the game's message service (the MAIN home). Installed by server/home/install.sh.
+# It listens on the loopback interface only; the tunnel unit is the only way in from outside.
+[Unit]
+Description=PORT CALAMITY message service (main home)
+Documentation=https://github.com/patrick-simpson/GTA-Claude-4.8-Opus/tree/main/server/home
+After=network.target
+# Never give up restarting: nobody is there to start it by hand.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=port-calamity
+Group=port-calamity
+Environment=PC_PORT=8788
+Environment=PC_STATE=/var/lib/port-calamity/city
+Environment=PC_CURRENT=/opt/port-calamity/app/current
+Environment=NODE_OPTIONS=--max-old-space-size=160
+WorkingDirectory=/var/lib/port-calamity/city
+ExecStart=/opt/port-calamity/app/current/node --disable-warning=ExperimentalWarning /opt/port-calamity/app/current/server/home/main.ts
+Restart=always
+RestartSec=3
+SyslogIdentifier=port-calamity
+
+# A bug here must not starve the computer's other job.
+MemoryHigh=192M
+MemoryMax=256M
+MemorySwapMax=0
+CPUQuota=50%
+CPUWeight=20
+TasksMax=64
+Nice=10
+LimitNOFILE=1024
+
+# The network: loopback and nothing else. This program never needs to call out.
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+# The files: everything read-only except its own state folder; no homes; not the key; not the other job's folders.
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/port-calamity/city
+InaccessiblePaths=-/var/lib/port-calamity/key -/var/lib/port-calamity/update -/opt/dashboard -/etc/dashboard
+PrivateTmp=yes
+PrivateDevices=yes
+UMask=0077
+
+# No privileges, now or later. (MemoryDenyWriteExecute is left out on purpose: Node's JIT needs it off.)
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

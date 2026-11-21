@@ -1,0 +1,12 @@
+# PORT CALAMITY: look for a new version of the service every five minutes.
+[Unit]
+Description=PORT CALAMITY self-update, every few minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=45s
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
