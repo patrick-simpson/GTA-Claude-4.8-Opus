@@ -363,9 +363,16 @@ export class Traffic {
    * A car that is on the street with nobody in it becomes one of the town's standing cars, with a number of its own:
    * a player has got out of it, or it was parked and has been pushed. Returns the number, or 0 when there is none left.
    */
-  abandon(v: Vehicle): number {
+  abandon(v: Vehicle, keep = 0): number {
     const had = this.orphanWid.get(v);
     if (had !== undefined) return had;
+    // `keep`: a number already held for this very car (the police's, takeWid): it goes on under it.
+    if (keep > 0 && keep < 256 && this.widUsed[keep]) {
+      if (this.orphans.indexOf(v) < 0) this.orphans.push(v);
+      this.orphanWid.set(v, keep);
+      this.kept.add(v);
+      return keep;
+    }
     // One the traffic was driving until a moment ago (its driver has run from a fire, and update() has not yet seen
     // the empty seat): it keeps the number it had, so the rest of the town sees the same car and not a new one.
     const d = this.byVeh.get(v);

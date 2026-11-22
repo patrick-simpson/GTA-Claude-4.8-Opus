@@ -852,12 +852,31 @@ export function decodePoliceCrime(buf: ArrayBuffer): { from: number; which: numb
 // Sent every POLICE_BEAT_MS, and at once when there is a shot to show.
 //   0 kind (Frame.World)  1 id  2 WorldKind.Police  3 cars on duty u8  4 n u8
 //   5.. n shots of POLICE_SHOT_BYTES: 0 officer u8 (their number in the people frames)  1 x u16  3 z u16  5 y i16 (cm): where the round went
+//
+// The helicopter (stage 3, last step) is a tail on the same frame, after the shots, and only while it is in the sky.
+// While it is, the beat goes every HELI_MS instead (the guests smooth between two of them); the first beat without
+// the tail says it has gone. The version stays at 4: an older guest reads the shots by their count and never looks
+// at what follows them; an older host sends no tail and its guests are shown no helicopter. (It is not in the traffic
+// frames, which go more often, because everything after a traffic frame's records is a list of car numbers: an
+// older page would take the tail for cars.) The tail's LENGTH says what the lamp is doing:
+//   0 x u16  2 z u16 (5 cm steps from TRAFFIC_X0, TRAFFIC_Z0)  4 y u8 (meters)  5 heading u8 (1/256 turn)
+//       6 bytes: on its way in or out, lamp off
+//   6 who u8: 7 bytes, on station with its lamp on that player (their number in town). Every browser points the lamp
+//       at that player as it shows them itself, so the light is on them on every screen and costs one byte.
+//   6 dx i8  7 dz i8 (meters from the helicopter): 8 bytes, on station and sweeping: where the lamp rests on the ground
 export const POLICE_BEAT_MS = 2000;
 export const POLICE_BEAT_HEADER_BYTES = 5;
 export const POLICE_SHOT_BYTES = 7;
 export const POLICE_MAX_SHOTS = 16;
+export const HELI_MS = 400;
+export const HELI_MAX_BYTES = 8;
+/** What the lamp is doing: off (in transit), on a player, or sweeping the ground. */
+export const HeliLamp = { Off: 0, Track: 1, Sweep: 2 } as const;
+export interface HeliRec { x: number; y: number; z: number; h: number; lamp: number; who: number; sx: number; sz: number }
+export function blankHeli(): HeliRec { return { x: 0, y: 0, z: 0, h: 0, lamp: 0, who: 0, sx: 0, sz: 0 }; }
 export interface PoliceShot { officer: number; x: number; y: number; z: number }
-export function encodePoliceBeat(units: number, shots: readonly PoliceShot[], n: number, out: Uint8Array): number {
+/** `out` must hold POLICE_BEAT_HEADER_BYTES + n * POLICE_SHOT_BYTES + HELI_MAX_BYTES. Returns the bytes used. */
+export function encodePoliceBeat(units: number, shots: readonly PoliceShot[], n: number, out: Uint8Array, heli: HeliRec | null = null): number {
   const d = new DataView(out.buffer, out.byteOffset, out.byteLength);
   d.setUint8(0, Frame.World); d.setUint8(1, 0); d.setUint8(2, WorldKind.Police);
   d.setUint8(3, Math.min(255, units)); d.setUint8(4, n);
@@ -869,9 +888,22 @@ export function encodePoliceBeat(units: number, shots: readonly PoliceShot[], n:
     d.setUint16(o + 3, clampU16((s.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
     d.setInt16(o + 5, clampI16(s.y * 100), true);
   }
+  if (heli) {
+    const qx = clampU16((heli.x - TRAFFIC_X0) / TRAFFIC_STEP), qz = clampU16((heli.z - TRAFFIC_Z0) / TRAFFIC_STEP);
+    d.setUint16(o, qx, true); d.setUint16(o + 2, qz, true);
+    d.setUint8(o + 4, Math.max(0, Math.min(255, Math.round(heli.y))));
+    d.setUint8(o + 5, Math.round(((((heli.h % TAU) + TAU) % TAU) / TAU) * 256) & 0xff);
+    o += 6;
+    if (heli.lamp === HeliLamp.Track) d.setUint8(o++, heli.who & 0xff);
+    else if (heli.lamp === HeliLamp.Sweep) {
+      // (Measured from the place the guests will be told, so the rounding of the one is not added to the other.)
+      d.setInt8(o++, clampI8(heli.sx - (qx * TRAFFIC_STEP + TRAFFIC_X0)));
+      d.setInt8(o++, clampI8(heli.sz - (qz * TRAFFIC_STEP + TRAFFIC_Z0)));
+    }
+  }
   return o;
 }
-export function decodePoliceBeat(buf: ArrayBuffer): { from: number; units: number; shots: PoliceShot[] } | null {
+export function decodePoliceBeat(buf: ArrayBuffer): { from: number; units: number; shots: PoliceShot[]; heli: HeliRec | null } | null {
   const len = buf.byteLength;
   if (len < POLICE_BEAT_HEADER_BYTES) return null;
   const d = new DataView(buf);
@@ -879,10 +911,21 @@ export function decodePoliceBeat(buf: ArrayBuffer): { from: number; units: numbe
   const n = d.getUint8(4);
   if (n > POLICE_MAX_SHOTS || POLICE_BEAT_HEADER_BYTES + n * POLICE_SHOT_BYTES > len) return null;
   const shots: PoliceShot[] = [];
-  for (let i = 0, o = POLICE_BEAT_HEADER_BYTES; i < n; i++, o += POLICE_SHOT_BYTES) {
+  let o = POLICE_BEAT_HEADER_BYTES;
+  for (let i = 0; i < n; i++, o += POLICE_SHOT_BYTES) {
     shots.push({ officer: d.getUint8(o), x: d.getUint16(o + 1, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(o + 3, true) * TRAFFIC_STEP + TRAFFIC_Z0, y: d.getInt16(o + 5, true) / 100 });
   }
-  return { from: d.getUint8(1), units: d.getUint8(3), shots };
+  let heli: HeliRec | null = null;
+  const tail = len - o;
+  if (tail >= 6 && tail <= HELI_MAX_BYTES) {
+    heli = blankHeli();
+    heli.x = d.getUint16(o, true) * TRAFFIC_STEP + TRAFFIC_X0; heli.z = d.getUint16(o + 2, true) * TRAFFIC_STEP + TRAFFIC_Z0;
+    heli.y = d.getUint8(o + 4); heli.h = (d.getUint8(o + 5) / 256) * TAU;
+    heli.sx = heli.x; heli.sz = heli.z;
+    if (tail === 7) { heli.lamp = HeliLamp.Track; heli.who = d.getUint8(o + 6); }
+    else if (tail === 8) { heli.lamp = HeliLamp.Sweep; heli.sx = heli.x + d.getInt8(o + 6); heli.sz = heli.z + d.getInt8(o + 7); }
+  }
+  return { from: d.getUint8(1), units: d.getUint8(3), shots, heli };
 }
 
 // ---- Weapons between players (stage 3, step 3) ----

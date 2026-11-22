@@ -20,7 +20,14 @@
 //  - The police beat (World, 5 bytes every two seconds) says "this host runs the town's police" and carries the
 //    officers' shots for the others to see. A guest that hears no beat (an older host) keeps private police.
 //
-// Changing hands. A new host takes over the cruisers and officers it was showing where they stand; the wanted say so
+//  - The helicopter (stage 3, last step) is the host's too, ONE for the town, out for whoever is at four pips (the
+//    rule is in sim/police.ts, heliCall). While it is in the sky it rides the police beat, which then goes every
+//    HELI_MS: where it is, and what its lamp is on (6 to 8 bytes; protocol.ts). A guest glides its own copy between
+//    two words of it, hears it by the sound it always made, and points the lamp itself at the player the host
+//    names, as that player is drawn on its own screen. Whether the crew can see a GUEST is, like every other
+//    "seen", that guest's own call: its lamp on them and nothing in between.
+//
+// Changing hands. A new host flies the helicopter on from where it was showing it. A new host takes over the cruisers and officers it was showing where they stand; the wanted say so
 // again within a moment and each car carries on after whoever is wanted and nearest. A browser that drops to single
 // player or to the backup does the same and has private police again, its own heat untouched. On the backup, alone,
 // and with no service nothing here is sent and the police are private, as before.
@@ -32,7 +39,7 @@ import { Police, blankSuspect, type Cop, type Suspect, type Unit } from '../sim/
 import {
   CRUISER_ON_DUTY, HEAT_BYTES, HEAT_HZ, HEAT_REFRESH_MS, HeatFlag, OFFICER_WID0, POLICE_BEAT_HEADER_BYTES, POLICE_BEAT_MS, POLICE_BUST_BYTES, POLICE_CRIMES,
   POLICE_CRIME_BYTES, POLICE_HURT_BYTES, POLICE_MAX_SHOTS, POLICE_SHOT_BYTES, PlayerMode, ToHostKind, ToPlayerKind, TrafficFlag,
-  decodeHeat, decodePoliceBeat, decodePoliceCrime, decodePoliceHurt, encodeHeat, encodePoliceBeat, encodePoliceBust, encodePoliceCrime, encodePoliceHurt, frameSender,
+  HELI_MAX_BYTES, HELI_MS, HeliLamp, blankHeli, decodeHeat, decodePoliceBeat, decodePoliceCrime, decodePoliceHurt, encodeHeat, encodePoliceBeat, encodePoliceBust, encodePoliceCrime, encodePoliceHurt, frameSender,
   type PoliceShot,
 } from './protocol';
 import type { Connection } from './conn';
@@ -50,6 +57,8 @@ const HEAT_STALE_MS = 10000;
 const LEAD_S = 0.15;
 /** Where the Patrol last had the player has to move this far to be worth telling the host again. Meters. */
 const MOVED = 8;
+/** A guest that has heard nothing of the helicopter for this long takes it out of its sky (the beat that carries it goes every HELI_MS). */
+const HELI_STALE_MS = 2500;
 
 interface Heard { at: number; seen: boolean; x: number; z: number }
 
@@ -61,6 +70,7 @@ export class TownPolice {
     heatsSent: 0, heatBytesSent: 0, heatsGot: 0,
     hurtsSent: 0, bustsSent: 0, crimesSent: 0, toPlayerBytes: 0, hurtsGot: 0, bustsGot: 0, crimesGot: 0,
     adopted: 0, adoptedOfficers: 0, handed: 0, takeovers: 0,
+    heliSent: 0, heliBytesSent: 0, heliGot: 0,
   };
 
   private readonly police: Police | null;
@@ -69,7 +79,10 @@ export class TownPolice {
   private readonly heard = new Map<number, Heard>();
   private readonly shots: PoliceShot[] = [];
   private beatAt = 0;
-  private readonly out = new Uint8Array(POLICE_BEAT_HEADER_BYTES + POLICE_MAX_SHOTS * POLICE_SHOT_BYTES);
+  private readonly out = new Uint8Array(POLICE_BEAT_HEADER_BYTES + POLICE_MAX_SHOTS * POLICE_SHOT_BYTES + HELI_MAX_BYTES);
+  private readonly heliRec = blankHeli();
+  /** The last beat sent had the helicopter in it. */
+  private heliTold = false;
   private nextOfficer = OFFICER_WID0;
   // Guest.
   private gotBeatAt = -1e9;
@@ -77,6 +90,8 @@ export class TownPolice {
   private heatAt = -1e9;
   private heatHost = 0;
   private readonly told = { level: 0, flags: 0, x: 0, z: 0 };
+  /** The helicopter as the host last told it: when (performance.now()), what its lamp is doing, on whom or where. */
+  private readonly heli = { at: -1e9, lamp: 0, who: 0, x: 0, z: 0 };
   private readonly seenCars = new Set<Vehicle>();
   private readonly bodies = new Map<number, Person | null>();
 
@@ -88,11 +103,18 @@ export class TownPolice {
         if (this.mode !== 'host') return;
         const tr = shared.sim;
         for (const u of police.units) {
-          if (u.shown || u.v.driver !== 'ai' || u.v.sunk) continue;
+          const d = u.v.driver;
+          if (u.shown || u.v.sunk) continue;
+          // Its crew has this moment run from it (it is alight) and the Patrol has not yet struck it off: it is in
+          // this frame all the same, as the standing car it is about to be, or the guests would lose it for a frame
+          // and draw another.
+          if (d === null) { if (u.wid) fn(u.wid, u.v, true, -1); continue; }
+          if (d !== 'ai') continue;
           if (!u.wid && tr) u.wid = tr.takeWid();
           if (u.wid) fn(u.wid, u.v, false, u.state === 'leave' ? 0 : CRUISER_ON_DUTY);
         }
       },
+      has: (v) => this.mode === 'host' && police.units.some((u) => u.v === v && !u.shown && u.wid !== 0),
       adopt: (v, wid, paint, host) => {
         if (v.spec.kind !== 'cruiser' || paint !== CRUISER_ON_DUTY || v.driver !== 'ai') return false;
         const tr = shared.sim;
@@ -126,7 +148,13 @@ export class TownPolice {
         this.stats.adoptedOfficers++;
       },
     };
-    police.onUnitGone = (u) => { if (u.wid && !u.shown) shared.sim?.freeWid(u.wid); };
+    police.onUnitGone = (u) => {
+      if (!u.wid || u.shown) return;
+      const tr = shared.sim, v = u.v;
+      // Its crew has run from it (it is alight): the same car to the town, under the number it had, standing where it stopped.
+      if (tr && this.mode === 'host' && v.driver === null && !v.sunk && !v.removed && tr.abandon(v, u.wid) === u.wid) return;
+      tr?.freeWid(u.wid);
+    };
     police.onHurt = (id, dmg, carDmg) => { if (this.mode === 'host' && conn.send(encodePoliceHurt(id, dmg, carDmg))) { this.stats.hurtsSent++; this.stats.toPlayerBytes += POLICE_HURT_BYTES; } };
     police.onBust = (id) => { if (this.mode === 'host' && conn.send(encodePoliceBust(id))) { this.stats.bustsSent++; this.stats.toPlayerBytes += POLICE_BUST_BYTES; } };
     police.onCrime = (id, kind, x, z, weight) => {
@@ -151,6 +179,7 @@ export class TownPolice {
     const police = this.police as Police, was = this.mode;
     if (mode === was) return;
     this.mode = police.mode = mode;
+    this.heliTold = false;
     const tr = this.shared.sim;
     if (was === 'guest') {
       // Whatever was shown and has not been taken over is the host's still (or gone with it).
@@ -169,6 +198,8 @@ export class TownPolice {
       // The host's police are the police now. (Any private ones go at once: the host sends its own after the wanted.)
       police.clear();
       this.told.level = -1;
+      // (A helicopter in this sky is the host's now, if the host says it has one within a moment.)
+      this.heli.at = performance.now(); this.heli.lamp = HeliLamp.Off;
     } else if (mode === 'host') {
       this.beatAt = 0;
       // (An officer taken over keeps their number; private ones get theirs when first sent.)
@@ -176,6 +207,7 @@ export class TownPolice {
       for (const u of police.units) if (u.wid) { tr?.freeWid(u.wid); u.wid = 0; }
       for (const c of police.cops) c.wid = 0;
     }
+    police.heliMode(was, mode, performance.now());
   }
 
   private sync(now: number): void {
@@ -216,14 +248,26 @@ export class TownPolice {
       s.radius = s.level > 0 ? (100 + 25 * s.level) * 0.7 : 0;
       list.push(s);
     }
-    const shots = this.shots;
-    if (now - this.beatAt >= POLICE_BEAT_MS || (shots.length > 0 && now - this.beatAt >= 100)) {
+    // The beat. With the helicopter up it goes every HELI_MS and carries it; the first one after it has gone goes at once.
+    const shots = this.shots, heli = police.heli, up = heli.present;
+    if (now - this.beatAt >= (up ? HELI_MS : POLICE_BEAT_MS) || (shots.length > 0 && now - this.beatAt >= 100) || (this.heliTold && !up)) {
       let duty = 0;
       for (const u of police.units) if (u.state !== 'leave') duty++;
-      const len = encodePoliceBeat(duty, shots, shots.length, this.out);
+      let rec = null;
+      if (up) {
+        const on = police.heliOn;
+        rec = this.heliRec;
+        rec.x = heli.x; rec.y = heli.y; rec.z = heli.z; rec.h = heli.h;
+        rec.lamp = !heli.onStation ? HeliLamp.Off : on && police.heliTracks ? HeliLamp.Track : HeliLamp.Sweep;
+        rec.who = on ? on.id || this.conn.id : 0;
+        rec.sx = heli.spotX; rec.sz = heli.spotZ;
+      }
+      const n = shots.length, len = encodePoliceBeat(duty, shots, n, this.out, rec);
       if (this.conn.send(this.out.subarray(0, len))) {
-        this.stats.beatsSent++; this.stats.beatBytesSent += len; this.stats.shotsSent += shots.length;
+        this.stats.beatsSent++; this.stats.beatBytesSent += len; this.stats.shotsSent += n;
+        if (up) { this.stats.heliSent++; this.stats.heliBytesSent += len - POLICE_BEAT_HEADER_BYTES - n * POLICE_SHOT_BYTES; }
         this.beatAt = now;
+        this.heliTold = up;
       }
       shots.length = 0;
     }
@@ -259,6 +303,13 @@ export class TownPolice {
     if (!b) return;
     this.stats.beatsGot++;
     this.gotBeatAt = now; this.beatFrom = b.from;
+    const hr = b.heli, heli = this.police.heli;
+    if (hr) {
+      this.stats.heliGot++;
+      heli.show(now, hr.x, hr.y, hr.z, hr.h, hr.lamp !== HeliLamp.Off, HELI_MS);
+      const m = this.heli;
+      m.at = now; m.lamp = hr.lamp; m.who = hr.who; m.x = hr.sx; m.z = hr.sz;
+    } else if (heli.present) heli.hide();
     if (b.shots.length === 0) return;
     const g = this.game;
     for (const s of b.shots) {
@@ -317,6 +368,21 @@ export class TownPolice {
     }
     for (const [wid, b] of bodies) if (b && !police.cops.some((c) => c.shown && c.wid === wid)) police.showCop(b, wid);
 
+    // The host's helicopter: where its lamp is to rest on this screen. On a player, that is where this browser has them.
+    const heli = police.heli;
+    if (heli.present) {
+      const m = this.heli, at = police.lampAt;
+      if (now - m.at > HELI_STALE_MS) heli.hide();
+      else {
+        at.track = false; at.x = heli.x; at.z = heli.z;
+        if (m.lamp === HeliLamp.Sweep) { at.x = m.x; at.z = m.z; }
+        else if (m.lamp === HeliLamp.Track) {
+          const r = m.who === this.conn.id ? g.player : this.remotes.get(m.who);
+          if (r && (r === g.player || (r as Remote).seen)) { at.x = r.x; at.z = r.z; at.track = true; }
+        }
+      }
+    }
+
     // How wanted this player is, told to the host when it changes.
     const t = this.told, pl = g.player;
     const level = me.level;
@@ -359,6 +425,16 @@ export class TownPolice {
       units: police.units.map((u) => ({ id: u.wid, x: r2(u.v.x), z: r2(u.v.z), h: r2(u.v.h), speed: r2(u.v.speed), state: u.state, role: u.role, lit: u.state !== 'leave', shown: u.shown, sees: u.sees, crew: u.crew.length, after: u.shown ? 0 : u.target.id || mine })),
       officers: police.cops.map((c) => ({ id: c.wid, x: r2(c.p.x), z: r2(c.p.z), pose: c.p.pose, health: Math.round(c.p.health), shown: c.shown, sees: c.sees, mode: c.mode, car: c.unit ? c.unit.wid || -1 : 0, after: c.shown ? 0 : c.target.id || mine })),
       sirens: police.status.sirens,
+      // The helicopter. shown: the host's, drawn here. after: whom it is out for (host; a guest: whom the lamp is on, 0 when sweeping or off).
+      heli: {
+        present: police.heli.present, shown: police.heli.shown, onStation: police.heli.onStation, lit: police.heli.lit, away: police.heli.away,
+        x: r2(police.heli.x), y: r2(police.heli.y), z: r2(police.heli.z), h: r2(police.heli.h), spotX: r2(police.heli.spotX), spotZ: r2(police.heli.spotZ),
+        after: this.mode === 'guest' ? (this.heli.lamp === HeliLamp.Track ? this.heli.who : 0) : police.heliOn ? police.heliOn.id || mine : 0,
+        tracks: this.mode === 'guest' ? this.heli.lamp === HeliLamp.Track : police.heliTracks,
+        seesMe: police.status.seen,
+        // Guest: ms since the host last said where it is.
+        age: this.mode === 'guest' && police.heli.present ? Math.round(performance.now() - this.heli.at) : 0,
+      },
     };
   }
 }

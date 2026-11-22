@@ -89,8 +89,10 @@ interface Sent { rec: TrafficCar; at: number; seq: number }
  * the same frames under numbers from the same pool, and change hands with the rest.
  */
 export interface CarOwner {
-  /** Host: every such car, for the frame being built. paint: what goes in the record's paint nibble. */
+  /** Host: every such car, for the frame being built. paint: what goes in the record's paint nibble (-1: the car's own paint). */
   each(fn: (wid: number, v: Vehicle, driverless: boolean, paint: number) => void): void;
+  /** Host: this car is one of the owner's (it must not be given another number behind the owner's back). */
+  has(v: Vehicle): boolean;
   /** This browser is taking the wheel of a car it was showing. True when the car is this owner's to drive from here. */
   adopt(v: Vehicle, wid: number, paint: number, host: boolean): boolean;
   /** Host: another player is taking this car. True when it was this owner's, and is let go of. */
@@ -392,6 +394,9 @@ export class SharedTraffic {
     const tr = this.traffic as Traffic;
     for (const v of this.game.vehicles.list) {
       if ((v.health >= BURN_HEALTH && !v.wreck) || v.driver !== null || v.sunk || v.shared || v.removed) continue;
+      // (A cruiser whose crew has this moment run from it is still on the Patrol's books: the Patrol hands it over
+      // itself, under the number it has, so the town goes on seeing the same car.)
+      if (this.police?.has(v)) continue;
       tr.abandon(v);
     }
   }

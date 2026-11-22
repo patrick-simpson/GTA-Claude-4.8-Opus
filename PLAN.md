@@ -88,6 +88,33 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 3, step 5, the police helicopter shared: pushed Nov 22, about 5:45 PM ET
+
+**What.** On MAIN there is now one police helicopter for the town, flown by the host and shown to every guest with
+its spotlight and sound. A burning police car keeps its number on guests. This ends stage 3. Still protocol v4 and
+`server/src` untouched, so no Worker redeploy is needed. On the BACKUP the helicopter stays private.
+
+**Rules.** It goes to a player at four pips or more, stays with that player while they hold four pips, otherwise
+goes to the most wanted (the nearer of two alike; the host's own player first when nothing is up). Its 80 s on
+station and 35 s refuel belong to the one helicopter. The host sends "lamp on player N"; each browser aims the lamp
+at that player as it draws them. "Seen by the helicopter" is each player's own browser's call. On a host change the
+new host flies it on from where it was showing it.
+
+**Cost (worker's measure, two in town).** It rides the police beat as a 6 to 8 byte tail, only while in the sky; the
+beat then goes every 400 ms, not every 2 s. Police beat 2.5 B/s idle, 26 to 28 B/s with it up. Guests send nothing new.
+
+**Checked by the lead.** tsc, build, server tests, production boot with no errors; heli.mjs (new, 37 checks),
+police.mjs (46) and fire.mjs (41), one clean run each with full logs; both pictures viewed (the same helicopter and
+beam over the same junction on both screens). The worker was cut off once by the 5 hour limit and resumed.
+
+**Still wrong or untested.** Smoothness on screen not judged (the test pages draw about 2 frames a second); the
+glide is proven only by a stopped clock check of its code. Sound not listened to. No single player helicopter test
+was run after the split of its drawing code (read through and booted only). Guests of a host on an older page see no
+helicopter. Time of day is each browser's own, so the lamp can be lit on one screen and not another. Untested: the
+refuel cycle shared, three or more wanted players, the service going away with it up, a wanted player joining with
+a private one up, the burning cruiser through to its wreck. It can blink out 560 m away when its player leaves town.
+
+
 ### Multiplayer stage 3, step 4, fire, wrecks, damage and props: pushed Nov 22, about 1:45 PM ET
 
 **What.** Guests now see a shared car burn, blow and stay as a wreck. Another player's car shows its dents, steam,

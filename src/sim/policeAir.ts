@@ -157,9 +157,18 @@ export class Heli {
   private readonly poolMat: THREE.MeshBasicMaterial;
   private readonly strobe: THREE.Sprite;
   private ang = 0;
-  private h = 0;
+  /** Its heading. */
+  h = 0;
   private leaving = false;
   private cx = 0; private cz = 0;
+  /**
+   * Multiplayer guest (src/net/police.ts): this is the host's helicopter, shown here. It is not flown: show() says
+   * where the host has it a few times a second and follow() glides between.
+   */
+  shown = false;
+  private readonly from = { x: 0, y: 0, z: 0, h: 0 };
+  private readonly to = { x: 0, y: 0, z: 0, h: 0 };
+  private gotAt = 0; private span = 400; private drawnAt = 0; private drawnH = 0;
   private readonly up = new THREE.Vector3(0, -1, 0);
   private readonly dir = new THREE.Vector3();
 
@@ -250,7 +259,6 @@ export class Heli {
   /** (px, pz): the player. track: the crew can see the player, so the lamp follows; otherwise it sweeps where they were last seen (kx, kz). */
   update(dt: number, px: number, pz: number, track: boolean, kx: number, kz: number): void {
     if (!this.present) return;
-    const g = this.game, b = this.body;
     const R = 40, ALT = 46;
     this.onStation = false;
     let tx: number, tz: number, ty: number;
@@ -258,7 +266,7 @@ export class Heli {
       // Straight out along whatever bearing it is on, climbing.
       tx = this.x + Math.sin(this.h) * 100; tz = this.z + Math.cos(this.h) * 100; ty = 120;
       const dx = this.x - px, dz = this.z - pz;
-      if (dx * dx + dz * dz > 560 * 560) { this.present = false; b.visible = this.cone.visible = this.pool.visible = false; return; }
+      if (dx * dx + dz * dz > 560 * 560) { this.hide(); return; }
     } else {
       this.cx = damp(this.cx, px, 1.2, dt); this.cz = damp(this.cz, pz, 1.2, dt);
       const dx = this.x - this.cx, dz = this.z - this.cz, d = Math.hypot(dx, dz);
@@ -279,24 +287,35 @@ export class Heli {
     dh -= Math.round(dh / TAU) * TAU;
     const turn = clamp(dh, -1.6 * dt, 1.6 * dt);
     this.h += turn;
+    this.pose(dt, turn / Math.max(dt, 1e-4));
+
+    // The lamp: quick to follow someone it can see, a slow sweep when it cannot.
+    const sweep = this.game.time * 0.9;
+    const gx = track ? px : kx + Math.sin(sweep) * 16, gz = track ? pz : kz + Math.cos(sweep * 0.83) * 16;
+    this.lamp(dt, gx, gz, track ? 34 : 14);
+  }
+
+  /** The airframe where (x, y, z, h) says, banked for `rate` rad/s of turn; blades and strobe a frame on. */
+  private pose(dt: number, rate: number): void {
+    const b = this.body;
     b.visible = true;
     b.position.set(this.x, this.y, this.z);
     b.rotation.set(0.12, this.h, 0, 'YXZ');
-    b.rotation.z = clamp(-turn / Math.max(dt, 1e-4) * 0.22, -0.4, 0.4);
+    b.rotation.z = clamp(-rate * 0.22, -0.4, 0.4);
     this.rotor.rotation.y += dt * 31;
     this.tailRotor.rotation.x += dt * 47;
-    this.strobe.scale.setScalar((g.time * 1.3) % 1 < 0.12 ? 2.4 : 0.01);
+    this.strobe.scale.setScalar((this.game.time * 1.3) % 1 < 0.12 ? 2.4 : 0.01);
+  }
 
-    // The lamp: quick to follow someone it can see, a slow sweep when it cannot.
-    const night = g.sky.night;
-    const sweep = g.time * 0.9;
-    const gx = track ? px : kx + Math.sin(sweep) * 16, gz = track ? pz : kz + Math.cos(sweep * 0.83) * 16;
+  /** Walk the lamp toward (gx, gz) at `speed` m/s and draw the beam (at night, on station). */
+  private lamp(dt: number, gx: number, gz: number, speed: number): void {
+    const night = this.game.sky.night;
     if (!this.onStation) {
       // In transit the lamp is off and rides underneath, so it comes on pointing down, not at wherever it was last.
       this.spotX = this.x; this.spotZ = this.z;
     } else {
       const sx = gx - this.spotX, sz = gz - this.spotZ, sd = Math.hypot(sx, sz) || 1;
-      const sv = Math.min(sd, (track ? 34 : 14) * dt);
+      const sv = Math.min(sd, speed * dt);
       this.spotX += (sx / sd) * sv; this.spotZ += (sz / sd) * sv;
     }
     const lit = night > 0.25 && this.onStation;
@@ -316,5 +335,86 @@ export class Heli {
       this.coneMat.opacity = 0.085 * night;
       this.poolMat.opacity = 0.2 * night;
     }
+  }
+
+  /** The lamp's beam is drawn (for the tests). */
+  get lit(): boolean { return this.present && this.cone.visible; }
+  /** Flying off. */
+  get away(): boolean { return this.present && this.leaving; }
+  /** The middle of the circle it is flying, or making for. */
+  get midX(): number { return this.cx; }
+  get midZ(): number { return this.cz; }
+
+  // ── Multiplayer (src/net/police.ts) ─────────────────────────────────────────
+
+  /**
+   * Guest: the host has it here (`now`: performance.now(); `every`: ms between two words of it). The first word is
+   * taken as it stands; after that it glides to each new one in the time the next should take to come. (Not in the
+   * time the last one took: a late word would then be flown to slowly as well, and it would fall further behind.)
+   */
+  show(now: number, x: number, y: number, z: number, h: number, onStation: boolean, every: number): void {
+    if (!this.present || !this.shown) {
+      // (A private one that was in this sky is not flown across town to meet it.)
+      this.x = x; this.y = y; this.z = z; this.h = h;
+      this.spotX = x; this.spotZ = z;
+      this.drawnAt = now; this.drawnH = h;
+    } else this.glide(now);
+    // From where the glide has got to by now, drawn or not: a page that draws less often than the words come
+    // (each one landing just before a frame) would otherwise start every glide again from where it last drew, and
+    // never get anywhere.
+    const a = this.from, b = this.to;
+    a.x = this.x; a.y = this.y; a.z = this.z; a.h = this.h;
+    b.x = x; b.y = y; b.z = z; b.h = h;
+    this.gotAt = now; this.span = every;
+    this.present = true; this.shown = true; this.leaving = false; this.onStation = onStation;
+  }
+
+  /** Where the glide is at `now`: a little past the last word if the next is late, so it does not stop dead in the air. */
+  private glide(now: number): void {
+    const a = this.from, b = this.to;
+    const f = Math.min((now - this.gotAt) / this.span, 1.4);
+    this.x = a.x + (b.x - a.x) * f; this.y = a.y + (b.y - a.y) * f; this.z = a.z + (b.z - a.z) * f;
+    let dh = b.h - a.h;
+    dh -= Math.round(dh / TAU) * TAU;
+    this.h = a.h + dh * Math.min(f, 1);
+  }
+
+  /** Guest, every frame: glide on toward where the host last had it, lamp on (gx, gz). fast: the lamp is on somebody, not sweeping. */
+  follow(dt: number, gx: number, gz: number, fast: boolean): void {
+    if (!this.present) return;
+    // By the wall clock, as the frames arrive by it.
+    const now = performance.now();
+    this.glide(now);
+    let turn = this.h - this.drawnH;
+    turn -= Math.round(turn / TAU) * TAU;
+    const wall = Math.max(0.004, (now - this.drawnAt) / 1000);
+    this.drawnAt = now; this.drawnH = this.h;
+    this.pose(dt, clamp(turn / wall, -1.6, 1.6));
+    this.lamp(dt, gx, gz, fast ? 34 : 18);
+  }
+
+  /** Becoming a guest: whatever is in the sky here is the host's from now on, if the host has one (hide() if not). */
+  lend(now: number): void {
+    if (!this.present) return;
+    const a = this.from, b = this.to;
+    a.x = b.x = this.x; a.y = b.y = this.y; a.z = b.z = this.z; a.h = b.h = this.h;
+    this.gotAt = this.drawnAt = now; this.drawnH = this.h;
+    this.shown = true; this.leaving = false;
+  }
+
+  /** No longer a guest: the helicopter shown here is this browser's to fly, from where it is. */
+  takeOver(): void {
+    if (!this.shown) return;
+    this.shown = false; this.leaving = false;
+    if (!this.present) return;
+    // On station the lamp is on whoever it was after; on the way in, they are somewhere ahead.
+    if (this.onStation) { this.cx = this.spotX; this.cz = this.spotZ; }
+    else { this.cx = this.x + Math.sin(this.h) * 120; this.cz = this.z + Math.cos(this.h) * 120; }
+  }
+
+  /** Gone from this sky at once (guest: the host has none). */
+  hide(): void {
+    this.present = this.onStation = this.shown = this.leaving = false;
+    this.body.visible = this.cone.visible = this.pool.visible = false;
   }
 }

@@ -208,6 +208,15 @@ export class Police {
   private impactT = 0;
   private shopT = 0; private shopTold = 0;
   private heliT = 0; private heliRest = 0;
+  /** Whom the helicopter is out for (null: nobody, it is away or leaving), and whom it was last out for. */
+  heliOn: Suspect | null = null;
+  private heliLast: Suspect = this.me;
+  /** Its crew can see whoever it is out for right now: the lamp is on them. */
+  heliTracks = false;
+  /** A helicopter taken over from the last host waits this long (seconds) to hear who is wanted before it gives up and goes. */
+  private heliGrace = 0;
+  /** Guest: where the host's lamp is to rest, as this browser draws things (src/net/police.ts sets it each frame). */
+  readonly lampAt = { x: 0, z: 0, track: false };
   private emitT = 0; private lastSirens = -1;
   private frame = 0;
   private readonly tmp = { x: 0, z: 0 };
@@ -1034,6 +1043,64 @@ export class Police {
     this.heli.dismiss();
   }
 
+  // ── The helicopter ─────────────────────────────────────────────────────────
+
+  /**
+   * Whom it is out for, and whether it is called or sent home. Alone that is this browser's player at four pips.
+   * The host of a shared town has ONE helicopter for everybody: it stays with the player it is on for as long as
+   * they are at four pips (it does not flit between two), and otherwise goes to the most wanted, the nearer to it
+   * of two alike. Its minute on station and its refuelling are the one helicopter's, whoever it is over.
+   */
+  private heliCall(dt: number): void {
+    const heli = this.heli, me = this.me;
+    let t = this.heliOn;
+    if (t && (t.level < 4 || (t !== me && this.others.indexOf(t) < 0))) t = null;
+    if (!t) {
+      let best = -1e9;
+      const ask = (s: Suspect): void => {
+        if (s.level < 4) return;
+        const score = s.level * 1e5 - (heli.present ? Math.hypot(s.x - heli.x, s.z - heli.z) : 0);
+        if (score > best) { best = score; t = s; }
+      };
+      ask(me);
+      for (const o of this.others) ask(o);
+    }
+    this.heliOn = t;
+    if (t) { this.heliLast = t; this.heliGrace = 0; }
+    // (Whoever it was over has left town: it flies off from where they were.)
+    else if (this.heliLast.id > 0 && this.others.indexOf(this.heliLast) < 0) this.heliLast = this.heliPlace(this.heliLast.x, this.heliLast.z);
+    if (this.heliGrace > 0) this.heliGrace -= dt;
+    if (t && this.heliRest <= 0) { if (!heli.present) this.heliT = 80; heli.summon(t.x, t.z); }
+    else if (this.heliGrace <= 0 || this.heliRest > 0) heli.dismiss();
+    if (this.heliRest > 0) this.heliRest -= dt;
+    if (heli.onStation && (this.heliT -= dt) <= 0) this.heliRest = 35;
+  }
+
+  /** Multiplayer: who runs the police has changed (src/net/police.ts). `now`: performance.now(). */
+  heliMode(was: 'local' | 'host' | 'guest', mode: 'local' | 'host' | 'guest', now: number): void {
+    const heli = this.heli;
+    this.heliOn = null; this.heliTracks = false;
+    if (mode === 'guest') { this.heliLast = this.me; this.lampAt.x = heli.spotX; this.lampAt.z = heli.spotZ; this.lampAt.track = false; heli.lend(now); return; }
+    if (was === 'guest' && heli.present) {
+      // The helicopter shown here is this browser's to fly now. Whom it was after is not known yet: it holds its
+      // circle (or its course) for a moment while the wanted say so, then carries on or goes home.
+      heli.takeOver();
+      this.heliLast = this.heliPlace(heli.midX, heli.midZ);
+      this.heliT = 80; this.heliRest = 0; this.heliGrace = mode === 'host' ? 4 : 0;
+    } else {
+      heli.takeOver();
+      // (Host no longer, and alone: if it was over somebody else, it leaves from there.)
+      if (this.heliLast.id > 0) this.heliLast = this.heliPlace(this.heliLast.x, this.heliLast.z);
+    }
+  }
+
+  /** A place for the helicopter to hold or to leave from, when there is nobody there to follow (id -1: nobody). */
+  private heliPlace(x: number, z: number): Suspect {
+    const m = blankSuspect(-1);
+    m.x = m.kx = x; m.z = m.kz = z;
+    return m;
+  }
+
   // ── Multiplayer (src/net/police.ts) ─────────────────────────────────────────
 
   private blankUnit(v: Vehicle, wid: number): Unit {
@@ -1184,16 +1251,21 @@ export class Police {
     for (const v of g.vehicles.list) if (v.driver === 'ai') this.lastAi.set(v, g.time);
 
     // The helicopter: called at level 4, on station a minute or so at a time, then away to refuel.
-    const heli = this.heli;
-    if (this.level >= 4 && this.heliRest <= 0) { if (!heli.present) this.heliT = 80; heli.summon(pl.x, pl.z); }
-    else heli.dismiss();
-    if (this.heliRest > 0) this.heliRest -= dt;
-    if (heli.onStation && (this.heliT -= dt) <= 0) this.heliRest = 35;
+    // (A guest is shown the host's: it flies nothing, and only asks whether that one can see its own player.)
+    const heli = this.heli, guest = this.mode === 'guest';
+    if (!guest) this.heliCall(dt);
     // It sees her when its lamp is on her and nothing is between: under an awning of buildings she is only a guess.
     const lampOn = Math.hypot(heli.spotX - pl.x, heli.spotZ - pl.z) < 9;
-    const heliSees = heli.present && heli.onStation && this.level > 0 && !this.incognito && this.heliRest <= 0
+    const heliSees = heli.present && heli.onStation && this.level > 0 && !this.incognito && (guest || this.heliRest <= 0)
       && g.col.lineOfSight(heli.x, heli.y, heli.z, pl.x, pl.y + 1.1, pl.z);
-    heli.update(dt, pl.x, pl.z, heliSees, this.kx, this.kz);
+    if (guest) heli.follow(dt, this.lampAt.x, this.lampAt.z, this.lampAt.track);
+    else {
+      // Out for another player (host): the crew's eyes are on them, by the same rule.
+      const t = this.heliOn, to = this.heliLast;
+      this.heliTracks = !t || t === me ? heliSees && !!t
+        : heli.onStation && !t.incognito && this.heliRest <= 0 && g.col.lineOfSight(heli.x, heli.y, heli.z, t.x, t.y + 1.1, t.z);
+      heli.update(dt, to.x, to.z, t ? this.heliTracks : heliSees, to.kx, to.kz);
+    }
 
     let seen = heliSees && lampOn;
     // (Any car or officer that can see her counts, whoever it is after: on a guest's screen and on the host's alike.)
