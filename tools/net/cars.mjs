@@ -388,7 +388,7 @@ try {
     await sleep(2000);
     const fin = (await Promise.all([Hn, ...O].map((t) => t.net()))).map((x) => left(x));
     const counts = fin[0] ? await Promise.all([Hn, ...O].map((t) => t.around(fin[0].x, fin[0].z, 1.5))) : [];
-    check(!!at && after.every((x) => !!x) && fin.every((c) => !!c && c.id === fin[0].id && Math.hypot(c.x - fin[0].x, c.z - fin[0].z) < 0.5) && counts.every((k) => k === 1), 'the host gets out and everybody has the car standing where it was left, once', `${fin.filter((x) => !!x).length} of 3 see it${fin[0] ? ` as car ${fin[0].id}, ${at ? Math.hypot(fin[0].x - at.x, fin[0].z - at.z).toFixed(1) : '?'} m from where the door opened` : ''}; cars there: ${counts.join(', ')}`);
+    check(!!at && after.every((x) => !!x) && fin.every((c) => !!c && c.id === fin[0].id && Math.hypot(c.x - fin[0].x, c.z - fin[0].z) < 0.5) && counts.every((k) => k === 1), 'the host gets out and everybody has the car standing where it was left, once', `${at ? '' : 'the host never got out of its car; '}${fin.filter((x) => !!x).length} of 3 see it${fin[0] ? ` as car ${fin[0].id}, ${at ? Math.hypot(fin[0].x - at.x, fin[0].z - at.z).toFixed(1) : '?'} m from where the door opened` : ''}; cars there: ${counts.join(', ')}`);
     await Hn.go(spot.x, spot.z, spot.h);
   }
 
@@ -480,7 +480,7 @@ try {
     console.log(`  (places newly empty after the change of host: ${diff.map((d, i) => `${rest[i].tag} [${d.join(' ')}]`).join(', ')}; no longer empty: ${lost.map((d, i) => `${rest[i].tag} [${d.join(' ')}]`).join(', ')}; the new host's own record of places it emptied: ${after.map((a) => a.n.cars.lost).filter(Boolean).join(' | ') || 'none'})`);
     check(after.every((a, i) => a.parked === before[i].parked && a.empties === before[i].empties) && after[0].parked === after[1].parked, 'the parked cars are still there, the same on both, with the same places empty', `${JSON.parse(after[0].parked).length} cars, ${after[0].empties.split(',').filter(Boolean).length} empty place(s); before: ${before.map((b) => b.empties.split(',').filter(Boolean).length).join(' and ')}; lists equal now: ${after[0].parked === after[1].parked}`);
     const kept = before[0].standing.filter((c) => after.every((a) => a.n.traffic.cars.some((k) => k.id === c.id && k.driver === null && k.kind === c.kind && k.color === c.color && Math.hypot(k.x - c.x, k.z - c.z) < 1)));
-    check(before[0].standing.length > 0 && kept.length === before[0].standing.length, 'the cars players left standing are still there, with the same numbers', `${kept.length} of ${before[0].standing.length}`);
+    check(before[0].standing.length > 0 && kept.length === before[0].standing.length, 'the cars players left standing are still there, with the same numbers', `${kept.length} of ${before[0].standing.length}` + before[0].standing.filter((c) => !kept.includes(c)).map((c) => `; car ${c.id} (${c.kind}): ` + after.map((q, i) => { const k = q.n.traffic.cars.find((o) => o.id === c.id); return `${rest[i].tag} ${k ? `${Math.hypot(k.x - c.x, k.z - c.z).toFixed(1)} m off, driver ${k.driver}` : 'gone'}`; }).join(', ')).join(''));
     const stray = await Promise.all(rest.map((t) => t.until((x) => x.traffic.cars.some((k) => k.driver === null && k.kind === 'sedan' && Math.hypot(k.x - hc.x, k.z - hc.z) < 3), 20000)));
     check(stray.every((x) => !!x), 'and the car the old host was driving is left where it was last seen', stray.map((x, i) => `${rest[i].tag}: ${x ? 'there' : 'missing'}`).join(', '));
     const hostNow = r2 ? r2.host : rest[0];

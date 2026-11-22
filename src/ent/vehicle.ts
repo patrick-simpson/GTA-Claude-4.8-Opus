@@ -67,6 +67,8 @@ const MARKS = 768, MARK_LIFE = 16, PUFFS = 96;
 const HARD_HIT = 3;
 /** Multiplayer: how long a knock a guest reported and the same knock seen here count as one, seconds. */
 const NET_HIT_S = 0.3;
+/** Another player's car: how much further off than touching it is still watched (m); how long the side this car was on is remembered (s); and how deep an overlap on a different axis may be and still count as a new contact (m). */
+const PUPPET_REACH = 6, SEP_KEEP_S = 0.5, SEP_SHALLOW = 0.3;
 const DAMAGE = 1.5;
 
 const X_AXIS = new THREE.Vector3(1, 0, 0), Y_AXIS = new THREE.Vector3(0, 1, 0);
@@ -195,6 +197,12 @@ class Car implements Vehicle {
   puppet = false;
   /** Multiplayer host: when a guest's reported knock last landed on this car, and what its own shown car has knocked out of it lately. */
   netT = -9; pupT = -9; pupV = 0;
+  /**
+   * The last other player's car this one was near, and the side of it this one was on while the two were still apart:
+   * which of the four box axes parted them (0, 1: this car's nose and side; 2, 3: the other's), the sign along it, and
+   * when. See Vehicles.collide.
+   */
+  sepB: Car | null = null; sepAx = 0; sepK = 1; sepT = -9;
 
   // Everything below is private to this file.
   asleep = true;
@@ -883,6 +891,18 @@ export class Vehicles implements VehiclesApi {
     const sky = this.game.sky as Game['sky'] | undefined;
     c.lights = !!sky && sky.night > 0.5;
     c.stale = true;
+    // Another player's car has just been put somewhere new. Whatever of this browser's it now lies in is pushed out
+    // and stopped HERE, not at the next step: nothing ever reads, draws or sends a state with the two overlapped.
+    if (c.puppet && dt > 0) {
+      const awake = this.awake;
+      for (let i = 0; i < awake.length; i++) {
+        const a = awake[i];
+        if (a.removed || a.sunk || a.shared) continue;
+        const reach = a.rad + c.rad + PUPPET_REACH, dx = c.x - a.x, dz = c.z - a.z;
+        if (dx > reach || dx < -reach || dz > reach || dz < -reach) continue;
+        this.collide(a, c);
+      }
+    }
   }
 
   nearest(x: number, z: number, maxDist: number, pred?: (v: Vehicle) => boolean): Vehicle | null {
@@ -1038,7 +1058,9 @@ export class Vehicles implements VehiclesApi {
       // The other players' cars: in the way of everything that moves here.
       for (let j = 0; j < ghosts.length; j++) {
         const b = ghosts[j];
-        const reach = reachA + b.rad + (Math.abs(b.vx) + Math.abs(b.vz)) * dt;
+        // (Wider than for a simulated car: it is put down afresh every frame from what the network says, in steps
+        // that have nothing to do with dt, and collide() must have seen which side of it this car was on beforehand.)
+        const reach = reachA + b.rad + (Math.abs(b.vx) + Math.abs(b.vz)) * dt + PUPPET_REACH;
         const dx = b.x - a.x;
         if (dx > reach || dx < -reach) continue;
         const dz = b.z - a.z;
@@ -1591,26 +1613,52 @@ export class Vehicles implements VehiclesApi {
 
   /** Car against car: find the shallowest way apart, part them by weight, and trade momentum at the point of contact. */
   private collide(a: Car, b: Car): void {
-    const dx = b.x - a.x, dz = b.z - a.z, reach = a.rad + b.rad;
-    if (dx * dx + dz * dz > reach * reach) return;
+    const dx = b.x - a.x, dz = b.z - a.z, reach = a.rad + b.rad, pup = b.puppet;
+    if (!pup && dx * dx + dz * dz > reach * reach) return;
     if (a.y > b.y + b.spec.height || b.y > a.y + a.spec.height) return;
     const sa = Math.sin(a.h), ca = Math.cos(a.h), sb = Math.sin(b.h), cb = Math.cos(b.h);
     const c = Math.abs(sa * sb + ca * cb), s = Math.abs(ca * sb - sa * cb);
     const dfa = dx * sa + dz * ca, dra = -dx * ca + dz * sa, dfb = dx * sb + dz * cb, drb = -dx * cb + dz * sb;
     const o0 = a.hl + b.hl * c + b.hw * s - Math.abs(dfa);
-    if (o0 <= 0) return;
+    if (o0 <= 0 && !pup) return;
     const o1 = a.hw + b.hl * s + b.hw * c - Math.abs(dra);
-    if (o1 <= 0) return;
+    if (o1 <= 0 && !pup) return;
     const o2 = b.hl + a.hl * c + a.hw * s - Math.abs(dfb);
-    if (o2 <= 0) return;
+    if (o2 <= 0 && !pup) return;
     const o3 = b.hw + a.hl * s + a.hw * c - Math.abs(drb);
-    if (o3 <= 0) return;
-    // n points from a to b.
-    let nx: number, nz: number, o = o0;
-    { const k = dfa < 0 ? -1 : 1; nx = sa * k; nz = ca * k; }
-    if (o1 < o) { o = o1; const k = dra < 0 ? -1 : 1; nx = -ca * k; nz = sa * k; }
-    if (o2 < o) { o = o2; const k = dfb < 0 ? -1 : 1; nx = sb * k; nz = cb * k; }
-    if (o3 < o) { o = o3; const k = drb < 0 ? -1 : 1; nx = -cb * k; nz = sb * k; }
+    if (o3 <= 0 && !pup) return;
+    // The shallowest of the four is the way out. n points from a to b.
+    let ax = 0, o = o0;
+    if (o1 < o) { o = o1; ax = 1; }
+    if (o2 < o) { o = o2; ax = 2; }
+    if (o3 < o) { o = o3; ax = 3; }
+    let k = (ax === 0 ? dfa : ax === 1 ? dra : ax === 2 ? dfb : drb) < 0 ? -1 : 1;
+    if (pup) {
+      // Another player's car is not carried along its path a step at a time: it is put down afresh each frame where
+      // the network says it is, which may be metres from where it was and deep inside this one (frames are uneven,
+      // and in a head on each browser sees the other a moment in the past, so both have driven too far by the time
+      // either knows). The shallowest way out of a deep overlap is as likely sideways or out of the far end as back
+      // the way this car came: two players meeting head on slid past or went through each other.
+      // So while the two are apart, the axis that parts them and the side this car is on are remembered, and an
+      // overlap is undone along THAT axis, back to THAT side, however deep. A shallow overlap on another axis is an
+      // honest new contact (a scrape, a turn against the other's flank) and takes over.
+      const known = a.sepB === b && this.time - a.sepT < SEP_KEEP_S;
+      if (o <= 0) { a.sepB = b; a.sepAx = ax; a.sepK = k; a.sepT = this.time; return; }
+      if (known && ax !== a.sepAx && o > SEP_SHALLOW) {
+        ax = a.sepAx; k = a.sepK;
+        // (Signed this time: past the other's middle the way back is longer, not shorter.)
+        o = ax === 0 ? o0 + Math.abs(dfa) - k * dfa : ax === 1 ? o1 + Math.abs(dra) - k * dra : ax === 2 ? o2 + Math.abs(dfb) - k * dfb : o3 + Math.abs(drb) - k * drb;
+      } else if (known && ax === a.sepAx && k !== a.sepK) {
+        k = a.sepK;
+        o += 2 * Math.abs(ax === 0 ? dfa : ax === 1 ? dra : ax === 2 ? dfb : drb);
+      }
+      a.sepB = b; a.sepAx = ax; a.sepK = k; a.sepT = this.time;
+    }
+    let nx: number, nz: number;
+    if (ax === 0) { nx = sa * k; nz = ca * k; }
+    else if (ax === 1) { nx = -ca * k; nz = sa * k; }
+    else if (ax === 2) { nx = sb * k; nz = cb * k; }
+    else { nx = -cb * k; nz = sb * k; }
 
     // Contact: the average of whichever corners are inside the other car.
     let px = 0, pz = 0, cnt = 0;
@@ -1628,7 +1676,7 @@ export class Vehicles implements VehiclesApi {
     // A shared car (only ever `b`: it is never among the awake) is where the host says it is: it weighs the earth.
     // Another player's car is not moved from here either, but it keeps its weight in the sums: this browser gives
     // its own car the share of the knock a real crash would, and the other browser does the same for theirs.
-    const pup = b.puppet, fixed = pup || b.shared;
+    const fixed = pup || b.shared;
     const bInvM = b.shared ? 0 : b.invM, bInvI = b.shared ? 0 : b.invI;
     const im = a.invM + bInvM;
     const pa = fixed ? o : o * a.invM / im, pb = fixed ? 0 : o * bInvM / im;

@@ -88,6 +88,26 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer fix, two players head on: pushed Nov 22, about 9:00 AM ET
+
+**Fault.** bump.mjs failed about 1 run in 3: in a head on between two players the cars could end inside each other
+or slide past. Another player's car is put down afresh each frame, sometimes metres on and deep inside the local car,
+and the shallowest way out of a deep overlap is as likely sideways or out of the far end as back.
+
+**Fix (src/ent/vehicle.ts only, no protocol change, still v4).** While apart, a car remembers which box axis parts it
+from a player's car and which side it is on (0.5 s); an overlap is undone along that axis back to that side, however
+deep; an overlap under 0.3 m on another axis is a new contact. Players' cars are watched 6 m further out.
+`ghostPose()` runs the same collision the moment a player's car is placed. Shared AI and parked cars untouched (same
+weakness in theory, never seen).
+
+**Tests.** bump.mjs: new check on main and backup that the two boxes never overlap on either screen; the signal time
+allowance now uses the longest frame during the looks, not the averaged frame rate (a test fault, never reproduced).
+cars.mjs: more detail on failure only.
+
+**Checked by the lead.** tsc, build, server tests, production boot with no errors, traffic, bump 3 of 3, cars 4 of 4.
+The worker had bump 7 of 7, police pass, and cars 2 failures in 6 while it ran batches side by side; not seen again
+by the lead. If cars.mjs fails again ("left standing 8 of 9", "host gets out 0 of 3"), look here first.
+
 ### Multiplayer stage 3, step 2, the same police for everyone: pushed Nov 22, about 6:40 AM ET
 
 What changed (main only; single player and the backup are as before):

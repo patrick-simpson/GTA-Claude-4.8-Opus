@@ -66,6 +66,31 @@ async function visitor(tag, query, size = [480, 270]) {
   });
   /** This player's own car. */
   t.car = () => t.page.evaluate(() => { const v = window.__game.game.player.vehicle; return v ? { x: v.x, z: v.z, h: v.h, speed: v.speed, health: v.health } : null; });
+  /**
+   * This player's own car and the other player's car as it stands on THIS screen, read in one go (between two frames,
+   * so the pair is what the next picture shows), with how far the two boxes are into each other (m; 0 when apart).
+   */
+  t.pair = () => t.page.evaluate(() => {
+    const v = window.__game.game.player.vehicle, r = window.__game.net().remotes.find((q) => q.vehicle);
+    if (!v) return null;
+    const me = { x: v.x, z: v.z, h: v.h, speed: v.speed, health: v.health };
+    if (!r) return { me, other: null, into: 0 };
+    const hl = v.spec.length / 2, hw = v.spec.width / 2, dx = r.x - v.x, dz = r.z - v.z;
+    const sa = Math.sin(v.h), ca = Math.cos(v.h), sb = Math.sin(r.h), cb = Math.cos(r.h);
+    const c = Math.abs(sa * sb + ca * cb), s = Math.abs(ca * sb - sa * cb);
+    // (Both are sedans here. The shallowest of the four box axes, as the game itself measures it.)
+    const into = Math.min(hl + hl * c + hw * s - Math.abs(dx * sa + dz * ca), hw + hl * s + hw * c - Math.abs(-dx * ca + dz * sa),
+      hl + hl * c + hw * s - Math.abs(dx * sb + dz * cb), hw + hl * s + hw * c - Math.abs(-dx * cb + dz * sb));
+    return { me, other: { x: r.x, z: r.z, h: r.h }, into: Math.max(0, into) };
+  });
+  /** The longest gap between two frames of this page since the last call, ms. */
+  await t.page.evaluate(() => {
+    let last = performance.now(), worst = 0;
+    const f = (now) => { worst = Math.max(worst, now - last); last = now; requestAnimationFrame(f); };
+    requestAnimationFrame(f);
+    window.__worstFrame = () => { const w = Math.max(worst, performance.now() - last); worst = 0; return w; };
+  });
+  t.worstFrame = () => t.page.evaluate(() => window.__worstFrame());
   await t.page.evaluate(() => window.__game.start());
   return t;
 }
@@ -107,11 +132,13 @@ async function headOn(P, Q, where) {
     const seen = async (t) => !!(await t.until((n) => n.remotes.some((r) => r.vehicle === 'sedan'), 20000));
     if (!(await seen(P)) || !(await seen(Q))) continue;
     await Promise.all([P.page.keyboard.down('KeyW'), Q.page.keyboard.down('KeyW')]);
-    let minTrue = 99, minP = 99, minQ = 99, top = 0, held = 0, gap = 99, crossed = false, metAt = 0;
+    let minTrue = 99, minP = 99, minQ = 99, top = 0, held = 0, gap = 99, crossed = false, metAt = 0, into = 0, looks = 0;
     for (const end = Date.now() + 50000; Date.now() < end;) {
-      const [cp, cq, np, nq] = await Promise.all([P.car(), Q.car(), P.net(), Q.net()]);
-      if (!cp || !cq) break;
-      const rp = np.remotes.find((r) => r.vehicle), rq = nq.remotes.find((r) => r.vehicle);
+      const [pp, pq] = await Promise.all([P.pair(), Q.pair()]);
+      if (!pp || !pq) break;
+      const cp = pp.me, cq = pq.me, rp = pp.other, rq = pq.other;
+      // On each screen, at every look from first to last: the two boxes are not inside each other.
+      into = Math.max(into, pp.into, pq.into); looks++;
       gap = cq.x - cp.x;
       minTrue = Math.min(minTrue, gap);
       // On each screen: this player's own car against the other's as drawn there.
@@ -127,9 +154,13 @@ async function headOn(P, Q, where) {
     }
     await Promise.all([P.page.keyboard.up('KeyW'), Q.page.keyboard.up('KeyW')]);
     if (!metAt && !crossed) continue;
-    await sleep(2500);
+    for (let k = 0; k < 10; k++) {
+      await sleep(250);
+      const [pp, pq] = await Promise.all([P.pair(), Q.pair()]);
+      if (pp && pq) { into = Math.max(into, pp.into, pq.into); looks++; }
+    }
     const [cp, cq] = await Promise.all([P.car(), Q.car()]);
-    return { minTrue, minP, minQ, top, held, crossed, gap: cq.x - cp.x, sp: Math.max(Math.abs(cp.speed), Math.abs(cq.speed)), hp: cp.health, hq: cq.health, side: Math.max(Math.abs(cp.z - z), Math.abs(cq.z - z)) };
+    return { into, looks, minTrue, minP, minQ, top, held, crossed, gap: cq.x - cp.x, sp: Math.max(Math.abs(cp.speed), Math.abs(cq.speed)), hp: cp.health, hq: cq.health, side: Math.max(Math.abs(cp.z - z), Math.abs(cq.z - z)) };
   }
   return null;
 }
@@ -138,6 +169,7 @@ function judgeHeadOn(m, home) {
   // (A sedan is about 4.5 m long: nose to nose the middles are that far apart. Through a car that is not solid the gap goes to 0 and negative.)
   check(!m.crossed && m.held >= HOLD_S && m.minTrue > 2.5 && m.gap < 30, `${home}: two players drive at each other and both are stopped`, `top speed ${m.top.toFixed(1)} m/s; then ${HOLD_S} s of full throttle on both sides and neither got through: never under ${m.minTrue.toFixed(1)} m middle to middle, ${m.gap.toFixed(1)} m apart at the end`);
   check(m.minP > 2.5 && m.minQ > 2.5, `${home}: and on each screen the other car was never driven into`, `nearest the other was drawn to this player's own car: ${m.minP.toFixed(1)} m on one screen, ${m.minQ.toFixed(1)} m on the other`);
+  check(m.into < 0.05, `${home}: and on neither screen were the two cars' boxes ever inside each other`, `at most ${(m.into * 100).toFixed(1)} cm over ${m.looks} looks on each screen, from setting off to 2.5 s after letting go`);
   check(m.hp < 100 && m.hq < 100, `${home}: both cars took damage, each on its own browser`, `health ${m.hp.toFixed(0)} and ${m.hq.toFixed(0)}; ${m.side.toFixed(1)} m knocked sideways at most; speed ${m.sp.toFixed(1)} m/s 2.5 s after letting go`);
 }
 
@@ -179,6 +211,7 @@ try {
     // The guest eases onto the host's clock: wait for that to finish, then look several times.
     await r.guests[0].until((x) => x.traffic.mode !== 'guest' || (x.traffic.framesGot > 5 && Math.abs(x.traffic.signal.easing) < 30), 40000);
     let worst = 0, same = 0, looks = 0, gameApart = 0;
+    await Promise.all([A.worstFrame(), B.worstFrame()]);
     for (let k = 0; k < 12; k++) {
       const [a, b] = await Promise.all([A.signal(), B.signal()]);
       // (Each page says what its signal time was and what the wall clock said at that same instant, so it does not
@@ -193,8 +226,11 @@ try {
     // (The guest's lamps are meant to be behind the host's by exactly as much as the host's cars are on its screen:
     // 130 ms, the trip, and the wait for the page to get round to the message, which here is most of a slow frame.)
     // So the allowance is a third of a second and two of the slower page's frames; the lamps take 26 s to go round.
-    const fps = Math.max(1, Math.min((await A.info()).fps, (await B.info()).fps)), allow = 0.3 + 2 / fps;
-    check(worst < allow, `host and guest have the same signal time, within ${allow.toFixed(2)} s (frames here take ${(1000 / fps).toFixed(0)} ms)`, `at most ${worst.toFixed(2)} s apart over ${looks} looks (their game clocks are ${gameApart.toFixed(1)} s apart)`);
+    // (Its frames as they were WHILE the looks were taken, and the longest of them: frames here are uneven, and the
+    // game's own frame rate reading is an average taken afterwards, which says little about the one long frame a
+    // message sat waiting behind. The game is right to be that late: the lamps belong with the cars it shows.)
+    const slow = Math.max(await A.worstFrame(), await B.worstFrame()) / 1000, allow = 0.3 + 2 * slow;
+    check(worst < allow, `host and guest have the same signal time, within ${allow.toFixed(2)} s (the longest frame here took ${(slow * 1000).toFixed(0)} ms)`, `at most ${worst.toFixed(2)} s apart over ${looks} looks (their game clocks are ${gameApart.toFixed(1)} s apart)`);
     // (Two looks may fall either side of a change of lamp: the two pages are read a moment apart.)
     check(same >= looks - 2, 'and the same lamps at the same crossing', `${same} of ${looks} looks`);
     check(na.traffic.signal.jumps === 1 && nb.traffic.signal.jumps === 1 && na.traffic.signal.town && nb.traffic.signal.town, 'each saw its lamps change clock once and no more', `A ${na.traffic.signal.jumps}, B ${nb.traffic.signal.jumps}`);
