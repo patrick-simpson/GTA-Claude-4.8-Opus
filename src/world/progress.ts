@@ -15,6 +15,10 @@
 // streets that are not open yet. The bridge itself is drawn by landmarks.ts,
 // which listens with progress.onChange().
 //
+// In a shared town (the main multiplayer service; net/town.ts) what is drawn is the TOWN's bridge and stages, the
+// same for everybody there. The player's own progress is kept apart in `mine`, goes on being counted with every point
+// they earn, and is the only thing ever saved here: see showTown() and add().
+//
 // State is kept in localStorage. `?bridge=N` and `?stage=N` in the address
 // override it for one visit without saving (the test harness uses them).
 
@@ -37,6 +41,36 @@ export const stageCost = (n: number): number => 800 + 400 * n;
 const DRIVE_M = 60;
 
 export type ProgressChange = 'bridge' | 'stage';
+/** How far along: spans, stage, and the points held toward the next goal. */
+export interface Stand { spans: number; stage: number; bank: number }
+/** The town this browser is in (net/town.ts). */
+export interface TownSink {
+  /** Points earned at this keyboard, for the town's host to count as well. */
+  give(points: number): void;
+}
+
+/** Which of two is further along? Negative, zero or positive, as a sort would have it. */
+export function cmpStand(a: Stand, b: Stand): number { return a.spans - b.spans || a.stage - b.stage || Math.floor(a.bank) - Math.floor(b.bank); }
+
+/** What `s` is working toward: the goal's kind, number and price, or null when everything is open. */
+function goalOf(s: Stand): { kind: ProgressChange; n: number; cost: number } | null {
+  if (s.spans < BRIDGE_SPANS) return { kind: 'bridge', n: s.spans + 1, cost: spanCost(s.spans + 1) };
+  if (s.stage < STAGES) return { kind: 'stage', n: s.stage + 1, cost: stageCost(s.stage + 1) };
+  return null;
+}
+
+/** Count points onto a stand that nothing is drawn from. Returns how many goals it finished. */
+function advance(s: Stand, points: number): number {
+  s.bank += points;
+  let done = 0;
+  for (let g = goalOf(s); g && s.bank >= g.cost; g = goalOf(s)) {
+    s.bank -= g.cost;
+    if (g.kind === 'bridge') s.spans++; else s.stage++;
+    done++;
+  }
+  if (!goalOf(s)) s.bank = 0;
+  return done;
+}
 export interface Goal { kind: ProgressChange; n: number; label: string; cost: number; have: number }
 
 class Progress {
@@ -48,6 +82,16 @@ class Progress {
   bank = 0;
   /** Every point ever earned, for a readout. */
   total = 0;
+  /**
+   * This player's OWN progress while the town's is on the screen (spans, stage and bank above are then the town's).
+   * null: what is shown is their own. Once set it stays for the visit, so that a span never vanishes from under a car
+   * when the connection drops; the next visit starts from what is saved, which is always their own.
+   */
+  mine: Stand | null = null;
+  /** The town being played in right now, or null (alone, or on the backup service). */
+  sink: TownSink | null = null;
+  /** True while a change is being shown that nobody here earned (joining a town): no fanfare for it. */
+  quiet = false;
   private plan: CityPlan | null = null;
   private game: Game | null = null;
   private listeners: ((what: ProgressChange) => void)[] = [];
@@ -97,10 +141,52 @@ class Progress {
     return null;
   }
 
-  /** Earn progress. Missions and activities call this; so do the collection boxes and the trickle. Returns how many goals it finished. */
+  /** This player's own progress, whatever is on the screen. */
+  own(): Stand { return this.mine ?? this; }
+
+  /**
+   * Show the town's bridge and stages instead of this player's own. Never backward: a stand behind what is already
+   * on the screen is refused (false). `announce`: somebody in town has just earned it, so say so as if it were earned here.
+   */
+  showTown(t: Stand, announce: boolean): boolean {
+    const spans = clampInt(t.spans, 0, BRIDGE_SPANS), stage = spans < BRIDGE_SPANS ? 0 : clampInt(t.stage, 0, STAGES);
+    const to: Stand = { spans, stage, bank: Math.max(0, Number(t.bank) || 0) };
+    if (!goalOf(to)) to.bank = 0;
+    if (this.mine && cmpStand(to, this) < 0) return false;
+    if (!this.mine) {
+      this.mine = { spans: this.spans, stage: this.stage, bank: this.bank };
+      if (cmpStand(to, this) < 0) return false;
+    }
+    const bridge = to.spans !== this.spans, staged = to.stage !== this.stage;
+    this.spans = to.spans; this.stage = to.stage; this.bank = to.bank;
+    if (!bridge && !staged) return true;
+    this.apply();
+    this.quiet = !announce;
+    try {
+      if (announce && this.game?.state === 'play') this.announce(staged ? { kind: 'stage', n: stage, label: STAGE_NAMES[stage], cost: 0, have: 0 } : { kind: 'bridge', n: spans, label: '', cost: 0, have: 0 });
+      if (bridge) this.emit('bridge');
+      if (staged) this.emit('stage');
+    } finally { this.quiet = false; }
+    return true;
+  }
+
+  /** Host of a town: points another player earned there. Counted on what is shown, not on this player's own. */
+  addTown(points: number): number { return points > 0 ? this.count(points) : 0; }
+
+  /**
+   * Earn progress. Missions and activities call this; so do the collection boxes and the trickle. Returns how many
+   * goals it finished on the screen. In a town the points count twice over: on the player's own progress (saved, not
+   * shown) and on the town's (shown; every browser counts its own at once, and the host is told so that it counts for all).
+   */
   add(points: number): number {
     if (!(points > 0)) return 0;
     this.total += points;
+    if (this.mine && advance(this.mine, points) > 0) this.save();
+    if (this.mine) this.sink?.give(points);
+    return this.count(points);
+  }
+
+  private count(points: number): number {
     this.bank += points;
     let done = 0;
     for (let g = this.goal(); g && this.bank >= g.cost; g = this.goal()) {
@@ -119,12 +205,21 @@ class Progress {
   /** Write the bank down now. add() only saves when a goal completes; the works save the trickle every so often. */
   save(): void {
     if (!this.saving) return;
-    try { localStorage.setItem(KEY, JSON.stringify({ spans: this.spans, stage: this.stage, bank: Math.floor(this.bank), total: Math.floor(this.total) })); } catch { /* no storage */ }
+    // Their own, never the town's.
+    const o = this.own();
+    try { localStorage.setItem(KEY, JSON.stringify({ spans: o.spans, stage: o.stage, bank: Math.floor(o.bank), total: Math.floor(this.total) })); } catch { /* no storage */ }
   }
 
   /** Tests and cheats: put the bridge at n spans. Going below the full bridge closes the town again. */
   setSpans(n: number): void {
     const v = clampInt(n, 0, BRIDGE_SPANS);
+    // With the town's on the screen this changes the player's own; the town takes it up if it is further (net/town.ts).
+    const m = this.mine;
+    if (m) {
+      const st = v < BRIDGE_SPANS ? 0 : m.stage;
+      if (v !== m.spans || st !== m.stage) { m.spans = v; m.stage = st; m.bank = 0; this.save(); }
+      return;
+    }
     const stage = v < BRIDGE_SPANS ? 0 : this.stage;
     const staged = stage !== this.stage;
     if (v === this.spans && !staged) return;
@@ -137,6 +232,11 @@ class Progress {
   /** Tests and cheats: open the mainland up to stage n. Any stage at all needs the whole bridge. */
   setStage(n: number): void {
     const v = clampInt(n, 0, STAGES);
+    const m = this.mine;
+    if (m) {
+      if (v !== m.stage || (v > 0 && m.spans < BRIDGE_SPANS)) { m.stage = v; m.bank = 0; if (v > 0) m.spans = BRIDGE_SPANS; this.save(); }
+      return;
+    }
     const bridged = v > 0 && !this.complete;
     if (v === this.stage && !bridged) return;
     this.stage = v; this.bank = 0;
@@ -146,9 +246,10 @@ class Progress {
     this.emit('stage');
   }
 
-  /** "Start over": the stub in mid-air and a closed town. */
+  /** "Start over": the stub in mid-air and a closed town. (In a town: for this player's own progress; the town's stays.) */
   reset(): void {
     this.total = 0;
+    if (this.mine) { this.mine.spans = 0; this.mine.stage = 0; this.mine.bank = 0; this.save(); return; }
     this.setStage(0); this.setSpans(0);
     this.bank = 0; this.save();
   }

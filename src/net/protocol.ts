@@ -75,9 +75,15 @@ export const FACT_KEY_PATTERN = /^[a-z][a-z0-9_.]{0,23}$/;
 /** A fact written more often than this is held in memory and stored at most this often. */
 export const FACT_FLUSH_MS = 5000;
 /** Well known fact keys (the service accepts any key that matches FACT_KEY_PATTERN). */
+// (What each holds is the game's business, net/town.ts: the service stores and passes numbers.)
+/** Game hours (0..24) added to the town's clock. Absent: 0. The clock itself is the service's own, never sent. */
 export const FACT_CLOCK = 'clock';
+/** [seed, forced weather (0 none, else 1 + its index in TOWN_WEATHERS), the town hour the forcing ends]. Absent: seed 0, nothing forced. */
 export const FACT_WEATHER_SEED = 'weather.seed';
+/** [spans built, town stages open, points held toward the next]. Main service only. */
 export const FACT_BRIDGE = 'bridge';
+/** The order of the weathers in FACT_WEATHER_SEED. Add at the end only. */
+export const TOWN_WEATHERS = ['clear', 'overcast', 'fog', 'rain'] as const;
 
 /** Close codes the service uses (4000 to 4999 are free for applications). */
 export const Close = {
@@ -317,7 +323,46 @@ export function decodePlayerEvent(buf: ArrayBuffer): { id: number; code: number;
 //
 // Byte 2 says what the frame asks. Stage 2, step 2 has one: "my car has just struck your car N". Step 3 adds three
 // (below, "Taking and leaving cars"); a host of an older page of this version ignores a kind it does not know.
-export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7, Heat: 8, CarShot: 9 } as const;
+export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7, Heat: 8, CarShot: 9, Give: 10, Mine: 11 } as const;
+
+// The town's bridge (stage 4, step 1; net/town.ts). The durable fact FACT_BRIDGE is [spans, stage, bank]: only the host
+// can write a fact, so a guest tells the host what should go into it. Still version 4: the service passes both unread.
+// Give, 7 bytes: "I have earned this much toward the bridge; count it for the town too".
+//   0 kind (Frame.ToHost)  1 id  2 ToHostKind.Give  3 points u32 (hundredths of a point)
+// Mine, 9 bytes: "what I have (saved, or on my screen) is further along than the town's: take it up".
+//   0 kind  1 id  2 ToHostKind.Mine  3 spans u8  4 stage u8  5 bank u32 (whole points)
+export const GIVE_BYTES = 7;
+export const MINE_BYTES = 9;
+/** The most one Give may carry, points: far above any payment the game makes, far below nonsense. */
+export const GIVE_MAX_POINTS = 100000;
+export function encodeGive(points: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, GIVE_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.Give);
+  d.setUint32(3, Math.max(0, Math.min(GIVE_MAX_POINTS * 100, Math.round(points * 100))), true);
+  return buf;
+}
+export function decodeGive(buf: ArrayBuffer): { id: number; points: number } | null {
+  if (buf.byteLength < GIVE_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.Give) return null;
+  const p = d.getUint32(3, true) / 100;
+  return p > 0 && p <= GIVE_MAX_POINTS ? { id: d.getUint8(1), points: p } : null;
+}
+export function encodeMine(spans: number, stage: number, bank: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, MINE_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.Mine);
+  d.setUint8(3, spans & 0xff); d.setUint8(4, stage & 0xff);
+  d.setUint32(5, Math.max(0, Math.min(0xffffffff, Math.floor(bank))), true);
+  return buf;
+}
+export function decodeMine(buf: ArrayBuffer): { id: number; spans: number; stage: number; bank: number } | null {
+  if (buf.byteLength < MINE_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.Mine) return null;
+  return { id: d.getUint8(1), spans: d.getUint8(3), stage: d.getUint8(4), bank: d.getUint32(5, true) };
+}
 // CarHit, 10 bytes: 0 kind (Frame.ToHost)  1 id  2 ToHostKind.CarHit  3 car u8 (its number in the World frames)
 //   4 vx i16  6 vz i16 (cm/s: how fast the two closed, pointing from the striker into the car)
 //   8 rx i8  9 rz i8 (the point of contact from the car's middle, 5 cm steps)

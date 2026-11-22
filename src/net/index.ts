@@ -14,6 +14,9 @@
 // Stage 3, step 4: a car's damage, fire and wreck are seen by everybody (the bits were spare; shared.ts, remote.ts,
 // ent/weapons.ts), and on the main service street furniture knocked over is down for everybody (props.ts).
 //
+// Stage 4, step 1 (town.ts): the hour and the weather are the town's on both services, worked out from the service's
+// clock without a message; on the main service the bridge and the far town's stages are the town's too.
+//
 // Sending (protocol.ts has the rules): a State frame up to SEND_HZ times a second, but only when something has
 // changed since the last one sent; a one byte keepalive every KEEPALIVE_MS otherwise; the measured frame time every
 // PERF_INTERVAL_MS. Alone in the city, nothing at all is sent, so the city sleeps.
@@ -38,6 +41,7 @@ import { TownPeople } from './people';
 import { TownPolice } from './police';
 import { TownFight } from './fight';
 import { TownProps } from './props';
+import { Town } from './town';
 import { SAYS, myName, nameText, rerollName } from './names';
 
 const SEND_MS = 1000 / SEND_HZ;
@@ -60,6 +64,8 @@ export class Net {
   readonly fight: TownFight;
   /** The street furniture cars knock over: down for one, down for all (stage 3, step 4). */
   readonly props: TownProps;
+  /** The town's hour, weather and bridge (stage 4, step 1). */
+  readonly town: Town;
   /** State frames sent, apart from the totals in conn.sent. */
   statesSent = 0;
 
@@ -92,7 +98,7 @@ export class Net {
     c.onWelcome = (m) => this.welcome(m);
     c.onMsg = (m) => this.msg(m);
     c.onFrame = (b) => this.frame(b);
-    c.onDown = () => this.clear();
+    c.onDown = () => { this.town.down(); this.clear(); };
     c.onChange = () => this.showNote();
     this.shared = new SharedTraffic(game, c, this.remotes);
     this.cars = new TownCars(game, c, this.remotes, this.shared);
@@ -100,6 +106,7 @@ export class Net {
     this.police = new TownPolice(game, c, this.remotes, this.shared, this.people);
     this.fight = new TownFight(game, c, this.remotes, this.shared, this.cars);
     this.props = new TownProps(game, c, this.remotes, this.shared);
+    this.town = new Town(game, c, this.remotes);
     // A paused game simulates nothing, so it says at once that it cannot host (and, on resuming, that it can again).
     game.on('pause', () => { this.perfAt = 0; });
     c.start();
@@ -184,6 +191,7 @@ export class Net {
     for (const e of m.players) this.add(e);
     const now = performance.now();
     this.shared.welcome(m.now, now);
+    this.town.welcome(m, now);
     this.force = true;
     this.anyAt = now; this.perfAt = now - PERF_INTERVAL_MS + 1000;
     this.showCount();
@@ -193,6 +201,7 @@ export class Net {
     if (m.t === 'join') this.add([m.id, ...m.name]);
     else if (m.t === 'leave') this.drop(m.id);
     else if (m.t === 'name' && 'id' in m) this.remotes.get(m.id)?.rename(m.name.slice());
+    else if (m.t === 'fact' || m.t === 'host') this.town.msg(m);
     this.showCount();
   }
 
@@ -219,6 +228,7 @@ export class Net {
     }
     if (k === Frame.ToHost) {
       const now = performance.now();
+      if (this.town.toHost(buf)) return;
       if (!this.people.toHost(buf) && !this.police.toHost(buf, now) && !this.fight.toHost(buf, now)) this.shared.toHost(buf, now);
       return;
     }
@@ -320,6 +330,7 @@ export class Net {
     this.people.update(now, dt);
     this.police.update(now);
     this.props.update(now);
+    this.town.update(now);
   }
 
   /** "3 in town", under the cash slip; only while connected with somebody else here. */
@@ -405,6 +416,8 @@ export class Net {
       fight: this.fight.info(),
       // props: street furniture down on this browser, and what was said and heard about it (props.ts).
       props: this.props.info(),
+      // town: the hour and weather on this screen and the town's, the bridge as the service holds it, as shown and this player's own (town.ts).
+      town: this.town.info(),
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({

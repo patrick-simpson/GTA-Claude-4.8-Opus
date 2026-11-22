@@ -61,6 +61,8 @@ export interface SkyApi {
   /** 0 dry .. 1 soaked. Rises in rain and dries slowly afterwards. */
   readonly wet: number;
   setWeather(w: Weather, instant?: boolean): void;
+  /** A cheat or a test asks for an hour, a weather or both: set here, and in a shared town told to everybody by its host. */
+  ask(hour: number | null, weather?: Weather | null, instant?: boolean): void;
   /** Advance the clock; move lights, fog, dome and shadow box (centered on game.cam.focus). */
   update(dt: number): void;
 }

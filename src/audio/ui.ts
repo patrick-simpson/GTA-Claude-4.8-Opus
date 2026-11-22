@@ -188,7 +188,8 @@ export class UiSounds {
     });
     game.on('booked', () => { booked(core, core.now + 0.1, this.out(0.8), r); });
     progress.onChange((what) => {
-      if (this.core.ctx.state !== 'running' || !core.claim('fanfare', 1, 2.5)) return;
+      // (Not for the town's bridge appearing on joining it: nobody here earned that.)
+      if (progress.quiet || this.core.ctx.state !== 'running' || !core.claim('fanfare', 1, 2.5)) return;
       fanfare(core, core.now + 0.15, this.out(0.8, 0.2), what === 'bridge' && progress.complete, r);
     });
   }

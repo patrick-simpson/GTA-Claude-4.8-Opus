@@ -471,6 +471,14 @@ export class Sky implements SkyApi {
   readonly sun = new THREE.DirectionalLight(0xffffff, 0);
   readonly hemi = new THREE.HemisphereLight(0xffffff, 0x888888, 1);
 
+  /**
+   * In a shared town the hour and the weather are the town's (net/town.ts sets them every frame from the service's
+   * clock): while this is true the clock here does not run and the weather does not pick for itself.
+   */
+  led = false;
+  /** Somebody at this keyboard asked for an hour or a weather (a cheat, a test). The town listens: its host tells everybody. */
+  asked: ((hour: number | null, weather: Weather | null) => void) | null = null;
+
   get night(): number { return this._night; }
   get weather(): Weather { return this._weather; }
   get wet(): number { return this._wet; }
@@ -653,6 +661,16 @@ export class Sky implements SkyApi {
     this.update(0);
   }
 
+  /** A cheat or a test wants this hour or this weather: done here, and told to whoever is listening. */
+  ask(hour: number | null, weather: Weather | null = null, instant = false): void {
+    if (hour !== null && Number.isFinite(hour)) this.hour = ((hour % 24) + 24) % 24;
+    if (weather !== null) this.setWeather(weather, instant);
+    this.asked?.(hour, weather);
+  }
+
+  /** The town's clock (net/town.ts): the hour, and the day it belongs to (the moon's phase). */
+  lead(hour: number, day: number): void { this.hour = hour; this.day = day; }
+
   setWeather(w: Weather, instant = false): void {
     this._weather = w;
     this.wFrom.set(this.w);
@@ -685,14 +703,14 @@ export class Sky implements SkyApi {
     const g = this.game, q = g.quality, u = this.uniforms, w = this.w;
 
     // ── Clock ──
-    let h = this.hour + this.rate * dt;
+    let h = this.hour + (this.led ? 0 : this.rate * dt);
     if (!(h >= 0)) h = 0;
     if (h >= 24) { h %= 24; this.day++; }
     this.hour = h;
     this.clock += dt;
 
     // ── Weather ──
-    this.drift -= this.rate * dt;
+    if (!this.led) this.drift -= this.rate * dt;
     if (this.drift <= 0) {
       const next = this.pickWeather();
       if (next !== this._weather) this.setWeather(next);

@@ -11,12 +11,12 @@ import type { Action } from './input';
 type Cheat = { word: string; run: (g: Game) => string };
 
 const CHEATS: Cheat[] = [
-  { word: 'NOONISH', run: (g) => { g.sky.hour = 12; return 'The sun has been asked to hurry up.'; } },
-  { word: 'NIGHTOWL', run: (g) => { g.sky.hour = 23.5; return 'Lamps on. Gulls off.'; } },
-  { word: 'THREEAM', run: (g) => { g.sky.hour = 2.95; return 'Nothing good happens at 3 AM. Look toward the lighthouse.'; } },
-  { word: 'SOUPY', run: (g) => { g.sky.setWeather('fog'); return 'Fog ordered. The Harbor Authority denies everything.'; } },
-  { word: 'DRIZZLE', run: (g) => { g.sky.setWeather('rain'); return 'Forecast: wet, with a chance of wetter.'; } },
-  { word: 'BLUESKY', run: (g) => { g.sky.setWeather('clear'); return 'Weather cancelled due to weather.'; } },
+  { word: 'NOONISH', run: (g) => { g.sky.ask(12); return 'The sun has been asked to hurry up.'; } },
+  { word: 'NIGHTOWL', run: (g) => { g.sky.ask(23.5); return 'Lamps on. Gulls off.'; } },
+  { word: 'THREEAM', run: (g) => { g.sky.ask(2.95); return 'Nothing good happens at 3 AM. Look toward the lighthouse.'; } },
+  { word: 'SOUPY', run: (g) => { g.sky.ask(null, 'fog'); return 'Fog ordered. The Harbor Authority denies everything.'; } },
+  { word: 'DRIZZLE', run: (g) => { g.sky.ask(null, 'rain'); return 'Forecast: wet, with a chance of wetter.'; } },
+  { word: 'BLUESKY', run: (g) => { g.sky.ask(null, 'clear'); return 'Weather cancelled due to weather.'; } },
   {
     word: 'TOWME', run: (g) => {
       const p = g.player;

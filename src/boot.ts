@@ -52,8 +52,8 @@ const hooks = {
     game.render();
   },
   teleport(x: number, z: number, h = 0): void { game.player.teleport(x, z, h); game.cam.snap(); },
-  setTime(hour: number): void { game.sky.hour = ((hour % 24) + 24) % 24; },
-  setWeather(w: Weather): void { game.sky.setWeather(w, true); },
+  setTime(hour: number): void { game.sky.ask(hour); },
+  setWeather(w: Weather): void { game.sky.ask(null, w, true); },
   setHeat(n: number): void { game.player.heat = Math.max(0, Math.min(5, n)); },
   /** The bridge and the mainland's unlock state (src/world/progress.ts): progress.add(points), .spans, .stage, .goal(). */
   progress,

@@ -88,6 +88,45 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 4, step 1, the same hour, weather and bridge: pushed Nov 22, about 6:35 PM ET
+
+**What.** On MAIN everyone in town has the same time of day, the same weather and the same bridge, including a late
+joiner, across a host change and a service restart. New `src/net/town.ts`. Still protocol v4 and `server/src`
+untouched (the service already stored and relayed the three facts; the game had never used them), so no redeploy.
+
+**Rules.** Hour: never sent; each browser works it out from the service's clock in its welcome (one real minute is
+one game hour) plus the `clock` fact. Weather: never sent; a fixed function of the town hour and the `weather.seed`
+fact. Only the host can change either (a cheat at a guest's keyboard is put back). Bridge on MAIN: everyone sees the
+town's (`bridge` fact), it never goes backward, and points earned in town count for the town (ToHost `Give`). A
+player's own progress is kept apart, still earns, is the only thing saved, and is what they see alone. On the BACKUP
+hour and weather are shared for free; the bridge stays each player's own.
+**The town takes the furthest progress it meets** (`TOWN_TAKES_FURTHEST = true`, ToHost `Mine`): nobody stands on a
+span the town lacks, but the first far along player finishes the town's bridge for good. THE OWNER HAS BEEN ASKED
+whether to keep this; undoing it after the live town was raised means renaming the fact's key in town.ts.
+Working decisions for stage 4, also put to the owner: cash, saves and the story step are personal; each player runs
+their own missions; the bridge, hour and weather are shared.
+
+**Cost (worker's measure).** Nothing sent while nothing changes. Bridge fact 37 to 38 bytes on a span or at most
+every 5 s; Give 7 bytes at most one per 3 s while earning.
+
+**Checked by the lead.** tsc, build, server tests, production boot with no errors; facts.mjs (new, 45 checks),
+cars.mjs (48) and heli.mjs (37), one clean run each with full logs; both pictures viewed (same six span bridge, same
+rain; clocks one game minute apart).
+
+**Still wrong or untested.** Guest clock about 1 to 2 game minutes behind in the test pictures (cause not proven,
+likely the slow test page). Main and backup hold separate facts. A Give in flight during a host change is lost to
+the town. Give and Mine are trusted. The menu does not yet say the bridge is the town's. Untested: town stages, a
+real payment at the fund box, the catch up time lapse by eye, pause and resume, three or more earning at once, the
+real Worker, `TOWN_TAKES_FURTHEST = false`, single player beyond booting. Nothing was listened to.
+
+**Survey: one player's mission in a shared town (read from the code, not tested).** Mission cars, actors, taxi
+riders and tow targets exist only on the runner's browser; a mission car the runner leaves becomes an ordinary town
+car anyone can take; despawn, fail and retry may leave the host's copy behind; retry teleports; pause stops only
+that browser. Proposed steps: (1) a two player test that runs a real mission and a taxi fare and records what the
+other screen shows; (2) mission and job cars stay their runner's; (3) mission actors and riders shown to others;
+(4) pause in town; (5) mainland kerb cars and stage barriers follow the town; (6) wording; (7) decisions recorded.
+
+
 ### Multiplayer stage 3, step 5, the police helicopter shared: pushed Nov 22, about 5:45 PM ET
 
 **What.** On MAIN there is now one police helicopter for the town, flown by the host and shown to every guest with
