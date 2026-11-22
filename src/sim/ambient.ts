@@ -44,7 +44,17 @@ export class Ambient {
       const sp = Math.hypot(v.vx, v.vz);
       if (sp < 0.6) continue;
       const m = pool[movers.length] ?? (pool[movers.length] = { v, sh: 0, ch: 0, sp: 0 });
-      m.v = v; m.sh = Math.sin(v.h); m.ch = Math.cos(v.h); m.sp = sp;
+      m.v = v; m.sh = Math.sin(v.h); m.ch = Math.cos(v.h); m.sp = sp; m.ghost = false;
+      movers.push(m);
+    }
+    // Multiplayer host: the walkers are kept round every player, and mind the other players' cars and feet too.
+    const tr = this.traffic, peds = this.peds;
+    peds.extra = tr.extra; peds.others = tr.others; peds.feet = tr.walkers;
+    for (const v of tr.others) {
+      const sp = Math.hypot(v.vx, v.vz);
+      if (sp < 0.6) continue;
+      const m = pool[movers.length] ?? (pool[movers.length] = { v, sh: 0, ch: 0, sp: 0 });
+      m.v = v; m.sh = Math.sin(v.h); m.ch = Math.cos(v.h); m.sp = sp; m.ghost = true;
       movers.push(m);
     }
     this.peds.update(dt, movers, jumped);

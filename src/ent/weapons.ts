@@ -595,6 +595,8 @@ export class Weapons {
     e.person = per; e.damage = dmg; e.x = per.x; e.z = per.z;
     g.emit('personHit', e);
     const w = this.walkerOf?.get(per);
+    // Multiplayer guest: one of the host's people, shown here. The host is told and decides; this screen shows a first guess.
+    if (w && this.peds!.guest) return this.peds!.onHurt?.(per, dmg, dx, dz, fist, shove) ?? per.health <= 0;
     // Somebody else's cast (the police): their owner hears the event and decides.
     if (!w || !w.active) return per.health <= 0;
     const out = per.health <= 0;

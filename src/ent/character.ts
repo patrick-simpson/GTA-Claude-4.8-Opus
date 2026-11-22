@@ -62,6 +62,8 @@ export interface StyledLook extends Look {
   bag?: boolean;
   /** Which of FACES. */
   face?: number;
+  /** Multiplayer: the small details (eye and bag colour, the cast of the face) come from this instead of the body's own number, so they match on every screen. */
+  seed?: number;
   /** Which body. Default: by haircut (long, tail and bun are the woman's shape). */
   body?: BodyKind;
 }
@@ -944,6 +946,7 @@ export class People implements PeopleApi {
       bag: rng.chance(0.16),
       face: rng.int(0, FACES.length - 2),
     };
+    if (fixed) look.seed = rng.int(0, 9972);
     return look;
   }
 
@@ -1075,7 +1078,7 @@ export class People implements PeopleApi {
 
     // The face is this person's own; the eyes blink and wander; the hands close on whatever the body is doing.
     const m = b.mor, F = FACES[b.face] ?? FACES[0];
-    for (let i = 0; i < 4; i++) m[i] = F[i] + 0.3 * (hash2(b.seed, 40 + i) - 0.5);
+    for (let i = 0; i < 4; i++) m[i] = F[i] + 0.3 * (hash2((b.look as StyledLook).seed ?? b.seed, 40 + i) - 0.5);
     const bt = (b.t * 0.29 + b.seed * 0.137) % 1;
     const lying = b.shown === 'down';
     m[4] = lying ? 0.9 : bt < 0.04 ? Math.sin(Math.PI * bt / 0.04) : 0.12 * F[3];
@@ -1130,7 +1133,7 @@ export class People implements PeopleApi {
         case 'arm': on = top === 'tee' || top === 'dress'; break;
         case 'leg': on = bare; break;
         case 'eyewhite': hex = 0xd9d4c8; break;
-        case 'iris': hex = IRIS[b.seed % IRIS.length]; break;
+        case 'iris': hex = IRIS[(L.seed ?? b.seed) % IRIS.length]; break;
         case 'brow': hex = L.hair; k = 0.6; break;
         // Under an open jacket: a pale tee, or a dark one if the jacket is pale.
         case 'tee': on = top === 'tee' || top === 'jacket'; hex = top === 'tee' ? L.top : (L.top >> 16) > 0xb0 ? 0x2b2d33 : 0xe6e0d0; break;
@@ -1153,7 +1156,7 @@ export class People implements PeopleApi {
         case 'beanie': hex = L.hat ?? 0; on = hat && hk === 'beanie'; break;
         case 'brimhat': hex = L.hat ?? 0; on = hat && hk === 'brim'; break;
         case 'glasses': hex = 0x17171c; on = L.glasses === true; break;
-        case 'bag': hex = [0x5a3a26, 0x2b2d33, 0x8a6a3a, 0x3d5a80][b.seed % 4]; on = L.bag === true; break;
+        case 'bag': hex = [0x5a3a26, 0x2b2d33, 0x8a6a3a, 0x3d5a80][(L.seed ?? b.seed) % 4]; on = L.bag === true; break;
         // The belt is cut to go outside the coveralls; every other top hangs over where one would be.
         case 'belt': hex = 0x2a1c12; on = top === 'coverall'; break;
       }

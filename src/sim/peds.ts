@@ -12,12 +12,12 @@
 // pool are out depends on the hour, the rain and the district.
 
 import type { Game } from '../core/game';
-import type { Person, Vehicle } from '../core/api';
+import type { Look, Person, Vehicle } from '../core/api';
 import { RNG, clamp, dampAngle } from '../core/util';
 import { PIER, groundAt, type Block, type District, type RoadNode } from '../world/plan';
 import type { Prop } from '../world/collide';
 import { signalState } from '../world/signals';
-import { spawnOk, type RoadPed } from './traffic';
+import { spawnOk, type Anchor, type RoadPed } from './traffic';
 
 /** Head counts at full density. */
 const WALKERS = 54, STROLLERS = 6;
@@ -56,9 +56,16 @@ const SHOPS: Record<District, boolean> = {
 interface Spot { prop: Prop; side: number; bench: boolean; n: number }
 
 /** A moving vehicle, with the trigonometry done once for everybody. */
-export interface Mover { v: Vehicle; sh: number; ch: number; sp: number }
+export interface Mover {
+  v: Vehicle; sh: number; ch: number; sp: number;
+  /** Multiplayer host: another player's car. People get out of its way, but only its own browser says whom it has hit. */
+  ghost?: boolean;
+}
 
-interface Walker extends RoadPed {
+/** Multiplayer host: players who are close together, and the share of the cast kept round them. */
+interface Group { a: Anchor; members: Anchor[]; blocks: Block[]; top: number; want: number; n: number; jumped: boolean; fill: number }
+
+export interface Walker extends RoadPed {
   p: Person;
   active: boolean;
   /** One of the strollers on the pier, who only go up and down it. */
@@ -97,6 +104,8 @@ interface Walker extends RoadPed {
   cars: Vehicle[];
   inRoad: boolean;
   hitCool: number;
+  /** Multiplayer: their number on the wire (0 until this browser has been in a shared town), and which group of players they are nearest. */
+  wid: number; grp: number;
 }
 
 export class Peds {
@@ -117,6 +126,23 @@ export class Peds {
   private frame = 0;
   // Result of at(): a point on a block's sidewalk.
   private qx = 0; private qz = 0;
+
+  // ── Multiplayer (src/net/people.ts; Ambient passes the first three on from the traffic) ──
+  /** The other players in town, when this browser is the host: the cast is kept round all of them. Empty otherwise. */
+  extra: readonly Anchor[] = [];
+  /** Their cars (drawn only, so not in vehicles.list), and those of them on foot. */
+  others: readonly Vehicle[] = [];
+  feet: readonly RoadPed[] = [];
+  /** The host's people are shown instead: nobody is simulated here, and the bodies are the network's to place. */
+  guest = false;
+  /** Guest: something loud happened here; the host is told, and its people run. */
+  onAlarm: ((x: number, z: number, radius: number) => void) | null = null;
+  /** Guest: one of the shown people was punched or shot here. Returns whether they look finished. */
+  onHurt: ((p: Person, dmg: number, dx: number, dz: number, fist: boolean, shove: number) => boolean) | null = null;
+  private readonly groups: Group[] = [];
+  private readonly own: Anchor = { x: 0, z: 0, cx: 0, cz: 0, yaw: 0, jumped: false, n: 0 };
+  private seatA: Anchor | null = null;
+  private wasMany = false;
 
   constructor(private readonly game: Game) {
     const rng = this.rng, plan = game.plan;
@@ -151,7 +177,7 @@ export class Peds {
         jay: rng.chance(0.14), spot: null, face: 0, flee: 0, hurry: 0, hard: false,
         ax: 0, az: 0, asideX: 0, asideZ: 0, asideT: 0, stuck: 0, sideT: 0, sideS: 1,
         cool: rng.range(4, 40), scan: rng.next() * 0.5, cars: [], inRoad: false, hitCool: 0,
-        x: 0, z: 0, vx: 0, vz: 0,
+        x: 0, z: 0, vx: 0, vz: 0, wid: 0, grp: 0,
       };
       w.p.visible = false;
       this.walkers.push(w);
@@ -184,6 +210,7 @@ export class Peds {
 
   /** A crash, a bang: everyone within earshot runs from it. */
   alarm(x: number, z: number, radius: number): void {
+    if (this.guest) { this.onAlarm?.(x, z, radius); return; }
     for (const w of this.walkers) {
       if (!w.active || w.mode === DOWN) continue;
       const dx = w.p.x - x, dz = w.p.z - z;
@@ -193,13 +220,13 @@ export class Peds {
 
   /** A driver climbs out at (x, z) and runs from their car. Borrows whoever in the cast is furthest out of sight. */
   spawnDriver(v: Vehicle, x: number, z: number): void {
-    const g = this.game;
+    if (this.guest) return;
     let best: Walker | null = null, far = 0;
     for (const w of this.walkers) {
       if (w.pier || w.mode === DOWN) continue;
       if (!w.active) { best = w; break; }
-      const dx = w.p.x - g.player.x, dz = w.p.z - g.player.z, d2 = dx * dx + dz * dz;
-      if (d2 > far && spawnOk(g, w.p.x, w.p.z, 50, 1e5, 100)) { far = d2; best = w; }
+      const d2 = this.far2(w.p.x, w.p.z);
+      if (d2 > far && this.fair(w.p.x, w.p.z, 50, 1e5, 100)) { far = d2; best = w; }
     }
     if (!best) return;
     this.stats.drivers++;
@@ -216,7 +243,31 @@ export class Peds {
     this.movers = movers;
     this.frame++;
     this.road.length = 0;
-    if ((this.nearT -= dt) <= 0 || jumped) this.refreshNear();
+    if (this.guest) return;
+    // A host keeps people round every player in town: `gs` is those players, in groups. Alone, none of this runs.
+    const many = this.extra.length > 0, gs = this.groups;
+    let moved = jumped || many !== this.wasMany;
+    this.wasMany = many;
+    if (many) {
+      const a = this.own, cam = g.camera.position;
+      a.x = px; a.z = pz; a.cx = cam.x; a.cz = cam.z; a.yaw = g.cam.yaw; a.jumped = jumped;
+      for (const e of this.extra) if (e.jumped) moved = true;
+    }
+    if ((this.nearT -= dt) <= 0 || moved) this.refreshNear();
+    if (many) {
+      for (const q of gs) {
+        q.n = 0; q.jumped = false;
+        for (const m of q.members) if (m.jumped) q.jumped = true;
+        // Somebody has just arrived there: their street is filled in plain view for a moment, as it is after a jump alone.
+        if (q.jumped) q.fill = 2.5; else if (q.fill > 0) q.fill -= dt;
+      }
+      for (const w of this.walkers) {
+        if (!w.active || w.pier) continue;
+        let best = 0, bd = Infinity;
+        for (let k = 0; k < gs.length; k++) { const a = gs[k].a, dx = w.p.x - a.x, dz = w.p.z - a.z, d2 = dx * dx + dz * dz; if (d2 < bd) { bd = d2; best = k; } }
+        w.grp = best; gs[best].n++;
+      }
+    }
 
     const ws = this.walkers, n = ws.length;
     let out = 0;
@@ -254,6 +305,14 @@ export class Peds {
           if (pl.speed > 5.2 && d < 1.3 && -dx * Math.sin(pl.h) - dz * Math.cos(pl.h) < 0) this.scare(a, px, pz, 3);
         }
       }
+      // The other players on foot get the same room, and the same fright when they run straight at somebody.
+      for (const o of this.feet) {
+        const dx = ap.x - o.x, dz = ap.z - o.z, d2 = dx * dx + dz * dz;
+        if (d2 >= 2.56 || d2 < 1e-6) continue;
+        const d = Math.sqrt(d2), f = (1.6 - d) * 1.8 / d;
+        a.ax += dx * f; a.az += dz * f;
+        if (o.vx * o.vx + o.vz * o.vz > 27 && d < 1.3 && dx * o.vx + dz * o.vz > 0) this.scare(a, o.x, o.z, 3);
+      }
     }
 
     let tries = 3;
@@ -261,6 +320,22 @@ export class Peds {
       const w = ws[i], p = w.p;
       if (w.pier) { this.pierLife(w, day); if (!w.active) continue; }
       else if (!w.active) {
+        if (many) {
+          // For whichever group of players is furthest short of its share.
+          let q: Group | null = null, need = 0;
+          for (const c of gs) if (c.want - c.n > need) { need = c.want - c.n; q = c; }
+          if (q && (tries > 0 || q.fill > 0)) {
+            tries--;
+            const nb = this.nearBlocks, top = this.top;
+            this.nearBlocks = q.blocks; this.top = q.top; this.seatA = q.a;
+            if (q.jumped) { for (let k = 0; k < 40 && !w.active; k++) this.seat(w, 8, 110, 0); }
+            else if (q.fill > 0) { for (let k = 0; k < 6 && !w.active; k++) this.seat(w, 8, 110, 0); }
+            else this.seat(w, 40, 118, 80);
+            this.nearBlocks = nb; this.top = top; this.seatA = null;
+            if (w.active) { out++; q.n++; w.grp = gs.indexOf(q); }
+          }
+          continue;
+        }
         // A few tries a frame fill a street within a few seconds of arriving on it.
         if (out < target && (tries > 0 || jumped)) {
           tries--;
@@ -269,6 +344,14 @@ export class Peds {
           if (w.active) out++;
         }
         continue;
+      } else if (many) {
+        const q = gs[w.grp] ?? gs[0];
+        // Far from everybody, or more round these players than their share while others go short: out, when nobody can see.
+        if (this.far2(p.x, p.z) > 135 * 135
+          || (q.n > q.want && w.mode !== DOWN && (this.frame + i) % 10 === 0 && this.fair(p.x, p.z, 35, 1e5, 85))) {
+          this.leave(w); w.active = false; p.visible = false; out--; q.n--;
+          continue;
+        }
       } else {
         const dx = p.x - px, dz = p.z - pz, d2 = dx * dx + dz * dz;
         if (d2 > (jumped ? 14400 : 135 * 135)) {
@@ -415,6 +498,160 @@ export class Peds {
     });
     this.top = 0.01;
     for (const b of this.nearBlocks) this.top = Math.max(this.top, this.busy(b));
+    if (this.extra.length > 0) this.regroup();
+  }
+
+  // ── Multiplayer host: one cast, kept round every player ─────────────────────
+
+  /**
+   * Who is where: players within 50 m of each other are one group. Each group would have its single player crowd; when
+   * those add up to more than the cast, every group is cut back by the same share. Never more people than one game has.
+   */
+  private regroup(): void {
+    const gs = this.groups, old = gs.slice();
+    gs.length = 0;
+    let street = 0;
+    for (const w of this.walkers) if (!w.pier) street++;
+    const rain = this.game.sky.weather === 'rain' ? 0.55 : 1;
+    let sum = 0;
+    const add = (a: Anchor): void => {
+      for (const q of gs) {
+        const dx = q.a.x - a.x, dz = q.a.z - a.z;
+        if (dx * dx + dz * dz < 2500) { q.members.push(a); return; }
+      }
+      const blocks = this.blocks.filter((b) => {
+        const r = b.rect, dx = Math.max(r.x0 - a.x, 0, a.x - r.x1), dz = Math.max(r.z0 - a.z, 0, a.z - r.z1);
+        return dx * dx + dz * dz < 100 * 100;
+      });
+      let top = 0.01, f = 0;
+      for (const b of blocks) { const k = this.busy(b); f += k; if (k > top) top = k; }
+      f = blocks.length ? Math.min(1, f / blocks.length * 1.15) : 0;
+      const want = Math.round(street * f * rain);
+      sum += want;
+      gs.push({ a, members: [a], blocks, top, want, n: 0, jumped: false, fill: old.find((q) => q.a === a)?.fill ?? 0 });
+    };
+    add(this.own);
+    for (const a of this.extra) add(a);
+    if (sum > street) for (const q of gs) q.want = Math.floor(q.want * street / sum);
+  }
+
+  /** Squared distance from (x, z) to the nearest player in town. */
+  private far2(x: number, z: number): number {
+    const pl = this.game.player;
+    let dx = x - pl.x, dz = z - pl.z, d2 = dx * dx + dz * dz;
+    for (const a of this.extra) { dx = x - a.x; dz = z - a.z; d2 = Math.min(d2, dx * dx + dz * dz); }
+    return d2;
+  }
+
+  /**
+   * Is (x, z) a fair place for somebody to appear or vanish? Alone, exactly spawnOk. As host: at least `near` from
+   * every player, within `far` of the one being seated for, and behind or `front` away from everybody's view.
+   */
+  private fair(x: number, z: number, near: number, far: number, front: number): boolean {
+    const g = this.game;
+    if (this.extra.length === 0) return spawnOk(g, x, z, near, far, front);
+    const s = this.seatA;
+    if (s && s !== this.own) {
+      const dx = x - s.x, dz = z - s.z;
+      if (dx * dx + dz * dz > far * far) return false;
+      far = 1e9;
+    }
+    if (!spawnOk(g, x, z, near, far, front)) return false;
+    for (const a of this.extra) {
+      const dx = x - a.x, dz = z - a.z;
+      if (dx * dx + dz * dz < near * near) return false;
+      if (front <= 0) continue;
+      const cx = x - a.cx, cz = z - a.cz;
+      if (cx * Math.sin(a.yaw) + cz * Math.cos(a.yaw) >= 0 && cx * cx + cz * cz <= front * front) return false;
+    }
+    return true;
+  }
+
+  /** Every walker gets a number for the wire and the look that goes with that number, the same in every browser. */
+  number(lookOf: (wid: number) => Look): void {
+    const used = new Set<number>();
+    for (const w of this.walkers) if (w.wid) used.add(w.wid);
+    let next = 1;
+    for (const w of this.walkers) {
+      if (!w.wid) { while (used.has(next)) next++; w.wid = next; used.add(next); }
+      const look = lookOf(w.wid);
+      if (w.p.look !== look) w.p.look = look;
+    }
+  }
+
+  /** The walker with this number, if they are out. */
+  byWid(wid: number): Walker | null {
+    if (wid) for (const w of this.walkers) if (w.wid === wid && w.active) return w;
+    return null;
+  }
+
+  /**
+   * The host's people are shown here from now on: everybody steps out of the simulation. `keep` is told of each who
+   * was out (a host handing over: they stay where they stand, and the new host's frames move them).
+   */
+  lend(keep: ((w: Walker) => void) | null): void {
+    for (const w of this.walkers) {
+      if (w.active && keep) keep(w);
+      w.p.bench = false;
+      if (w.spot) { w.spot.n--; w.spot = null; }
+      w.active = false; w.mode = WALK; w.nb = null; w.flee = 0; w.hard = false; w.vx = w.vz = 0;
+    }
+    this.road.length = 0;
+    this.guest = true;
+  }
+
+  /** Simulating again (host of the town, or alone). */
+  resume(): void { this.guest = false; this.nearT = 0; }
+
+  /** Forget every number: the ones the last host used are about to be given out with its people. */
+  unnumber(): void { for (const w of this.walkers) w.wid = 0; }
+
+  /** Carry on with somebody the last host was simulating: this walker's body already stands where they were shown. */
+  takeOver(w: Walker, wid: number, down: boolean, hard: boolean, run: boolean): void {
+    const p = w.p;
+    w.wid = wid; w.active = true;
+    w.pier = p.x > PIER.x0 && p.x < PIER.x1 && p.z > PIER.z0 + 2;
+    p.visible = true; p.bench = false;
+    w.spot = null; w.nb = null; w.flee = run ? 3 : 0; w.hurry = 0; w.hard = hard;
+    w.cars.length = 0; w.scan = 0; w.stuck = 0; w.sideT = 0; w.asideT = 0; w.hitCool = 0; w.timer = 0; w.vx = w.vz = 0;
+    w.x = p.x; w.z = p.z;
+    if (down) {
+      // Still on the ground: they get up (or do not) on this browser's clock from here.
+      this.adopt(w);
+      w.mode = DOWN; w.timer = hard ? 8 : 2.5; p.pose = 'down';
+      return;
+    }
+    p.y = groundAt(p.x, p.z);
+    this.adopt(w);
+    if (w.pier) w.dir = Math.cos(p.h) >= 0 ? 1 : -1;
+    else w.dir = Math.sin(p.h) * DIR_X[w.side] + Math.cos(p.h) * DIR_Z[w.side] >= 0 ? 1 : -1;
+  }
+
+  /** Multiplayer host: another player's car has run this person down (their browser saw it; nobody else decides). */
+  struck(wid: number, cvx: number, cvz: number): boolean {
+    const w = this.byWid(wid), sp = Math.hypot(cvx, cvz);
+    if (!w || !(sp > KNOCK)) return false;
+    this.fall(w, cvx, cvz, sp, false);
+    return true;
+  }
+
+  /** For the tests: somebody stands at (x, z) facing h for `secs`, unless frightened off. Returns their number (0 = nobody free). */
+  stand(x: number, z: number, h: number, secs: number): number {
+    if (this.guest) return 0;
+    let best: Walker | null = null, far = -1;
+    for (const w of this.walkers) {
+      if (w.pier || w.mode === DOWN) continue;
+      const d2 = w.active ? this.far2(w.p.x, w.p.z) : Infinity;
+      if (d2 > far) { far = d2; best = w; }
+    }
+    if (!best) return 0;
+    const w = best, p = w.p;
+    this.leave(w);
+    p.x = x; p.z = z; p.y = groundAt(x, z); p.h = h; p.visible = true; p.health = 100; p.pose = 'stand'; p.speed = 0; p.bench = false;
+    w.active = true; w.flee = 0; w.hurry = 0; w.hard = false; w.cars.length = 0; w.scan = 0; w.vx = w.vz = 0; w.asideT = 0;
+    this.adopt(w);
+    w.mode = IDLE; w.timer = 0; w.cool = secs; w.face = h;
+    return w.wid;
   }
 
   /** Try one random sidewalk spot. Brings the walker out only if the spot is acceptable. */
@@ -431,7 +668,7 @@ export class Peds {
     if (len < 6) return false;
     const t = rng.next() * len;
     this.at(b, side, t, inset);
-    if (!spawnOk(g, this.qx, this.qz, near, far, front) || g.col.pointBlocked(this.qx, this.qz, 1)) return false;
+    if (!this.fair(this.qx, this.qz, near, far, front) || g.col.pointBlocked(this.qx, this.qz, 1)) return false;
     w.block = b; w.side = side; w.t = t; w.inset = inset; w.dir = rng.sign();
     const p = w.p;
     p.x = this.qx; p.z = this.qz; p.y = groundAt(p.x, p.z); p.h = Math.atan2(DIR_X[side] * w.dir, DIR_Z[side] * w.dir);
@@ -559,6 +796,10 @@ export class Peds {
       const dx = o.x - p.x, dz = o.z - p.z;
       if (dx < 16 && dx > -16 && dz < 16 && dz > -16) w.cars.push(o);
     }
+    for (const o of this.others) {
+      const dx = o.x - p.x, dz = o.z - p.z;
+      if (dx < 16 && dx > -16 && dz < 16 && dz > -16) w.cars.push(o);
+    }
     if (w.mode !== WALK || w.flee > 0 || w.cool > 0) return;
     if (w.pier) {
       // Lean on the rail and look at the sea for a bit.
@@ -593,7 +834,7 @@ export class Peds {
       const lf = dx * m.sh + dz * m.ch, lr = -dx * m.ch + dz * m.sh;
       const al = Math.abs(lf), ar = Math.abs(lr);
       if (al < v.hl + 0.3 && ar < v.hw + 0.3 && Math.abs(v.y - p.y) < 1.5) {
-        if (m.sp > KNOCK) { this.knock(w, m); if (!down) return; continue; }
+        if (m.sp > KNOCK) { if (m.ghost) continue; this.knock(w, m); if (!down) return; continue; }
         if (down) continue;
         // Crawling: shouldered aside, not flattened.
         if (v.hw + R - ar < v.hl + R - al) { const s = lr < 0 ? -1 : 1, k = v.hw + R - ar; p.x -= m.ch * k * s; p.z += m.sh * k * s; }
@@ -617,21 +858,27 @@ export class Peds {
   }
 
   private knock(w: Walker, m: Mover): void {
-    const p = w.p, v = m.v, was = w.mode === DOWN;
+    const v = m.v;
+    this.fall(w, v.vx, v.vz, m.sp, v.driver === 'player');
+  }
+
+  /** Run down by something moving at (cvx, cvz), `sp` m/s. */
+  private fall(w: Walker, cvx: number, cvz: number, sp: number, byPlayer: boolean): void {
+    const p = w.p, was = w.mode === DOWN;
     // Carried along with the car, a little slower, and already down.
-    if (was && Math.hypot(w.vx, w.vz) > m.sp * 0.6) return;
-    w.vx = v.vx * 0.85; w.vz = v.vz * 0.85;
+    if (was && Math.hypot(w.vx, w.vz) > sp * 0.6) return;
+    w.vx = cvx * 0.85; w.vz = cvz * 0.85;
     if (was && w.hitCool > 0) return;
     this.leave(w);
     w.mode = DOWN; w.nb = null; w.flee = 0;
-    w.hard = w.hard || m.sp >= HARD;
+    w.hard = w.hard || sp >= HARD;
     w.timer = w.hard ? 8 : this.rng.range(2.4, 3.8);
     w.hitCool = 1.2;
-    p.pose = 'down'; p.speed = 0; p.h = Math.atan2(v.vx, v.vz);
+    p.pose = 'down'; p.speed = 0; p.h = Math.atan2(cvx, cvz);
     p.health = w.hard ? 0 : Math.max(10, p.health - 35);
     this.stats.hits++;
-    this.game.emit('pedHit', { x: p.x, z: p.z, speed: m.sp, byPlayer: v.driver === 'player' });
-    if (m.sp > 5) this.alarm(p.x, p.z, 16);
+    this.game.emit('pedHit', { x: p.x, z: p.z, speed: sp, byPlayer });
+    if (sp > 5) this.alarm(p.x, p.z, 16);
   }
 
   /** Lying in the road: slide to a stop, then get up if it was only a bump. */
@@ -657,7 +904,7 @@ export class Peds {
       return;
     }
     // Nobody is carted off in plain view. Once nobody is looking they are back in the pool, unharmed and unimpressed.
-    if (wet || spawnOk(g, p.x, p.z, 40, 1e5, 95)) { w.active = false; w.hard = false; w.mode = WALK; p.visible = false; p.health = 100; }
+    if (wet || this.fair(p.x, p.z, 40, 1e5, 95)) { w.active = false; w.hard = false; w.mode = WALK; p.visible = false; p.health = 100; }
   }
 
   /** Run from (x, z) for a while: along the sidewalk, whichever way is away. */
@@ -737,7 +984,7 @@ export class Peds {
     if ((this.frame + w.p.id) % 120 !== 0) return;
     const want = day || w.p.id % 3 === 0;
     if (want === w.active || w.mode === DOWN) return;
-    if (!spawnOk(this.game, 0, 520, 150, 1e5, 240)) return;
+    if (!this.fair(0, 520, 150, 1e5, 240)) return;
     if (want) this.seatPier(w); else { this.leave(w); w.active = false; w.p.visible = false; }
   }
 }

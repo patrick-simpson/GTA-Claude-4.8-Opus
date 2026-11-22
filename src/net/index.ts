@@ -22,13 +22,14 @@ import { angleDiff } from '../core/util';
 import { KINDS } from '../ent/vehicleSpecs';
 import {
   KEEPALIVE_FRAME, KEEPALIVE_MS, PERF_CANNOT_HOST_MS, PERF_INTERVAL_MS, PLAYER_STATE_BYTES, POSES, PlayerFlag, PlayerMode, SEND_HZ,
-  Frame, PlayerEvent, blankPlayerState, decodePlayerEvent, decodePlayerState, encodePlayerEvent, encodeMsg, encodePlayerState, frameKind,
+  Frame, PlayerEvent, WorldKind, blankPlayerState, decodePlayerEvent, decodePlayerState, encodePlayerEvent, encodeMsg, encodePlayerState, frameKind,
   type PlayerEntry, type ServerMsg, type WelcomeMsg,
 } from './protocol';
 import { Connection, servicePlan, type NetStatus } from './conn';
 import { Remote } from './remote';
 import { SharedTraffic } from './shared';
 import { TownCars } from './cars';
+import { TownPeople } from './people';
 import { SAYS, myName, nameText, rerollName } from './names';
 
 const SEND_MS = 1000 / SEND_HZ;
@@ -43,6 +44,8 @@ export class Net {
   readonly shared: SharedTraffic;
   /** The town's parked cars, and taking and leaving cars (stage 2, step 3). */
   readonly cars: TownCars;
+  /** The town's pedestrians: the host's, shown to everybody (stage 3, step 1). */
+  readonly people: TownPeople;
   /** State frames sent, apart from the totals in conn.sent. */
   statesSent = 0;
 
@@ -79,6 +82,7 @@ export class Net {
     c.onChange = () => this.showNote();
     this.shared = new SharedTraffic(game, c, this.remotes);
     this.cars = new TownCars(game, c, this.remotes, this.shared);
+    this.people = new TownPeople(game, c, this.remotes, this.shared);
     // A paused game simulates nothing, so it says at once that it cannot host (and, on resuming, that it can again).
     game.on('pause', () => { this.perfAt = 0; });
     c.start();
@@ -138,6 +142,7 @@ export class Net {
     this.force = true;
     this.shared.refresh();
     this.cars.refresh();
+    this.people.refresh();
   }
 
   private drop(id: number): void {
@@ -179,8 +184,12 @@ export class Net {
       if (e) this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
       return;
     }
-    if (k === Frame.World) { this.shared.frame(buf, performance.now()); return; }
-    if (k === Frame.ToHost) { this.shared.toHost(buf, performance.now()); return; }
+    if (k === Frame.World) {
+      if (buf.byteLength > 2 && new Uint8Array(buf, 2, 1)[0] === WorldKind.People) this.people.frame(buf, performance.now());
+      else this.shared.frame(buf, performance.now());
+      return;
+    }
+    if (k === Frame.ToHost) { if (!this.people.toHost(buf)) this.shared.toHost(buf, performance.now()); return; }
     if (k === Frame.ToPlayer) { this.cars.toPlayer(buf, performance.now()); return; }
     if (k !== Frame.State) return;
     const s = decodePlayerState(buf, this.inState);
@@ -271,6 +280,7 @@ export class Net {
     // After the others have been placed: a host's drivers are told where they are.
     this.shared.update(now, dt);
     this.cars.update(now);
+    this.people.update(now, dt);
   }
 
   /** "3 in town", under the cash slip; only while connected with somebody else here. */
@@ -348,6 +358,8 @@ export class Net {
       traffic: this.shared.info(),
       // cars: the parked places (how many, how many the town counts as empty) and the counts of asking, granting and leaving.
       cars: this.cars.info(),
+      // people: mode, frames and bytes, and the shared pedestrians with their numbers (people.ts).
+      people: this.people.info(),
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({

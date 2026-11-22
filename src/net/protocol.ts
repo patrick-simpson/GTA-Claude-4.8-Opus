@@ -301,7 +301,7 @@ export function decodePlayerEvent(buf: ArrayBuffer): { id: number; code: number;
 //
 // Byte 2 says what the frame asks. Stage 2, step 2 has one: "my car has just struck your car N". Step 3 adds three
 // (below, "Taking and leaving cars"); a host of an older page of this version ignores a kind it does not know.
-export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4 } as const;
+export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7 } as const;
 // CarHit, 10 bytes: 0 kind (Frame.ToHost)  1 id  2 ToHostKind.CarHit  3 car u8 (its number in the World frames)
 //   4 vx i16  6 vz i16 (cm/s: how fast the two closed, pointing from the striker into the car)
 //   8 rx i8  9 rz i8 (the point of contact from the car's middle, 5 cm steps)
@@ -430,7 +430,7 @@ function healthByte(h: number): number {
 // ---- World frames (host only; the service relays them unread) ----
 //
 // Byte 2 says what the frame carries, so later steps can add streams (people, police) beside these.
-export const WorldKind = { Traffic: 1, Parked: 2 } as const;
+export const WorldKind = { Traffic: 1, Parked: 2, People: 3 } as const;
 
 // Parked (stage 2, step 3): which of the town's parked cars are no longer in their places. Sent only when one
 // changes, whole when somebody arrives, and whole again every PARKED_REFRESH_MS in case anything was missed.
@@ -594,6 +594,142 @@ export function decodeTraffic(buf: ArrayBuffer, out: TrafficFrame): boolean {
   out.nStill = ns;
   for (let i = 0; i < ns; i++) out.still[i] = d.getUint8(o + i);
   return true;
+}
+
+// ---- The same people on the street (stage 3, step 1) ----
+//
+// The host's pedestrians, in World frames of their own (WorldKind.People). The version stays at 4: the service relays
+// World and ToHost frames unread, an older page ignores a kind it does not know (as a guest it keeps its private
+// crowd, exactly as before), and a newer guest whose host is an older page hears no people frames and so keeps its
+// private crowd too.
+//   0 kind (Frame.World)  1 id  2 WorldKind.People  3 flags u8 (1 = whole: anybody not in this frame has gone)  4 n u8
+//   5.. n records of PED_BYTES
+// A record is sent only when the person is no longer where the last one says they would be by now (walking on the
+// way they faced at the speed they had), or looks different; a whole frame goes every PEOPLE_WHOLE_MS and when
+// somebody arrives. So a person standing still, or walking straight down a pavement, costs almost nothing.
+//   0 id u8 (1..255, the same for the person's whole life; the LOOK is made from it, see net/people.ts)
+//   1 x u16  3 z u16 (5 cm steps from TRAFFIC_X0, TRAFFIC_Z0; the height is the ground's)
+//   5 heading u8 (1/256 turn: the way they move, or face when still)  6 speed u8 (1/32 m/s)
+//   7 pose (low 3 bits, index into PED_POSES; PED_GONE = left the street) | PedFlag.Bench | PedFlag.Hard | health (high 3 bits, 0 = none .. 7 = full)
+export const PEOPLE_HZ = 10;
+export const PEOPLE_WHOLE_MS = 3000;
+export const PEOPLE_HEADER_BYTES = 5;
+export const PED_BYTES = 8;
+export const PEOPLE_MAX = 96;
+export const PED_POSES = ['stand', 'walk', 'run', 'down', 'sit'] as const;
+export const PED_GONE = 7;
+/** Bench: sitting on a bench. Hard: down and not getting up. */
+export const PedFlag = { Bench: 8, Hard: 16 } as const;
+export const PED_HEALTH_SHIFT = 5;
+export interface PedRec { id: number; x: number; z: number; h: number; speed: number; flags: number }
+export function blankPed(): PedRec { return { id: 0, x: 0, z: 0, h: 0, speed: 0, flags: 0 }; }
+/** Health (0..100) as the 3 bits on the wire: 0 only when there is none left. */
+export function pedHealthBits(health: number): number {
+  const s = Math.ceil(health * 0.07 - 1e-6);
+  return s > 7 ? 7 : s > 0 ? s : 0;
+}
+/** Round a record to what the wire carries, in place (the host predicts from exactly what the guests were told). */
+export function quantPed(r: PedRec): void {
+  r.x = clampU16((r.x - TRAFFIC_X0) / TRAFFIC_STEP) * TRAFFIC_STEP + TRAFFIC_X0;
+  r.z = clampU16((r.z - TRAFFIC_Z0) / TRAFFIC_STEP) * TRAFFIC_STEP + TRAFFIC_Z0;
+  r.h = ((Math.round((((r.h % TAU) + TAU) % TAU) / TAU * 256) & 255) / 256) * TAU;
+  const sp = Math.round(r.speed * 32);
+  r.speed = (sp > 255 ? 255 : sp > 0 ? sp : 0) / 32;
+}
+/** `recs` must already be rounded (quantPed). Returns the bytes used. */
+export function encodePeople(whole: boolean, recs: readonly PedRec[], n: number, out: Uint8Array): number {
+  const d = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  d.setUint8(0, Frame.World); d.setUint8(1, 0); d.setUint8(2, WorldKind.People);
+  d.setUint8(3, whole ? 1 : 0); d.setUint8(4, n);
+  let o = PEOPLE_HEADER_BYTES;
+  for (let i = 0; i < n; i++, o += PED_BYTES) {
+    const r = recs[i];
+    d.setUint8(o, r.id & 0xff);
+    d.setUint16(o + 1, clampU16((r.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+    d.setUint16(o + 3, clampU16((r.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+    d.setUint8(o + 5, Math.round((((r.h % TAU) + TAU) % TAU) / TAU * 256) & 255);
+    const sp = Math.round(r.speed * 32);
+    d.setUint8(o + 6, sp > 255 ? 255 : sp > 0 ? sp : 0);
+    d.setUint8(o + 7, r.flags & 0xff);
+  }
+  return o;
+}
+export interface PeopleFrame { whole: boolean; n: number; recs: PedRec[] }
+export function decodePeople(buf: ArrayBuffer, out: PeopleFrame): boolean {
+  const len = buf.byteLength;
+  if (len < PEOPLE_HEADER_BYTES) return false;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.World || d.getUint8(2) !== WorldKind.People) return false;
+  const n = d.getUint8(4);
+  if (n > PEOPLE_MAX || PEOPLE_HEADER_BYTES + n * PED_BYTES > len) return false;
+  out.whole = (d.getUint8(3) & 1) !== 0;
+  out.n = n;
+  let o = PEOPLE_HEADER_BYTES;
+  for (let i = 0; i < n; i++, o += PED_BYTES) {
+    const r = out.recs[i] ?? (out.recs[i] = blankPed());
+    r.id = d.getUint8(o);
+    r.x = d.getUint16(o + 1, true) * TRAFFIC_STEP + TRAFFIC_X0;
+    r.z = d.getUint16(o + 3, true) * TRAFFIC_STEP + TRAFFIC_Z0;
+    r.h = (d.getUint8(o + 5) / 256) * TAU;
+    r.speed = d.getUint8(o + 6) / 32;
+    r.flags = d.getUint8(o + 7);
+  }
+  return true;
+}
+
+// What a guest does to one of the host's people, told to the host (ToHost), which applies it for everybody.
+// PedKnock, 8 bytes: "my car has just run into person N".  0 kind  1 id  2 ToHostKind.PedKnock  3 person u8  4 vx i16  6 vz i16 (the car's velocity, cm/s)
+// PedHurt, 8 bytes: "I have punched or shot person N".  0 kind  1 id  2 ToHostKind.PedHurt  3 person u8  4 damage u8
+//   5 heading u8 (the way the blow travelled)  6 flags u8 (1 = a fist)  7 shove u8 (tenths)
+// Bang, 8 bytes: "a shot, a blast or a crash here: people within r meters run".  0 kind  1 id  2 ToHostKind.Bang  3 x u16  5 z u16  7 r u8
+export const PED_ASK_BYTES = 8;
+export const BANG_HZ = 2;
+export interface PedKnock { id: number; ped: number; vx: number; vz: number }
+export function encodePedKnock(ped: number, vx: number, vz: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, PED_ASK_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.PedKnock); d.setUint8(3, ped & 0xff);
+  d.setInt16(4, clampI16(vx * 100), true); d.setInt16(6, clampI16(vz * 100), true);
+  return buf;
+}
+export function decodePedKnock(buf: ArrayBuffer): PedKnock | null {
+  if (buf.byteLength < PED_ASK_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.PedKnock) return null;
+  return { id: d.getUint8(1), ped: d.getUint8(3), vx: d.getInt16(4, true) / 100, vz: d.getInt16(6, true) / 100 };
+}
+export interface PedHurt { id: number; ped: number; damage: number; h: number; fist: boolean; shove: number }
+export function encodePedHurt(ped: number, damage: number, h: number, fist: boolean, shove: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, PED_ASK_BYTES - FRAME_HEADER_BYTES);
+  const u8 = new Uint8Array(buf);
+  u8[2] = ToHostKind.PedHurt; u8[3] = ped & 0xff;
+  u8[4] = Math.max(0, Math.min(255, Math.round(damage)));
+  u8[5] = Math.round((((h % TAU) + TAU) % TAU) / TAU * 256) & 255;
+  u8[6] = fist ? 1 : 0;
+  u8[7] = Math.max(0, Math.min(255, Math.round(shove * 10)));
+  return buf;
+}
+export function decodePedHurt(buf: ArrayBuffer): PedHurt | null {
+  if (buf.byteLength < PED_ASK_BYTES) return null;
+  const u8 = new Uint8Array(buf);
+  if (u8[0] !== Frame.ToHost || u8[2] !== ToHostKind.PedHurt) return null;
+  return { id: u8[1], ped: u8[3], damage: u8[4], h: (u8[5] / 256) * TAU, fist: (u8[6] & 1) !== 0, shove: u8[7] / 10 };
+}
+export interface Bang { id: number; x: number; z: number; r: number }
+export function encodeBang(x: number, z: number, r: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, PED_ASK_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.Bang);
+  d.setUint16(3, clampU16((x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+  d.setUint16(5, clampU16((z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+  d.setUint8(7, Math.max(0, Math.min(255, Math.round(r))));
+  return buf;
+}
+export function decodeBang(buf: ArrayBuffer): Bang | null {
+  if (buf.byteLength < PED_ASK_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.Bang) return null;
+  return { id: d.getUint8(1), x: d.getUint16(3, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(5, true) * TRAFFIC_STEP + TRAFFIC_Z0, r: d.getUint8(7) };
 }
 
 // ---- JSON control messages ----

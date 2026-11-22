@@ -88,6 +88,32 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 3, step 1, the same people on the street: pushed Nov 21, about 10:45 PM ET
+
+What changed (main only; single player and the backup are as before):
+- The host runs one crowd around every player and sends it. Guests show the host's people.
+- A person's look comes from their number, so no bytes are spent on clothes.
+- A record is sent only when a person leaves their predicted path, plus a whole frame every 3 s.
+- A guest can knock a person down with a car, punch or shoot one. The guest tells the host in 8 bytes and everyone sees the same result.
+- People mind every player's car and feet, not only the host's.
+- Host change carries the same people on. A guest of an older host page keeps a private crowd.
+- Protocol stays at version 4. New file src/net/people.ts. New test tools/net/people.mjs.
+
+Checked by the lead: tsc, build, server tests, people (35, twice), traffic, cars, bump, two, solo, main, notices, social: ALL PASS. Production boot with net=0 shows "errors": []. Pictures people-a and people-b show the same five people.
+
+Measured: 83 to 87 bytes/s for 30 people, but the host's game ran at about 13% speed here. Rough guess at real speed: 0.2 kB/s. Worst case 4.3 kB/s.
+
+Still wrong or unseen:
+- Smoothness and bytes at real speed.
+- When a town forms, the host's crowd changes clothes once and a joining guest's crowd pops away.
+- A guest gets private heat for hurting shared people. Police are still private.
+- A far player had 5 to 7 people against the host's 22 to 24.
+- A slow host makes people stride slowly on guests.
+- Money drops stay local. Guest rockets are still private.
+- A sitting or crossing person walks to the nearest pavement after a host change.
+
+Models: top model built it (judgement). Lead checked it.
+
 ### Multiplayer stage 2, step 3, the same parked cars and taking a car: pushed Nov 21, about 9:10 PM ET
 
 What changed (main only; single player and the backup are as before):
