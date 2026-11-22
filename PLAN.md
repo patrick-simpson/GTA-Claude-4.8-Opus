@@ -88,7 +88,7 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
-### Multiplayer stage 3, step 3, weapons between players: pushed Nov 22, about 12:05 PM ET
+### Multiplayer stage 3, step 3, weapons between players: pushed Nov 22, about 11:50 AM ET
 
 **What.** Players see each other's shots, swings, rockets and blasts, see the weapon in the other's hand, and can
 hurt and kill each other. New `src/net/fight.ts`; hooks in `src/ent/weapons.ts`. Still protocol v4: four new Event
@@ -585,7 +585,7 @@ repo, one public city only, and made-up names with no typing. Decisions, design
 and the five stages: `tools/briefs/multiplayer.md`. It starts after M6 and after
 the weekly usage reset (Sunday Nov 22, 4 PM ET); about 15 to 25 steps.
 
-### M6 step 3, quality that chooses itself: pushed Nov 20, about 12:05 PM ET
+### M6 step 3, quality that chooses itself: pushed Nov 20, about 11:50 AM ET
 
 - **`src/core/governor.ts`** (new): the presets, the machine hints, a one-off
   benchmark (175-210 ms before the title card on the first visit, cached in
@@ -1061,7 +1061,7 @@ flats, olive beach sand, distant haze); (2) then start on add-on lands: new
 territory beyond the island. The Perpetual Bridge points at a mainland to the
 north, which is the natural first one. Order: cars, people, foliage and land
 finishing, the rest of M2, then add-on lands.
-### Realistic rework, step (a): pushed Nov 18, about 12:05 PM ET
+### Realistic rework, step (a): pushed Nov 18, about 11:50 AM ET
 
 City surfaces are physically based on medium and high (`materials.ts`, with normal
 and roughness maps derived in `textures.ts`; glass reflects the sky; roads go
