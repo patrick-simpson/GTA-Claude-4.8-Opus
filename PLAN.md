@@ -88,6 +88,30 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 3, step 2, the same police for everyone: pushed Nov 22, about 6:40 AM ET
+
+What changed (main only; single player and the backup are as before):
+- One set of police, run by the host, seen by everyone. Heat stays per player and shows only on that player's own screen.
+- Each browser tells the host its heat when it changes. The host chases the right player from one police budget.
+- Police cars ride in the traffic frames and officers in the people frames. Police extras cost 6 to 7 bytes/s; each moving police car adds about 150 bytes/s.
+- The host decides hurt and busts for a guest and sends them to that guest.
+- Escape is judged on the wanted player's own browser.
+- Host change carries the chase on. A guest of an older host page keeps private police.
+- Protocol stays at version 4. New file src/net/police.ts. New test tools/net/police.mjs (about 16 minutes a run).
+
+Checked by the lead: tsc, build, server tests, police (46), people, traffic, cars, two, solo, main, notices, social: ALL PASS. Production boot with net=0 shows "errors": []. Pictures police-host and police-guest show the same two police cars; heat on the guest only.
+
+NOT clean: bump.mjs failed 1 of 3 lead runs. In a head on between two players the cars ended inside each other (1.0 m middle to middle). The worker saw the same on the code before this step, so it is a fault from stage 2 step 2, not from the police. It is the next unit of work. The worker also made bump.mjs steadier (picks standing cars, clears police first).
+
+Still wrong or unseen:
+- Ramming and roadblocks against a guest who is driving. A guest stealing a police car.
+- Fairness at 130 ms was reasoned, not seen.
+- The helicopter is still private. A paused guest can be busted.
+- A wanted player joining a town sees their private police vanish.
+- With more wanted players than the budget, the least wanted get no cars.
+
+Models: top model built it (judgement). Lead checked it.
+
 ### Multiplayer stage 3, step 1, the same people on the street: pushed Nov 21, about 10:45 PM ET
 
 What changed (main only; single player and the backup are as before):

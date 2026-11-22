@@ -37,7 +37,7 @@ import { KINDS, SPECS } from '../ent/vehicleSpecs';
 import { Ambient } from '../sim/ambient';
 import type { Anchor, RoadPed, Traffic } from '../sim/traffic';
 import {
-  CAR_HIT_BYTES, CAR_HIT_HZ, PlayerMode, TRAFFIC_CAR_BYTES, TRAFFIC_DAMAGE_SHIFT, TRAFFIC_HEADER_BYTES, TRAFFIC_MAX_CARS, ToHostKind, TrafficFlag, WORLD_HZ, WorldKind,
+  CAR_HIT_BYTES, CAR_HIT_HZ, CRUISER_ON_DUTY, PlayerMode, TRAFFIC_CAR_BYTES, TRAFFIC_DAMAGE_SHIFT, TRAFFIC_HEADER_BYTES, TRAFFIC_MAX_CARS, ToHostKind, TrafficFlag, WORLD_HZ, WorldKind,
   blankTrafficCar, blankTrafficFrame, damageStep, decodeCarHit, decodeTraffic, encodeCarHit, encodeTraffic, frameSender, type TrafficCar,
 } from './protocol';
 import type { Connection } from './conn';
@@ -77,6 +77,21 @@ interface Shown {
 
 /** What the host last sent about one car, and when it last went whole. */
 interface Sent { rec: TrafficCar; at: number; seq: number }
+
+/**
+ * Cars the town must see that the traffic does not drive: the police's (stage 3, step 2; police.ts). They travel in
+ * the same frames under numbers from the same pool, and change hands with the rest.
+ */
+export interface CarOwner {
+  /** Host: every such car, for the frame being built. paint: what goes in the record's paint nibble. */
+  each(fn: (wid: number, v: Vehicle, driverless: boolean, paint: number) => void): void;
+  /** This browser is taking the wheel of a car it was showing. True when the car is this owner's to drive from here. */
+  adopt(v: Vehicle, wid: number, paint: number, host: boolean): boolean;
+  /** Host: another player is taking this car. True when it was this owner's, and is let go of. */
+  give(v: Vehicle): boolean;
+  /** No longer the host, still in town: every such car is let go of (not removed) and reported. */
+  handOver(fn: (wid: number, v: Vehicle, driverless: boolean, paint: number) => void): void;
+}
 
 export class SharedTraffic {
   /** local: private traffic (alone, single player, or on the backup). host: simulating for the town. guest: showing the host's. */
@@ -133,6 +148,8 @@ export class SharedTraffic {
   onAsk: ((buf: ArrayBuffer, now: number) => void) | null = null;
   /** Guest: this browser's car has struck a shared car that is not in the traffic frames. */
   onOtherHit: ((b: Vehicle, cvx: number, cvz: number, rx: number, rz: number) => void) | null = null;
+  /** The police's cars (police.ts). */
+  police: CarOwner | null = null;
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>) {
     const amb = game.systems.find((s): s is Ambient => s instanceof Ambient);
@@ -233,15 +250,17 @@ export class SharedTraffic {
       if (was === 'host') {
         // Still in town, no longer the host: the cars stay where they are and the new host's frames move them.
         const now = performance.now();
-        tr.handOver((wid, v, driverless) => {
+        const let_go = (wid: number, v: Vehicle, driverless: boolean, paint = -1): void => {
           g.vehicles.setShared(v, true);
-          const s = this.show(wid, KINDS.indexOf(v.spec.kind), Math.max(0, v.spec.colors.indexOf(v.color)), v);
+          const s = this.show(wid, KINDS.indexOf(v.spec.kind), paint >= 0 ? paint : Math.max(0, v.spec.colors.indexOf(v.color)), v);
           const a = blank();
           a.t = now; a.x = v.x; a.y = v.y; a.z = v.z; a.yaw = v.h; a.speed = v.speed; a.pitch = v.pitch; a.roll = v.roll;
           a.flags = (driverless ? TrafficFlag.Driverless : 0) | (damageStep(v.health) << TRAFFIC_DAMAGE_SHIFT);
           s.buf.push(a);
           Object.assign(s.cur, a);
-        });
+        };
+        tr.handOver(let_go);
+        this.police?.handOver(let_go);
         this.stats.handovers++;
       } else tr.clearCars();
       this.clearHost();
@@ -253,6 +272,7 @@ export class SharedTraffic {
       tr.resume();
       for (const s of this.cars.values()) {
         g.vehicles.setShared(s.v, false);
+        if (this.police?.adopt(s.v, s.wid, s.paint, want === 'host')) { this.stats.adopted++; continue; }
         if (tr.adopt(s.v, s.wid, (s.cur.flags & TrafficFlag.Driverless) !== 0)) this.stats.adopted++;
         else { g.vehicles.remove(s.v); this.stats.dropped++; }
       }
@@ -305,14 +325,14 @@ export class SharedTraffic {
   private send(now: number): void {
     const tr = this.traffic as Traffic, recs = this.recs, sent = this.sent, seq = ++this.sendSeq;
     let n = 0;
-    tr.eachShared((wid, v, driverless) => {
+    const add = (wid: number, v: Vehicle, driverless: boolean, paint = -1): void => {
       if (n >= TRAFFIC_MAX_CARS) return;
       const r = recs[n] ?? (recs[n] = blankTrafficCar());
       n++;
       const sp = v.speed, ctl = v.ctl;
       r.id = wid;
       r.kind = KINDS.indexOf(v.spec.kind);
-      r.paint = Math.max(0, v.spec.colors.indexOf(v.color));
+      r.paint = paint >= 0 ? paint : Math.max(0, v.spec.colors.indexOf(v.color));
       r.x = v.x; r.y = v.y; r.z = v.z; r.yaw = v.h;
       r.speed = Math.abs(sp) < 0.12 ? 0 : sp;
       r.steer = driverless ? 0 : ctl.steer;
@@ -321,7 +341,10 @@ export class SharedTraffic {
         : ((ctl.accel < -0.05 && sp > 0.5) || ctl.handbrake ? TrafficFlag.Braking : 0)
           | (sp < -0.3 && ctl.accel < 0 ? TrafficFlag.Reversing : 0) | (ctl.horn ? TrafficFlag.Horn : 0))
         | (damageStep(v.health) << TRAFFIC_DAMAGE_SHIFT);
-    });
+    };
+    // (The police first: when the town is full of cars, theirs are not the ones left out.)
+    this.police?.each(add);
+    tr.eachShared(add);
     // Whole records first, then the numbers of the cars that have not moved since theirs.
     const order = this.order, still = this.still;
     let nFull = 0, nStill = 0;
@@ -395,13 +418,24 @@ export class SharedTraffic {
     if (!r || !r.seen || now - (this.hitFrom.get(h.id) ?? -1e9) < HIT_MS * 0.5) return;
     const sp = Math.hypot(h.vx, h.vz);
     if (!(sp >= HIT_MIN) || sp > 80) return;
-    let car: Vehicle | null = null;
-    tr.eachShared((wid, v) => { if (wid === h.car) car = v; });
-    const v = car as Vehicle | null;
+    const v = this.findCar(h.car);
     if (!v || Math.hypot(v.x - r.x, v.z - r.z) > HIT_REACH) return;
     this.hitFrom.set(h.id, now);
     this.game.vehicles.knock(v, r.vehicle, h.vx, h.vz, h.rx, h.rz);
     this.stats.hitsDone++;
+  }
+
+  /** Host: the car with this number in the traffic frames, the traffic's or the police's. */
+  findCar(wid: number): Vehicle | null {
+    let car: Vehicle | null = null;
+    this.traffic?.eachShared((w, v) => { if (w === wid) car = v; });
+    if (!car) this.police?.each((w, v) => { if (w === wid) car = v; });
+    return car;
+  }
+
+  /** Guest: every car being shown, with the paint nibble of its record. */
+  eachShown(fn: (wid: number, v: Vehicle, kind: number, paint: number, flags: number) => void): void {
+    for (const s of this.cars.values()) fn(s.wid, s.v, s.kind, s.paint, s.cur.flags);
   }
 
   /** A World frame. now: this browser's clock, ms. */
@@ -446,7 +480,8 @@ export class SharedTraffic {
       if (!kind || c.id === 0) continue;
       let s = this.cars.get(c.id);
       // The number has gone round to another car.
-      if (s && (s.kind !== c.kind || s.paint !== c.paint)) { this.unshow(s); s = undefined; }
+      // (A cruiser's "paint" is whether it is on duty: that changes without it being another car.)
+      if (s && (s.kind !== c.kind || s.paint !== c.paint)) { if (s.kind === c.kind && kind === 'cruiser') s.paint = c.paint; else { this.unshow(s); s = undefined; } }
       if (!s) {
         const colors = SPECS[kind].colors;
         const v = g.vehicles.spawn(kind, c.x, c.z, c.yaw, colors[c.paint] ?? colors[0]);
@@ -543,8 +578,13 @@ export class SharedTraffic {
   info(): Record<string, unknown> {
     const r2 = (v: number): number => +v.toFixed(2), tr = this.traffic;
     const cars: Record<string, unknown>[] = [];
-    if (this.mode === 'guest') for (const s of this.cars.values()) cars.push({ id: s.wid, kind: s.v.spec.kind, color: s.v.color, x: r2(s.v.x), z: r2(s.v.z), h: r2(s.v.h), speed: r2(s.cur.speed), driver: s.v.driver, health: r2(s.v.health) });
-    else if (tr) tr.eachShared((wid, v, driverless) => cars.push({ id: wid, kind: v.spec.kind, color: v.color, x: r2(v.x), z: r2(v.z), h: r2(v.h), speed: r2(v.speed), driver: driverless ? null : 'ai', health: r2(v.health) }));
+    // duty: a cruiser of the Patrol's, bar lit (police.ts).
+    if (this.mode === 'guest') for (const s of this.cars.values()) cars.push({ id: s.wid, kind: s.v.spec.kind, color: s.v.color, x: r2(s.v.x), z: r2(s.v.z), h: r2(s.v.h), speed: r2(s.cur.speed), driver: s.v.driver, health: r2(s.v.health), duty: s.v.spec.kind === 'cruiser' && s.paint === CRUISER_ON_DUTY });
+    else if (tr) {
+      const add = (wid: number, v: Vehicle, driverless: boolean, paint = -1): void => { cars.push({ id: wid, kind: v.spec.kind, color: v.color, x: r2(v.x), z: r2(v.z), h: r2(v.h), speed: r2(v.speed), driver: driverless ? null : 'ai', health: r2(v.health), duty: paint === CRUISER_ON_DUTY }); };
+      tr.eachShared(add);
+      if (this.mode === 'host') this.police?.each(add);
+    }
     // signal: is the town clock on, the signals' time now (s), and how many times the lamps changed clock at a stroke.
     const signal = { town: this.townOn, t: +this.game.signalTime.toFixed(3), jumps: this.signalJumps, easing: +(this.townWant - this.townOff).toFixed(1) };
     return { mode: this.mode, ...this.stats, anchors: this.anchorList.length + 1, signal, cars };

@@ -8,6 +8,8 @@
 // service the traffic signals run on one town clock, and a guest's knocks on the host's cars are told to the host.
 // Stage 2, step 3 (cars.ts): on the main service the parked cars are one set for the town, any player can take any of
 // the town's cars by asking the host, and a car a player gets out of stays where it is for everybody.
+// Stage 3 (people.ts, police.ts): on the main service the pedestrians are the host's, and so are the police: each
+// player keeps a wanted level of their own, and the host's one set of police chases whoever is wanted.
 //
 // Sending (protocol.ts has the rules): a State frame up to SEND_HZ times a second, but only when something has
 // changed since the last one sent; a one byte keepalive every KEEPALIVE_MS otherwise; the measured frame time every
@@ -30,6 +32,7 @@ import { Remote } from './remote';
 import { SharedTraffic } from './shared';
 import { TownCars } from './cars';
 import { TownPeople } from './people';
+import { TownPolice } from './police';
 import { SAYS, myName, nameText, rerollName } from './names';
 
 const SEND_MS = 1000 / SEND_HZ;
@@ -46,6 +49,8 @@ export class Net {
   readonly cars: TownCars;
   /** The town's pedestrians: the host's, shown to everybody (stage 3, step 1). */
   readonly people: TownPeople;
+  /** The town's police: the host's, after anybody wanted, seen by everybody (stage 3, step 2). */
+  readonly police: TownPolice;
   /** State frames sent, apart from the totals in conn.sent. */
   statesSent = 0;
 
@@ -83,6 +88,7 @@ export class Net {
     this.shared = new SharedTraffic(game, c, this.remotes);
     this.cars = new TownCars(game, c, this.remotes, this.shared);
     this.people = new TownPeople(game, c, this.remotes, this.shared);
+    this.police = new TownPolice(game, c, this.remotes, this.shared, this.people);
     // A paused game simulates nothing, so it says at once that it cannot host (and, on resuming, that it can again).
     game.on('pause', () => { this.perfAt = 0; });
     c.start();
@@ -185,12 +191,14 @@ export class Net {
       return;
     }
     if (k === Frame.World) {
-      if (buf.byteLength > 2 && new Uint8Array(buf, 2, 1)[0] === WorldKind.People) this.people.frame(buf, performance.now());
+      const what = buf.byteLength > 2 ? new Uint8Array(buf, 2, 1)[0] : 0;
+      if (what === WorldKind.People) this.people.frame(buf, performance.now());
+      else if (what === WorldKind.Police) this.police.world(buf, performance.now());
       else this.shared.frame(buf, performance.now());
       return;
     }
-    if (k === Frame.ToHost) { if (!this.people.toHost(buf)) this.shared.toHost(buf, performance.now()); return; }
-    if (k === Frame.ToPlayer) { this.cars.toPlayer(buf, performance.now()); return; }
+    if (k === Frame.ToHost) { if (!this.people.toHost(buf) && !this.police.toHost(buf, performance.now())) this.shared.toHost(buf, performance.now()); return; }
+    if (k === Frame.ToPlayer) { if (!this.police.toPlayer(buf)) this.cars.toPlayer(buf, performance.now()); return; }
     if (k !== Frame.State) return;
     const s = decodePlayerState(buf, this.inState);
     if (!s) return;
@@ -281,6 +289,7 @@ export class Net {
     this.shared.update(now, dt);
     this.cars.update(now);
     this.people.update(now, dt);
+    this.police.update(now);
   }
 
   /** "3 in town", under the cash slip; only while connected with somebody else here. */
@@ -360,6 +369,8 @@ export class Net {
       cars: this.cars.info(),
       // people: mode, frames and bytes, and the shared pedestrians with their numbers (people.ts).
       people: this.people.info(),
+      // police: mode, this player's own level, the cars and officers with their numbers and whom they are after (police.ts).
+      police: this.police.info(),
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({

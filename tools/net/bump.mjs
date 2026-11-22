@@ -90,6 +90,14 @@ const HOLD_S = 10;
  * Returns what was measured, or null when the street was not clear enough to try.
  */
 async function headOn(P, Q, where) {
+  // Nobody wanted, and no Patrol car about. (A player who has just crashed into somebody may be: since stage 3,
+  // step 2 the town's police are after them on both screens, and a cruiser that boxes one of the two cars in pushes
+  // it sideways, so the two slide past each other instead of meeting. That is the police's doing, not this check's.)
+  // So: no heat, and (once the host has heard that) every Patrol car and officer is taken off the street at a stroke.
+  for (const t of [P, Q]) await t.page.evaluate(() => window.__game.setHeat(0));
+  await sleep(1500);
+  for (const t of [P, Q]) await t.page.evaluate(() => { const p = window.__game.game.systems.find((s) => s.tag === 'police'); if (p) p.clear(); });
+  for (const t of [P, Q]) await t.until((n) => !n.police || !n.police.units || n.police.units.length === 0, 20000);
   for (let attempt = 0; attempt < 4; attempt++) {
     const x0 = where.x + attempt * 30, z = where.z;
     await P.go(x0, z, Math.PI / 2);
@@ -199,7 +207,7 @@ try {
 
   // ── 3. A guest drives into the side of a standing shared car ──
   {
-    let done = false, detail = 'no standing car found to drive at';
+    let done = false, detail = 'no standing car found to drive at', waits = 0;
     for (let attempt = 0; attempt < 14 && !done; attempt++) {
       r = await roles([A, B]);
       if (!r) { await sleep(500); continue; }
@@ -208,7 +216,14 @@ try {
       const ng0 = await G.until((x) => x.traffic.mode === 'guest' && x.traffic.cars.some((c) => c.speed === 0 && c.driver === 'ai' && c.health === 100), 30000);
       if (!ng0) continue;
       const gi0 = await G.info();
-      const stand = ng0.traffic.cars.filter((k) => k.speed === 0 && k.driver === 'ai' && k.health === 100).sort((p, q) => dist(p, gi0) - dist(q, gi0));
+      // Standing on the HOST's screen too. (With frames as slow as they are here a World frame is sometimes late, and
+      // for that instant every car on the guest's screen reads as standing: fourteen tries at moving cars were gone in
+      // seconds. A look that finds none waits and looks again without using up a try, for two minutes at most.)
+      const hn0 = await H.net();
+      const still = (k) => { const q = hn0.traffic.cars.find((o) => o.id === k.id); return !!q && Math.abs(q.speed) <= 0.3; };
+      // (Not a cruiser: once the guest has crashed into somebody the Patrol may be parked beside it, with officers out.)
+      const stand = ng0.traffic.cars.filter((k) => k.speed === 0 && k.driver === 'ai' && k.health === 100 && k.kind !== 'cruiser' && still(k)).sort((p, q) => dist(p, gi0) - dist(q, gi0));
+      if (stand.length === 0) { detail = 'no car was standing on both screens'; if (waits++ < 170) attempt--; await sleep(700); continue; }
       const c = stand[attempt % Math.min(3, stand.length)];
       const s = Math.sin(c.h), co = Math.cos(c.h);
       // From its left (the middle of the road), square on to its door. (A standing car does not go sideways or turn by itself.)
@@ -233,6 +248,10 @@ try {
       await G.page.keyboard.up('KeyW');
       if (!guest) { detail = 'the host changed in the middle'; continue; }
       if (!hit) { detail = `the guest never reached the car (nearest ${nearest.toFixed(1)} m)`; await G.go(hSpot.x + 4, hSpot.z + 1.5, 0); continue; }
+      // The lamps may have changed while the guest drove up (game time crawls here): a car that had already set off
+      // when it was struck is not the standing car this part is about. Look for another.
+      const hk = (await H.net()).traffic.cars.find((k) => k.id === c.id);
+      if (!hk || dist(hk, c) > 2 || Math.abs(Math.atan2(Math.sin(hk.h - c.h), Math.cos(hk.h - c.h))) > 0.5) { detail = 'the car had set off by the time the guest reached it'; await G.go(hSpot.x + 4, hSpot.z + 1.5, 0); continue; }
       // Both screens, for three seconds: how far sideways the car has gone, how far it has turned, and its health.
       const side = (k) => (k.x - c.x) * co - (k.z - c.z) * s;
       let sideH = 0, sideG = 0, turnH = 0, turnG = 0, healthH = 100, healthG = 100, viewAt = 0, shot = !SHOTS;

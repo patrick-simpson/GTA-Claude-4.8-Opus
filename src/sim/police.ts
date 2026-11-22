@@ -12,6 +12,13 @@
 // sight, find their way with plan.findPath, and are taken away again only when
 // far off or out of sight. Officers on foot are ordinary People.
 //
+// Multiplayer (src/net/police.ts). Heat is always this browser's own player's. In a shared town the police are one
+// set, run by the host: its `others` are the other players as Suspects, each car and officer has a `target`, and the
+// one budget of cars is shared among everybody wanted. A guest runs no police of its own: the host's cars and
+// officers are in `units` and `cops` marked `shown`, so that heat, witnesses, the light bars and the sirens work as
+// alone, and whether they can see the player (and so when she has got away) is judged here. Alone, `others` is empty
+// and every target is the player: the code takes the same steps in the same order as before there were Suspects.
+//
 // What the look of it is (light bars, helicopter, the two frontages) lives in
 // policeAir.ts. Sound is milestone 5: the 'siren' event and `status.sirens`
 // are there for it to hook.
@@ -48,8 +55,49 @@ export interface HeatStatus {
   helicopter: boolean;
 }
 
-interface Unit {
+/**
+ * Somebody the Patrol may be after. Alone there is one: this browser's own player (id 0). The host of a shared town
+ * (src/net/police.ts) has one more for every other player, filled in from what their browsers send.
+ */
+export interface Suspect {
+  id: number;
+  x: number; y: number; z: number;
+  speed: number; vx: number; vz: number;
+  vehicle: Vehicle | null;
+  /** Lying in the road, or dead: not shot at, not booked. Never set for this browser's own player. */
+  out: boolean;
+  level: number;
+  /** In a car nobody saw them get into. */
+  incognito: boolean;
+  /** Where they were last seen, when (game time), and how wide the search is. */
+  kx: number; kz: number; lastSeen: number; radius: number;
+  hold: number; holdWas: number; holdTold: boolean;
+  spawnT: number; blockT: number;
+  /** This suspect's share of the one budget of cars, worked out each frame. */
+  wantP: number; wantB: number;
+  /** Host: nothing this player's browser says about its heat is believed before this (game time): it has just been booked. */
+  quiet: number;
+}
+
+export function blankSuspect(id: number): Suspect {
+  return {
+    id, x: 0, y: 0, z: 0, speed: 0, vx: 0, vz: 0, vehicle: null, out: false, level: 0, incognito: false,
+    kx: 0, kz: 0, lastSeen: -99, radius: 0, hold: 0, holdWas: 0, holdTold: false, spawnT: 0, blockT: 0, wantP: 0, wantB: 0, quiet: 0,
+  };
+}
+
+export interface Unit {
   v: Vehicle;
+  /** Whom this car is after. */
+  target: Suspect;
+  /** Multiplayer guest: one of the host's cars, shown here. It is watched (can it see the player?) and lit, never driven. */
+  shown: boolean;
+  /** Its number in the town's traffic frames (0 when the police are private). */
+  wid: number;
+  /** Taken over from the last host: seconds left to find out whom it was after. */
+  adoptT: number;
+  /** Host, after another player: it can see this browser's own (wanted) player all the same. */
+  seesMe: boolean;
   role: 'pursue' | 'block';
   /** drive: after the player. park: stopped with the crew out. leave: stood down, driving off. */
   state: 'drive' | 'park' | 'leave';
@@ -69,9 +117,18 @@ interface Unit {
   phase: number;
 }
 
-interface Cop {
+export interface Cop {
   p: Person;
   unit: Unit | null;
+  target: Suspect;
+  /** Multiplayer guest: one of the host's officers, shown here in a borrowed body. */
+  shown: boolean;
+  /** Their number in the town's people frames (0 when the police are private). */
+  wid: number;
+  /** Who last hurt them: 0 this browser's player, otherwise another player's number. */
+  by: number;
+  /** Host, after another player: they can see this browser's own (wanted) player all the same. */
+  seesMe: boolean;
   /** chase the player, guard a roadblock, or go back to the car. */
   mode: 'chase' | 'guard' | 'return';
   sees: boolean; seeT: number;
@@ -83,7 +140,7 @@ interface Cop {
   gx: number; gz: number;
 }
 
-interface Pending { kind: string; x: number; z: number; weight: number }
+interface Pending { kind: string; x: number; z: number; weight: number; sure?: boolean }
 
 const wrap = (a: number): number => a - Math.round(a / TAU) * TAU;
 
@@ -95,7 +152,7 @@ export class Police {
   /** Counters and timings for the check scripts. */
   readonly stats = {
     ms: 0, max: 0, sum: 0, n: 0,
-    crimes: 0, unseen: 0, spawned: 0, recycled: 0, blocks: 0, shots: 0, hits: 0, booked: 0, resprays: 0, drops: 0, rams: 0, tips: 0,
+    crimes: 0, unseen: 0, spawned: 0, recycled: 0, blocks: 0, shots: 0, hits: 0, booked: 0, bookedOthers: 0, resprays: 0, drops: 0, rams: 0, tips: 0,
     /** Seconds from each rise in level to the first cruiser within 40 m: [level, seconds]. */
     arrivals: [] as number[][],
     lastCrime: '',
@@ -110,20 +167,45 @@ export class Police {
   private readonly bars: Beacons;
   private readonly pending: Pending[] = [];
   private readonly lastAi = new WeakMap<Vehicle, number>();
+  /** This browser's own player. */
+  readonly me: Suspect = blankSuspect(0);
+  /**
+   * Multiplayer (src/net/police.ts). local: private police, as in single player. host: one set of police for the
+   * town, run here, after anybody wanted. guest: the host's police are shown here; this browser only works out its
+   * own player's heat from what it can see of them.
+   */
+  mode: 'local' | 'host' | 'guest' = 'local';
+  /** Host: the other players in town, wanted or not (they are also eyes that a car must not appear in front of). */
+  readonly others: Suspect[] = [];
+  /** Host: an officer has hit another player (health off the person, off their car). */
+  onHurt: ((id: number, dmg: number, carDmg: number) => void) | null = null;
+  /** Host: another player has been held long enough: booked. */
+  onBust: ((id: number) => void) | null = null;
+  /** Host: something another player did to the Patrol, which only this browser could judge. */
+  onCrime: ((id: number, kind: string, x: number, z: number, weight: number) => void) | null = null;
+  /** A car has left the Patrol's books (its number in the town's frames is free again). */
+  onUnitGone: ((u: Unit) => void) | null = null;
+  /** Host: an officer has fired, from the muzzle to where the round went. */
+  onShot: ((c: Cop, mx: number, my: number, mz: number, tx: number, ty: number, tz: number) => void) | null = null;
   private points = 0;
-  private level = 0;
   private wrote = 0;
-  private lastSeen = -99;
-  private kx = 0; private kz = 0;
+  private get level(): number { return this.me.level; }
+  private set level(n: number) { this.me.level = n; }
+  private get lastSeen(): number { return this.me.lastSeen; }
+  private set lastSeen(t: number) { this.me.lastSeen = t; }
+  private get kx(): number { return this.me.kx; }
+  private set kx(v: number) { this.me.kx = v; }
+  private get kz(): number { return this.me.kz; }
+  private set kz(v: number) { this.me.kz = v; }
   /** In a car nobody saw her get into. */
-  private incognito = false;
+  private get incognito(): boolean { return this.me.incognito; }
+  private set incognito(b: boolean) { this.me.incognito = b; }
   private searchT = 0; private searchTotal = 1;
   private tipT = 0;
   /** A unit has got to where she was reported since heat began. Until one has, nobody is searching, so nobody can give up. */
   private onScene = false; private sceneT = 0;
   private raisedAt = 0; private awaiting = false;
-  private spawnT = 0; private blockT = 0; private impactT = 0;
-  private hold = 0; private holdTold = false;
+  private impactT = 0;
   private shopT = 0; private shopTold = 0;
   private heliT = 0; private heliRest = 0;
   private emitT = 0; private lastSirens = -1;
@@ -169,6 +251,8 @@ export class Police {
       this.incognito = this.level > 0 && game.time - this.lastSeen > 1.5;
     });
     game.on('exit', () => { this.incognito = false; });
+    // (Host: an officer another player hurt, then this one finished, is on this one's sheet.)
+    game.on('personHit', (e) => { if (this.mode === 'host') for (const c of this.cops) if (c.p === e.person) c.by = 0; });
   }
 
   private unitOf(v: Vehicle): Unit | null {
@@ -179,12 +263,26 @@ export class Police {
   // ── Seeing ─────────────────────────────────────────────────────────────────
 
   /** Can somebody at (x, y, z) make the player out? In a car nobody saw her take, only from close up. */
-  private canSee(x: number, y: number, z: number, range: number): boolean {
-    const pl = this.game.player;
-    if (this.incognito) range = 16;
-    const dx = pl.x - x, dz = pl.z - z;
+  private canSee(s: Suspect, x: number, y: number, z: number, range: number): boolean {
+    if (s.incognito) range = 16;
+    const dx = s.x - x, dz = s.z - z;
     if (dx * dx + dz * dz > range * range) return false;
-    return this.game.col.lineOfSight(x, y, z, pl.x, pl.y + 1.1, pl.z);
+    return this.game.col.lineOfSight(x, y, z, s.x, s.y + 1.1, s.z);
+  }
+
+  /** This browser's player as the Patrol's code reads them, once a frame. */
+  private snap(): void {
+    const pl = this.game.player, m = this.me, pv = pl.vehicle;
+    m.x = pl.x; m.y = pl.y; m.z = pl.z; m.speed = pl.speed; m.vehicle = pv;
+    m.vx = pv ? pv.vx : 0; m.vz = pv ? pv.vz : 0;
+  }
+
+  /** Meters from (x, z) to the nearest player: this browser's, or (host) anybody's. */
+  private nearest(x: number, z: number): number {
+    const pl = this.game.player;
+    let d = Math.hypot(x - pl.x, z - pl.z);
+    for (const o of this.others) d = Math.min(d, Math.hypot(x - o.x, z - o.z));
+    return d;
   }
 
   /** Nothing between the camera and a point at car height, so making or removing something there would show. */
@@ -192,7 +290,10 @@ export class Police {
     const g = this.game, c = g.camera.position;
     if (g.col.lineOfSight(c.x, Math.max(c.y, 1.5), c.z, x, 1.3, z)) return true;
     const pl = g.player;
-    return g.col.lineOfSight(pl.x, pl.y + 1.5, pl.z, x, 1.3, z);
+    if (g.col.lineOfSight(pl.x, pl.y + 1.5, pl.z, x, 1.3, z)) return true;
+    // (Host: the other players have eyes too. Their cameras are not known: where they stand is near enough.)
+    for (const o of this.others) if (Math.hypot(o.x - x, o.z - z) < 320 && g.col.lineOfSight(o.x, o.y + 1.5, o.z, x, 1.3, z)) return true;
+    return false;
   }
 
   private witnessed(c: Pending): boolean {
@@ -221,13 +322,13 @@ export class Police {
     if (n > this.level) {
       this.raisedAt = g.time; this.awaiting = true;
       this.lastSeen = g.time; this.kx = g.player.x; this.kz = g.player.z;
-      this.spawnT = Math.min(this.spawnT, this.level === 0 ? 2 : 0.6);
+      this.me.spawnT = Math.min(this.me.spawnT, this.level === 0 ? 2 : 0.6);
       if (this.level === 0) { this.onScene = false; this.sceneT = 40; }
     }
     this.level = n;
     this.searchTotal = this.searchT = this.searchLen(n);
     g.player.heat = this.wrote = n;
-    if (n === 0) { this.incognito = false; this.hold = 0; }
+    if (n === 0) { this.incognito = false; this.me.hold = 0; }
   }
 
   private heatStep(dt: number, seen: boolean): void {
@@ -236,7 +337,7 @@ export class Police {
     if (pl.heat !== this.wrote) { this.points = clamp(pl.heat, 0, 5); this.setLevel(this.points); }
 
     for (const c of this.pending) {
-      if (!this.witnessed(c)) { this.stats.unseen++; continue; }
+      if (!c.sure && !this.witnessed(c)) { this.stats.unseen++; continue; }
       this.stats.crimes++;
       this.stats.lastCrime = c.kind;
       // One crime is never worth more than one level, however lurid.
@@ -277,7 +378,7 @@ export class Police {
     }
     s.searching = lvl > 0 && quiet > 3 && this.onScene;
     const r0 = 100 + 25 * lvl;
-    s.radius = lvl > 0 ? lerp(r0 * 0.4, r0, clamp01(this.searchT / this.searchTotal)) : 0;
+    this.me.radius = s.radius = lvl > 0 ? lerp(r0 * 0.4, r0, clamp01(this.searchT / this.searchTotal)) : 0;
     let rate = 0;
     if (s.searching) {
       const dx = pl.x - this.kx, dz = pl.z - this.kz;
@@ -299,23 +400,59 @@ export class Police {
 
   // ── Dispatch ───────────────────────────────────────────────────────────────
 
-  private wanted(role: 'pursue' | 'block'): number {
-    const lvl = this.level, q = 0.5 + 0.5 * clamp(this.game.quality.density, 0, 1);
+  /** What a suspect would have after them alone, as in single player. */
+  private need(s: Suspect, role: 'pursue' | 'block'): number {
+    const lvl = s.level, q = 0.5 + 0.5 * clamp(this.game.quality.density, 0, 1);
     if (role === 'block') return lvl >= 3 ? 2 : 0;
     return lvl > 0 ? Math.max(1, Math.round(PURSUERS[lvl] * q)) : 0;
   }
 
-  private count(role: 'pursue' | 'block'): number {
+  /** The most cars the Patrol ever has out: what one player at the top level gets. A whole town shares it. */
+  budget(): number {
+    const q = 0.5 + 0.5 * clamp(this.game.quality.density, 0, 1);
+    return Math.max(1, Math.round(PURSUERS[5] * q)) + 2;
+  }
+
+  /** Share the one budget among everybody wanted. Alone, everybody is one player, and they get all they need. */
+  private share(): void {
+    const me = this.me, all = this.others;
+    let total = 0;
+    me.wantP = this.need(me, 'pursue'); me.wantB = this.need(me, 'block');
+    total += me.wantP + me.wantB;
+    for (const o of all) { o.wantP = this.need(o, 'pursue'); o.wantB = this.need(o, 'block'); total += o.wantP + o.wantB; }
+    const cap = this.budget();
+    if (total <= cap) return;
+    // Too many wanted at once. The roadblocks go first; then a car at a time from whoever has the most, down to one
+    // each; past that the least wanted go without.
+    const each = (fn: (o: Suspect) => void): void => { fn(me); for (const o of all) fn(o); };
+    each((o) => { if (total > cap) { total -= o.wantB; o.wantB = 0; } });
+    while (total > cap) {
+      let top: Suspect | null = null;
+      each((o) => { if (o.wantP > 1 && (!top || o.wantP > top.wantP)) top = o; });
+      if (!top) break;
+      (top as Suspect).wantP--; total--;
+    }
+    while (total > cap) {
+      let low: Suspect | null = null;
+      each((o) => { if (o.wantP > 0 && (!low || o.level < low.level)) low = o; });
+      if (!low) break;
+      (low as Suspect).wantP = 0; total--;
+    }
+  }
+
+  private wanted(role: 'pursue' | 'block', s: Suspect): number { return role === 'block' ? s.wantB : s.wantP; }
+
+  private count(role: 'pursue' | 'block', s: Suspect): number {
     let n = 0;
-    for (const u of this.units) if (u.role === role && u.state !== 'leave') n++;
+    for (const u of this.units) if (u.role === role && u.state !== 'leave' && u.target === s) n++;
     return n;
   }
 
-  private addUnit(x: number, z: number, h: number, role: 'pursue' | 'block'): Unit {
+  private addUnit(x: number, z: number, h: number, role: 'pursue' | 'block', target: Suspect): Unit {
     const v = this.game.vehicles.spawn('cruiser', x, z, h);
     v.driver = 'ai';
     const u: Unit = {
-      v, role, state: 'drive', path: [], pi: 0, pathT: 0, side: this.units.length % 2 ? 1 : -1, crew: [],
+      v, target, shown: false, wid: 0, adoptT: 0, seesMe: false, role, state: 'drive', path: [], pi: 0, pathT: 0, side: this.units.length % 2 ? 1 : -1, crew: [],
       sees: false, seeT: this.rng.next() * 0.2, stuck: 0, rev: 0, jam: 0, sx: 0, sz: 0, nx: 0, nz: 0, atNode: false, bT: 0,
       wx: 0, wz: 0, wT: 0, arrived: false, phase: this.rng.next(),
     };
@@ -325,8 +462,8 @@ export class Police {
   }
 
   /** A stretch of road to appear on: out of sight, well clear of the player, nothing parked on it. */
-  private spawnPursuer(): boolean {
-    const g = this.game, plan = g.plan, pl = g.player, rng = this.rng, pv = pl.vehicle;
+  private spawnPursuer(pl: Suspect): boolean {
+    const g = this.game, plan = g.plan, rng = this.rng, pv = pl.vehicle;
     for (let k = 0; k < 12; k++) {
       const e = rng.pick(plan.edges), A = plan.nodes[e.a], B = plan.nodes[e.b];
       const s = e.len * rng.range(0.3, 0.7);
@@ -334,13 +471,13 @@ export class Police {
       const d = Math.hypot(cx - pl.x, cz - pl.z);
       if (d < 120 || d > 280) continue;
       // Ahead of a car on the move for preference: one that starts behind a fast driver never arrives.
-      if (k < 6 && pv && pl.speed > 8 && (cx - pl.x) * pv.vx + (cz - pl.z) * pv.vz < 0) continue;
+      if (k < 6 && pv && pl.speed > 8 && (cx - pl.x) * pl.vx + (cz - pl.z) * pl.vz < 0) continue;
       // Face the end of the street nearer the player, in the right-hand lane for that direction.
       const toB = Math.hypot(B.x - pl.x, B.z - pl.z) < Math.hypot(A.x - pl.x, A.z - pl.z);
       const sg = toB ? 1 : -1, dx = e.horiz ? sg : 0, dz = e.horiz ? 0 : sg;
       const x = cx - dz * 1.8, z = cz + dx * 1.8;
       if (isWater(x, z) || this.inView(x, z) || g.vehicles.nearest(x, z, 9)) continue;
-      this.addUnit(x, z, Math.atan2(dx, dz), 'pursue');
+      this.addUnit(x, z, Math.atan2(dx, dz), 'pursue', pl);
       return true;
     }
     return false;
@@ -351,12 +488,12 @@ export class Police {
    * blocks on. The two cars come out of the cross street from either side, so nothing appears
    * on the road she is looking down.
    */
-  private planBlock(): boolean {
-    const g = this.game, plan = g.plan, pl = g.player, pv = pl.vehicle;
+  private planBlock(pl: Suspect): boolean {
+    const g = this.game, plan = g.plan, pv = pl.vehicle;
     if (!pv || pl.speed < 11) return false;
     const ne = plan.nearestEdge(pl.x, pl.z), e = ne.edge;
     if (ne.d > e.hw) return false;
-    const along = e.horiz ? pv.vx : pv.vz;
+    const along = e.horiz ? pl.vx : pl.vz;
     if (Math.abs(along) < 9) return false;
     const sg = along > 0 ? 1 : -1, dx = e.horiz ? sg : 0, dz = e.horiz ? 0 : sg;
     let node = plan.nodes[sg > 0 ? e.b : e.a], edge = e;
@@ -392,37 +529,73 @@ export class Police {
       const hx = -ox, hz = -oz;
       const x = site.x + ox * back - hz * 1.8, z = site.z + oz * back + hx * 1.8;
       if (this.inView(x, z) || g.vehicles.nearest(x, z, 8)) continue;
-      const u = this.addUnit(x, z, Math.atan2(hx, hz), 'block');
+      const u = this.addUnit(x, z, Math.atan2(hx, hz), 'block', pl);
       u.sx = cx + ox * lat; u.sz = cz + oz * lat; u.nx = site.x + ox * 3; u.nz = site.z + oz * 3;
       made.push(u);
     }
     if (made.length === 0) return false;
     this.stats.blocks++;
-    g.emit('roadblock', { x: cx, z: cz });
+    if (pl === this.me) g.emit('roadblock', { x: cx, z: cz });
     return true;
   }
 
   private dispatch(dt: number): void {
-    const g = this.game, pl = g.player;
-    this.spawnT -= dt; this.blockT -= dt;
-    const wantP = this.wanted('pursue');
-    let haveP = this.count('pursue');
+    this.share();
+    const me = this.me, all = this.others;
+    for (const u of this.units) {
+      if (u.adoptT > 0) {
+        // Taken over from the last host: after whoever is wanted and nearest, once their browsers have said so.
+        u.adoptT -= dt;
+        let best: Suspect | null = null, bd = 1e9;
+        for (let i = -1; i < all.length; i++) {
+          const o = i < 0 ? me : all[i], d = Math.hypot(o.x - u.v.x, o.z - u.v.z);
+          if (o.level > 0 && this.count('pursue', o) < o.wantP + o.wantB && d < bd) { bd = d; best = o; }
+        }
+        if (best) { u.target = best; u.adoptT = 0; u.role = 'pursue'; for (const c of u.crew) c.target = best; }
+        else if (u.adoptT <= 0) { u.adoptT = 0; u.target = me; }
+      } else if (u.target !== me && all.indexOf(u.target) < 0) {
+        // Whoever it was after has left town.
+        u.target = me;
+        for (const c of u.crew) c.target = me;
+        if (u.state !== 'leave') { u.role = 'pursue'; this.standDown(u); }
+      }
+    }
+    {
+      for (const c of this.cops) {
+        if (c.shown) continue;
+        if (c.target !== me && all.indexOf(c.target) < 0) { c.target = me; c.mode = 'return'; }
+        if (c.unit || c.dead || c.target.level > 0) continue;
+        // On foot with no car and nobody to chase (their car was taken, or the last host knew whom they were after): whoever is wanted and near.
+        for (let i = -1; i < all.length; i++) {
+          const o = i < 0 ? me : all[i];
+          if (o.level > 0 && Math.hypot(o.x - c.p.x, o.z - c.p.z) < 90) { c.target = o; c.mode = 'chase'; break; }
+        }
+      }
+    }
+    this.dispatchFor(me, dt);
+    for (const o of all) this.dispatchFor(o, dt);
+  }
+
+  private dispatchFor(pl: Suspect, dt: number): void {
+    pl.spawnT -= dt; pl.blockT -= dt;
+    const wantP = this.wanted('pursue', pl);
+    let haveP = this.count('pursue', pl);
     // Too many for the level it has come down to: the furthest go home first.
     while (haveP > wantP) {
       let far: Unit | null = null, fd = -1;
       for (const u of this.units) {
-        if (u.role !== 'pursue' || u.state === 'leave') continue;
+        if (u.role !== 'pursue' || u.state === 'leave' || u.target !== pl || u.adoptT > 0) continue;
         const d = Math.hypot(u.v.x - pl.x, u.v.z - pl.z);
         if (d > fd) { fd = d; far = u; }
       }
       if (!far) break;
       this.standDown(far); haveP--;
     }
-    if (haveP < wantP && this.spawnT <= 0) {
-      if (this.spawnPursuer()) this.spawnT = this.level >= 4 ? 1.2 : 2.2; else this.spawnT = 0.25;
+    if (haveP < wantP && pl.spawnT <= 0) {
+      if (this.spawnPursuer(pl)) pl.spawnT = pl.level >= 4 ? 1.2 : 2.2; else pl.spawnT = 0.25;
     }
-    if (this.level < 3) { for (const u of this.units) if (u.role === 'block' && u.state !== 'leave') this.dissolve(u); }
-    else if (this.count('block') === 0 && this.blockT <= 0) this.blockT = this.planBlock() ? 30 : 1.5;
+    if (pl.level < 3 || pl.wantB === 0) { for (const u of this.units) if (u.role === 'block' && u.state !== 'leave' && u.target === pl) this.dissolve(u); }
+    else if (this.count('block', pl) === 0 && pl.blockT <= 0) pl.blockT = this.planBlock(pl) ? 30 : 1.5;
   }
 
   private standDown(u: Unit): void {
@@ -438,13 +611,14 @@ export class Police {
   private dissolve(u: Unit): void {
     for (const c of u.crew) c.mode = 'return';
     u.role = 'pursue';
-    if (this.count('pursue') > this.wanted('pursue')) this.standDown(u);
+    if (this.count('pursue', u.target) > this.wanted('pursue', u.target)) this.standDown(u);
   }
 
   private removeUnit(u: Unit, takeCar: boolean): void {
     const i = this.units.indexOf(u);
     if (i >= 0) this.units.splice(i, 1);
     for (const c of u.crew) c.unit = null;
+    this.onUnitGone?.(u);
     if (takeCar) { this.game.vehicles.remove(u.v); this.stats.recycled++; }
   }
 
@@ -465,7 +639,7 @@ export class Police {
     want *= 1 - 0.55 * Math.min(1, Math.abs(err) * 1.1);
     const sh = Math.sin(v.h), ch = Math.cos(v.h);
     const reach = 7 + Math.abs(sp) * 0.9;
-    const careless = this.level >= 4;
+    const careless = u.target.level >= 4;
     for (const o of this.game.vehicles.list) {
       if (o === v || o === target) continue;
       const rx = o.x - v.x, rz = o.z - v.z;
@@ -534,7 +708,7 @@ export class Police {
       if (u.pi + 1 < u.path.length) {
         const M = plan.nodes[u.path[u.pi + 1]];
         const straight = horiz ? Math.abs(M.z - N.z) < 1 && Math.sign(M.x - N.x) === ax : Math.abs(M.x - N.x) < 1 && Math.sign(M.z - N.z) === az;
-        if (!straight) vc = this.level >= 4 ? 12.5 : 10;
+        if (!straight) vc = u.target.level >= 4 ? 12.5 : 10;
       } else vc = 13;
       const want = Math.min(vmax, Math.sqrt(vc * vc + 2 * 6.5 * Math.max(0, along - half - 5)));
       this.steer(u, tx, tz, want, dt, null);
@@ -545,20 +719,25 @@ export class Police {
   }
 
   private driveUnit(u: Unit, dt: number): void {
-    const g = this.game, pl = g.player, v = u.v, lvl = this.level;
+    const g = this.game, pl = u.target, v = u.v, lvl = pl.level;
     const dx = pl.x - v.x, dz = pl.z - v.z, d = Math.hypot(dx, dz);
     if ((u.seeT -= dt) <= 0) {
       u.seeT = 0.2;
-      u.sees = lvl > 0 && this.canSee(v.x, v.y + 1.3, v.z, SEE_CAR);
+      u.sees = lvl > 0 && this.canSee(pl, v.x, v.y + 1.3, v.z, SEE_CAR);
+      // (Host: a car after somebody else has eyes for this browser's own player too, as it has on every guest's screen.)
+      u.seesMe = pl !== this.me && this.me.level > 0 && this.canSee(this.me, v.x, v.y + 1.3, v.z, SEE_CAR);
     }
-    if (this.awaiting && d < 40 && u.state === 'drive') { this.awaiting = false; this.stats.arrivals.push([lvl, +(g.time - this.raisedAt).toFixed(1)]); }
+    // (A guest: the host drives it. All this browser wants to know is whether it can see the player.)
+    if (u.shown) return;
+    if (u.adoptT > 0 && u.state === 'drive') { v.ctl.accel = 0; v.ctl.horn = false; return; }
+    if (this.awaiting && pl === this.me && d < 40 && u.state === 'drive') { this.awaiting = false; this.stats.arrivals.push([lvl, +(g.time - this.raisedAt).toFixed(1)]); }
 
     if (u.state === 'park') {
       v.ctl.accel = 0; v.ctl.steer = 0; v.ctl.handbrake = true;
-      if (u.crew.length === 0) u.state = lvl > 0 && this.count('pursue') <= this.wanted('pursue') ? 'drive' : 'leave';
+      if (u.crew.length === 0) u.state = lvl > 0 && this.count('pursue', pl) <= this.wanted('pursue', pl) ? 'drive' : 'leave';
       else if (u.role === 'block') {
         // Past it, or gone another way: no point standing in the road.
-        const stale = d > 230 || (!u.sees && d > 90 && g.time - this.lastSeen > 8);
+        const stale = d > 230 || (!u.sees && d > 90 && g.time - pl.lastSeen > 8);
         if (stale) this.dissolve(u);
       }
       return;
@@ -622,24 +801,24 @@ export class Police {
       } else {
         // Where she will be, flat out.
         const lead = clamp(d / Math.max(10, Math.abs(v.speed)), 0, 1.1);
-        tx = pl.x + pv.vx * lead; tz = pl.z + pv.vz * lead;
+        tx = pl.x + pl.vx * lead; tz = pl.z + pl.vz * lead;
         want = cap;
       }
       this.steer(u, tx, tz, Math.min(cap, want), dt, pv);
       return;
     }
     // Not in sight: to where she was last seen, then round the streets near it.
-    const kd = Math.hypot(this.kx - v.x, this.kz - v.z);
-    if (kd > 28 && !u.arrived) { this.route(u, this.kx, this.kz, cap, dt); return; }
-    if (g.time - this.lastSeen < 1.5) { u.arrived = false; this.route(u, this.kx, this.kz, cap, dt); return; }
+    const kd = Math.hypot(pl.kx - v.x, pl.kz - v.z);
+    if (kd > 28 && !u.arrived) { this.route(u, pl.kx, pl.kz, cap, dt); return; }
+    if (g.time - pl.lastSeen < 1.5) { u.arrived = false; this.route(u, pl.kx, pl.kz, cap, dt); return; }
     u.arrived = true;
     if ((u.wT -= dt) <= 0 || Math.hypot(u.wx - v.x, u.wz - v.z) < 16) {
       u.wT = 14;
-      const a = this.rng.range(0, TAU), r = this.rng.range(30, Math.max(60, this.status.radius));
-      const n = g.plan.nearestNode(this.kx + Math.sin(a) * r, this.kz + Math.cos(a) * r);
+      const a = this.rng.range(0, TAU), r = this.rng.range(30, Math.max(60, pl.radius));
+      const n = g.plan.nearestNode(pl.kx + Math.sin(a) * r, pl.kz + Math.cos(a) * r);
       u.wx = n.x; u.wz = n.z; u.pathT = 0;
     }
-    if (g.time - this.lastSeen < 3) u.arrived = false;
+    if (g.time - pl.lastSeen < 3) u.arrived = false;
     this.route(u, u.wx, u.wz, Math.min(cap, 16), dt);
   }
 
@@ -655,7 +834,7 @@ export class Police {
       if (g.col.pointBlocked(d.x, d.z, groundAt(d.x, d.z) + 1) || isWater(d.x, d.z)) continue;
       const look = { ...this.look, skin: [0xc68e6a, 0x8d5a3b, 0xe2b594, 0x6b4630][this.rng.int(0, 3)], height: this.rng.range(0.97, 1.06) };
       const p = g.people.spawn(d.x, d.z, v.h, look);
-      const c: Cop = { p, unit: u, mode, sees: false, seeT: 0, fireT: this.rng.range(0.8, 1.6), stuck: 0, sideT: 0, sideS: 1, down: 0, dead: false, gx: d.x + (d.x - v.x) * 0.5, gz: d.z + (d.z - v.z) * 0.5 };
+      const c: Cop = { p, unit: u, target: u.target, shown: false, wid: 0, by: 0, seesMe: false, mode, sees: false, seeT: 0, fireT: this.rng.range(0.8, 1.6), stuck: 0, sideT: 0, sideS: 1, down: 0, dead: false, gx: d.x + (d.x - v.x) * 0.5, gz: d.z + (d.z - v.z) * 0.5 };
       u.crew.push(c);
       this.cops.push(c);
     }
@@ -711,7 +890,7 @@ export class Police {
   }
 
   private fire(c: Cop, d: number): void {
-    const g = this.game, pl = g.player, p = c.p, lvl = this.level;
+    const g = this.game, pl = c.target, p = c.p, lvl = pl.level;
     c.fireT = this.rng.range(1.1, 1.9) * (lvl >= 5 ? 0.7 : lvl === 4 ? 0.85 : 1);
     const dx = (pl.x - p.x) / d, dz = (pl.z - p.z) / d;
     const mx = p.x + dx * 0.55, my = p.y + 1.38, mz = p.z + dz * 0.55;
@@ -727,23 +906,49 @@ export class Police {
     g.fx.emitters.tracer({ x: mx, y: my, z: mz }, to);
     this.stats.shots++;
     g.emit('gunshot', { x: mx, z: mz, by: 'patrol' });
+    if (this.mode === 'host') this.onShot?.(c, mx, my, mz, to.x, to.y, to.z);
     if (!hit) return;
     this.stats.hits++;
     // Falls off with range; a car body takes most of it.
     const dmg = Math.round(lerp(9, 4, clamp01(d / 45)));
-    if (pl.vehicle) { pl.vehicle.health = Math.max(0, pl.vehicle.health - dmg * 0.6); pl.damage(dmg * 0.4); }
-    else pl.damage(dmg);
+    if (pl !== this.me) {
+      // Another player: their own browser takes it off them, by the same sums.
+      this.onHurt?.(pl.id, pl.vehicle ? dmg * 0.4 : dmg, pl.vehicle ? dmg * 0.6 : 0);
+      return;
+    }
+    this.hurtMe(pl.vehicle ? dmg * 0.4 : dmg, pl.vehicle ? dmg * 0.6 : 0);
+  }
+
+  /** A round from an officer has found this browser's player (here, or on the host's say so). */
+  hurtMe(dmg: number, carDmg: number): void {
+    const g = this.game, pl = g.player, v = pl.vehicle;
+    if (v && carDmg > 0) v.health = Math.max(0, v.health - carDmg);
+    pl.damage(dmg);
     g.cam.shake(0.15);
   }
 
+  /** Something done to the Patrol goes on somebody's sheet: this browser's player's, or (host) another player's. */
+  private blame(by: number, kind: string, x: number, z: number, weight: number): void {
+    if (by === 0) this.pending.push({ kind, x, z, weight });
+    else this.onCrime?.(by, kind, x, z, weight);
+  }
+
   private copStep(c: Cop, dt: number): boolean {
-    const g = this.game, pl = g.player, p = c.p, lvl = this.level, u = c.unit;
+    const g = this.game, pl = c.target, p = c.p, lvl = pl.level, u = c.unit;
     const dx = pl.x - p.x, dz = pl.z - p.z, d = Math.hypot(dx, dz) || 0.01;
+    if (c.shown) {
+      // A guest: the host walks them. Can they see the player, and have they a hand on her shoulder?
+      const up = p.visible && p.pose !== 'down' && p.health > 0;
+      if ((c.seeT -= dt) <= 0) { c.seeT = 0.25; c.sees = up && lvl > 0 && this.canSee(pl, p.x, p.y + 1.6, p.z, SEE_FOOT); }
+      if (!up) c.sees = false;
+      if (lvl > 0 && lvl < 3 && c.sees && pl.speed < 2.2 && d < (pl.vehicle ? pl.vehicle.hw + 2.2 : 2.1)) pl.hold += dt;
+      return true;
+    }
     if (p.health <= 0) {
       // Put down by the weapons code. Lies there until nobody is looking.
       if (!c.dead) {
         c.dead = true; c.down = 0; c.sees = false;
-        this.pending.push({ kind: 'officerDown', x: p.x, z: p.z, weight: 2 });
+        this.blame(c.by, 'officerDown', p.x, p.z, 2);
         // Nobody is coming back to the car for this one: let it go without waiting.
         if (u) { const k = u.crew.indexOf(c); if (k >= 0) u.crew.splice(k, 1); c.unit = null; }
       }
@@ -757,11 +962,14 @@ export class Police {
       if ((c.down -= dt) <= 0) { c.down = 0; p.pose = 'stand'; c.seeT = 0; }
       return true;
     }
-    if ((c.seeT -= dt) <= 0) { c.seeT = 0.25; c.sees = lvl > 0 && this.canSee(p.x, p.y + 1.6, p.z, SEE_FOOT); }
+    if ((c.seeT -= dt) <= 0) {
+      c.seeT = 0.25; c.sees = lvl > 0 && this.canSee(pl, p.x, p.y + 1.6, p.z, SEE_FOOT);
+      c.seesMe = pl !== this.me && this.me.level > 0 && this.canSee(this.me, p.x, p.y + 1.6, p.z, SEE_FOOT);
+    }
 
     // Back to the car when there is nothing left to do on foot.
     const fled = !!pl.vehicle && pl.speed > 6 && d > 28;
-    if (c.mode !== 'return' && (lvl === 0 || fled || d > 75 || (c.mode === 'chase' && !c.sees && g.time - this.lastSeen > 12))) c.mode = 'return';
+    if (c.mode !== 'return' && (lvl === 0 || fled || d > 75 || (c.mode === 'chase' && !c.sees && g.time - pl.lastSeen > 12))) c.mode = 'return';
     if (c.mode === 'return') {
       if (!u || u.v.driver !== 'ai') {
         // No car to go back to. Walk off; vanish once round a corner.
@@ -787,17 +995,20 @@ export class Police {
       const stop = armed ? 13 : pl.vehicle ? pl.vehicle.hw + 1.2 : 1.3;
       if (d > stop) this.walk(c, pl.x, pl.z, RUN, dt);
       else { p.pose = 'stand'; p.speed = 0; p.h = Math.atan2(dx, dz); }
-    } else if (Math.hypot(this.kx - p.x, this.kz - p.z) > 2) this.walk(c, this.kx, this.kz, RUN * 0.8, dt);
+    } else if (Math.hypot(pl.kx - p.x, pl.kz - p.z) > 2) this.walk(c, pl.kx, pl.kz, RUN * 0.8, dt);
     else { p.pose = 'stand'; p.speed = 0; }
 
-    if (armed && c.sees && d < 46 && (c.fireT -= dt) <= 0) {
+    if (armed && c.sees && d < 46 && !pl.out && (c.fireT -= dt) <= 0) {
       if (p.pose !== 'run') p.h = Math.atan2(dx, dz);
       this.fire(c, d);
     }
     // Close enough to put a hand on her shoulder, and she is not going anywhere.
-    if (!armed && lvl > 0 && c.sees && pl.speed < 2.2 && d < (pl.vehicle ? pl.vehicle.hw + 2.2 : 2.1)) this.hold += dt;
+    if (!armed && lvl > 0 && c.sees && !pl.out && pl.speed < 2.2 && d < (pl.vehicle ? pl.vehicle.hw + 2.2 : 2.1)) pl.hold += dt;
     return true;
   }
+
+  /** Multiplayer guest: the host's officers have held this browser's player long enough. */
+  bookMe(): void { if (this.level > 0) this.book(); }
 
   private book(): void {
     const g = this.game, pl = g.player, lvl = this.level;
@@ -806,7 +1017,9 @@ export class Police {
     pl.money -= fine;
     g.emit('booked', { fine, confiscate: true });
     // She is leaving the scene, so the scene can be struck: nobody is there to watch it go.
-    this.clear();
+    // (In a shared town somebody may be: there the cars that were after her drive off instead.)
+    if (this.mode === 'local') this.clear();
+    else { this.heli.dismiss(); for (const u of this.units) if (!u.shown && u.target === this.me) this.standDown(u); }
     this.points = 0; this.setLevel(0);
     pl.teleport(this.station.x, this.station.z, this.station.h);
     g.cam.snap();
@@ -816,9 +1029,125 @@ export class Police {
 
   /** Take every unit and officer off the map at once. Only for moments the player cannot see: an arrest, a death. */
   clear(): void {
-    for (const c of this.cops.slice()) this.removeCop(c);
-    for (const u of this.units.slice()) this.removeUnit(u, u.v.driver === 'ai');
+    for (const c of this.cops.slice()) if (!c.shown) this.removeCop(c);
+    for (const u of this.units.slice()) if (!u.shown) this.removeUnit(u, u.v.driver === 'ai');
     this.heli.dismiss();
+  }
+
+  // ── Multiplayer (src/net/police.ts) ─────────────────────────────────────────
+
+  private blankUnit(v: Vehicle, wid: number): Unit {
+    return {
+      v, target: this.me, shown: false, wid, adoptT: 0, seesMe: false, role: 'pursue', state: 'drive', path: [], pi: 0, pathT: 0, side: this.units.length % 2 ? 1 : -1, crew: [],
+      sees: false, seeT: 0, stuck: 0, rev: 0, jam: 0, sx: 0, sz: 0, nx: 0, nz: 0, atNode: false, bT: 0,
+      wx: 0, wz: 0, wT: 0, arrived: false, phase: (wid * 0.37) % 1,
+    };
+  }
+
+  /** Guest: one of the host's cruisers, on duty, is on this browser's street. */
+  showUnit(v: Vehicle, wid: number): Unit {
+    const u = this.blankUnit(v, wid);
+    u.shown = true;
+    this.units.push(u);
+    return u;
+  }
+
+  /** Guest: an officer of the host's is being drawn in this body. */
+  showCop(p: Person, wid: number): Cop {
+    const c: Cop = { p, unit: null, target: this.me, shown: true, wid, by: 0, seesMe: false, mode: 'chase', sees: false, seeT: 0, fireT: 1, stuck: 0, sideT: 0, sideS: 1, down: 0, dead: false, gx: p.x, gz: p.z };
+    this.cops.push(c);
+    return c;
+  }
+
+  /** Forget a shown car or officer (the car and the body are somebody else's to take away). */
+  unshow(x: Unit | Cop): void {
+    if ('v' in x) { const i = this.units.indexOf(x); if (i >= 0) this.units.splice(i, 1); }
+    else { const i = this.cops.indexOf(x); if (i >= 0) this.cops.splice(i, 1); }
+  }
+
+  /** Forget everything shown. */
+  dropShown(): void {
+    for (let i = this.units.length - 1; i >= 0; i--) if (this.units[i].shown) this.units.splice(i, 1);
+    for (let i = this.cops.length - 1; i >= 0; i--) if (this.cops[i].shown) this.cops.splice(i, 1);
+  }
+
+  /**
+   * A cruiser the last host was driving is this browser's to drive now, from where it stands. Whom it was after is
+   * not known yet: it coasts for a moment while the wanted say so (dispatch), then carries on or goes home.
+   */
+  adoptUnit(v: Vehicle, wid: number): Unit {
+    let u = this.unitOf(v);
+    if (!u) { u = this.blankUnit(v, wid); this.units.push(u); }
+    u.shown = false; u.wid = wid; u.adoptT = 4; u.state = 'drive'; u.role = 'pursue'; u.target = this.me;
+    u.path.length = 0; u.pi = 0; u.sees = false;
+    v.driver = 'ai';
+    return u;
+  }
+
+  /** The same for an officer on foot: one of this browser's own people from here on. */
+  adoptCop(wid: number, x: number, z: number, h: number, down: boolean, health: number): Cop {
+    const g = this.game;
+    const p = g.people.spawn(x, z, h, { ...this.look });
+    p.health = health;
+    // (Somebody who was already dead under the last host is nobody's new crime here.)
+    const c: Cop = { p, unit: null, target: this.me, shown: false, wid, by: 0, seesMe: false, mode: 'chase', sees: false, seeT: 0, fireT: 1.5, stuck: 0, sideT: 0, sideS: 1, down: down && health > 0 ? 3 : 0, dead: health <= 0, gx: x, gz: z };
+    if (down || c.dead) p.pose = 'down';
+    if (c.dead) { this.cops.push(c); return c; }
+    // Their car is the nearest one standing: it waits for them.
+    let best: Unit | null = null, bd = 30;
+    for (const u of this.units) {
+      const d = Math.hypot(u.v.x - x, u.v.z - z);
+      if (!u.shown && d < bd && Math.abs(u.v.speed) < 2.5 && u.crew.length < 2) { bd = d; best = u; }
+    }
+    if (best) { best.crew.push(c); best.state = 'park'; c.unit = best; }
+    this.cops.push(c);
+    return c;
+  }
+
+  /** No longer the host: let go of every car (they stay on the street; `fn` is told of each) and take the officers off it. */
+  handOver(fn: (u: Unit) => void): void {
+    for (const c of this.cops.slice()) if (!c.shown) this.removeCop(c);
+    for (const u of this.units.slice()) {
+      if (u.shown) continue;
+      this.removeUnit(u, false);
+      if (!u.v.removed && !u.v.sunk && u.v.driver === 'ai') fn(u);
+    }
+  }
+
+  /** Host: another player is taking this cruiser (by its number). The caller takes it off the street. */
+  giveUnit(v: Vehicle): boolean {
+    const u = this.unitOf(v);
+    if (!u || u.shown) return false;
+    this.removeUnit(u, false);
+    return true;
+  }
+
+  /** Host: another player (`by`) has punched or shot an officer. */
+  copHurt(wid: number, by: number, dmg: number, dx: number, dz: number, fist: boolean, shove: number): boolean {
+    for (const c of this.cops) {
+      if (c.wid !== wid || c.shown || c.dead) continue;
+      this.game.player.weapons.hurtPerson(c.p, dmg, dx, dz, fist, shove);
+      c.by = by;
+      return true;
+    }
+    return false;
+  }
+
+  /** Host: another player's car has run into an officer at `speed` m/s (their browser saw it). */
+  copStruck(wid: number, by: number, speed: number): boolean {
+    for (const c of this.cops) {
+      if (c.wid !== wid || c.shown || c.dead || c.down > 0 || !(speed > 6)) continue;
+      const p = c.p;
+      c.down = 6; p.pose = 'down'; p.speed = 0; p.health = Math.max(1, p.health - 40);
+      this.blame(by, 'officerDown', p.x, p.z, 1.5);
+      return true;
+    }
+    return false;
+  }
+
+  /** Guest: the host says this browser's player did something to the Patrol. An officer was there: it counts. */
+  credit(kind: string, x: number, z: number, weight: number): void {
+    this.pending.push({ kind, x, z, weight, sure: true });
   }
 
   // ── Fresh Coat ─────────────────────────────────────────────────────────────
@@ -848,7 +1177,8 @@ export class Police {
 
   update(dt: number): void {
     const t0 = performance.now();
-    const g = this.game, pl = g.player, s = this.status;
+    const g = this.game, pl = g.player, s = this.status, me = this.me;
+    this.snap();
     this.frame++;
     this.impactT -= dt;
     for (const v of g.vehicles.list) if (v.driver === 'ai') this.lastAi.set(v, g.time);
@@ -866,18 +1196,20 @@ export class Police {
     heli.update(dt, pl.x, pl.z, heliSees, this.kx, this.kz);
 
     let seen = heliSees && lampOn;
-    for (const u of this.units) if (u.sees && u.state !== 'leave') seen = true;
-    for (const c of this.cops) if (c.sees && !c.dead && c.down <= 0) seen = true;
+    // (Any car or officer that can see her counts, whoever it is after: on a guest's screen and on the host's alike.)
+    for (const u of this.units) if ((u.target === me ? u.sees : u.seesMe) && u.state !== 'leave') seen = true;
+    for (const c of this.cops) if ((c.target === me ? c.sees : c.seesMe) && !c.dead && c.down <= 0) seen = true;
     if (this.level === 0) seen = false;
     this.heatStep(dt, seen);
-    this.dispatch(dt);
+    if (this.mode !== 'guest') this.dispatch(dt);
 
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i], v = u.v;
+      if (u.shown) { this.driveUnit(u, dt); continue; }
       if (v.sunk || g.vehicles.list.indexOf(v) < 0) { this.removeUnit(u, false); continue; }
       // Taken from under them: an ordinary car now, and hers.
       if (v.driver !== 'ai') { this.removeUnit(u, false); continue; }
-      const d = Math.hypot(v.x - pl.x, v.z - pl.z);
+      const d = this.others.length ? this.nearest(v.x, v.z) : Math.hypot(v.x - pl.x, v.z - pl.z);
       const idle = u.state === 'leave' || u.jam >= 4;
       // Half a kilometer off, the crew standing about beside it is not worth keeping either.
       if (d > 520) for (const c of u.crew.slice()) this.removeCop(c);
@@ -885,14 +1217,28 @@ export class Police {
       this.driveUnit(u, dt);
     }
 
-    const holdWas = this.hold;
+    me.holdWas = me.hold;
+    for (const o of this.others) o.holdWas = o.hold;
     for (let i = this.cops.length - 1; i >= 0; i--) this.copStep(this.cops[i], dt);
-    if (this.hold > holdWas) {
-      if (!this.holdTold) { this.holdTold = true; g.hud.toast('Harbor Patrol: stay exactly that still.', 2.5); }
+    if (me.hold > me.holdWas) {
+      if (!me.holdTold) { me.holdTold = true; g.hud.toast('Harbor Patrol: stay exactly that still.', 2.5); }
       // Several officers do not book her several times as fast.
-      this.hold = Math.min(this.hold, holdWas + dt);
-      if (this.hold > 1.6) { this.hold = 0; this.holdTold = false; this.book(); }
-    } else { this.hold = Math.max(0, this.hold - dt * 1.5); if (this.hold === 0) this.holdTold = false; }
+      me.hold = Math.min(me.hold, me.holdWas + dt);
+      // (A guest is booked when the host says so: here the count only earns the warning above.)
+      if (this.mode === 'guest') me.hold = Math.min(me.hold, 1.6);
+      else if (me.hold > 1.6) { me.hold = 0; me.holdTold = false; this.book(); }
+    } else { me.hold = Math.max(0, me.hold - dt * 1.5); if (me.hold === 0) me.holdTold = false; }
+    for (const o of this.others) {
+      if (o.hold > o.holdWas) {
+        o.hold = Math.min(o.hold, o.holdWas + dt);
+        if (o.hold > 1.6) {
+          // Booked. Their own browser does the fine, the confiscating and the walk home; here the chase is simply over.
+          o.hold = 0; o.level = 0; o.quiet = g.time + 4;
+          this.stats.bookedOthers++;
+          this.onBust?.(o.id);
+        }
+      } else o.hold = Math.max(0, o.hold - dt * 1.5);
+    }
 
     this.respray(dt);
 

@@ -301,7 +301,7 @@ export function decodePlayerEvent(buf: ArrayBuffer): { id: number; code: number;
 //
 // Byte 2 says what the frame asks. Stage 2, step 2 has one: "my car has just struck your car N". Step 3 adds three
 // (below, "Taking and leaving cars"); a host of an older page of this version ignores a kind it does not know.
-export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7 } as const;
+export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7, Heat: 8 } as const;
 // CarHit, 10 bytes: 0 kind (Frame.ToHost)  1 id  2 ToHostKind.CarHit  3 car u8 (its number in the World frames)
 //   4 vx i16  6 vz i16 (cm/s: how fast the two closed, pointing from the striker into the car)
 //   8 rx i8  9 rz i8 (the point of contact from the car's middle, 5 cm steps)
@@ -386,7 +386,7 @@ export const LEAVE_BYTES = 20;
 export interface CarLeft { id: number; token: number; car: TrafficCar; health: number }
 
 // ---- ToPlayer frames (the host to one player; the service lets nobody else send them) ----
-export const ToPlayerKind = { Grant: 1, Left: 2 } as const;
+export const ToPlayerKind = { Grant: 1, Left: 2, Hurt: 3, Bust: 4, Crime: 5 } as const;
 // Grant, 8 bytes: 0 kind (Frame.ToPlayer)  1 id (the host's)  2 ToPlayerKind.Grant  3 CarClass  4 car u16
 //   6 ok u8 (0 = somebody else has it, or it has gone)  7 health u8 (0..200)
 export const GRANT_BYTES = 8;
@@ -430,7 +430,7 @@ function healthByte(h: number): number {
 // ---- World frames (host only; the service relays them unread) ----
 //
 // Byte 2 says what the frame carries, so later steps can add streams (people, police) beside these.
-export const WorldKind = { Traffic: 1, Parked: 2, People: 3 } as const;
+export const WorldKind = { Traffic: 1, Parked: 2, People: 3, Police: 4 } as const;
 
 // Parked (stage 2, step 3): which of the town's parked cars are no longer in their places. Sent only when one
 // changes, whole when somebody arrives, and whole again every PARKED_REFRESH_MS in case anything was missed.
@@ -730,6 +730,127 @@ export function decodeBang(buf: ArrayBuffer): Bang | null {
   const d = new DataView(buf);
   if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.Bang) return null;
   return { id: d.getUint8(1), x: d.getUint16(3, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(5, true) * TRAFFIC_STEP + TRAFFIC_Z0, r: d.getUint8(7) };
+}
+
+// ---- The same police for everyone (stage 3, step 2) ----
+//
+// Heat stays each player's own: every browser works out its own player's wanted level from its own deeds, as alone.
+// The POLICE are one set, run by the host and seen by everybody. The version stays at 4: every frame below is a kind
+// that an older page ignores (as a guest it keeps private police; as a host it sends no police beat, and a newer
+// guest that hears none keeps private police too).
+//
+// The cars are ordinary records in the traffic frames. A cruiser's paint nibble is not paint (they are all navy):
+// CRUISER_ON_DUTY there means one of the Patrol's own, bar lit and siren going. The officers are ordinary records in
+// the people frames, numbered from OFFICER_WID0 up, and wear the uniform instead of the look their number would give.
+export const CRUISER_ON_DUTY = 1;
+export const OFFICER_WID0 = 224;
+//
+// Heat (ToHost), 8 bytes: "this is how wanted I am". Sent when it changes, at most HEAT_HZ a second, and again every
+// HEAT_REFRESH_MS while wanted (a new host has to learn it from somewhere).
+//   0 kind  1 id  2 ToHostKind.Heat  3 level (low 3 bits) | HeatFlag  4 x u16  6 z u16 (where the Patrol last had them:
+//   the search is centred there; 5 cm steps from TRAFFIC_X0, TRAFFIC_Z0)
+// Seen: an officer the player's browser is shown can see them right now (it is the judge of that: it has the walls
+// and its own player exactly). Incognito: in a car nobody saw them take. Out: lying in the road.
+export const HEAT_BYTES = 8;
+export const HEAT_HZ = 2;
+export const HEAT_REFRESH_MS = 3000;
+export const HeatFlag = { Seen: 8, Incognito: 16, Out: 32 } as const;
+export interface HeatMsg { id: number; level: number; flags: number; x: number; z: number }
+export function encodeHeat(level: number, flags: number, x: number, z: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, HEAT_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.Heat);
+  d.setUint8(3, (level & 7) | (flags & 0xf8));
+  d.setUint16(4, clampU16((x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+  d.setUint16(6, clampU16((z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+  return buf;
+}
+export function decodeHeat(buf: ArrayBuffer): HeatMsg | null {
+  if (buf.byteLength < HEAT_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.Heat) return null;
+  const b = d.getUint8(3);
+  return { id: d.getUint8(1), level: Math.min(5, b & 7), flags: b & 0xf8, x: d.getUint16(4, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(6, true) * TRAFFIC_STEP + TRAFFIC_Z0 };
+}
+// What the host's police do to a player, told to that player alone (ToPlayer); their own browser applies it by the
+// single player rules.
+// Hurt, 5 bytes: an officer's round found you.  0 kind  1 id  2 ToPlayerKind.Hurt  3 health off you u8  4 off your car u8 (tenths)
+// Bust, 3 bytes: held long enough; you are booked.  0 kind  1 id  2 ToPlayerKind.Bust
+// Crime, 9 bytes: something you did to the Patrol that only the host could judge (an officer you hurt has died, or
+//   was run down).  0 kind  1 id  2 ToPlayerKind.Crime  3 which (index into POLICE_CRIMES)  4 weight u8 (tenths of a level)  5 x u16  7 z u16
+export const POLICE_HURT_BYTES = 5;
+export const POLICE_BUST_BYTES = 3;
+export const POLICE_CRIME_BYTES = 9;
+export const POLICE_CRIMES = ['officerDown'] as const;
+export function encodePoliceHurt(to: number, dmg: number, carDmg: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToPlayer, POLICE_HURT_BYTES - FRAME_HEADER_BYTES, to);
+  const u8 = new Uint8Array(buf);
+  u8[2] = ToPlayerKind.Hurt;
+  u8[3] = Math.max(0, Math.min(255, Math.round(dmg * 10)));
+  u8[4] = Math.max(0, Math.min(255, Math.round(carDmg * 10)));
+  return buf;
+}
+export function decodePoliceHurt(buf: ArrayBuffer): { from: number; dmg: number; carDmg: number } | null {
+  if (buf.byteLength < POLICE_HURT_BYTES) return null;
+  const u8 = new Uint8Array(buf);
+  if (u8[0] !== Frame.ToPlayer || u8[2] !== ToPlayerKind.Hurt) return null;
+  return { from: u8[1], dmg: u8[3] / 10, carDmg: u8[4] / 10 };
+}
+export function encodePoliceBust(to: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToPlayer, POLICE_BUST_BYTES - FRAME_HEADER_BYTES, to);
+  new Uint8Array(buf)[2] = ToPlayerKind.Bust;
+  return buf;
+}
+export function encodePoliceCrime(to: number, which: number, weight: number, x: number, z: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToPlayer, POLICE_CRIME_BYTES - FRAME_HEADER_BYTES, to);
+  const d = new DataView(buf);
+  d.setUint8(2, ToPlayerKind.Crime); d.setUint8(3, which & 0xff);
+  d.setUint8(4, Math.max(0, Math.min(255, Math.round(weight * 10))));
+  d.setUint16(5, clampU16((x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+  d.setUint16(7, clampU16((z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+  return buf;
+}
+export function decodePoliceCrime(buf: ArrayBuffer): { from: number; which: number; weight: number; x: number; z: number } | null {
+  if (buf.byteLength < POLICE_CRIME_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToPlayer || d.getUint8(2) !== ToPlayerKind.Crime) return null;
+  return { from: d.getUint8(1), which: d.getUint8(3), weight: d.getUint8(4) / 10, x: d.getUint16(5, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(7, true) * TRAFFIC_STEP + TRAFFIC_Z0 };
+}
+// The police beat (World): "this host runs the town's police", and the shots its officers have fired since the last.
+// Sent every POLICE_BEAT_MS, and at once when there is a shot to show.
+//   0 kind (Frame.World)  1 id  2 WorldKind.Police  3 cars on duty u8  4 n u8
+//   5.. n shots of POLICE_SHOT_BYTES: 0 officer u8 (their number in the people frames)  1 x u16  3 z u16  5 y i16 (cm): where the round went
+export const POLICE_BEAT_MS = 2000;
+export const POLICE_BEAT_HEADER_BYTES = 5;
+export const POLICE_SHOT_BYTES = 7;
+export const POLICE_MAX_SHOTS = 16;
+export interface PoliceShot { officer: number; x: number; y: number; z: number }
+export function encodePoliceBeat(units: number, shots: readonly PoliceShot[], n: number, out: Uint8Array): number {
+  const d = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  d.setUint8(0, Frame.World); d.setUint8(1, 0); d.setUint8(2, WorldKind.Police);
+  d.setUint8(3, Math.min(255, units)); d.setUint8(4, n);
+  let o = POLICE_BEAT_HEADER_BYTES;
+  for (let i = 0; i < n; i++, o += POLICE_SHOT_BYTES) {
+    const s = shots[i];
+    d.setUint8(o, s.officer & 0xff);
+    d.setUint16(o + 1, clampU16((s.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+    d.setUint16(o + 3, clampU16((s.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+    d.setInt16(o + 5, clampI16(s.y * 100), true);
+  }
+  return o;
+}
+export function decodePoliceBeat(buf: ArrayBuffer): { from: number; units: number; shots: PoliceShot[] } | null {
+  const len = buf.byteLength;
+  if (len < POLICE_BEAT_HEADER_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.World || d.getUint8(2) !== WorldKind.Police) return null;
+  const n = d.getUint8(4);
+  if (n > POLICE_MAX_SHOTS || POLICE_BEAT_HEADER_BYTES + n * POLICE_SHOT_BYTES > len) return null;
+  const shots: PoliceShot[] = [];
+  for (let i = 0, o = POLICE_BEAT_HEADER_BYTES; i < n; i++, o += POLICE_SHOT_BYTES) {
+    shots.push({ officer: d.getUint8(o), x: d.getUint16(o + 1, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(o + 3, true) * TRAFFIC_STEP + TRAFFIC_Z0, y: d.getInt16(o + 5, true) / 100 });
+  }
+  return { from: d.getUint8(1), units: d.getUint8(3), shots };
 }
 
 // ---- JSON control messages ----

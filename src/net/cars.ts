@@ -281,10 +281,11 @@ export class TownCars {
       // Somebody known, on foot, and near enough to have a hand on the door.
       if (r && r.seen && !r.vehicle) {
         if (a.cls === CarClass.Traffic) {
-          const v = tr.find(a.car);
+          // (One of the traffic's, or a cruiser of the Patrol's: its crew is on foot from here on.)
+          const v = this.shared.findCar(a.car);
           if (v && Math.hypot(v.x - r.x, v.z - r.z) < TAKE_REACH) {
             health = v.health;
-            tr.give(v);
+            if (!this.shared.police?.give(v)) tr.give(v);
             vs.remove(v);
             ok = true;
           }

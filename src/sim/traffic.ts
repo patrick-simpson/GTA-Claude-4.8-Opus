@@ -365,6 +365,19 @@ export class Traffic {
     return w;
   }
 
+  /** A number for a car the town must see that is not the traffic's to drive (a police car). 0 when there is none left. */
+  takeWid(): number {
+    for (let id = 1; id < 256; id++) if (!this.widUsed[id]) return this.newWid();
+    return 0;
+  }
+  /** Keep this number for such a car (it had it under the last host). False when something here already has it. */
+  holdWid(wid: number): boolean {
+    if (wid <= 0 || wid > 255 || this.widUsed[wid]) return false;
+    this.widUsed[wid] = 1;
+    return true;
+  }
+  freeWid(wid: number): void { if (wid > 0 && wid < 256) this.widUsed[wid] = 0; }
+
   /** The shared car with this number, if there is one. */
   find(wid: number): Vehicle | null {
     let car: Vehicle | null = null;

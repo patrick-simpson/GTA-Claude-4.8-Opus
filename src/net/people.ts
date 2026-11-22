@@ -31,7 +31,7 @@ import { Ambient } from '../sim/ambient';
 import type { Peds, Walker } from '../sim/peds';
 import { groundAt } from '../world/plan';
 import {
-  BANG_HZ, PEOPLE_HEADER_BYTES, PEOPLE_HZ, PEOPLE_MAX, PEOPLE_WHOLE_MS, PED_ASK_BYTES, PED_BYTES, PED_GONE, PED_HEALTH_SHIFT, PED_POSES, PedFlag, ToHostKind,
+  BANG_HZ, OFFICER_WID0, PEOPLE_HEADER_BYTES, PEOPLE_HZ, PEOPLE_MAX, PEOPLE_WHOLE_MS, PED_ASK_BYTES, PED_BYTES, PED_GONE, PED_HEALTH_SHIFT, PED_POSES, PedFlag, ToHostKind,
   blankPed, decodeBang, decodePedHurt, decodePedKnock, decodePeople, encodeBang, encodePedHurt, encodePedKnock, encodePeople, frameSender, pedHealthBits, quantPed,
   type PedRec, type PeopleFrame,
 } from './protocol';
@@ -57,11 +57,30 @@ const KNOCK = 2.2;
 const POSE_DOWN = PED_POSES.indexOf('down'), POSE_RUN = PED_POSES.indexOf('run'), POSE_SIT = PED_POSES.indexOf('sit');
 
 const looks = new Map<number, Look>();
-/** The look of person `wid`: the same in every browser, made from the number alone. */
+/** The Harbor Patrol's uniform (as sim/police.ts dresses its officers), on a body that goes with the number. */
+const SKINS = [0xc68e6a, 0x8d5a3b, 0xe2b594, 0x6b4630];
+/** The look of person `wid`: the same in every browser, made from the number alone. Officers wear the uniform. */
 export function townLook(game: Game, wid: number): Look {
   let l = looks.get(wid);
-  if (!l) looks.set(wid, l = game.people.randomLook(new RNG((Math.imul(wid, 2654435761) ^ 0x51ed270b) >>> 0 || 1), true));
+  if (l) return l;
+  if (wid >= OFFICER_WID0) l = { skin: SKINS[wid & 3], hair: 0x2a2018, top: 0xa9c1d4, bottom: 0x1a2238, shoes: 0x111111, hat: 0xf2e8cf, height: 0.97 + ((wid >> 2) & 7) * 0.012, build: 1.08 };
+  else l = game.people.randomLook(new RNG((Math.imul(wid, 2654435761) ^ 0x51ed270b) >>> 0 || 1), true);
+  looks.set(wid, l);
   return l;
+}
+
+/**
+ * People the town must see who are not of the crowd: the police's officers (stage 3, step 2; police.ts). They travel
+ * in the same frames, numbered from OFFICER_WID0 up.
+ */
+export interface PeopleOwner {
+  /** Host: every such person, for the frame being built. hard: down and not getting up. */
+  each(fn: (wid: number, p: Person, hard: boolean) => void): void;
+  /** Host: another player (their number) has punched or shot one, or run one down. */
+  hurt(wid: number, by: number, dmg: number, dx: number, dz: number, fist: boolean, shove: number): void;
+  struck(wid: number, by: number, speed: number): void;
+  /** This browser was showing one and now simulates the town (or is alone): they carry on from where they stand. */
+  takeOver(wid: number, x: number, z: number, h: number, down: boolean, health: number): void;
 }
 
 /** One of the host's people, as known here. */
@@ -115,6 +134,8 @@ export class TownPeople {
   /** How fast this browser's game is running against the clock on the wall (1 = full speed; less when frames are slow). */
   private rate = 1;
   private lastNow = 0;
+  /** The police's officers (police.ts). */
+  police: PeopleOwner | null = null;
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>, private readonly shared: SharedTraffic) {
     const amb = game.systems.find((s): s is Ambient => s instanceof Ambient);
@@ -163,9 +184,14 @@ export class TownPeople {
     peds.resume();
     peds.unnumber();
     for (const s of this.shown.values()) {
-      const w = s.w;
+      const w = s.w, pose = s.flags & 7;
+      if (s.wid >= OFFICER_WID0) {
+        // Not one of the crowd: the body goes back to the cast, and the police stand an officer of their own there.
+        if (w) w.p.visible = false;
+        this.police?.takeOver(s.wid, s.cx, s.cz, s.h, pose === POSE_DOWN, ((s.flags >> PED_HEALTH_SHIFT) & 7) * 100 / 7);
+        continue;
+      }
       if (!w) continue;
-      const pose = s.flags & 7;
       peds.takeOver(w, s.wid, pose === POSE_DOWN || s.guess > 0, (s.flags & PedFlag.Hard) !== 0, pose === POSE_RUN);
       this.stats.adopted++;
     }
@@ -220,19 +246,17 @@ export class TownPeople {
     const peds = this.peds as Peds, sent = this.sent, recs = this.recs, r = this.scratch, seq = ++this.sendSeq;
     const whole = this.force || now - this.wholeAt >= PEOPLE_WHOLE_MS;
     let n = 0;
-    for (const w of peds.walkers) {
-      if (!w.active || !w.wid || n >= PEOPLE_MAX) continue;
-      const p = w.p;
-      if (this.far2(p.x, p.z) > SEND_FAR * SEND_FAR) continue;
+    const one = (wid: number, p: Person, vx: number, vz: number, hard: boolean): void => {
+      if (n >= PEOPLE_MAX || this.far2(p.x, p.z) > SEND_FAR * SEND_FAR) return;
       const pose = Math.max(0, (PED_POSES as readonly string[]).indexOf(p.pose));
-      const vel = Math.hypot(w.vx, w.vz);
+      const vel = Math.hypot(vx, vz);
       // Lying in the road they slide; on their feet the stride is what the body shows.
       const sp = pose === POSE_DOWN ? vel : pose === 0 || pose === POSE_SIT ? 0 : p.speed;
-      r.id = w.wid; r.x = p.x; r.z = p.z;
+      r.id = wid; r.x = p.x; r.z = p.z;
       // A slow host's people cover less ground a second than their stride says: what is sent is what the clock on the wall will show.
       r.speed = sp < 0.15 ? 0 : sp * this.rate;
-      r.h = r.speed > 0 && vel > 0.3 ? Math.atan2(w.vx, w.vz) : p.h;
-      r.flags = pose | (p.bench ? PedFlag.Bench : 0) | (w.hard ? PedFlag.Hard : 0) | (pedHealthBits(p.health) << PED_HEALTH_SHIFT);
+      r.h = r.speed > 0 && vel > 0.3 ? Math.atan2(vx, vz) : p.h;
+      r.flags = pose | (p.bench ? PedFlag.Bench : 0) | (hard ? PedFlag.Hard : 0) | (pedHealthBits(p.health) << PED_HEALTH_SHIFT);
       quantPed(r);
       let s = sent.get(r.id), go = whole || !s;
       if (s && !go) {
@@ -249,7 +273,10 @@ export class TownPeople {
         Object.assign(recs[n] ?? (recs[n] = blankPed()), r);
         n++;
       }
-    }
+    };
+    for (const w of peds.walkers) if (w.active && w.wid) one(w.wid, w.p, w.vx, w.vz, w.hard);
+    // The officers: they go the way they face.
+    this.police?.each((wid, p, hard) => one(wid, p, Math.sin(p.h) * p.speed, Math.cos(p.h) * p.speed, hard));
     // Gone from the street: said once (a whole frame says it by leaving them out).
     for (const [id, s] of sent) {
       if (s.seq === seq) continue;
@@ -280,6 +307,7 @@ export class TownPeople {
       const k = decodePedKnock(buf);
       if (!k) return true;
       this.stats.knocksGot++;
+      if (k.ped >= OFFICER_WID0) { if (r.vehicle && Math.hypot(k.vx, k.vz) <= 80) this.police?.struck(k.ped, r.id, Math.hypot(k.vx, k.vz)); return true; }
       const w = peds.byWid(k.ped);
       // Somebody near the person, in a car, at a speed a car can do.
       if (!w || !r.vehicle || Math.hypot(w.p.x - r.x, w.p.z - r.z) > 30 || Math.hypot(k.vx, k.vz) > 80) return true;
@@ -288,6 +316,7 @@ export class TownPeople {
       const k = decodePedHurt(buf);
       if (!k) return true;
       this.stats.hurtsGot++;
+      if (k.ped >= OFFICER_WID0) { this.police?.hurt(k.ped, r.id, k.damage, Math.sin(k.h), Math.cos(k.h), k.fist, k.shove); return true; }
       const w = peds.byWid(k.ped);
       if (!w || Math.hypot(w.p.x - r.x, w.p.z - r.z) > (k.fist ? 8 : 200)) return true;
       this.game.player.weapons.hurtPerson(w.p, k.damage, Math.sin(k.h), Math.cos(k.h), k.fist, k.shove);
@@ -374,7 +403,8 @@ export class TownPeople {
     const s = this.byBody.get(p), out = p.health <= 0;
     if (!s || this.mode !== 'guest') return out;
     if (this.conn.send(encodePedHurt(s.wid, dmg, Math.atan2(dx, dz), fist, shove))) { this.stats.hurtsSent++; this.stats.askBytesSent += PED_ASK_BYTES; }
-    if (out || p.health <= 60 || fist) {
+    // (An officer stays on their feet until there is nothing left of them.)
+    if (out || (s.wid < OFFICER_WID0 && (p.health <= 60 || fist))) {
       s.guess = performance.now() + GUESS_MS;
       s.gvx = dx * 2.2 * shove; s.gvz = dz * 2.2 * shove;
       p.pose = 'down'; p.speed = 0; p.h = Math.atan2(dx, dz);
@@ -420,6 +450,8 @@ export class TownPeople {
     if (Math.abs(dx * sh + dz * ch) >= v.hl + 0.3 || Math.abs(-dx * ch + dz * sh) >= v.hw + 0.3) return;
     s.hitAt = now + 1200;
     if (this.conn.send(encodePedKnock(s.wid, v.vx, v.vz))) { this.stats.knocksSent++; this.stats.askBytesSent += PED_ASK_BYTES; }
+    // An officer: the host decides whether that was hard enough to put them down, and what it costs.
+    if (s.wid >= OFFICER_WID0) return;
     if ((s.flags & 7) !== POSE_DOWN) {
       s.guess = now + GUESS_MS;
       s.gvx = v.vx * 0.85; s.gvz = v.vz * 0.85;
@@ -459,6 +491,12 @@ export class TownPeople {
     } else this.bang = null;
   }
 
+  /** Guest: every officer being shown, and the body they are drawn in (null when there is none to spare). */
+  eachOfficer(fn: (wid: number, body: Person | null) => void): void {
+    if (this.mode !== 'guest') return;
+    for (const s of this.shown.values()) if (s.wid >= OFFICER_WID0) fn(s.wid, s.w ? s.w.p : null);
+  }
+
   /** For the tests (window.__game.net().people). */
   info(): Record<string, unknown> {
     const r2 = (v: number): number => +v.toFixed(2), peds = this.peds;
@@ -468,6 +506,8 @@ export class TownPeople {
     if (this.mode === 'guest') {
       for (const s of this.shown.values()) {
         const w = s.w;
+        // (The officers are the police's to list: net().police.officers.)
+        if (s.wid >= OFFICER_WID0) continue;
         if (!w) { unbodied++; continue; }
         const p = w.p;
         people.push({ id: s.wid, x: r2(p.x), z: r2(p.z), h: r2(p.h), pose: p.pose, hard: (s.flags & PedFlag.Hard) !== 0, health: Math.round(p.health), guess: s.guess > 0, look: key(p.look) });
