@@ -88,6 +88,41 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 3, step 4, fire, wrecks, damage and props: pushed Nov 22, about 1:45 PM ET
+
+**What.** Guests now see a shared car burn, blow and stay as a wreck. Another player's car shows its dents, steam,
+fire and wreck. Knocked over street props (hydrants, bins, cones, mailboxes, news boxes, benches, lamps, signals)
+are down for everybody on MAIN, including someone who joins later. A car blast is blamed on the player who lit it.
+Still protocol v4 and `server/src` untouched, so no Worker redeploy is needed.
+
+**Rules.** Town cars: the host counts the fire as before; the top of the 16 damage steps now means alight (13, 14)
+and burnt out (15), so guests draw the same fire from the health the host already sends. A wreck is cleared when no
+player is within 150 m. A player's own car: its owner's browser is the authority; 4 spare bits of the state frame's
+pose byte carry its damage; on MAIN the wreck is then handed to the host with the Leave frame. Props: only the
+browser simulating the car can knock one over, it says so once (Event `Prop`, 10 bytes), and the host is the memory
+(World kind `Props`, sent once to a newcomer, newest 1000). Blame: the host remembers whose rounds or blast last hurt
+a car; the Blast event names them and their own browser raises the crime. On the BACKUP another player's car still
+shows steam and fire; props, shared cars and wrecks stay private.
+
+**Cost (worker's measure, two in town).** Nothing new is sent while nothing burns or breaks. The fire is one 12 byte
+Blast; the rest rides in records already sent. Host idle 393 to 407 B/s, as before.
+
+**Checked by the lead.** tsc, build, server tests, production boot with no errors; fire.mjs (new, 41 checks),
+weapons.mjs and cars.mjs with full logs; both pictures viewed (the same car burning on both screens).
+
+**Flaky check found.** weapons.mjs "run over by another player's car" was a test fault: at about 10% game speed the
+car needed about 29 s of wall time against a 25 s limit, and each failed try left its car in the way. Rewritten.
+fire.mjs failed 1 check in the lead's first run (the wreck of a guest's own car: the test counted a second wreck 17 m
+away that both screens agreed on); the search was narrowed from 25 m to 10 m and the next full run was clean. Where
+that second wreck came from is not proven.
+
+**Still wrong or untested.** A burning police car is redrawn once on guests (new number). When a player's car blows,
+others see no car for under a second before the host's wreck. A guest who gets out before the blast loses the blame.
+No fire sound for another player's burning car. Blame is trusted. The blame test sends CarShot by hand; real bullets,
+a guest's rocket, host change mid fire, a third watcher, and the wanted level from a blamed blast are untested.
+Props a guest broke while alone stay broken only for them. A tab from before this step shows no fire. Nothing was
+listened to; no frame rates measured.
+
 ### Multiplayer stage 3, step 3, weapons between players: pushed Nov 22, about 11:50 AM ET
 
 **What.** Players see each other's shots, swings, rockets and blasts, see the weapon in the other's hand, and can

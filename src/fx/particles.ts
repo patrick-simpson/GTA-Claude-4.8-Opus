@@ -450,6 +450,14 @@ export class Fx {
       if (d2 > 19600) continue;
       this.car(v, dt, d2);
     }
+    // The other players' cars (multiplayer; not in `list`) give off the same things.
+    const ghosts = g.vehicles.ghostList;
+    for (let i = 0; i < ghosts.length; i++) {
+      const v = ghosts[i];
+      const dx = v.x - cam.x, dz = v.z - cam.z, d2 = dx * dx + dz * dz;
+      if (d2 > 19600) continue;
+      this.car(v, dt, d2);
+    }
     for (const gy of this.geysers) if (gy.t > 0) this.runGeyser(gy, dt);
     for (const f of this.fires) if (f.active) this.runFire(f, dt);
     if (sky.weather === 'rain') this.rain(dt);

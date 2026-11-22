@@ -921,15 +921,15 @@ class Ground implements WorldPart {
     this.claims.clear();
 
     const earlier = game.col.onBreak;
-    game.col.onBreak = (p, vx, vz) => {
+    game.col.onBreak = (p, vx, vz, quiet) => {
       if (p.slot >= 0 && this.slotProp[p.slot] === p) {
         const mesh = this.furn[this.slotKind[p.slot]].meshAt(p.x, p.z);
         if (mesh) { mesh.setMatrixAt(this.slotIdx[p.slot], ZERO); rewrote(mesh); }
       }
       const f = this.felled.get(p);
       if (f) this.fell(p, f, vx, vz);
-      earlier?.(p, vx, vz);
-      game.emit('propBreak', { prop: p, vx, vz });
+      earlier?.(p, vx, vz, quiet);
+      if (!quiet) game.emit('propBreak', { prop: p, vx, vz });
     };
 
     this.setNight(mats.night);

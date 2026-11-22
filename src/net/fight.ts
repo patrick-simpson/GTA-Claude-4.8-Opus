@@ -84,6 +84,8 @@ export class TownFight implements WeaponsNet {
     claimsGot: 0, claimsDone: 0, claimsRefused: 0, damageTaken: 0, carDamageTaken: 0,
     rocketsSent: 0, rocketsGot: 0, blastsSent: 0, blastsGot: 0, blastsDone: 0,
     vitalsSent: 0, vitalsGot: 0, deaths: 0, kills: 0,
+    /** Stage 3, step 4. Blasts sent that named another player as the cause, and blasts heard that named this one. */
+    blamesSent: 0, blamesGot: 0,
     /** Bullets on the town's cars: told to the host (guest), and heard and applied (host). */
     carShotsSent: 0, carShotsGot: 0, carShotsDone: 0,
     /** Every byte this file has sent. */
@@ -138,6 +140,13 @@ export class TownFight implements WeaponsNet {
 
   hostsTown(): boolean { return this.shared.mode === 'host'; }
 
+  nobodyNear(x: number, z: number, r: number): boolean {
+    // (Only the host's cars are anybody else's to see: a guest's private wreck is tidied by its own rule.)
+    if (this.shared.mode !== 'host') return true;
+    for (const o of this.remotes.values()) if (o.seen && Math.hypot(o.x - x, o.z - z) < r) return false;
+    return true;
+  }
+
   private claim(target: number, dmg: number, dx: number, dz: number, flags: number): void {
     const h = Math.atan2(dx, dz);
     for (const k of this.hits) if (k.target === target && k.flags === flags) { k.damage += dmg; k.h = h; return; }
@@ -185,8 +194,9 @@ export class TownFight implements WeaponsNet {
     if (this.send(encodeRocket(x, y, z, vx, vy, vz))) this.stats.rocketsSent++;
   }
 
-  blast(x: number, y: number, z: number, radius: number, damage: number): void {
-    if (this.send(encodeBlast(x, y, z, radius, damage))) this.stats.blastsSent++;
+  blast(x: number, y: number, z: number, radius: number, damage: number, by: number): void {
+    if (this.send(encodeBlast(x, y, z, radius, damage, by))) this.stats.blastsSent++;
+    if (by) this.stats.blamesSent++;
     const l = this.lastBlast;
     l.from = 0; l.x = x; l.y = y; l.z = z;
   }
@@ -315,6 +325,8 @@ export class TownFight implements WeaponsNet {
       if (!v) return this.refuse('not in a car');
       b.left -= full;
       v.health = Math.max(0, v.health - full * CAR_SHARE);
+      // (If it burns for this, the blast is theirs.)
+      p.weapons.blameCar(v, r.id);
       st.carDamageTaken += full * CAR_SHARE;
     } else {
       if (p.vehicle) return this.refuse('in a car');
@@ -382,6 +394,8 @@ export class TownFight implements WeaponsNet {
     const hp = this.game.player.health;
     this.game.player.weapons.explode(m.x, m.y, m.z, m.radius, m.damage, false, m.id);
     if (this.game.player.health < hp) { this.hurtBy = m.id; this.hurtAt = now; this.vitalDue = true; }
+    // The car that went up there was set alight by this player's rounds: their crime, as alone, if anybody saw.
+    if (m.by === this.conn.id) { st.blamesGot++; this.game.player.weapons.blamed(m.x, m.z); }
   }
 
   private vital(buf: ArrayBuffer): void {
@@ -420,8 +434,10 @@ export class TownFight implements WeaponsNet {
     const dmg = Math.min(m.damage, b.left);
     if (!(dmg > 0)) return true;
     b.left -= dmg;
-    // (Under 20 its engine burns and it goes up, by the host's own single player rules; that is a Blast for everybody.)
+    // (Under 20 its engine burns and it goes up, by the host's own single player rules; that is a Blast for everybody,
+    // and it names whoever's rounds these were.)
     v.health = Math.max(0, v.health - dmg);
+    this.game.player.weapons.blameCar(v, m.id);
     st.carShotsDone++;
     return true;
   }
@@ -549,6 +565,8 @@ export class TownFight implements WeaponsNet {
       ...this.stats, lastRefusal: this.lastRefusal, on: this.on, lastBlast: { ...this.lastBlast },
       // This player's own: health, and the weapon the others are shown in their hand (0 = none).
       health: r2(p.health), raised: p.weapons.raised,
+      // Every fire burning on this screen (ent/weapons.ts): told = under a car this browser is only shown.
+      burns: p.weapons.burnInfo(), blasts: p.weapons.stats.blasts, crimes: p.weapons.stats.crimes,
       // The others: the weapon drawn in their hand here (0 = none), how far the arm is up, and the health they last told of.
       arms: [...this.remotes.values()].map((r) => { const a = this.arms.get(r.id); return { id: r.id, gun: a ? a.shown : 0, arm: a ? r2(a.k) : 0, held: (r.flags & HELD_MASK) >> HELD_SHIFT, health: r2(r.health), dead: r.dead, deaths: r.deaths, respawns: r.respawns, killedBy: r.killedBy }; }),
       rockets: this.flights.filter((f) => f.live).map((f) => ({ from: f.from, x: r2(f.x), y: r2(f.y), z: r2(f.z) })),

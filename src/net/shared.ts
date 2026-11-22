@@ -34,14 +34,15 @@ import type { Game } from '../core/game';
 import type { Vehicle } from '../core/api';
 import { angleDiff } from '../core/util';
 import { KINDS, SPECS } from '../ent/vehicleSpecs';
+import { paintOf } from '../ent/weapons';
 import { Ambient } from '../sim/ambient';
 import type { Anchor, RoadPed, Traffic } from '../sim/traffic';
 import {
   CAR_HIT_BYTES, CAR_HIT_HZ, CRUISER_ON_DUTY, PlayerMode, TRAFFIC_CAR_BYTES, TRAFFIC_DAMAGE_SHIFT, TRAFFIC_HEADER_BYTES, TRAFFIC_MAX_CARS, ToHostKind, TrafficFlag, WORLD_HZ, WorldKind,
-  blankTrafficCar, blankTrafficFrame, damageStep, decodeCarHit, decodeTraffic, encodeCarHit, encodeTraffic, frameSender, type TrafficCar,
+  DAMAGE_WRECK, blankTrafficCar, blankTrafficFrame, damageNibble, decodeCarHit, decodeTraffic, encodeCarHit, encodeTraffic, frameSender, type TrafficCar,
 } from './protocol';
 import type { Connection } from './conn';
-import { EXTRAP_MS, INTERP_MS, type Remote } from './remote';
+import { EXTRAP_MS, INTERP_MS, showDamage, type Remote } from './remote';
 
 const SEND_MS = 1000 / WORLD_HZ;
 /** A car that has not changed is still sent whole this often, so nobody is left holding a stale one. */
@@ -59,8 +60,13 @@ const HIT_MS = 1000 / CAR_HIT_HZ;
 const HIT_MIN = 0.3;
 /** A report from further than this from the car it names is not believed. Meters. */
 const HIT_REACH = 25;
-/** The 16 damage steps of the wire as health on a guest's screen: never low enough to set the shown car alight here. */
-const HEALTH_STEP = 5;
+/** Under this health a car is alight (ent/weapons.ts, BURN_AT). */
+const BURN_HEALTH = 20;
+/** Host: how often the street is looked over for cars alight or burnt out that the town is not yet being shown, ms. */
+const BURNT_MS = 250;
+
+/** A car's place in its kind's list of paints (a burnt one: the paint it had). */
+export function paintIndex(v: Vehicle): number { return Math.max(0, v.spec.colors.indexOf(paintOf(v))); }
 
 interface Sample { t: number; x: number; y: number; z: number; yaw: number; speed: number; steer: number; pitch: number; roll: number; flags: number }
 const blank = (): Sample => ({ t: 0, x: 0, y: 0, z: 0, yaw: 0, speed: 0, steer: 0, pitch: 0, roll: 0, flags: 0 });
@@ -103,6 +109,7 @@ export class SharedTraffic {
   private readonly traffic: Traffic | null;
   // Sending.
   private sendAt = 0;
+  private burntAt = 0;
   private force = true;
   private sendSeq = 0;
   private readonly sent = new Map<number, Sent>();
@@ -223,10 +230,10 @@ export class SharedTraffic {
   adoptShown(wid: number, v: Vehicle): boolean {
     if (this.mode !== 'guest' || wid === 0 || this.cars.has(wid)) return false;
     this.game.vehicles.setShared(v, true);
-    const s = this.show(wid, KINDS.indexOf(v.spec.kind), Math.max(0, v.spec.colors.indexOf(v.color)), v);
+    const s = this.show(wid, KINDS.indexOf(v.spec.kind), paintIndex(v), v);
     const a = blank();
     a.t = performance.now(); a.x = v.x; a.y = v.y; a.z = v.z; a.yaw = v.h; a.pitch = v.pitch; a.roll = v.roll;
-    a.flags = TrafficFlag.Driverless | (damageStep(v.health) << TRAFFIC_DAMAGE_SHIFT);
+    a.flags = TrafficFlag.Driverless | (damageNibble(v.health, !!v.wreck) << TRAFFIC_DAMAGE_SHIFT);
     s.buf.push(a);
     Object.assign(s.cur, a);
     return true;
@@ -252,10 +259,10 @@ export class SharedTraffic {
         const now = performance.now();
         const let_go = (wid: number, v: Vehicle, driverless: boolean, paint = -1): void => {
           g.vehicles.setShared(v, true);
-          const s = this.show(wid, KINDS.indexOf(v.spec.kind), paint >= 0 ? paint : Math.max(0, v.spec.colors.indexOf(v.color)), v);
+          const s = this.show(wid, KINDS.indexOf(v.spec.kind), paint >= 0 ? paint : paintIndex(v), v);
           const a = blank();
           a.t = now; a.x = v.x; a.y = v.y; a.z = v.z; a.yaw = v.h; a.speed = v.speed; a.pitch = v.pitch; a.roll = v.roll;
-          a.flags = (driverless ? TrafficFlag.Driverless : 0) | (damageStep(v.health) << TRAFFIC_DAMAGE_SHIFT);
+          a.flags = (driverless ? TrafficFlag.Driverless : 0) | (damageNibble(v.health, !!v.wreck) << TRAFFIC_DAMAGE_SHIFT);
           s.buf.push(a);
           Object.assign(s.cur, a);
         };
@@ -332,7 +339,7 @@ export class SharedTraffic {
       const sp = v.speed, ctl = v.ctl;
       r.id = wid;
       r.kind = KINDS.indexOf(v.spec.kind);
-      r.paint = paint >= 0 ? paint : Math.max(0, v.spec.colors.indexOf(v.color));
+      r.paint = paint >= 0 ? paint : paintIndex(v);
       r.x = v.x; r.y = v.y; r.z = v.z; r.yaw = v.h;
       r.speed = Math.abs(sp) < 0.12 ? 0 : sp;
       r.steer = driverless ? 0 : ctl.steer;
@@ -340,8 +347,9 @@ export class SharedTraffic {
       r.flags = (driverless ? TrafficFlag.Driverless
         : ((ctl.accel < -0.05 && sp > 0.5) || ctl.handbrake ? TrafficFlag.Braking : 0)
           | (sp < -0.3 && ctl.accel < 0 ? TrafficFlag.Reversing : 0) | (ctl.horn ? TrafficFlag.Horn : 0))
-        | (damageStep(v.health) << TRAFFIC_DAMAGE_SHIFT);
+        | (damageNibble(v.health, !!v.wreck) << TRAFFIC_DAMAGE_SHIFT);
     };
+    this.burnt(now);
     // (The police first: when the town is full of cars, theirs are not the ones left out.)
     this.police?.each(add);
     tr.eachShared(add);
@@ -369,6 +377,22 @@ export class SharedTraffic {
     if (this.conn.send(this.out.subarray(0, len))) {
       this.force = false;
       this.stats.framesSent++; this.stats.bytesSent += len;
+    }
+  }
+
+  /**
+   * Host: a car alight or burnt out, with nobody in it, that is in none of the lists the frames are built from (a
+   * cruiser its crew has run from, the host's own car after it threw them out, a car of no list at all) becomes one of
+   * the town's standing cars, so the others see it burn and see what is left. The traffic's own keep their numbers
+   * (sim/traffic.ts); this is for the rest. Nothing is added to the wire for it but that car's own record.
+   */
+  private burnt(now: number): void {
+    if (now - this.burntAt < BURNT_MS) return;
+    this.burntAt = now;
+    const tr = this.traffic as Traffic;
+    for (const v of this.game.vehicles.list) {
+      if ((v.health >= BURN_HEALTH && !v.wreck) || v.driver !== null || v.sunk || v.shared || v.removed) continue;
+      tr.abandon(v);
     }
   }
 
@@ -482,6 +506,8 @@ export class SharedTraffic {
       // The number has gone round to another car.
       // (A cruiser's "paint" is whether it is on duty: that changes without it being another car.)
       if (s && (s.kind !== c.kind || s.paint !== c.paint)) { if (s.kind === c.kind && kind === 'cruiser') s.paint = c.paint; else { this.unshow(s); s = undefined; } }
+      // (Or the car shown is burnt out and this one is not: nothing mends a wreck.)
+      if (s && s.v.wreck && (c.flags >> TRAFFIC_DAMAGE_SHIFT) < DAMAGE_WRECK) { this.unshow(s); s = undefined; }
       if (!s) {
         const colors = SPECS[kind].colors;
         const v = g.vehicles.spawn(kind, c.x, c.z, c.yaw, colors[c.paint] ?? colors[0]);
@@ -550,8 +576,8 @@ export class SharedTraffic {
     v.driver = driverless ? null : 'ai';
     if (driverless) v.lights = false;
     v.ctl.horn = (c.flags & TrafficFlag.Horn) !== 0;
-    // Its health is the host's to count: what is shown is what the host last said, in steps.
-    v.health = 100 - ((c.flags >> TRAFFIC_DAMAGE_SHIFT) & 15) * HEALTH_STEP;
+    // Its health is the host's to count: what is shown is what the host last said, in steps, a fire and a wreck included.
+    showDamage(v, (c.flags >> TRAFFIC_DAMAGE_SHIFT) & 15);
   }
 
   // ── Frame ──────────────────────────────────────────────────────────────────

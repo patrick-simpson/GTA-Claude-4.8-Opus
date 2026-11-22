@@ -26,21 +26,26 @@
 // last saw it. Standing cars are in the traffic frames, so a new host inherits them like the rest; the bits for the
 // parked cars every browser already has.
 //
+// Stage 3, step 4. A car that burns out under its player (or beside them, once they have run) is handed over the
+// same way, as a wreck: the Leave says "burnt out" in the damage it always carried, and the host stands a wreck
+// there, which nobody blows up a second time. So the town sees what is left of it for as long as the host keeps it.
+//
 // The mainland's kerbs (world/progress.ts) are not part of this yet: they stay each browser's own.
 
 import type { Game } from '../core/game';
 import type { ParkedSpot, Vehicle } from '../core/api';
 import { angleDiff } from '../core/util';
 import { KINDS, SPECS, type VehicleKind } from '../ent/vehicleSpecs';
+import { charCar } from '../ent/weapons';
 import {
   CAR_HIT_HZ, CarClass, GRANT_BYTES, LEAVE_BYTES, LEFT_BYTES, PARKED_CHANGE_BYTES, PARKED_HEADER_BYTES, PARKED_MAX_CHANGES, PARKED_REFRESH_MS,
   PARKED_TOWN_SHARE, PARK_HIT_BYTES, TAKE_BYTES, TRAFFIC_DAMAGE_SHIFT, ToHostKind, ToPlayerKind, TrafficFlag, WorldKind, Frame,
-  blankTrafficCar, damageStep, decodeGrant, decodeLeave, decodeLeft, decodeParkHit, decodeTake, encodeGrant, encodeLeave, encodeLeft, encodeParkHit,
+  DAMAGE_WRECK, blankTrafficCar, damageNibble, decodeGrant, decodeLeave, decodeLeft, decodeParkHit, decodeTake, encodeGrant, encodeLeave, encodeLeft, encodeParkHit,
   encodeTake, frameSender, type TrafficCar,
 } from './protocol';
 import type { Connection } from './conn';
 import type { Remote } from './remote';
-import type { SharedTraffic } from './shared';
+import { paintIndex, type SharedTraffic } from './shared';
 
 /** A parked car further than this from its place (meters, |dx| + |dz|), or turned more than that (radians), has been moved. */
 const MOVED = 0.15, TURNED = 0.03;
@@ -64,7 +69,7 @@ const HIT_REACH = 25;
 
 type Mode = 'local' | 'host' | 'guest';
 interface Pending { v: Vehicle; cls: number; n: number; at: number; refused: boolean }
-interface Handed { id: number; token: number; car: TrafficCar; health: number; at: number }
+interface Handed { id: number; token: number; car: TrafficCar; health: number; wreck: boolean; at: number }
 interface Stray { id: number; kind: VehicleKind; color: number; x: number; z: number; h: number; at: number }
 
 export class TownCars {
@@ -294,7 +299,8 @@ export class TownCars {
         if (a.cls === CarClass.Traffic) {
           // (One of the traffic's, or a cruiser of the Patrol's: its crew is on foot from here on.)
           const v = this.shared.findCar(a.car);
-          if (v && Math.hypot(v.x - r.x, v.z - r.z) < TAKE_REACH) {
+          // (Nobody drives away in a burnt out one, which is in the frames only to be seen.)
+          if (v && !v.wreck && Math.hypot(v.x - r.x, v.z - r.z) < TAKE_REACH) {
             health = v.health;
             if (!this.shared.police?.give(v)) tr.give(v);
             vs.remove(v);
@@ -321,16 +327,18 @@ export class TownCars {
       if (!l || !KINDS[l.car.kind] || this.handed.length > 32) return;
       const r = this.remotes.get(l.id);
       if (!r || !r.seen || Math.hypot(l.car.x - r.x, l.car.z - r.z) > 60) return;
-      this.handed.push({ id: l.id, token: l.token, car: l.car, health: l.health, at: now });
+      this.handed.push({ id: l.id, token: l.token, car: l.car, health: l.health, wreck: (l.car.flags >> TRAFFIC_DAMAGE_SHIFT) >= DAMAGE_WRECK, at: now });
     }
   }
 
   /** A car for the town where somebody left one. Returns its number in the traffic frames, 0 when there is none to give. */
-  private stand(kind: VehicleKind, color: number, x: number, z: number, h: number, health: number): number {
+  private stand(kind: VehicleKind, color: number, x: number, z: number, h: number, health: number, wreck = false): number {
     const tr = this.shared.sim, vs = this.game.vehicles;
     if (!tr) return 0;
     const v = vs.spawn(kind, x, z, h, color);
     v.health = Math.max(0, Math.min(100, health));
+    // Burnt out on its player's own browser, which has already told the town of the blast: here it is only what is left.
+    if (wreck) charCar(v);
     const w = tr.abandon(v);
     if (!w) vs.remove(v);
     // (On the leaver's screen it may have been pressed into a car that could not give way there. Here it can.)
@@ -445,7 +453,7 @@ export class TownCars {
   // ── Getting out ────────────────────────────────────────────────────────────
 
   private exited(v: Vehicle): void {
-    if (!this.shared.town || v.removed || v.sunk || v.wreck) return;
+    if (!this.shared.town || v.removed || v.sunk) return;
     if (this.granted && this.granted.v === v) this.granted = null;
     if (!this.rolling.some((r) => r.v === v)) this.rolling.push({ v, at: performance.now() });
   }
@@ -456,11 +464,11 @@ export class TownCars {
     if (!sh.town || !tr) return;
     // Host, or alone in town for now: it is already on the streets the town will be shown.
     if (mode !== 'guest') { tr.abandon(v); return; }
-    const r = this.rec, colors = v.spec.colors;
+    const r = this.rec;
     r.id = 0;
-    r.kind = KINDS.indexOf(v.spec.kind); r.paint = Math.max(0, colors.indexOf(v.color));
+    r.kind = KINDS.indexOf(v.spec.kind); r.paint = paintIndex(v);
     r.x = v.x; r.y = v.y; r.z = v.z; r.yaw = v.h; r.speed = 0; r.steer = 0; r.pitch = v.pitch; r.roll = v.roll;
-    r.flags = TrafficFlag.Driverless | (damageStep(v.health) << TRAFFIC_DAMAGE_SHIFT);
+    r.flags = TrafficFlag.Driverless | (damageNibble(v.health, !!v.wreck) << TRAFFIC_DAMAGE_SHIFT);
     const token = this.tok = (this.tok + 1) & 0xff;
     if (!this.conn.send(encodeLeave(token, r, v.health))) return;
     this.stats.leaves++; this.stats.leaveBytes += LEAVE_BYTES;
@@ -477,8 +485,9 @@ export class TownCars {
     const ro = this.rolling;
     for (let k = ro.length - 1; k >= 0; k--) {
       const { v, at } = ro[k];
-      if (!sh.town || v.removed || v.sunk || v.wreck || v.driver !== null) { ro.splice(k, 1); continue; }
-      if (Math.abs(v.speed) < 0.3 || now - at > ROLL_MS) { ro.splice(k, 1); this.hand(v, now); }
+      if (!sh.town || v.removed || v.sunk || v.driver !== null) { ro.splice(k, 1); continue; }
+      // (What is left of a car that went up is still in the air for a moment: it is handed over where it lands.)
+      if ((Math.abs(v.speed) < 0.3 && (!v.wreck || v.onGround)) || now - at > ROLL_MS) { ro.splice(k, 1); this.hand(v, now); }
     }
     if (mode === 'guest') {
       const g = this.granted;
@@ -512,7 +521,7 @@ export class TownCars {
       if (r && r.vehicle && now - l.at < GHOST_MS) continue;
       ha.splice(k--, 1);
       const kind = KINDS[l.car.kind], colors = SPECS[kind].colors;
-      const w = this.stand(kind, colors[l.car.paint] ?? colors[0], l.car.x, l.car.z, l.car.yaw, l.health);
+      const w = this.stand(kind, colors[l.car.paint] ?? colors[0], l.car.x, l.car.z, l.car.yaw, l.health, l.wreck);
       if (w) this.stats.stood++;
       if (r) { this.conn.send(encodeLeft(l.id, l.token, w)); this.stats.answerBytes += LEFT_BYTES; }
     }

@@ -265,7 +265,18 @@ export class Traffic {
       for (const d of this.drivers) {
         let v = d.v;
         // Stolen or drowned: it is somebody else's car now, and an ordinary one.
-        if (v && (v.driver !== 'ai' || v.sunk)) { anchors[d.anchor].n--; this.release(d); v = null; active--; }
+        if (v && (v.driver !== 'ai' || v.sunk)) {
+          anchors[d.anchor].n--;
+          // Nobody at the wheel and still on the street (its driver has run from a fire, ent/weapons.ts): it stands
+          // there as one of the abandoned cars, under the number it had, so the rest of a town goes on seeing it.
+          // (Only while hosting a town: alone it is an ordinary empty car, as it always was.)
+          if (v.driver === null && !v.sunk && d.wid && this.extra.length > 0 && this.orphans.indexOf(v) < 0 && g.vehicles.list.indexOf(v) >= 0) {
+            this.orphans.push(v);
+            this.orphanWid.set(v, d.wid);
+            d.wid = 0;
+          }
+          this.release(d); v = null; active--;
+        }
         if (v) {
           const a = anchors[d.anchor], dx = v.x - a.x, dz = v.z - a.z, far = dx * dx + dz * dz > 185 * 185;
           // Hopelessly wedged cars are swapped for fresh ones, but never while anyone can see.
@@ -355,6 +366,17 @@ export class Traffic {
   abandon(v: Vehicle): number {
     const had = this.orphanWid.get(v);
     if (had !== undefined) return had;
+    // One the traffic was driving until a moment ago (its driver has run from a fire, and update() has not yet seen
+    // the empty seat): it keeps the number it had, so the rest of the town sees the same car and not a new one.
+    const d = this.byVeh.get(v);
+    if (d && d.wid && v.driver === null) {
+      const w = d.wid;
+      d.wid = 0;
+      this.release(d);
+      if (this.orphans.indexOf(v) < 0) this.orphans.push(v);
+      this.orphanWid.set(v, w);
+      return w;
+    }
     let free = false;
     for (let id = 1; id < 256 && !free; id++) free = !this.widUsed[id];
     if (!free) return 0;
@@ -393,12 +415,12 @@ export class Traffic {
     if (i >= 0) { this.orphans.splice(i, 1); this.dropOrphan(v); }
   }
 
-  /** Every car the rest of the town should see: those being driven, then those their drivers walked away from. */
+  /** Every car the rest of the town should see: those being driven, then those their drivers walked away from (burnt out ones too). */
   eachShared(fn: (wid: number, v: Vehicle, driverless: boolean) => void): void {
     for (const d of this.drivers) if (d.v && d.v.driver === 'ai' && !d.v.sunk) fn(d.wid, d.v, false);
     for (const v of this.orphans) {
       const w = this.orphanWid.get(v);
-      if (w !== undefined && v.driver === null && !v.sunk && !v.wreck) fn(w, v, true);
+      if (w !== undefined && v.driver === null && !v.sunk) fn(w, v, true);
     }
   }
 

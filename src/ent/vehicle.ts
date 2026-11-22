@@ -666,6 +666,8 @@ export class Vehicles implements VehiclesApi {
   private ghosts: Car[] = [];
   /** Multiplayer guest: this browser's own car has struck a shared car. (cvx, cvz) closing speed into it; (rx, rz) contact from its middle. */
   onSharedHit: ((b: Vehicle, cvx: number, cvz: number, rx: number, rz: number) => void) | null = null;
+  /** The same array as `ghosts`, for whoever draws what a car gives off (fx/particles.ts): a ghost steams and smokes like any other. */
+  readonly ghostList: readonly Vehicle[] = this.ghosts;
   /** `cars` then `ghosts`, rebuilt for sync() while there are ghosts. */
   private drawn: Car[] = [];
   /** The same array as `cars`, seen through the public interface. */
@@ -889,7 +891,7 @@ export class Vehicles implements VehiclesApi {
     c.spinF = (c.spinF + turn) % (Math.PI * 2); c.spinR = (c.spinR + turn) % (Math.PI * 2);
     c.braking = braking; c.reversing = reversing;
     const sky = this.game.sky as Game['sky'] | undefined;
-    c.lights = !!sky && sky.night > 0.5;
+    c.lights = !!sky && sky.night > 0.5 && !c.wreck;
     c.stale = true;
     // Another player's car has just been put somewhere new. Whatever of this browser's it now lies in is pushed out
     // and stopped HERE, not at the next step: nothing ever reads, draws or sends a state with the two overlapped.

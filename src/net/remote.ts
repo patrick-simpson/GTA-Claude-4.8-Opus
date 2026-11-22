@@ -12,7 +12,8 @@ import type { Game } from '../core/game';
 import type { Look, Person, Pose, Vehicle } from '../core/api';
 import { RNG, angleDiff, clamp } from '../core/util';
 import { KINDS, SPECS, type VehicleKind } from '../ent/vehicleSpecs';
-import { POSES, PlayerEvent, PlayerFlag, PlayerMode, type PlayerState } from './protocol';
+import { DAMAGE_WRECK, POSES, stepHealth, PlayerEvent, PlayerFlag, PlayerMode, type PlayerState } from './protocol';
+import { charCar } from '../ent/weapons';
 import { SAYS, nameText } from './names';
 
 /** How far in the past the others are shown, ms. A little over one send interval, so there is nearly always a frame on each side. */
@@ -26,16 +27,29 @@ const KEEP = 12;
 /** Labels: full strength to here, gone by there (meters from the camera). */
 const LABEL_NEAR = 45, LABEL_FAR = 60;
 
+/**
+ * Stage 3, step 4: what a car's 16 steps of damage look like on a browser that is only shown it (a guest's copy of
+ * the host's car, shared.ts; another player's own car, here). The health drives the steam, the smoke and the fire
+ * exactly as it does for a car counted here (fx/particles.ts, ent/weapons.ts), so there is one look and not two.
+ * Returns false when the car shown is a wreck and the step says it is not: it is another car, to be put there afresh.
+ */
+export function showDamage(v: Vehicle, step: number): boolean {
+  if (step >= DAMAGE_WRECK) { if (!v.wreck) charCar(v); return true; }
+  if (v.wreck) return false;
+  v.health = stepHealth(step);
+  return true;
+}
+
 interface Sample {
   /** Receiver's clock, ms. */
   t: number;
   x: number; y: number; z: number; yaw: number;
   vx: number; vz: number;
   pitch: number; roll: number; steer: number;
-  mode: number; pose: number; flags: number; vehicle: number; color: number;
+  mode: number; pose: number; flags: number; vehicle: number; color: number; damage: number;
 }
 
-const blank = (): Sample => ({ t: 0, x: 0, y: 0, z: 0, yaw: 0, vx: 0, vz: 0, pitch: 0, roll: 0, steer: 0, mode: 0, pose: 0, flags: 0, vehicle: 0, color: 0 });
+const blank = (): Sample => ({ t: 0, x: 0, y: 0, z: 0, yaw: 0, vx: 0, vz: 0, pitch: 0, roll: 0, steer: 0, mode: 0, pose: 0, flags: 0, vehicle: 0, color: 0, damage: 0 });
 
 /** The same person in every browser: the look is made from the id and the name alone. */
 function lookFor(game: Game, id: number, name: readonly number[]): Look {
@@ -101,6 +115,8 @@ export class Remote {
   sayShown = false;
   /** The flags of the state frame being shown (PlayerFlag, and the weapon they have raised). */
   flags = 0;
+  /** How bent the car they are driving is, in the 16 steps of the wire (0 on foot). */
+  damage = 0;
   /** Stage 3, step 3 (fight.ts): the health they last told of, whether they are dead until they say otherwise, and the counts. */
   health = 100;
   dead = false;
@@ -229,7 +245,7 @@ export class Remote {
     const a = buf.length >= KEEP ? (buf.shift() as Sample) : blank();
     a.t = t; a.x = s.x; a.y = s.y; a.z = s.z; a.yaw = s.yaw; a.vx = s.vx; a.vz = s.vz;
     a.pitch = s.pitch; a.roll = s.roll; a.steer = s.steer;
-    a.mode = s.mode; a.pose = s.pose; a.flags = s.flags; a.vehicle = s.vehicle; a.color = s.color;
+    a.mode = s.mode; a.pose = s.pose; a.flags = s.flags; a.vehicle = s.vehicle; a.color = s.color; a.damage = s.damage;
     buf.push(a);
     // The horn is a flag in the state frame; each time it goes on is one to be heard.
     const hornOn = (s.flags & PlayerFlag.Horn) !== 0;
@@ -286,10 +302,15 @@ export class Remote {
     const per = this.person;
     let top: number;
     if (kind) {
-      if (this.car && this.car.spec.kind !== kind) { g.vehicles.unghost(this.car); this.car = null; }
+      // (Another kind, or a whole car where a burnt out one was shown: another car.)
+      if (this.car && (this.car.spec.kind !== kind || (this.car.wreck && c.damage < DAMAGE_WRECK))) { g.vehicles.unghost(this.car); this.car = null; }
       if (!this.car) this.car = g.vehicles.ghost(kind, c.color);
       const car = this.car;
-      car.color = c.color;
+      // Stage 3, step 4: as bent as its owner's browser says, which is what makes it steam, smoke and burn here.
+      showDamage(car, c.damage);
+      this.damage = c.damage;
+      if (!car.wreck) car.color = c.color;
+      else car.driver = null;
       g.vehicles.ghostPose(car, c.x, c.y, c.z, c.yaw, c.pitch, c.roll, c.steer, fwd,
         (c.flags & PlayerFlag.Braking) !== 0, (c.flags & PlayerFlag.Reversing) !== 0, dt);
       // As with the player's own car: hidden rather than sat inside (the roof of the lowest car is below a cap).
@@ -298,6 +319,7 @@ export class Remote {
       top = SPECS[kind].height + 0.3;
     } else {
       if (this.car) { g.vehicles.unghost(this.car); this.car = null; }
+      this.damage = 0;
       per.visible = true;
       per.x = c.x; per.y = c.y; per.z = c.z; per.h = c.yaw;
       per.pose = this.pose;

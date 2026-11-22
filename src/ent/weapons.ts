@@ -75,6 +75,12 @@ const BURN_AT = 20, FUSE = 4.5;
 const BLAST_R = 9, BLAST_DMG = 120;
 /** A wreck is tidied away once she is this far from it. */
 const WRECK_FAR = 150;
+/**
+ * Multiplayer: a car this browser is only shown gets its fire once she is this near, and loses it again past the
+ * second distance (fx/particles.ts draws no fire beyond 200 m anyway). A town can have fires all over it; the few
+ * fire emitters there are belong to the ones she can see.
+ */
+const FIRE_NEAR = 220, FIRE_FAR = 260;
 const ROCKET_V = 42;
 export const ROCKET_G = 7;
 /** The mode number sim/peds.ts uses for "lying in the road". It is not exported; keep in step with it. */
@@ -87,6 +93,23 @@ const NONE = 0, WALL = 1, GROUND = 2, WATER = 3, CAR = 4, BODY = 5;
 type Walker = Peds['walkers'][number];
 type Wreckable = Vehicle;
 interface Burn { v: Vehicle; fire: FireHandle; t: number; done: boolean }
+const NO_CARS: readonly Vehicle[] = [];
+
+/** The paint of a burnt out car. */
+const WRECK_COLOR = 0x15130f;
+const paintWas = new WeakMap<Vehicle, number>();
+/**
+ * Burnt out: black, dead, lamps off (vehicle.ts draws the soot). The ONE place a car is made a wreck: the fire here
+ * does it, and so does the network when another browser says a car it shows has burnt out (net/shared.ts, remote.ts).
+ */
+export function charCar(v: Vehicle): void {
+  if (!v.wreck) paintWas.set(v, v.color);
+  v.wreck = true; v.health = 0; v.color = WRECK_COLOR; v.lights = false;
+}
+/** The colour a car left the factory in: its own, or what it was before it burnt (the network names a car by it). */
+export function paintOf(v: Vehicle): number {
+  return v.wreck ? paintWas.get(v) ?? v.color : v.color;
+}
 interface Rocket { mesh: THREE.Mesh; live: boolean; x: number; y: number; z: number; vx: number; vy: number; vz: number; t: number }
 interface Pickup { x: number; y: number; z: number; slot: number; ammo: number; mesh: THREE.Object3D; wait: number; where: string }
 
@@ -115,10 +138,12 @@ export interface WeaponsNet {
   /** A punch thrown. */
   swing(): void;
   rocket(x: number, y: number, z: number, vx: number, vy: number, vz: number): void;
-  /** Something has gone off on this browser. */
-  blast(x: number, y: number, z: number, radius: number, damage: number): void;
+  /** Something has gone off on this browser. by: the player whose doing it was, when not this one (their number; 0 = nobody else's). */
+  blast(x: number, y: number, z: number, radius: number, damage: number, by: number): void;
   /** Is this browser the one that counts what happens to the town's cars and people? */
   hostsTown(): boolean;
+  /** Is no other player within r meters of here who is shown this browser's cars? (A wreck is not tidied away under somebody's nose.) */
+  nobodyNear(x: number, z: number, r: number): boolean;
 }
 
 let gunMats: { dark: THREE.Material; grip: THREE.Material; band: THREE.Material } | null = null;
@@ -208,6 +233,8 @@ export class Weapons {
   private readonly burns: Burn[] = [];
   private readonly rockets: Rocket[] = [];
   private readonly mine = new WeakSet<Vehicle>();
+  /** Multiplayer: the cars another player's rounds or blast last hurt, and whose (their number in town). */
+  private readonly theirs = new WeakMap<Vehicle, number>();
   private walkerOf: Map<Person, Walker> | null = null;
   private peds: Peds | null = null;
   /** Multiplayer: the town (net/fight.ts sets it while there is anybody else in it). */
@@ -528,7 +555,7 @@ export class Weapons {
           fx.sparks(hx, hy, hz, this.hnx, this.hny + 0.4, this.hnz, 5, 5);
           // (Another player's car, or one of the town's shown here: whoever counts its health is told.)
           if (this.net?.hitCar(v, dmg * CAR_SHARE)) { /* theirs */ }
-          else if (!(v as Wreckable).wreck) { v.health = Math.max(0, v.health - dmg * CAR_SHARE); this.mine.add(v); }
+          else if (!(v as Wreckable).wreck) { v.health = Math.max(0, v.health - dmg * CAR_SHARE); this.mine.add(v); this.theirs.delete(v); }
           this.hitT = g.time; this.hitDown = false;
           if (v.driver === 'ai' && this.crimeT < 0.3) this.crime('shotVehicle', hx, hz, 0.5);
           break;
@@ -725,8 +752,10 @@ export class Weapons {
    * a player and the car they drive, their own; the town's cars and people, the host's. The browser the blast went
    * off on (`from` 0) tells the others; they come here with `from` = that player's number, draw it, and take only
    * their own share. Alone, `from` is 0 and everything is this browser's, as it always was.
+   * `culprit`: the other player whose rounds set alight the car that is going up here (0 = none): the others are told,
+   * and what the blast does next is theirs too.
    */
-  explode(x: number, y: number, z: number, radius: number, damage: number, byPlayer: boolean, from = 0): void {
+  explode(x: number, y: number, z: number, radius: number, damage: number, byPlayer: boolean, from = 0, culprit = 0): void {
     const g = this.game, p = g.player, rng = this.rng, net = this.net;
     this.stats.blasts++;
     g.fx.emitters.explosion(x, y, z, radius / BLAST_R);
@@ -734,7 +763,7 @@ export class Weapons {
     g.cam.shake(clamp(1.3 - far / 40, 0, 1));
     // Somebody else's blast, and this browser is not the town's host: only its own player and car are its business.
     const world = from === 0 || (!!net && net.hostsTown());
-    this.blame = from;
+    this.blame = from || culprit;
 
     for (const v of g.vehicles.list) {
       // (A car shown here for the host is the host's to count.)
@@ -744,7 +773,7 @@ export class Weapons {
       if (d >= radius || Math.abs(v.y - y) > radius) continue;
       const f = 1 - d / radius, wreck = !!(v as Wreckable).wreck;
       if (c > 0.3) { nx /= c; nz /= c; } else { nx = 0; nz = 0; }
-      if (!wreck) { v.health = Math.max(0, v.health - damage * f * 0.9); if (byPlayer) this.mine.add(v); }
+      if (!wreck) { v.health = Math.max(0, v.health - damage * f * 0.9); this.hurtBy(v, byPlayer ? 0 : this.blame, byPlayer); }
       // Lighter cars are not thrown farther here: the contract gives no mass. Wrecks only rock.
       const k = f * (wreck ? 3 : 9);
       v.vx += nx * k; v.vz += nz * k; v.vy += 3.2 * f;
@@ -776,23 +805,44 @@ export class Weapons {
     this.evShot.x = x; this.evShot.z = z; this.evShot.loud = true;
     g.emit('shot', this.evShot);
     if (byPlayer) this.crime('explosion', x, z, 2);
-    if (from === 0) net?.blast(x, y, z, radius, damage);
+    if (from === 0) net?.blast(x, y, z, radius, damage, culprit);
   }
 
+  /** Whose doing a car's damage was, for when it goes up: this player's (mine), or another's (their number in town). The last to hurt it has it. */
+  private hurtBy(v: Vehicle, by: number, mine: boolean): void {
+    if (mine) { this.mine.add(v); this.theirs.delete(v); }
+    else if (by) { this.theirs.set(v, by); this.mine.delete(v); }
+  }
+  /** Multiplayer (net/fight.ts): another player's rounds have just taken health off this car, here where it is counted. */
+  blameCar(v: Vehicle, by: number): void { this.hurtBy(v, by, false); }
+  /** Multiplayer: a car this player set alight has gone up on another browser. The crime is the same as alone. */
+  blamed(x: number, z: number): void { this.crime('explosion', x, z, 2); }
+
+  /**
+   * Fire, the blast and the wreck. A car this browser counts (its own, and every car when alone or the host) burns
+   * by the rules here. A car it is only SHOWN (the host's, v.shared; another player's, from net.cars()) gets the same
+   * fire from the same health, as the network gives it, and never goes up of its own accord: it is a wreck when its
+   * owner says so (charCar, through the network), and the blast is the owner's Blast event.
+   */
   private burnCars(dt: number): void {
-    const g = this.game, p = g.player, cars = g.vehicles.list, burns = this.burns;
-    for (let i = 0; i < cars.length; i++) {
-      const v = cars[i] as Wreckable;
+    const g = this.game, p = g.player, cars = g.vehicles.list, burns = this.burns, net = this.net;
+    const others = net ? net.cars() : NO_CARS;
+    for (let i = 0; i < cars.length + others.length; i++) {
+      const v = (i < cars.length ? cars[i] : others[i - cars.length]) as Wreckable;
+      const told = !!v.shared || i >= cars.length;
       if (v.wreck) {
+        if (told) continue;
         const dx = v.x - p.x, dz = v.z - p.z;
-        if (dx * dx + dz * dz > WRECK_FAR * WRECK_FAR) { g.vehicles.remove(v); i--; }
+        if (dx * dx + dz * dz > WRECK_FAR * WRECK_FAR && (!net || net.nobodyNear(v.x, v.z, WRECK_FAR))) { g.vehicles.remove(v); i--; }
         continue;
       }
       if (v.health >= BURN_AT || v.sunk) continue;
+      if (told && (v.x - p.x) * (v.x - p.x) + (v.z - p.z) * (v.z - p.z) > FIRE_NEAR * FIRE_NEAR) continue;
       let known = false;
       for (let k = 0; k < burns.length; k++) if (burns[k].v === v) { known = true; break; }
       if (known) continue;
       burns.push({ v, fire: g.fx.emitters.fire(v.x, v.y + 1, v.z, 0.9), t: FUSE + this.rng.range(-0.8, 0.8), done: false });
+      if (told) continue;
       if (v.driver === 'ai') {
         // Whoever is at the wheel is out and running well before it goes up.
         v.driver = null;
@@ -805,18 +855,28 @@ export class Weapons {
     }
     for (let k = burns.length - 1; k >= 0; k--) {
       const b = burns[k], v = b.v as Wreckable, f = b.fire;
-      const gone = v.sunk || cars.indexOf(v) < 0;
+      const shown = cars.indexOf(v) < 0;
+      const told = !!v.shared || shown;
+      const gone = v.sunk || (shown && others.indexOf(v) < 0);
       b.t -= dt;
-      if (gone || (b.done && b.t <= 0)) { f.stop(); burns.splice(k, 1); continue; }
+      // (A shown car whose owner says it is not alight after all: mended, or another car under the same number. Or she has gone too far off to see it.)
+      const out = told && !b.done && ((!v.wreck && v.health >= BURN_AT) || (v.x - p.x) * (v.x - p.x) + (v.z - p.z) * (v.z - p.z) > FIRE_FAR * FIRE_FAR);
+      if (gone || (b.done && b.t <= 0) || out) { f.stop(); burns.splice(k, 1); continue; }
       // Over the engine: the front third.
       const s = Math.sin(v.h), c = Math.cos(v.h), at = b.done ? 0 : v.hl * 0.6;
       f.x = v.x + s * at; f.z = v.z + c * at; f.y = v.y + v.spec.height * (b.done ? 0.5 : 0.62);
-      if (b.done || b.t > 0) continue;
+      if (b.done) continue;
+      if (told) {
+        // Its owner's browser lights the fuse and says when: from then it burns out here as it does there.
+        if (v.wreck) { b.done = true; b.t = 9; f.scale = 1.5; }
+        continue;
+      }
+      if (b.t > 0) continue;
 
       b.done = true; b.t = 9;
       f.scale = 1.5;
       const inside = v.driver === 'player';
-      v.wreck = true; v.health = 0; v.color = 0x15130f; v.lights = false;
+      charCar(v);
       const byPlayer = this.mine.has(v);
       if (inside) {
         // Still at the wheel when it went: most of a health bar, and out through the door the hard way.
@@ -826,8 +886,14 @@ export class Weapons {
       }
       v.driver = null;
       v.vy += 4.5; v.yawRate += (this.rng.next() - 0.5) * 3;
-      this.explode(v.x, v.y + 0.7, v.z, BLAST_R, BLAST_DMG, byPlayer);
+      this.explode(v.x, v.y + 0.7, v.z, BLAST_R, BLAST_DMG, byPlayer, 0, byPlayer ? 0 : this.theirs.get(v) ?? 0);
     }
+  }
+
+  /** For the tests: every fire burning here: where, whether the car under it has burnt out, and whether it is one this browser is only shown. */
+  burnInfo(): { x: number; z: number; wreck: boolean; told: boolean }[] {
+    const cars = this.game.vehicles.list;
+    return this.burns.map((b) => ({ x: +b.v.x.toFixed(2), z: +b.v.z.toFixed(2), wreck: !!b.v.wreck, told: !!b.v.shared || cars.indexOf(b.v) < 0 }));
   }
 
   // ── Pickups ────────────────────────────────────────────────────────────────

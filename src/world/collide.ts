@@ -30,7 +30,7 @@ export class Colliders {
   private props = new Map<number, Prop[]>();
   private qid = 1;
   allBoxes: Box[] = [];
-  onBreak: ((p: Prop, vx: number, vz: number) => void) | null = null;
+  onBreak: ((p: Prop, vx: number, vz: number, quiet: boolean) => void) | null = null;
 
   addBox(x0: number, z0: number, x1: number, z1: number, y1: number, y0 = 0): Box {
     if (x0 > x1) [x0, x1] = [x1, x0];
@@ -61,10 +61,14 @@ export class Colliders {
     return p;
   }
 
-  breakProp(p: Prop, vx: number, vz: number): void {
+  /**
+   * quiet: it went down while nobody here was looking (multiplayer, net/props.ts: the town's broken props told to
+   * somebody who has just arrived). It is gone and lies where it fell, with no noise and nothing flying.
+   */
+  breakProp(p: Prop, vx: number, vz: number, quiet = false): void {
     if (!p.alive) return;
     p.alive = false;
-    this.onBreak?.(p, vx, vz);
+    this.onBreak?.(p, vx, vz, quiet);
   }
 
   forBoxes(x: number, z: number, r: number, fn: (b: Box) => void): void {

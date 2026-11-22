@@ -379,27 +379,38 @@ try {
     let done = false, detail = '';
     for (let attempt = 0; attempt < 4 && !done; attempt++) {
       for (const t of [P, Q]) await calm(t);
-      await Q.go(SPOT.x + 26, SPOT.z, -Math.PI / 2);
+      // A lane of its own each try: the car of a try that failed is left standing, and the next must not start inside it.
+      const z = SPOT.z + attempt * 4.5, qx = SPOT.x + 12;
+      await Q.go(qx, z, -Math.PI / 2);
       await Q.page.evaluate(() => { window.__game.game.player.health = 100; });
-      await P.go(SPOT.x, SPOT.z, Math.PI / 2);
+      await P.go(SPOT.x, z, Math.PI / 2);
       await P.page.evaluate(() => window.__game.drive('sedan'));
-      await sleep(1500);
-      const f0 = fightWire(P), q0 = await Q.net();
+      // (Until the victim is shown the car, standing where it starts.)
+      await Q.until((x) => x.remotes[0] && x.remotes[0].vehicle === 'sedan' && Math.abs(x.remotes[0].x - SPOT.x) < 1.5, 15000);
+      const f0 = fightWire(P), q0 = await Q.net(), p0 = await P.info(), t0 = Date.now();
       // Driven at Q at a steady 9 m/s (the speed is set outright: a pedal takes too long to bite at these frame rates).
       await P.page.evaluate(() => { const g = window.__game.game; window.__push = setInterval(() => { const v = g.player.vehicle; if (v) { v.vx = Math.sin(v.h) * 9; v.vz = Math.cos(v.h) * 9; } }, 40); });
-      let down = false, hq = 100;
-      for (const end = Date.now() + 25000; Date.now() < end;) {
-        const [pose, h] = await Promise.all([Q.page.evaluate(() => window.__game.game.player.person.pose), Q.info()]);
-        hq = Math.min(hq, h.health);
+      // The game's clock runs slower than the wall's here (a frame is at most a twentieth of a second of game, however
+      // long it took to draw), by a different amount every run: the wait ends when the car has gone past where they
+      // stood, not after a number of seconds. (It used to end after 25 s, which a slow host did not always make.)
+      let down = false, hq = 100, px = SPOT.x, seen = 0;
+      for (const end = Date.now() + 120000; Date.now() < end;) {
+        const [pose, h, pi, nq] = await Promise.all([Q.page.evaluate(() => window.__game.game.player.person.pose), Q.info(), P.info(), Q.net()]);
+        hq = Math.min(hq, h.health); px = pi.x;
+        if (nq.remotes[0]) seen = Math.max(seen, nq.remotes[0].speed);
         if (pose === 'down') down = true;
-        if (down && hq < 100) break;
+        if ((down && hq < 100) || px > qx + 10 || pi.vehicle === null) break;
         await sleep(100);
       }
       await P.page.evaluate(() => { clearInterval(window.__push); const v = window.__game.game.player.vehicle; if (v) { v.vx = 0; v.vz = 0; } });
-      const nq = await Q.net();
-      if (!down) { detail = `the car did not reach them (health ${hq})`; await P.go(SPOT.x, SPOT.z, Math.PI / 2); continue; }
+      const nq = await Q.net(), p1 = await P.info(), wall = (Date.now() - t0) / 1000;
+      if (!down) {
+        detail = `the car ${px > qx ? 'passed' : 'did not reach'} them (health ${hq}): it went from x ${SPOT.x.toFixed(1)} to ${px.toFixed(1)}, they stood at ${qx.toFixed(1)}; ${wall.toFixed(0)} s on the wall was ${(p1.time - p0.time).toFixed(1)} s of the driver's game; fastest the victim was shown it: ${seen.toFixed(1)} m/s; the victim is now at ${JSON.stringify(await Q.page.evaluate(() => { const p = window.__game.game.player; return [+p.x.toFixed(1), +p.z.toFixed(1), p.person.pose]; }))}`;
+        await P.go(SPOT.x, SPOT.z + 30, Math.PI / 2);
+        continue;
+      }
       done = true;
-      check(down && hq < 100, 'run over by another player\'s car: knocked down and hurt on their own browser', `${Q.tag}: down ${down}, health ${hq}`);
+      check(down && hq < 100, 'run over by another player\'s car: knocked down and hurt on their own browser', `${Q.tag}: down ${down}, health ${hq} (try ${attempt + 1}; ${wall.toFixed(0)} s on the wall, ${(p1.time - p0.time).toFixed(1)} s of the driver's game)`);
       check(fightWire(P) === f0 && nq.fight.claimsGot === q0.fight.claimsGot, 'and it took no message: the car is solid and moving on the victim\'s screen', `${fightWire(P) - f0} weapon frames from the driver, ${nq.fight.claimsGot - q0.fight.claimsGot} claims`);
     }
     if (!done) check(false, 'run over by another player\'s car: knocked down and hurt on their own browser', `4 tries; the last: ${detail}`);

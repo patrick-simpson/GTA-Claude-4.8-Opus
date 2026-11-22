@@ -176,8 +176,13 @@ export const KEEPALIVE_FRAME: Uint8Array = new Uint8Array([Frame.Keepalive]);
 // PROTOCOL_VERSION without touching the service.
 //   0 kind  1 id  2 t u16 (sender's clock ms, low 16 bits)  4 x f32  8 y f32  12 z f32  16 yaw u16
 //   18 vx i16 (cm/s)  20 vz i16 (cm/s)  22 mode u8  23 flags u8  24 vehicle u8  25 steer i8
-//   26 pitch i16  28 roll i16 (1/10000 rad)  30 colour u24  33 pose u8
+//   26 pitch i16  28 roll i16 (1/10000 rad)  30 colour u24  33 pose (low 3 bits) | damage (next 4 bits; stage 3, step 4)
+// The damage is the car's, in the same 16 steps as a traffic record's (see DAMAGE_BURN below): a pose never needed
+// more than 3 bits, so the frame is the same size and a page that does not know the damage reads a pose it does not
+// use while the sender is driving.
 export const PLAYER_STATE_BYTES = 34;
+export const POSE_MASK = 7;
+export const STATE_DAMAGE_SHIFT = 3;
 
 export const PlayerMode = { OnFoot: 0, Swimming: 1, Driving: 2, Passenger: 3, Down: 4 } as const;
 /**
@@ -218,10 +223,12 @@ export interface PlayerState {
   color: number;
   /** Index into POSES. */
   pose: number;
+  /** Driving: how bent the car is, 0..15 (damageNibble). 0 on foot. */
+  damage: number;
 }
 
 export function blankPlayerState(): PlayerState {
-  return { id: 0, t: 0, x: 0, y: 0, z: 0, yaw: 0, vx: 0, vz: 0, mode: 0, flags: 0, vehicle: 0, steer: 0, pitch: 0, roll: 0, color: 0, pose: 0 };
+  return { id: 0, t: 0, x: 0, y: 0, z: 0, yaw: 0, vx: 0, vz: 0, mode: 0, flags: 0, vehicle: 0, steer: 0, pitch: 0, roll: 0, color: 0, pose: 0, damage: 0 };
 }
 
 const TAU = Math.PI * 2;
@@ -254,7 +261,7 @@ export function encodePlayerState(s: PlayerState, out?: ArrayBuffer): ArrayBuffe
   d.setUint8(30, (c >> 16) & 0xff);
   d.setUint8(31, (c >> 8) & 0xff);
   d.setUint8(32, c & 0xff);
-  d.setUint8(33, s.pose & 0xff);
+  d.setUint8(33, (s.pose & POSE_MASK) | ((s.damage & 15) << STATE_DAMAGE_SHIFT));
   return buf;
 }
 
@@ -279,7 +286,9 @@ export function decodePlayerState(buf: ArrayBuffer, out?: PlayerState): PlayerSt
   s.pitch = d.getInt16(26, true) / 10000;
   s.roll = d.getInt16(28, true) / 10000;
   s.color = (d.getUint8(30) << 16) | (d.getUint8(31) << 8) | d.getUint8(32);
-  s.pose = d.getUint8(33);
+  const pd = d.getUint8(33);
+  s.pose = pd & POSE_MASK;
+  s.damage = (pd >> STATE_DAMAGE_SHIFT) & 15;
   if (!Number.isFinite(s.x) || !Number.isFinite(s.y) || !Number.isFinite(s.z)) return null;
   return s;
 }
@@ -288,7 +297,7 @@ export function decodePlayerState(buf: ArrayBuffer, out?: PlayerState): PlayerSt
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8 } as const;
 
 export function encodePlayerEvent(code: number, arg = 0): ArrayBuffer {
   const buf = makeFrame(Frame.Event, 2);
@@ -437,7 +446,7 @@ function healthByte(h: number): number {
 // ---- World frames (host only; the service relays them unread) ----
 //
 // Byte 2 says what the frame carries, so later steps can add streams (people, police) beside these.
-export const WorldKind = { Traffic: 1, Parked: 2, People: 3, Police: 4 } as const;
+export const WorldKind = { Traffic: 1, Parked: 2, People: 3, Police: 4, Props: 5 } as const;
 
 // Parked (stage 2, step 3): which of the town's parked cars are no longer in their places. Sent only when one
 // changes, whole when somebody arrives, and whole again every PARKED_REFRESH_MS in case anything was missed.
@@ -479,6 +488,22 @@ export const TRAFFIC_DAMAGE_SHIFT = 4;
 export function damageStep(health: number): number {
   const s = Math.ceil((100 - health) * 0.15 - 1e-6);
   return s > 15 ? 15 : s > 0 ? s : 0;
+}
+
+// Stage 3, step 4: the top of the same 16 steps says more than "bent", so that a fire and a wreck cost no new bytes.
+// A car under 20 health burns (ent/weapons.ts), and damageStep() of anything under 20 is 13 or more: so 13 and 14 are
+// "alight", and 15 is kept for "burnt out", which health alone cannot say (a car at 0 may still be burning).
+export const DAMAGE_BURN = 13;
+export const DAMAGE_WRECK = 15;
+/** What goes on the wire for a car: its health in steps, 15 only for a wreck. */
+export function damageNibble(health: number, wreck: boolean): number {
+  if (wreck) return DAMAGE_WRECK;
+  const s = damageStep(health);
+  return s >= DAMAGE_WRECK ? DAMAGE_WRECK - 1 : s;
+}
+/** The health to show for a step: the middle of the band damageStep() gives it, so it smokes and burns when the real one does. */
+export function stepHealth(step: number): number {
+  return step <= 0 ? 100 : step >= DAMAGE_WRECK ? 0 : 100 - (step - 0.5) / 0.15;
 }
 
 export interface TrafficCar {
@@ -961,13 +986,17 @@ export function decodeRocket(buf: ArrayBuffer): RocketMsg | null {
 //   or, from the host, one of the town's cars). Sent by the ONE browser on which it went off. Everybody draws it; every
 //   browser takes what it does to its own player and its own car; the HOST alone takes what it does to the town's
 //   cars and people, and they reach everybody through the frames that already carry them. So each thing is hurt once.
-//   0 kind  1 id  2 PlayerEvent.Blast  3 unused  4 x u16  6 z u16  8 y i16 (cm)  10 radius u8 (1/4 m)  11 damage u8
+//   0 kind  1 id  2 PlayerEvent.Blast  3 by u8  4 x u16  6 z u16  8 y i16 (cm)  10 radius u8 (1/4 m)  11 damage u8
+//   by (stage 3, step 4; the byte was unused, so 0 from an older page): the player whose rounds or rocket set the car
+//   alight that has now gone up on the sender's browser, when that was not the sender. Their own browser makes it
+//   their crime, as it would have been alone. 0 = nobody else's doing.
 export const BLAST_BYTES = 12;
-export interface BlastMsg { id: number; x: number; y: number; z: number; radius: number; damage: number }
-export function encodeBlast(x: number, y: number, z: number, radius: number, damage: number): ArrayBuffer {
+export interface BlastMsg { id: number; by: number; x: number; y: number; z: number; radius: number; damage: number }
+export function encodeBlast(x: number, y: number, z: number, radius: number, damage: number, by = 0): ArrayBuffer {
   const buf = makeFrame(Frame.Event, BLAST_BYTES - FRAME_HEADER_BYTES);
   const d = new DataView(buf);
   d.setUint8(2, PlayerEvent.Blast);
+  d.setUint8(3, by & 0xff);
   d.setUint16(4, clampU16((x - TRAFFIC_X0) / TRAFFIC_STEP), true);
   d.setUint16(6, clampU16((z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
   d.setInt16(8, clampI16(y * 100), true);
@@ -979,7 +1008,7 @@ export function decodeBlast(buf: ArrayBuffer): BlastMsg | null {
   if (buf.byteLength < BLAST_BYTES) return null;
   const d = new DataView(buf);
   if (d.getUint8(0) !== Frame.Event || d.getUint8(2) !== PlayerEvent.Blast) return null;
-  return { id: d.getUint8(1), x: d.getUint16(4, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(6, true) * TRAFFIC_STEP + TRAFFIC_Z0, y: d.getInt16(8, true) / 100, radius: d.getUint8(10) / 4, damage: d.getUint8(11) };
+  return { id: d.getUint8(1), by: d.getUint8(3), x: d.getUint16(4, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(6, true) * TRAFFIC_STEP + TRAFFIC_Z0, y: d.getInt16(8, true) / 100, radius: d.getUint8(10) / 4, damage: d.getUint8(11) };
 }
 
 // Vital (Event), 5 bytes: "this is the health I have left". Sent only when another player's claim has just been
@@ -1022,6 +1051,82 @@ export function decodeCarShot(buf: ArrayBuffer): CarShot | null {
   const d = new DataView(buf);
   if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.CarShot) return null;
   return { id: d.getUint8(1), cls: d.getUint8(3), car: d.getUint16(4, true), damage: d.getUint8(6) / 4 };
+}
+
+// ---- Fire, wrecks and breakable props (stage 3, step 4) ----
+//
+// Fire and wrecks add no frame of their own: see DAMAGE_BURN (the traffic records and the state frames) and the `by`
+// of a Blast. A wreck a player is thrown out of is handed to the host with the Leave it would have sent on getting
+// out, its damage saying "burnt out".
+//
+// Props (hydrants, bins, cones, posts, mailboxes, benches, lamps, signals): the street furniture a car knocks over.
+// Only in a town on the MAIN service. A prop has no number: every browser builds the same street from the same map,
+// so where it stands (to 5 cm) says which one it is, and a browser that never built that one loses nothing.
+// Breaking cannot be argued over (down is down, and nothing stands one up again), so nobody has to say yes: the
+// browser whose car knocked one over says so, and everybody knocks theirs over.
+//
+// Prop (Event), 6 + 4 per prop bytes: "my car (or, from the host, one of the town's) has just knocked these down".
+//   Gathered for PROP_MS, so a car through a row of cones is one frame, not six.
+//   0 kind (Frame.Event)  1 id  2 PlayerEvent.Prop  3 n u8 (1..PROP_EVENT_MAX)
+//   4 vx i8  5 vz i8 (half m/s: the way the car was going, for the way they fall and what flies off)
+//   6.. per prop: x u16  z u16 (5 cm steps from TRAFFIC_X0, TRAFFIC_Z0)
+// Props (World, WorldKind.Props), 5 + 4 per prop bytes: everything down in town, from the host, to somebody who was
+//   not there to see it fall. Sent once when somebody arrives (and never while nothing in town is broken); the props
+//   in it go down quietly, with no noise and nothing flying.
+//   0 kind (Frame.World)  1 id  2 WorldKind.Props  3 n u16  5.. per prop: x u16  z u16
+export const PROP_MS = 100;
+export const PROP_EVENT_MAX = 22;
+export const PROP_EVENT_HEADER_BYTES = 6;
+export const PROP_BYTES = 4;
+export const PROPS_HEADER_BYTES = 5;
+/** The most a town remembers (the newest): one World frame holds them all. */
+export const PROPS_MAX = 1000;
+/** A prop's place as the wire carries it: x in the high 16 bits, z in the low. */
+export function propKey(x: number, z: number): number {
+  return (clampU16((x - TRAFFIC_X0) / TRAFFIC_STEP) << 16 | clampU16((z - TRAFFIC_Z0) / TRAFFIC_STEP)) >>> 0;
+}
+export function propKeyX(k: number): number { return (k >>> 16) * TRAFFIC_STEP + TRAFFIC_X0; }
+export function propKeyZ(k: number): number { return (k & 0xffff) * TRAFFIC_STEP + TRAFFIC_Z0; }
+export interface PropMsg { id: number; vx: number; vz: number; keys: number[] }
+export function encodeProp(keys: readonly number[], n: number, vx: number, vz: number): ArrayBuffer {
+  const m = Math.min(n, PROP_EVENT_MAX);
+  const buf = makeFrame(Frame.Event, PROP_EVENT_HEADER_BYTES - FRAME_HEADER_BYTES + m * PROP_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, PlayerEvent.Prop); d.setUint8(3, m);
+  d.setInt8(4, clampI8(vx * 2)); d.setInt8(5, clampI8(vz * 2));
+  for (let i = 0, o = PROP_EVENT_HEADER_BYTES; i < m; i++, o += PROP_BYTES) d.setUint32(o, keys[i] >>> 0, false);
+  return buf;
+}
+export function decodeProp(buf: ArrayBuffer): PropMsg | null {
+  const len = buf.byteLength;
+  if (len < PROP_EVENT_HEADER_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.Event || d.getUint8(2) !== PlayerEvent.Prop) return null;
+  const n = d.getUint8(3);
+  if (n > PROP_EVENT_MAX || PROP_EVENT_HEADER_BYTES + n * PROP_BYTES > len) return null;
+  const keys: number[] = [];
+  for (let i = 0, o = PROP_EVENT_HEADER_BYTES; i < n; i++, o += PROP_BYTES) keys.push(d.getUint32(o, false));
+  return { id: d.getUint8(1), vx: d.getInt8(4) / 2, vz: d.getInt8(5) / 2, keys };
+}
+/** Returns the bytes used. `out` must hold PROPS_HEADER_BYTES + n * PROP_BYTES. */
+export function encodeProps(keys: readonly number[], n: number, out: Uint8Array): number {
+  const d = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  d.setUint8(0, Frame.World); d.setUint8(1, 0); d.setUint8(2, WorldKind.Props);
+  d.setUint16(3, n, true);
+  let o = PROPS_HEADER_BYTES;
+  for (let i = 0; i < n; i++, o += PROP_BYTES) d.setUint32(o, keys[i] >>> 0, false);
+  return o;
+}
+export function decodeProps(buf: ArrayBuffer): number[] | null {
+  const len = buf.byteLength;
+  if (len < PROPS_HEADER_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.World || d.getUint8(2) !== WorldKind.Props) return null;
+  const n = d.getUint16(3, true);
+  if (n > PROPS_MAX || PROPS_HEADER_BYTES + n * PROP_BYTES > len) return null;
+  const keys: number[] = [];
+  for (let i = 0, o = PROPS_HEADER_BYTES; i < n; i++, o += PROP_BYTES) keys.push(d.getUint32(o, false));
+  return keys;
 }
 
 // ---- JSON control messages ----
