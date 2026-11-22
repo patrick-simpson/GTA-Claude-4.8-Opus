@@ -88,6 +88,31 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 2, step 3, the same parked cars and taking a car: pushed Nov 21, about 9:10 PM ET
+
+What changed (main only; single player and the backup are as before):
+- Parked cars are the same for everyone. They are placed from the map with no messages. The host sends one bit per place for "empty", about 100 bytes every 20 s.
+- Any player can take a shared car, traffic or parked. The player asks the host; exactly one player gets it. It is then that player's own car.
+- A car a player leaves stays there for everyone, as a host standing car. Up to 40 are kept.
+- A pushed or dented parked car becomes a host standing car, seen by all.
+- Fixed on the way: a left car could overlap a parked car while both slept. The host now wakes it.
+- Protocol stays at version 4. New file src/net/cars.ts. New test tools/net/cars.mjs.
+
+Checked by the lead: tsc, build, server tests, cars (48, twice), traffic (30, twice), bump, two, solo, main, notices, social: ALL PASS. Production boot with net=0 shows "errors": []. Pictures cars-host and cars-guest match.
+The first hand in failed about half my runs. The worker found one game fault (above) and four test faults, and both tests then passed 4 in a row for the worker and 2 in a row for the lead.
+
+Still wrong or unseen:
+- In a shared town every browser parks 432 cars; low quality alone parks 217. Phone cost not measured. The number is PARKED_TOWN_SHARE.
+- Police are still private, and a host's private police can push town cars.
+- Wrecks are not shared: a burnt parked car vanishes for guests.
+- A left car shows no damage while another player drives it. A car left by someone who dropped out comes back at full health.
+- Tow truck and coupe paint shows as the first palette colour to third players.
+- Empty places never refill while the town lives. Mainland kerbs are still private.
+- Mission cars a player leaves become town cars.
+- The driver of a taken traffic car just vanishes.
+
+Models: top model built it (judgement). Lead checked it.
+
 ### Multiplayer stage 2, step 2, one signal clock and cars that bump: pushed Nov 21, about 5:30 PM ET
 
 What changed:

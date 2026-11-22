@@ -3,7 +3,7 @@
 // one promises). The frame order below is the only place that order matters.
 
 import * as THREE from 'three';
-import type { GameEvents, GameState, Quality } from './api';
+import type { GameEvents, GameState, ParkedSpot, Quality, Vehicle } from './api';
 import { Input } from './input';
 import { RNG } from './util';
 import { CityPlan } from '../world/plan';
@@ -11,7 +11,7 @@ import { Colliders } from '../world/collide';
 import { World } from '../world/world';
 import { Sky } from '../world/sky';
 import { Vehicles } from '../ent/vehicle';
-import { commonKind } from '../ent/vehicleSpecs';
+import { SPECS, commonKind } from '../ent/vehicleSpecs';
 import { People } from '../ent/character';
 import { Player } from '../ent/player';
 import { CameraRig } from './camera';
@@ -78,6 +78,13 @@ export class Game {
    * town's clock, the same in every browser there; on leaving, `signalShift` keeps the lamps where they were.
    */
   signalClock: (() => number) | null = null;
+  /** Every kerb place on the island and the car that belongs in it (placeStart), then the four cars the game opens with. */
+  readonly parkSpots: ParkedSpot[] = [];
+  /**
+   * Multiplayer (src/net/cars.ts): the player is at the door of a car that is the town's, not this browser's. Asks its
+   * keeper for it: 'wait' until the answer is in, 'no' when it is not to be had. Null alone: such a car has no door.
+   */
+  takeShared: ((v: Vehicle) => 'wait' | 'no') | null = null;
   signalShift = 0;
   get signalTime(): number { return this.signalClock ? this.signalClock() : this.time + this.signalShift; }
   /** Length of the step being simulated right now. */
@@ -195,31 +202,35 @@ export class Game {
     const feet = plan.sidewalkPoint(5, 6, 2, 0.45);
     const truck = plan.curbPoint(5, 6, 2, 0.45);
     const coupe = plan.curbPoint(5, 6, 2, 0.62);
-    this.vehicles.spawn('tow', truck.x, truck.z, truck.h, 0xe4572e);
-    this.vehicles.spawn('coupe', coupe.x, coupe.z, coupe.h, 0xf0a202);
+    const first = [this.vehicles.spawn('tow', truck.x, truck.z, truck.h, 0xe4572e), this.vehicles.spawn('coupe', coupe.x, coupe.z, coupe.h, 0xf0a202)];
     // The owner's car: a black 2017 Bolt at the same kerb, the first thing on the left as the game opens.
     const bolt = plan.curbPoint(5, 6, 2, 0.30);
-    this.vehicles.spawn('bolt', bolt.x, bolt.z, bolt.h, 0x0b0c0e);
+    first.push(this.vehicles.spawn('bolt', bolt.x, bolt.z, bolt.h, 0x0b0c0e));
     // The owner's other car: a grey 2015 C-Max, always parked at Mercy Park's kerb on Ledger St (the park's south side).
     const cmax = plan.curbPoint(6, 3, 2, 0.5);
-    this.vehicles.spawn('cmax', cmax.x, cmax.z, cmax.h, 0x474a48);
+    first.push(this.vehicles.spawn('cmax', cmax.x, cmax.z, cmax.h, 0x474a48));
     // A step out from the wall, so the opening camera has room behind her for a full-length boom.
     this.player.teleport(feet.x, feet.z + 0.9, 0);
 
     // Parked cars are part of the first impression, so they do not wait for the traffic milestone.
-    const rng = new RNG(4021);
+    // Every kerb place is noted with the car that belongs in it, parked here or not: in a shared town (src/net/cars.ts)
+    // every browser parks the same ones, and a car's place in this list is its number there.
+    const rng = new RNG(4021), spots = this.parkSpots, share = 0.55 * this.quality.density;
     for (const s of plan.parking) {
-      const keep = rng.chance(0.55 * this.quality.density);
+      let roll = rng.next();
       const kind = commonKind(rng.next());
       const tint = rng.next();
-      if (!keep) continue;
-      if (Math.abs(s.x - truck.x) < 16 && Math.abs(s.z - truck.z) < 16) continue;
-      if (Math.abs(s.x - coupe.x) < 9 && Math.abs(s.z - coupe.z) < 9) continue;
-      if (Math.abs(s.x - bolt.x) < 9 && Math.abs(s.z - bolt.z) < 9) continue;
-      if (Math.abs(s.x - cmax.x) < 9 && Math.abs(s.z - cmax.z) < 9) continue;
-      const v = this.vehicles.spawn(kind, s.x, s.z, s.h);
-      v.color = v.spec.colors[Math.floor(tint * v.spec.colors.length)];
+      const colors = SPECS[kind].colors;
+      const spot: ParkedSpot = { x: s.x, z: s.z, h: s.h, kind, color: colors[Math.floor(tint * colors.length)], roll, v: null };
+      spots.push(spot);
+      if ((Math.abs(s.x - truck.x) < 16 && Math.abs(s.z - truck.z) < 16) || (Math.abs(s.x - coupe.x) < 9 && Math.abs(s.z - coupe.z) < 9)
+        || (Math.abs(s.x - bolt.x) < 9 && Math.abs(s.z - bolt.z) < 9) || (Math.abs(s.x - cmax.x) < 9 && Math.abs(s.z - cmax.z) < 9)) roll = spot.roll = 2;
+      if (roll >= share) continue;
+      const v = spot.v = this.vehicles.spawn(kind, s.x, s.z, s.h);
+      v.color = spot.color;
     }
+    // The four that are always there, last in the list.
+    for (const v of first) spots.push({ x: v.x, z: v.z, h: v.h, kind: v.spec.kind, color: v.color, roll: 0, v });
   }
 
   // ── Events ─────────────────────────────────────────────────────────────────

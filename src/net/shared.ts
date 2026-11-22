@@ -37,7 +37,7 @@ import { KINDS, SPECS } from '../ent/vehicleSpecs';
 import { Ambient } from '../sim/ambient';
 import type { Anchor, RoadPed, Traffic } from '../sim/traffic';
 import {
-  CAR_HIT_BYTES, CAR_HIT_HZ, PlayerMode, TRAFFIC_CAR_BYTES, TRAFFIC_DAMAGE_SHIFT, TRAFFIC_HEADER_BYTES, TRAFFIC_MAX_CARS, TrafficFlag, WORLD_HZ, WorldKind,
+  CAR_HIT_BYTES, CAR_HIT_HZ, PlayerMode, TRAFFIC_CAR_BYTES, TRAFFIC_DAMAGE_SHIFT, TRAFFIC_HEADER_BYTES, TRAFFIC_MAX_CARS, ToHostKind, TrafficFlag, WORLD_HZ, WorldKind,
   blankTrafficCar, blankTrafficFrame, damageStep, decodeCarHit, decodeTraffic, encodeCarHit, encodeTraffic, frameSender, type TrafficCar,
 } from './protocol';
 import type { Connection } from './conn';
@@ -46,6 +46,8 @@ import { EXTRAP_MS, INTERP_MS, type Remote } from './remote';
 const SEND_MS = 1000 / WORLD_HZ;
 /** A car that has not changed is still sent whole this often, so nobody is left holding a stale one. */
 const REFRESH_MS = 1000;
+/** ...and a car nobody is in, standing where it was left, this often: there may be dozens, and they do not change. */
+const REFRESH_LEFT_MS = 8000;
 /** Frames further apart than this are a pause, not motion (as in remote.ts). */
 const GAP_MS = 450;
 const MOVE_MS = 100;
@@ -120,13 +122,25 @@ export class SharedTraffic {
   private readonly struck = new Map<number, { vx: number; vz: number; rx: number; rz: number }>();
   private hitAt = 0;
   private readonly hitFrom = new Map<number, number>();
+  // Stage 2, step 3 (cars.ts): the parked cars, and taking and leaving cars, hang on these.
+  /** This browser has changed between local, host and guest; the cars have already changed hands. */
+  onMode: ((was: 'local' | 'host' | 'guest', now: 'local' | 'host' | 'guest') => void) | null = null;
+  /** Host: about to send a traffic frame. Anything that must reach the others first goes now. */
+  onTick: ((now: number) => void) | null = null;
+  /** Guest: a World frame from the host that is not traffic. */
+  onWorld: ((buf: ArrayBuffer, now: number) => void) | null = null;
+  /** Host: a ToHost frame that is not a knock on a traffic car. */
+  onAsk: ((buf: ArrayBuffer, now: number) => void) | null = null;
+  /** Guest: this browser's car has struck a shared car that is not in the traffic frames. */
+  onOtherHit: ((b: Vehicle, cvx: number, cvz: number, rx: number, rz: number) => void) | null = null;
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>) {
     const amb = game.systems.find((s): s is Ambient => s instanceof Ambient);
     this.traffic = amb ? amb.traffic : null;
     game.vehicles.onSharedHit = (b, cvx, cvz, rx, rz) => {
       const s = this.byVeh.get(b);
-      if (!s || this.mode !== 'guest') return;
+      if (this.mode !== 'guest') return;
+      if (!s) { this.onOtherHit?.(b, cvx, cvz, rx, rz); return; }
       const h = this.struck.get(s.wid);
       if (h) { h.vx += cvx; h.vz += cvz; h.rx = rx; h.rz = rz; } else this.struck.set(s.wid, { vx: cvx, vz: cvz, rx, rz });
     };
@@ -166,6 +180,41 @@ export class SharedTraffic {
   /** Somebody has just arrived and knows nothing: the next frame carries every car whole. */
   refresh(): void { this.force = true; }
 
+  /** Is this browser in a town whose cars are shared (online on the main service)? */
+  get town(): boolean { return this.townOn; }
+  /** The traffic this browser simulates when it is the host or alone. */
+  get sim(): Traffic | null { return this.traffic; }
+
+  // ── Stage 2, step 3: one car changing between the host's and a player's (cars.ts) ──
+
+  /** Guest: the number a shown car has in the traffic frames, or 0 when it is not one of them. */
+  widOf(v: Vehicle): number { return this.byVeh.get(v)?.wid ?? 0; }
+  /** Guest: the shown car with this number. */
+  carOf(wid: number): Vehicle | null { return this.cars.get(wid)?.v ?? null; }
+  /** Guest: this shown car is this browser's own now (the host granted it): forget it without taking it off the street. */
+  claim(v: Vehicle): void {
+    const s = this.byVeh.get(v);
+    if (!s) return;
+    this.cars.delete(s.wid);
+    this.byVeh.delete(v);
+    this.struck.delete(s.wid);
+  }
+  /**
+   * Guest: a car that is already standing on this browser's street is, from now on, the host's car `wid` (a parked
+   * car that was pushed, or the car this player has just got out of). False when that number is already shown.
+   */
+  adoptShown(wid: number, v: Vehicle): boolean {
+    if (this.mode !== 'guest' || wid === 0 || this.cars.has(wid)) return false;
+    this.game.vehicles.setShared(v, true);
+    const s = this.show(wid, KINDS.indexOf(v.spec.kind), Math.max(0, v.spec.colors.indexOf(v.color)), v);
+    const a = blank();
+    a.t = performance.now(); a.x = v.x; a.y = v.y; a.z = v.z; a.yaw = v.h; a.pitch = v.pitch; a.roll = v.roll;
+    a.flags = TrafficFlag.Driverless | (damageStep(v.health) << TRAFFIC_DAMAGE_SHIFT);
+    s.buf.push(a);
+    Object.assign(s.cur, a);
+    return true;
+  }
+
   // ── Who drives ─────────────────────────────────────────────────────────────
 
   /** Work out which of the three this browser is now, and change over if that is new. */
@@ -196,6 +245,7 @@ export class SharedTraffic {
         this.stats.handovers++;
       } else tr.clearCars();
       this.clearHost();
+      this.onMode?.(was, want);
       return;
     }
     if (was === 'guest') {
@@ -211,6 +261,7 @@ export class SharedTraffic {
       this.stats.takeovers++;
     }
     if (want === 'host') { this.force = true; this.sendAt = 0; } else this.clearHost();
+    this.onMode?.(was, want);
   }
 
   /** Not (or no longer) simulating for anybody else. */
@@ -278,7 +329,7 @@ export class SharedTraffic {
       const r = recs[i];
       let s = sent.get(r.id);
       const b = s?.rec;
-      const same = !!b && !this.force && now - (s as Sent).at < REFRESH_MS + (r.id % 8) * 40
+      const same = !!b && !this.force && now - (s as Sent).at < ((r.flags & TrafficFlag.Driverless) !== 0 ? REFRESH_LEFT_MS : REFRESH_MS) + (r.id % 8) * 40
         && b.kind === r.kind && b.paint === r.paint && b.flags === r.flags && b.speed === 0 && r.speed === 0
         && Math.abs(b.x - r.x) < 0.03 && Math.abs(b.z - r.z) < 0.03 && Math.abs(b.y - r.y) < 0.03
         && Math.abs(angleDiff(b.yaw, r.yaw)) < 0.004 && Math.abs(b.steer - r.steer) < 0.08
@@ -335,6 +386,7 @@ export class SharedTraffic {
   toHost(buf: ArrayBuffer, now: number): void {
     const tr = this.traffic;
     if (this.mode !== 'host' || !tr) return;
+    if (buf.byteLength > 2 && new Uint8Array(buf, 2, 1)[0] !== ToHostKind.CarHit) { this.onAsk?.(buf, now); return; }
     const h = decodeCarHit(buf);
     if (!h) return;
     this.stats.hitsGot++;
@@ -354,11 +406,13 @@ export class SharedTraffic {
 
   /** A World frame. now: this browser's clock, ms. */
   frame(buf: ArrayBuffer, now: number): void {
-    if (buf.byteLength < 3 || new Uint8Array(buf, 2, 1)[0] !== WorldKind.Traffic) return;
+    if (buf.byteLength < 3) return;
+    const what = new Uint8Array(buf, 2, 1)[0];
     this.clock(now);
     this.sync();
     // Only the host's, and only while this browser is showing them.
     if (this.mode !== 'guest' || frameSender(buf) !== this.conn.host) return;
+    if (what !== WorldKind.Traffic) { this.onWorld?.(buf, now); return; }
     const f = this.inFrame;
     if (!decodeTraffic(buf, f)) return;
     this.stats.framesGot++; this.stats.bytesGot += buf.byteLength;
@@ -473,10 +527,12 @@ export class SharedTraffic {
     this.sync();
     if (this.mode === 'host') {
       this.watch();
-      if (now - this.sendAt >= SEND_MS - 4) { this.sendAt = now; this.send(now); }
+      if (now - this.sendAt >= SEND_MS - 4) { this.sendAt = now; this.onTick?.(now); this.send(now); }
     } else if (this.mode === 'guest') {
       this.report(now);
       for (const s of this.cars.values()) {
+        // Something on this side took it off the street (a reset tows bent cars): the host's next whole record puts it back.
+        if (s.v.removed) { this.unshow(s); continue; }
         this.sample(s, now);
         this.place(s, s.cur, dt);
       }

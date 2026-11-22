@@ -54,8 +54,9 @@ async function visitor(tag, query, size = [480, 270]) {
   open.push(t);
   t.tag = tag;
   // Every binary frame this page sends that is a World frame (first byte 2), counted on the wire itself.
-  t.worldOut = 0;
-  t.page.on('websocket', (ws) => ws.on('framesent', (f) => { const p = f.payload; if (typeof p !== 'string' && p.length > 0 && p[0] === 2) t.worldOut++; }));
+  // World frames of any sort, and those of them that are traffic (since stage 2, step 3 a few are about the parked cars).
+  t.worldOut = 0; t.trafficOut = 0;
+  t.page.on('websocket', (ws) => ws.on('framesent', (f) => { const p = f.payload; if (typeof p !== 'string' && p.length > 0 && p[0] === 2) { t.worldOut++; if (p[2] === 1) t.trafficOut++; } }));
   t.net = () => t.page.evaluate(() => window.__game.net());
   t.info = () => t.page.evaluate(() => window.__game.info());
   t.until = async (fn, ms = 45000) => { const end = Date.now() + ms; for (;;) { const n = await t.net(); if (fn(n)) return n; if (Date.now() > end) return null; await sleep(200); } };
@@ -163,9 +164,12 @@ try {
 
   // ── 3. Thirty seconds of an ordinary town: what it costs ──
   {
-    const [a0, b0] = await both(A, B), w0 = A.worldOut + B.worldOut;
+    // The pages' own counts and the count on the wire cannot be read in the same instant (a frame may go out between
+    // the two readings), so the wire is read either side of each: the pages' count must lie between what the wire says.
+    const wire = () => A.trafficOut + B.trafficOut;
+    const w0a = wire(), [a0, b0] = await both(A, B), w0b = wire();
     await sleep(30000);
-    const [a1, b1] = await both(A, B);
+    const w1a = wire(), [a1, b1] = await both(A, B), w1b = wire();
     const d = (k, f) => f(a1) - f(a0) + (k ? f(b1) - f(b0) : 0);
     const frames = d(1, (x) => x.traffic.framesSent), bytes = d(1, (x) => x.traffic.bytesSent), got = d(1, (x) => x.traffic.framesGot);
     const changes = d(1, (x) => x.traffic.takeovers);
@@ -173,7 +177,7 @@ try {
     const cars = Math.max(a1.traffic.cars.length, b1.traffic.cars.length);
     console.log(`  30 s, two players, ${cars} shared cars: ${frames} World frames, ${bytes} bytes sent by the host (${(bytes / 30).toFixed(0)} bytes/s, ${(bytes / Math.max(1, frames)).toFixed(0)} per frame, ${(frames / 30).toFixed(1)} frames/s); the host changed ${changes} time(s)`);
     console.log(`  everything, both players together: ${sentM} messages and ${sentB} bytes sent (${(sentM / 30).toFixed(1)} messages/s, ${(sentB / 30).toFixed(0)} bytes/s), ${gotM} messages and ${gotB} bytes received`);
-    check(frames > 0 && frames <= 30 * 10 + 5 && A.worldOut + B.worldOut - w0 === frames, 'World frames: ten a second or fewer', `${frames} in 30 s, ${A.worldOut + B.worldOut - w0} seen on the wire`);
+    check(frames > 0 && frames <= 30 * 10 + 5 && w1b - w0a <= 30 * 10 + 5 && frames >= w1a - w0b && frames <= w1b - w0a, 'World frames: ten a second or fewer, and the page\'s count is the wire\'s', `${frames} in 30 s by the host's count; between ${w1a - w0b} and ${w1b - w0a} seen on the wire in that time`);
     check(got >= frames * 0.9, 'and the guest receives them', `${got} of ${frames}`);
     check(sentM / 30 < 40, 'both players together stay inside one player\'s rate limit (40 messages a second)', `${(sentM / 30).toFixed(1)} a second`);
   }
@@ -200,15 +204,23 @@ try {
 
   // ── 5. The guest's own car is stopped by a shared car ──
   {
-    let done = false, detail = 'no standing car found to drive at';
+    let done = false, detail = 'no standing car found to drive at', base = null;
     for (let attempt = 0; attempt < 10 && !done; attempt++) {
       r = await roles([A, B]);
       if (!r) { await sleep(500); continue; }
       const G = r.guests[0];
-      const ng0 = await G.until((x) => x.traffic.mode === 'guest' && x.traffic.cars.some((c) => c.speed === 0 && c.driver === 'ai'), 30000);
-      if (!ng0) continue;
-      const gi0 = await G.info();
-      const c = ng0.traffic.cars.filter((k) => k.speed === 0 && k.driver === 'ai').sort((p, q) => dist(p, gi0) - dist(q, gi0))[attempt % 2] ?? ng0.traffic.cars.find((k) => k.speed === 0);
+      // The test stands the car itself, so that nothing depends on which of the host's drivers happens to be waiting
+      // where: the host's player leaves a sedan in the guest's street, which makes it one of the town's standing cars in
+      // the traffic frames (stage 2, step 3), shown and solid on the guest like every other. Then the host goes back.
+      const gi0 = base ?? (base = await G.info()), hi0 = await r.host.info();
+      const px = (gi0.x < 0 ? gi0.x + 26 : gi0.x - 40) + attempt * 7, pz = gi0.z;
+      await r.host.go(px, pz, Math.PI / 2);
+      await r.host.page.evaluate(() => { window.__game.drive('sedan'); window.__game.game.player.exit(); });
+      const there = (x) => x.traffic.cars.find((k) => k.driver === null && k.kind === 'sedan' && Math.hypot(k.x - px, k.z - pz) < 4);
+      const ng0 = await G.until((x) => x.traffic.mode === 'guest' && !!there(x), 20000);
+      await r.host.go(hi0.x, hi0.z, hi0.h);
+      if (!ng0) { detail = 'the car the host left was not shown to the guest'; continue; }
+      const c = there(ng0);
       const s = Math.sin(c.h), co = Math.cos(c.h), start = { x: c.x - s * 12, z: c.z - co * 12 };
       await G.go(start.x, start.z, c.h);
       await G.page.evaluate(() => window.__game.drive('sedan'));
@@ -238,7 +250,9 @@ try {
       if (!guest) { detail = 'the host changed in the middle'; continue; }
       // (Since stage 2, step 2 the host shoves the car that was struck and its driver may make off: tools/net/bump.mjs
       // checks that. Here it only matters that the guest met it and did not go through it.)
-      if (left && !met) { detail = 'the car drove off before it was reached'; continue; }
+      // (A knock counted while still far from the car was some other car running into the guest's from behind: try again.)
+      if (left && (!met || minAlong > 6)) { detail = 'the car was moved away before the guest reached it'; continue; }
+      if (!left && held < 3) { detail = `the guest's car neither reached the car nor was held (${moved.toFixed(1)} m driven)`; continue; }
       done = true;
       // (12 m between centres at the start; nose to tail they touch at about 4.5. Through a car that is not solid it would reach 0 and go negative.)
       check(moved > 3 && minAlong > 2.5 && (held >= 3 || (left && met)), 'the guest\'s own car is stopped by a shared car', `${G.tag} drove ${moved.toFixed(1)} m at full throttle, never nearer than ${minAlong.toFixed(2)} m centre to centre, then ${left ? 'the struck car made off' : 'went nowhere'}`);

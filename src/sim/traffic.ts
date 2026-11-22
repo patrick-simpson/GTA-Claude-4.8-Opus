@@ -18,6 +18,8 @@ import { RNG, TAU, clamp } from '../core/util';
 import { RAMPS, type District, type RoadEdge, type RoadNode } from '../world/plan';
 import { SPECS, commonKind, type VehicleKind } from '../ent/vehicleSpecs';
 
+/** The most left and pushed cars the town keeps wherever they stand; past this the ones nobody can see are towed. */
+const KEPT_MAX = 40;
 /** Head count at full density. */
 const CARS = 24;
 /** Nose to junction box when stopped at the line. */
@@ -132,6 +134,8 @@ export class Traffic {
   private readonly widUsed = new Uint8Array(256);
   private lastWid = 0;
   private readonly orphanWid = new Map<Vehicle, number>();
+  /** Standing cars that are the town's to keep (a player left it, or it was a parked car): not tidied away for being far off. */
+  private readonly kept = new Set<Vehicle>();
   private balanceT = 0;
 
   private readonly rng = new RNG(60312);
@@ -296,7 +300,8 @@ export class Traffic {
       let d2 = Infinity;
       for (const a of anchors) { const dx = v.x - a.x, dz = v.z - a.z; d2 = Math.min(d2, dx * dx + dz * dz); }
       if (gone) { o.splice(i, 1); this.dropOrphan(v); }
-      else if (d2 > 230 * 230 || (o.length > 6 && this.unseen(v.x, v.z, 60, 130))) {
+      // (A car a player left stays for the town, unless there are a great many of them.)
+      else if (this.kept.has(v) ? this.kept.size > KEPT_MAX && this.unseen(v.x, v.z, 60, 130) : d2 > 230 * 230 || (o.length - this.kept.size > 6 && this.unseen(v.x, v.z, 60, 130))) {
         o.splice(i, 1); this.dropOrphan(v); g.vehicles.remove(v);
       }
     }
@@ -340,6 +345,39 @@ export class Traffic {
   private dropOrphan(v: Vehicle): void {
     const w = this.orphanWid.get(v);
     if (w !== undefined) { this.widUsed[w] = 0; this.orphanWid.delete(v); }
+    this.kept.delete(v);
+  }
+
+  /**
+   * A car that is on the street with nobody in it becomes one of the town's standing cars, with a number of its own:
+   * a player has got out of it, or it was parked and has been pushed. Returns the number, or 0 when there is none left.
+   */
+  abandon(v: Vehicle): number {
+    const had = this.orphanWid.get(v);
+    if (had !== undefined) return had;
+    let free = false;
+    for (let id = 1; id < 256 && !free; id++) free = !this.widUsed[id];
+    if (!free) return 0;
+    const w = this.newWid();
+    if (this.orphans.indexOf(v) < 0) this.orphans.push(v);
+    this.orphanWid.set(v, w);
+    this.kept.add(v);
+    return w;
+  }
+
+  /** The shared car with this number, if there is one. */
+  find(wid: number): Vehicle | null {
+    let car: Vehicle | null = null;
+    this.eachShared((w, v) => { if (w === wid) car = v; });
+    return car;
+  }
+
+  /** Another player is taking this car: let go of it (its driver, its number). The caller takes it off the street. */
+  give(v: Vehicle): void {
+    const d = this.byVeh.get(v);
+    if (d) { this.release(d); return; }
+    const i = this.orphans.indexOf(v);
+    if (i >= 0) { this.orphans.splice(i, 1); this.dropOrphan(v); }
   }
 
   /** Every car the rest of the town should see: those being driven, then those their drivers walked away from. */
@@ -382,6 +420,7 @@ export class Traffic {
       this.orphans.push(v);
       this.orphanWid.set(v, wid);
       this.widUsed[wid] = 1;
+      this.kept.add(v);
       return true;
     }
     let d: Driver | null = null;

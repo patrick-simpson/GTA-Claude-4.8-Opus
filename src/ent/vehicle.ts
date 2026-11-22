@@ -190,6 +190,7 @@ class Car implements Vehicle {
 
   /** Placed by the network, not by physics (src/net/shared.ts): solid and immovable. See Vehicles.setShared. */
   shared = false;
+  removed = false;
   /** Another player's car (src/net/remote.ts): placed by the network, solid, and never moved from here. See Vehicles.ghost. */
   puppet = false;
   /** Multiplayer host: when a guest's reported knock last landed on this car, and what its own shown car has knocked out of it lately. */
@@ -802,6 +803,7 @@ export class Vehicles implements VehiclesApi {
   remove(v: Vehicle): void {
     const i = this.cars.indexOf(v as Car);
     if (i >= 0) this.cars.splice(i, 1);
+    (v as Car).removed = true;
   }
 
   // ── Ghosts (src/net/): another player's car, drawn from what their browser sends ──────────────────────────────
@@ -856,6 +858,16 @@ export class Vehicles implements VehiclesApi {
     c.susp = c.suspV = c.rollV = c.pitchV = 0;
     c.braking = c.reversing = false;
   }
+
+  /**
+   * A standing car that has just been put on the street where something else may already be (the host standing a car
+   * another player left): awake for a moment, so that anything it overlaps is pushed clear now, where it can be seen,
+   * and not whenever one of the two next happens to be woken.
+   */
+  wake(v: Vehicle): void { const c = v as Car; c.asleep = false; c.rest = 0; c.stale = true; }
+
+  /** A standing car goes back to sleep exactly where it is (a parked car handed back to this browser's physics). */
+  park(v: Vehicle): void { this.seat(v as Car); }
 
   /** Place a ghost or a shared car for this frame. steer: -1..1 as in VehicleControls; speed: signed, along the nose. */
   ghostPose(v: Vehicle, x: number, y: number, z: number, h: number, pitch: number, roll: number, steer: number, speed: number, braking: boolean, reversing: boolean, dt: number): void {

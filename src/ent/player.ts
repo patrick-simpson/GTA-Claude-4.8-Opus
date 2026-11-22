@@ -545,8 +545,8 @@ export class Player implements PlayerApi {
     let best: Vehicle | null = null, bd = REACH;
     for (let i = 0; i < list.length; i++) {
       const v = list[i];
-      // (A shared traffic car has its driver in another browser: there is no door to open here yet.)
-      if (v.sunk || v.wreck || v.shared) continue;
+      // (A car that is the town's is asked for at its door: toDoor. Where nobody can be asked it has no door.)
+      if (v.sunk || v.wreck || (v.shared && !this.game.takeShared)) continue;
       const dx = per.x - v.x, dz = per.z - v.z;
       const far = REACH + v.hl + v.hw;
       if (dx * dx + dz * dz > far * far || Math.abs(v.y - per.y) > 2.5) continue;
@@ -557,6 +557,9 @@ export class Player implements PlayerApi {
     }
     return best;
   }
+
+  /** The car she is on her way to the door of, if any. */
+  get goingTo(): Vehicle | null { return this.mode === 'enter' ? this.goal : null; }
 
   private listed(v: Vehicle): boolean { return this.game.vehicles.list.indexOf(v) >= 0; }
 
@@ -569,7 +572,17 @@ export class Player implements PlayerApi {
     const left = Math.hypot(d.x - per.x, d.z - per.z);
     if (left > 9) { this.mode = 'foot'; this.goal = null; return; }   // it drove off without her
     // The second test is the way out when something she cannot get round is in the way.
-    if (left < 0.3 || this.t > this.dur + 0.8) { this.seat(v); return; }
+    if (left < 0.3 || this.t > this.dur + 0.8) {
+      if (v.shared) {
+        // The town's car, kept in another browser: ask for it, and stand at the door until the answer is in.
+        const ask = this.game.takeShared, say = ask ? ask(v) : 'no';
+        if (say === 'no') { this.mode = 'foot'; this.goal = null; return; }
+        per.speed = 0; per.pose = 'stand';
+        return;
+      }
+      this.seat(v);
+      return;
+    }
 
     // Standing in front of the bumper or behind the trunk, the straight line to
     // a door cuts the corner of the car. Go to a point off that corner first.

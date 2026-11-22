@@ -105,12 +105,25 @@ export interface Vehicle {
   sunk: boolean;
   /** Multiplayer: one of the town's traffic cars as the host's browser simulates it, drawn and solid here but not this browser's to drive, damage or remove. */
   readonly shared?: boolean;
+  /** Taken off the streets for good (Vehicles.remove): anything still holding it should let go. */
+  readonly removed?: boolean;
   /** Burnt out by fire and explosion (ent/weapons.ts): driverless, inert, cannot be entered, removed once the player is far away. */
   wreck?: boolean;
   /** Half length and half width of the collision box, meters. */
   readonly hl: number; readonly hw: number;
   /** Where a person stands to use a door. side: -1 = left (driver), +1 = right. */
   doorPos(side: -1 | 1, out: { x: number; z: number }): void;
+}
+
+/** A kerb place on the island and the car that belongs in it (Game.parkSpots). */
+export interface ParkedSpot {
+  x: number; z: number; h: number;
+  kind: VehicleKind;
+  color: number;
+  /** 0..1, fixed for the place: a car is parked here when this is under the share of places in use. 2 = never (it would block the opening scene). */
+  roll: number;
+  /** The car, while it is this browser's to know about and still the place's own. */
+  v: Vehicle | null;
 }
 
 export interface VehiclesApi {

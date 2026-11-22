@@ -299,8 +299,9 @@ export function decodePlayerEvent(buf: ArrayBuffer): { id: number; code: number;
 
 // ---- ToHost frames (any guest; the service hands them to the host unread) ----
 //
-// Byte 2 says what the frame asks. Stage 2, step 2 has one: "my car has just struck your car N".
-export const ToHostKind = { CarHit: 1 } as const;
+// Byte 2 says what the frame asks. Stage 2, step 2 has one: "my car has just struck your car N". Step 3 adds three
+// (below, "Taking and leaving cars"); a host of an older page of this version ignores a kind it does not know.
+export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4 } as const;
 // CarHit, 10 bytes: 0 kind (Frame.ToHost)  1 id  2 ToHostKind.CarHit  3 car u8 (its number in the World frames)
 //   4 vx i16  6 vz i16 (cm/s: how fast the two closed, pointing from the striker into the car)
 //   8 rx i8  9 rz i8 (the point of contact from the car's middle, 5 cm steps)
@@ -328,10 +329,121 @@ export function decodeCarHit(buf: ArrayBuffer): CarHit | null {
   return { id: d.getUint8(1), car: d.getUint8(3), vx: d.getInt16(4, true) / 100, vz: d.getInt16(6, true) / 100, rx: d.getInt8(8) / 20, rz: d.getInt8(9) / 20 };
 }
 
+// ---- Taking and leaving cars (stage 2, step 3) ----
+//
+// A town's cars are numbered two ways. A car in the World traffic frames (driven, or left standing) has a u8 there.
+// A parked car that nobody has touched is not on the wire at all: every browser parks the same cars in the same
+// places from the map, and its number is its place in that list (a u16, CarClass.Parked).
+export const CarClass = { Traffic: 0, Parked: 1 } as const;
+
+// ParkHit, 11 bytes: as CarHit, for a parked car nobody has touched yet.
+//   0 kind (Frame.ToHost)  1 id  2 ToHostKind.ParkHit  3 place u16  5 vx i16  7 vz i16  9 rx i8  10 rz i8
+export const PARK_HIT_BYTES = 11;
+export function encodeParkHit(place: number, vx: number, vz: number, rx: number, rz: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, PARK_HIT_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.ParkHit);
+  d.setUint16(3, place & 0xffff, true);
+  d.setInt16(5, clampI16(vx * 100), true);
+  d.setInt16(7, clampI16(vz * 100), true);
+  d.setInt8(9, clampI8(rx * 20));
+  d.setInt8(10, clampI8(rz * 20));
+  return buf;
+}
+export function decodeParkHit(buf: ArrayBuffer): CarHit | null {
+  if (buf.byteLength < PARK_HIT_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.ParkHit) return null;
+  return { id: d.getUint8(1), car: d.getUint16(3, true), vx: d.getInt16(5, true) / 100, vz: d.getInt16(7, true) / 100, rx: d.getInt8(9) / 20, rz: d.getInt8(10) / 20 };
+}
+
+// Take, 6 bytes: "I am at the door of this car and want to drive it".
+//   0 kind (Frame.ToHost)  1 id  2 ToHostKind.Take  3 CarClass  4 car u16
+// The host answers that player alone with a Grant, yes or no. On yes the car is gone from the host's streets and is
+// the asker's own from then on, seen by the others through the asker's State frames.
+export const TAKE_BYTES = 6;
+export interface CarAsk { id: number; cls: number; car: number }
+export function encodeTake(cls: number, car: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, TAKE_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.Take);
+  d.setUint8(3, cls & 0xff);
+  d.setUint16(4, car & 0xffff, true);
+  return buf;
+}
+export function decodeTake(buf: ArrayBuffer): CarAsk | null {
+  if (buf.byteLength < TAKE_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.Take) return null;
+  return { id: d.getUint8(1), cls: d.getUint8(3), car: d.getUint16(4, true) };
+}
+
+// Leave, 20 bytes: "I have got out of my car; it is yours to show the town now".
+//   0 kind (Frame.ToHost)  1 id  2 ToHostKind.Leave  3 token u8 (the asker's own count, echoed in the answer)
+//   4.. one traffic record (TRAFFIC_CAR_BYTES, its id byte unused)  19 health u8 (0..200 = 0..100)
+// The host puts a standing car there, gives it a number and answers with Left.
+export const LEAVE_BYTES = 20;
+export interface CarLeft { id: number; token: number; car: TrafficCar; health: number }
+
+// ---- ToPlayer frames (the host to one player; the service lets nobody else send them) ----
+export const ToPlayerKind = { Grant: 1, Left: 2 } as const;
+// Grant, 8 bytes: 0 kind (Frame.ToPlayer)  1 id (the host's)  2 ToPlayerKind.Grant  3 CarClass  4 car u16
+//   6 ok u8 (0 = somebody else has it, or it has gone)  7 health u8 (0..200)
+export const GRANT_BYTES = 8;
+export interface CarGrant { from: number; cls: number; car: number; ok: boolean; health: number }
+export function encodeGrant(to: number, cls: number, car: number, ok: boolean, health: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToPlayer, GRANT_BYTES - FRAME_HEADER_BYTES, to);
+  const d = new DataView(buf);
+  d.setUint8(2, ToPlayerKind.Grant);
+  d.setUint8(3, cls & 0xff);
+  d.setUint16(4, car & 0xffff, true);
+  d.setUint8(6, ok ? 1 : 0);
+  d.setUint8(7, healthByte(health));
+  return buf;
+}
+export function decodeGrant(buf: ArrayBuffer): CarGrant | null {
+  if (buf.byteLength < GRANT_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToPlayer || d.getUint8(2) !== ToPlayerKind.Grant) return null;
+  return { from: d.getUint8(1), cls: d.getUint8(3), car: d.getUint16(4, true), ok: d.getUint8(6) === 1, health: d.getUint8(7) / 2 };
+}
+// Left, 5 bytes: 0 kind (Frame.ToPlayer)  1 id (the host's)  2 ToPlayerKind.Left  3 token  4 the car's number in the
+//   traffic frames from now on (0 = there was no number to give: it stays a private car on the asker's screen)
+export const LEFT_BYTES = 5;
+export function encodeLeft(to: number, token: number, car: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToPlayer, LEFT_BYTES - FRAME_HEADER_BYTES, to);
+  const u8 = new Uint8Array(buf);
+  u8[2] = ToPlayerKind.Left; u8[3] = token & 0xff; u8[4] = car & 0xff;
+  return buf;
+}
+export function decodeLeft(buf: ArrayBuffer): { from: number; token: number; car: number } | null {
+  if (buf.byteLength < LEFT_BYTES) return null;
+  const u8 = new Uint8Array(buf);
+  if (u8[0] !== Frame.ToPlayer || u8[2] !== ToPlayerKind.Left) return null;
+  return { from: u8[1], token: u8[3], car: u8[4] };
+}
+function healthByte(h: number): number {
+  const v = Math.round(h * 2);
+  return v > 200 ? 200 : v > 0 ? v : 0;
+}
+
 // ---- World frames (host only; the service relays them unread) ----
 //
-// Byte 2 says what the frame carries, so later steps can add streams (parked cars, people, police) beside this one.
-export const WorldKind = { Traffic: 1 } as const;
+// Byte 2 says what the frame carries, so later steps can add streams (people, police) beside these.
+export const WorldKind = { Traffic: 1, Parked: 2 } as const;
+
+// Parked (stage 2, step 3): which of the town's parked cars are no longer in their places. Sent only when one
+// changes, whole when somebody arrives, and whole again every PARKED_REFRESH_MS in case anything was missed.
+//   0 kind (Frame.World)  1 id  2 WorldKind.Parked  3 n u8
+//   4.. n changes of 3 bytes: place u16, then the number the car now has in the traffic frames (it was pushed or
+//       dented, and is one of the host's standing cars now) or 0 (taken, sunk, towed: simply gone from its place)
+//   then, in a whole frame, one bit per place to the end of the frame: 1 = not in its place
+export const PARKED_HEADER_BYTES = 4;
+export const PARKED_CHANGE_BYTES = 3;
+export const PARKED_MAX_CHANGES = 255;
+export const PARKED_REFRESH_MS = 20000;
+/** The share of kerb places that hold a car in a shared town, whatever each browser's own quality setting. */
+export const PARKED_TOWN_SHARE = 0.55;
 
 // Traffic: every car with an imaginary driver, as the host simulates it. One frame is the WHOLE list:
 //   0 kind (Frame.World)  1 id  2 WorldKind.Traffic  3 t u16 (the host's TOWN clock ms, low 16 bits: the clock its
@@ -399,23 +511,55 @@ export function encodeTraffic(t: number, cars: readonly TrafficCar[], nFull: num
   d.setUint16(3, t & 0xffff, true);
   d.setUint8(5, nFull);
   let o = TRAFFIC_HEADER_BYTES;
-  for (let i = 0; i < nFull; i++, o += TRAFFIC_CAR_BYTES) {
-    const c = cars[i];
-    d.setUint8(o, c.id & 0xff);
-    d.setUint8(o + 1, (c.kind & 15) | ((c.paint & 15) << 4));
-    d.setUint16(o + 2, clampU16((c.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
-    d.setUint16(o + 4, clampU16((c.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
-    d.setInt16(o + 6, clampI16(c.y * 100), true);
-    const turn = (((c.yaw % TAU) + TAU) % TAU) / TAU;
-    d.setUint16(o + 8, Math.round(turn * 65535) & 0xffff, true);
-    d.setInt8(o + 10, clampI8(c.speed * 4));
-    d.setInt8(o + 11, clampI8(c.steer * 127));
-    d.setInt8(o + 12, clampI8(c.pitch * 200));
-    d.setInt8(o + 13, clampI8(c.roll * 200));
-    d.setUint8(o + 14, c.flags & 0xff);
-  }
+  for (let i = 0; i < nFull; i++, o += TRAFFIC_CAR_BYTES) putCar(d, o, cars[i]);
   for (let i = 0; i < nStill; i++) d.setUint8(o++, still[i] & 0xff);
   return o;
+}
+function putCar(d: DataView, o: number, c: TrafficCar): void {
+  d.setUint8(o, c.id & 0xff);
+  d.setUint8(o + 1, (c.kind & 15) | ((c.paint & 15) << 4));
+  d.setUint16(o + 2, clampU16((c.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+  d.setUint16(o + 4, clampU16((c.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+  d.setInt16(o + 6, clampI16(c.y * 100), true);
+  const turn = (((c.yaw % TAU) + TAU) % TAU) / TAU;
+  d.setUint16(o + 8, Math.round(turn * 65535) & 0xffff, true);
+  d.setInt8(o + 10, clampI8(c.speed * 4));
+  d.setInt8(o + 11, clampI8(c.steer * 127));
+  d.setInt8(o + 12, clampI8(c.pitch * 200));
+  d.setInt8(o + 13, clampI8(c.roll * 200));
+  d.setUint8(o + 14, c.flags & 0xff);
+}
+function getCar(d: DataView, o: number, c: TrafficCar): void {
+  c.id = d.getUint8(o);
+  const kp = d.getUint8(o + 1);
+  c.kind = kp & 15; c.paint = kp >> 4;
+  c.x = d.getUint16(o + 2, true) * TRAFFIC_STEP + TRAFFIC_X0;
+  c.z = d.getUint16(o + 4, true) * TRAFFIC_STEP + TRAFFIC_Z0;
+  c.y = d.getInt16(o + 6, true) / 100;
+  c.yaw = (d.getUint16(o + 8, true) / 65535) * TAU;
+  c.speed = d.getInt8(o + 10) / 4;
+  c.steer = d.getInt8(o + 11) / 127;
+  c.pitch = d.getInt8(o + 12) / 200;
+  c.roll = d.getInt8(o + 13) / 200;
+  c.flags = d.getUint8(o + 14);
+}
+
+export function encodeLeave(token: number, car: TrafficCar, health: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, LEAVE_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.Leave);
+  d.setUint8(3, token & 0xff);
+  putCar(d, 4, car);
+  d.setUint8(19, healthByte(health));
+  return buf;
+}
+export function decodeLeave(buf: ArrayBuffer): CarLeft | null {
+  if (buf.byteLength < LEAVE_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.Leave) return null;
+  const car = blankTrafficCar();
+  getCar(d, 4, car);
+  return { id: d.getUint8(1), token: d.getUint8(3), car, health: d.getUint8(19) / 2 };
 }
 
 export interface TrafficFrame {
@@ -444,19 +588,7 @@ export function decodeTraffic(buf: ArrayBuffer, out: TrafficFrame): boolean {
   out.n = n;
   let o = TRAFFIC_HEADER_BYTES;
   for (let i = 0; i < n; i++, o += TRAFFIC_CAR_BYTES) {
-    const c = out.cars[i] ?? (out.cars[i] = blankTrafficCar());
-    c.id = d.getUint8(o);
-    const kp = d.getUint8(o + 1);
-    c.kind = kp & 15; c.paint = kp >> 4;
-    c.x = d.getUint16(o + 2, true) * TRAFFIC_STEP + TRAFFIC_X0;
-    c.z = d.getUint16(o + 4, true) * TRAFFIC_STEP + TRAFFIC_Z0;
-    c.y = d.getInt16(o + 6, true) / 100;
-    c.yaw = (d.getUint16(o + 8, true) / 65535) * TAU;
-    c.speed = d.getInt8(o + 10) / 4;
-    c.steer = d.getInt8(o + 11) / 127;
-    c.pitch = d.getInt8(o + 12) / 200;
-    c.roll = d.getInt8(o + 13) / 200;
-    c.flags = d.getUint8(o + 14);
+    getCar(d, o, out.cars[i] ?? (out.cars[i] = blankTrafficCar()));
   }
   const ns = Math.min(len - o, TRAFFIC_MAX_CARS);
   out.nStill = ns;
