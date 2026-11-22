@@ -258,10 +258,12 @@ export interface GameEvents {
   /** Two cruisers are on their way to block the road at (x, z). */
   roadblock: { x: number; z: number };
   /** A shot fired by somebody other than the player ('patrol' = an officer), for sound and for scaring bystanders. */
-  gunshot: { x: number; z: number; by: string };
+  /** by 'player': another player in town; `id` is then the weapon (a WeaponId), for the right report. */
+  gunshot: { x: number; z: number; by: string; id?: string };
   // ── Weapons (src/ent/weapons.ts). These three objects are reused from shot to shot: copy what you keep. ──
   /** The player fired, or something blew up, at (x, z). */
   shot: { x: number; z: number; loud: boolean };
   /** Somebody other than the player was hit by a punch, a bullet or a blast. Walkers are dealt with by the weapons code; anyone else's person (an officer) is their owner's to react for. health is already lowered. */
-  personHit: { person: Person; damage: number; x: number; z: number; byPlayer: boolean };
+  /** by (multiplayer host): the other player whose blast it was, their number in town; 0 or absent = this browser's own player. */
+  personHit: { person: Person; damage: number; x: number; z: number; byPlayer: boolean; by?: number };
 }

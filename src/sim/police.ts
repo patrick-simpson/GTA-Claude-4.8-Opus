@@ -252,7 +252,7 @@ export class Police {
     });
     game.on('exit', () => { this.incognito = false; });
     // (Host: an officer another player hurt, then this one finished, is on this one's sheet.)
-    game.on('personHit', (e) => { if (this.mode === 'host') for (const c of this.cops) if (c.p === e.person) c.by = 0; });
+    game.on('personHit', (e) => { if (this.mode === 'host') for (const c of this.cops) if (c.p === e.person) c.by = e.by ?? 0; });
   }
 
   private unitOf(v: Vehicle): Unit | null {

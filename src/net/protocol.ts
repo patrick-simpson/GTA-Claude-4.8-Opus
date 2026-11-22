@@ -180,8 +180,13 @@ export const KEEPALIVE_FRAME: Uint8Array = new Uint8Array([Frame.Keepalive]);
 export const PLAYER_STATE_BYTES = 34;
 
 export const PlayerMode = { OnFoot: 0, Swimming: 1, Driving: 2, Passenger: 3, Down: 4 } as const;
-/** Bits of PlayerState.flags. */
+/**
+ * Bits of PlayerState.flags. The three bits from HELD_SHIFT up are the weapon the player has raised (its slot, 0 =
+ * nothing up; stage 3, step 3): a page that does not know them never looks at them.
+ */
 export const PlayerFlag = { Braking: 1, Reversing: 2, Horn: 4, Bench: 8 } as const;
+export const HELD_SHIFT = 4;
+export const HELD_MASK = 0x70;
 /** PlayerState.pose is an index into this (the game's own Pose names, in a fixed order). */
 export const POSES = ['stand', 'walk', 'run', 'jump', 'fall', 'swim', 'down', 'sit'] as const;
 
@@ -281,7 +286,9 @@ export function decodePlayerState(buf: ArrayBuffer, out?: PlayerState): PlayerSt
 
 // Player event: 4 bytes. [kind, id, code, arg]
 export const PLAYER_EVENT_BYTES = 4;
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3 } as const;
+// (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
+// does not know a code ignores the event, so they needed no new version.)
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7 } as const;
 
 export function encodePlayerEvent(code: number, arg = 0): ArrayBuffer {
   const buf = makeFrame(Frame.Event, 2);
@@ -301,7 +308,7 @@ export function decodePlayerEvent(buf: ArrayBuffer): { id: number; code: number;
 //
 // Byte 2 says what the frame asks. Stage 2, step 2 has one: "my car has just struck your car N". Step 3 adds three
 // (below, "Taking and leaving cars"); a host of an older page of this version ignores a kind it does not know.
-export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7, Heat: 8 } as const;
+export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7, Heat: 8, CarShot: 9 } as const;
 // CarHit, 10 bytes: 0 kind (Frame.ToHost)  1 id  2 ToHostKind.CarHit  3 car u8 (its number in the World frames)
 //   4 vx i16  6 vz i16 (cm/s: how fast the two closed, pointing from the striker into the car)
 //   8 rx i8  9 rz i8 (the point of contact from the car's middle, 5 cm steps)
@@ -851,6 +858,170 @@ export function decodePoliceBeat(buf: ArrayBuffer): { from: number; units: numbe
     shots.push({ officer: d.getUint8(o), x: d.getUint16(o + 1, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(o + 3, true) * TRAFFIC_STEP + TRAFFIC_Z0, y: d.getInt16(o + 5, true) / 100 });
   }
   return { from: d.getUint8(1), units: d.getUint8(3), shots };
+}
+
+// ---- Weapons between players (stage 3, step 3) ----
+//
+// A shot is an EVENT, not state: nothing here is sent while nobody fires. The version stays at 4: all of it is new
+// Event codes and one new ToHost kind, the service relays both unread (up to MAX_PLAYER_FRAME_BYTES), and an older
+// page ignores a code or a kind it does not know (it then neither sees the shots nor is hurt by them).
+// Every browser stays the judge of its own player and its own car; the host of the town's people and cars.
+//
+// Fire (Event), 4 + 7 per round + 4 per hit bytes: what this player's weapon has done in the last FIRE_MS. Sent at
+//   most FIRE_HZ times a second, so a held trigger is a few rounds to a frame, not a frame to a round.
+//   0 kind (Frame.Event)  1 id  2 PlayerEvent.Fire
+//   3 slot (low 3 bits: the weapon, the game's own table; 0 = fists, and then the event is a swing of the arm)
+//       | rounds (next 3 bits, 0..FIRE_MAX_SHOTS) | hits (high 2 bits, 0..FIRE_MAX_HITS)
+//   4.. per round, 7 bytes: 0 what it met (ShotEnd)  1 x u16  3 z u16 (5 cm steps from TRAFFIC_X0, TRAFFIC_Z0)  5 y i16 (cm):
+//       where it went. Where it came from is not sent: the muzzle is wherever the others are shown the shooter.
+//   then per hit, 4 bytes: 0 the player it found (their id)  1 damage u8  2 the way the blow travelled u8 (1/256 turn)
+//       3 HitFlag (Fist: a punch. Car: it struck the car they are driving, not them)
+// A hit is a CLAIM. The player named applies it on their own browser, within limits: the shooter is shown near enough
+// for that weapon to reach, and no more damage than that weapon can do in the time since their last claim.
+// Everybody else uses the event only to draw the flash, the line and the mark.
+export const FIRE_HZ = 10;
+export const FIRE_MAX_SHOTS = 7;
+export const FIRE_MAX_HITS = 3;
+export const FIRE_HEADER_BYTES = 4;
+export const FIRE_SHOT_BYTES = 7;
+export const FIRE_HIT_BYTES = 4;
+/** What a round met, so the others can draw the right mark there. */
+export const ShotEnd = { None: 0, Wall: 1, Ground: 2, Water: 3, Car: 4, Body: 5 } as const;
+export const HitFlag = { Fist: 1, Car: 2 } as const;
+export interface FireShot { end: number; x: number; y: number; z: number }
+export interface FireHit { target: number; damage: number; h: number; flags: number }
+export interface FireMsg { id: number; slot: number; shots: FireShot[]; hits: FireHit[] }
+export function encodeFire(slot: number, shots: readonly FireShot[], nShots: number, hits: readonly FireHit[], nHits: number): ArrayBuffer {
+  const ns = Math.min(nShots, FIRE_MAX_SHOTS), nh = Math.min(nHits, FIRE_MAX_HITS);
+  const buf = makeFrame(Frame.Event, 2 + ns * FIRE_SHOT_BYTES + nh * FIRE_HIT_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, PlayerEvent.Fire);
+  d.setUint8(3, (slot & 7) | (ns << 3) | (nh << 6));
+  let o = FIRE_HEADER_BYTES;
+  for (let i = 0; i < ns; i++, o += FIRE_SHOT_BYTES) {
+    const s = shots[i];
+    d.setUint8(o, s.end & 0xff);
+    d.setUint16(o + 1, clampU16((s.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+    d.setUint16(o + 3, clampU16((s.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+    d.setInt16(o + 5, clampI16(s.y * 100), true);
+  }
+  for (let i = 0; i < nh; i++, o += FIRE_HIT_BYTES) {
+    const h = hits[i];
+    d.setUint8(o, h.target & 0xff);
+    d.setUint8(o + 1, Math.max(0, Math.min(255, Math.round(h.damage))));
+    d.setUint8(o + 2, Math.round((((h.h % TAU) + TAU) % TAU) / TAU * 256) & 255);
+    d.setUint8(o + 3, h.flags & 0xff);
+  }
+  return buf;
+}
+export function decodeFire(buf: ArrayBuffer): FireMsg | null {
+  const len = buf.byteLength;
+  if (len < FIRE_HEADER_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.Event || d.getUint8(2) !== PlayerEvent.Fire) return null;
+  const b = d.getUint8(3), ns = (b >> 3) & 7, nh = b >> 6;
+  if (FIRE_HEADER_BYTES + ns * FIRE_SHOT_BYTES + nh * FIRE_HIT_BYTES > len) return null;
+  const shots: FireShot[] = [], hits: FireHit[] = [];
+  let o = FIRE_HEADER_BYTES;
+  for (let i = 0; i < ns; i++, o += FIRE_SHOT_BYTES) {
+    shots.push({ end: d.getUint8(o), x: d.getUint16(o + 1, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(o + 3, true) * TRAFFIC_STEP + TRAFFIC_Z0, y: d.getInt16(o + 5, true) / 100 });
+  }
+  for (let i = 0; i < nh; i++, o += FIRE_HIT_BYTES) {
+    hits.push({ target: d.getUint8(o), damage: d.getUint8(o + 1), h: (d.getUint8(o + 2) / 256) * TAU, flags: d.getUint8(o + 3) });
+  }
+  return { id: d.getUint8(1), slot: b & 7, shots, hits };
+}
+
+// Rocket (Event), 16 bytes: "I have launched one from here, going this way". The others fly a picture of it by the
+//   same arithmetic; where it goes off is the Blast that follows, not theirs to work out.
+//   0 kind  1 id  2 PlayerEvent.Rocket  3 unused  4 x u16  6 z u16  8 y i16 (cm)  10 vx i16  12 vy i16  14 vz i16 (cm/s)
+export const ROCKET_BYTES = 16;
+export interface RocketMsg { id: number; x: number; y: number; z: number; vx: number; vy: number; vz: number }
+export function encodeRocket(x: number, y: number, z: number, vx: number, vy: number, vz: number): ArrayBuffer {
+  const buf = makeFrame(Frame.Event, ROCKET_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, PlayerEvent.Rocket);
+  d.setUint16(4, clampU16((x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+  d.setUint16(6, clampU16((z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+  d.setInt16(8, clampI16(y * 100), true);
+  d.setInt16(10, clampI16(vx * 100), true); d.setInt16(12, clampI16(vy * 100), true); d.setInt16(14, clampI16(vz * 100), true);
+  return buf;
+}
+export function decodeRocket(buf: ArrayBuffer): RocketMsg | null {
+  if (buf.byteLength < ROCKET_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.Event || d.getUint8(2) !== PlayerEvent.Rocket) return null;
+  return {
+    id: d.getUint8(1), x: d.getUint16(4, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(6, true) * TRAFFIC_STEP + TRAFFIC_Z0, y: d.getInt16(8, true) / 100,
+    vx: d.getInt16(10, true) / 100, vy: d.getInt16(12, true) / 100, vz: d.getInt16(14, true) / 100,
+  };
+}
+
+// Blast (Event), 12 bytes: "something has blown up here" (this player's rocket, the car this player was burning in,
+//   or, from the host, one of the town's cars). Sent by the ONE browser on which it went off. Everybody draws it; every
+//   browser takes what it does to its own player and its own car; the HOST alone takes what it does to the town's
+//   cars and people, and they reach everybody through the frames that already carry them. So each thing is hurt once.
+//   0 kind  1 id  2 PlayerEvent.Blast  3 unused  4 x u16  6 z u16  8 y i16 (cm)  10 radius u8 (1/4 m)  11 damage u8
+export const BLAST_BYTES = 12;
+export interface BlastMsg { id: number; x: number; y: number; z: number; radius: number; damage: number }
+export function encodeBlast(x: number, y: number, z: number, radius: number, damage: number): ArrayBuffer {
+  const buf = makeFrame(Frame.Event, BLAST_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, PlayerEvent.Blast);
+  d.setUint16(4, clampU16((x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+  d.setUint16(6, clampU16((z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+  d.setInt16(8, clampI16(y * 100), true);
+  d.setUint8(10, Math.max(0, Math.min(255, Math.round(radius * 4))));
+  d.setUint8(11, Math.max(0, Math.min(255, Math.round(damage))));
+  return buf;
+}
+export function decodeBlast(buf: ArrayBuffer): BlastMsg | null {
+  if (buf.byteLength < BLAST_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.Event || d.getUint8(2) !== PlayerEvent.Blast) return null;
+  return { id: d.getUint8(1), x: d.getUint16(4, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(6, true) * TRAFFIC_STEP + TRAFFIC_Z0, y: d.getInt16(8, true) / 100, radius: d.getUint8(10) / 4, damage: d.getUint8(11) };
+}
+
+// Vital (Event), 5 bytes: "this is the health I have left". Sent only when another player's claim has just been
+//   applied (at most VITAL_HZ a second: it is how the shooter and the town see that the round counted), when this
+//   player dies (health 0, at once, whatever killed them) and when they are back on their feet (full health).
+//   0 kind  1 id  2 PlayerEvent.Vital  3 health u8 (0..200 = 0..100)  4 the player whose doing it was (their id; 0 = nobody's)
+export const VITAL_BYTES = 5;
+export const VITAL_HZ = 4;
+export function encodeVital(health: number, by: number): ArrayBuffer {
+  const buf = makeFrame(Frame.Event, VITAL_BYTES - FRAME_HEADER_BYTES);
+  const u8 = new Uint8Array(buf);
+  u8[2] = PlayerEvent.Vital; u8[3] = healthByte(health); u8[4] = by & 0xff;
+  return buf;
+}
+export function decodeVital(buf: ArrayBuffer): { id: number; health: number; by: number } | null {
+  if (buf.byteLength < VITAL_BYTES) return null;
+  const u8 = new Uint8Array(buf);
+  if (u8[0] !== Frame.Event || u8[2] !== PlayerEvent.Vital) return null;
+  return { id: u8[1], health: u8[3] / 2, by: u8[4] };
+}
+
+// CarShot (ToHost), 7 bytes: "my rounds have struck your car N" (a guest's, on one of the town's cars: the knocks of
+//   stage 2 are for bumpers, this is for bullets). The host takes the health off the real car, and everybody sees the
+//   result in the traffic frames. Summed over FIRE_MS, like the rounds themselves.
+//   0 kind (Frame.ToHost)  1 id  2 ToHostKind.CarShot  3 CarClass  4 car u16 (its number, or its place when parked)
+//   6 health off it u8 (quarters of a point)
+export const CAR_SHOT_BYTES = 7;
+export interface CarShot { id: number; cls: number; car: number; damage: number }
+export function encodeCarShot(cls: number, car: number, damage: number): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, CAR_SHOT_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.CarShot);
+  d.setUint8(3, cls & 0xff);
+  d.setUint16(4, car & 0xffff, true);
+  d.setUint8(6, Math.max(0, Math.min(255, Math.round(damage * 4))));
+  return buf;
+}
+export function decodeCarShot(buf: ArrayBuffer): CarShot | null {
+  if (buf.byteLength < CAR_SHOT_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.CarShot) return null;
+  return { id: d.getUint8(1), cls: d.getUint8(3), car: d.getUint16(4, true), damage: d.getUint8(6) / 4 };
 }
 
 // ---- JSON control messages ----

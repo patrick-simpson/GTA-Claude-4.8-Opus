@@ -273,7 +273,9 @@ export class TroubleSounds {
     game.on('gunshot', (e) => {
       if (!core.claim('copgun', 3, 0.1)) return;
       const sp = core.place(e.x, 1.5, e.z, { ref: 14, max: 420, wet: 0.45 });
-      if (sp) { const g = core.gain(GUN_LEVEL.pistol); g.connect(sp.in); gunshot(core, core.now + sp.lag, g, 'pistol', r); }
+      // (An officer's sidearm, or whatever another player is firing.)
+      const id: WeaponId = e.id === 'smg' || e.id === 'shotgun' || e.id === 'launcher' ? e.id : 'pistol';
+      if (sp) { const g = core.gain(GUN_LEVEL[id]); g.connect(sp.in); gunshot(core, core.now + sp.lag, g, id, r); }
     });
     game.on('personHit', (e) => {
       if (!core.claim('cry', 2, 0.25)) return;

@@ -69,13 +69,14 @@ export const WEAPONS: readonly WeaponSpec[] = [
 ];
 
 /** Vehicles take this share of a bullet's damage: a sedan is nine pistol rounds from catching fire. */
-const CAR_SHARE = 0.36;
+export const CAR_SHARE = 0.36;
 /** Under this health the engine burns; this long after, it goes up. */
 const BURN_AT = 20, FUSE = 4.5;
 const BLAST_R = 9, BLAST_DMG = 120;
 /** A wreck is tidied away once she is this far from it. */
 const WRECK_FAR = 150;
-const ROCKET_V = 42, ROCKET_G = 7;
+const ROCKET_V = 42;
+export const ROCKET_G = 7;
 /** The mode number sim/peds.ts uses for "lying in the road". It is not exported; keep in step with it. */
 const PED_DOWN = 5;
 /** Drive-by: the window arcs, as radians of camera heading away from the car's nose. */
@@ -94,6 +95,82 @@ function box(parent: THREE.Object3D, mat: THREE.Material, sx: number, sy: number
   m.position.set(x, y, z);
   parent.add(m);
   return m;
+}
+
+/**
+ * Multiplayer (src/net/fight.ts): what the weapons ask of the town, and tell it. Null in a game with nobody else in
+ * it, and then none of it is ever called.
+ */
+export interface WeaponsNet {
+  /** The other players' cars: drawn and solid, but not in vehicles.list. A round can strike them all the same. */
+  cars(): readonly Vehicle[];
+  /** Is this body another player's? (Their own browser decides what becomes of them.) */
+  isPlayer(p: Person): boolean;
+  /** A round or a fist of this player's has found somebody. False when they are not another player. */
+  hitPlayer(p: Person, dmg: number, dx: number, dz: number, fist: boolean): boolean;
+  /** A round has struck a car. False when the car is this browser's own to dent; true when its owner has been told instead. */
+  hitCar(v: Vehicle, dmg: number): boolean;
+  /** One of the rounds the others are shown: the weapon, what it met (the numbers of ShotEnd in net/protocol.ts) and where. */
+  shot(slot: number, end: number, x: number, y: number, z: number): void;
+  /** A punch thrown. */
+  swing(): void;
+  rocket(x: number, y: number, z: number, vx: number, vy: number, vz: number): void;
+  /** Something has gone off on this browser. */
+  blast(x: number, y: number, z: number, radius: number, damage: number): void;
+  /** Is this browser the one that counts what happens to the town's cars and people? */
+  hostsTown(): boolean;
+}
+
+let gunMats: { dark: THREE.Material; grip: THREE.Material; band: THREE.Material } | null = null;
+function mats(): { dark: THREE.Material; grip: THREE.Material; band: THREE.Material } {
+  return gunMats ?? (gunMats = {
+    dark: new THREE.MeshStandardMaterial({ color: 0x23262c, metalness: 0.65, roughness: 0.42 }),
+    grip: new THREE.MeshStandardMaterial({ color: 0x6b4a2e, metalness: 0, roughness: 0.7 }),
+    band: new THREE.MeshStandardMaterial({ color: 0xf0a202, metalness: 0.1, roughness: 0.6 }),
+  });
+}
+
+/** The model of a weapon, built along +Z from the hand like every model in the game. Null for bare hands. The other players' are made here too. */
+export function makeGun(id: WeaponId): THREE.Group | null {
+  if (id === 'fists') return null;
+  const { dark, grip, band } = mats();
+  const g = new THREE.Group();
+  if (id === 'pistol') {
+    box(g, dark, 0.034, 0.046, 0.2, 0, 0.03, 0.09);
+    box(g, grip, 0.03, 0.1, 0.045, 0, -0.035, 0.01).rotation.x = 0.25;
+  } else if (id === 'smg') {
+    box(g, dark, 0.05, 0.075, 0.3, 0, 0.03, 0.12);
+    box(g, dark, 0.022, 0.022, 0.12, 0, 0.04, 0.33);
+    box(g, dark, 0.03, 0.16, 0.04, 0, -0.08, 0.16);
+    box(g, grip, 0.032, 0.09, 0.04, 0, -0.04, 0.0).rotation.x = 0.25;
+    box(g, dark, 0.02, 0.03, 0.2, 0, 0.04, -0.13);
+  } else if (id === 'shotgun') {
+    box(g, dark, 0.036, 0.036, 0.62, 0, 0.04, 0.3);
+    box(g, dark, 0.03, 0.03, 0.5, 0, 0.004, 0.27);
+    box(g, grip, 0.052, 0.05, 0.17, 0, 0, 0.3);
+    box(g, grip, 0.04, 0.085, 0.26, 0, -0.01, -0.12).rotation.x = -0.12;
+  } else {
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.95, 10), dark);
+    tube.rotation.x = Math.PI / 2; tube.position.set(0, 0.1, 0.08);
+    g.add(tube);
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.07, 10), band);
+    ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.1, 0.5);
+    g.add(ring);
+    box(g, grip, 0.03, 0.1, 0.04, 0, 0, 0.02);
+    box(g, dark, 0.03, 0.06, 0.03, 0, 0.18, 0.2);
+  }
+  g.visible = false;
+  return g;
+}
+
+let rocketGeo: THREE.BoxGeometry | null = null, rocketMat: THREE.Material | null = null;
+/** A rocket in flight: one shape and one material for every one there will ever be. */
+export function makeRocket(): THREE.Mesh {
+  rocketGeo ??= new THREE.BoxGeometry(0.11, 0.11, 0.5);
+  rocketMat ??= new THREE.MeshStandardMaterial({ color: 0xf2e8cf, emissive: 0xe4572e, emissiveIntensity: 1.5, roughness: 0.6 });
+  const mesh = new THREE.Mesh(rocketGeo, rocketMat);
+  mesh.visible = false;
+  return mesh;
 }
 
 export class Weapons {
@@ -133,6 +210,10 @@ export class Weapons {
   private readonly mine = new WeakSet<Vehicle>();
   private walkerOf: Map<Person, Walker> | null = null;
   private peds: Peds | null = null;
+  /** Multiplayer: the town (net/fight.ts sets it while there is anybody else in it). */
+  net: WeaponsNet | null = null;
+  /** Multiplayer host: the player whose blast is being counted here right now (their number in town; 0 = this browser's own doing). */
+  private blame = 0;
 
   // Scratch: muzzle, direction, the last trace, and the reusable events.
   private mx = 0; private my = 0; private mz = 0;
@@ -146,49 +227,17 @@ export class Weapons {
   private readonly door = { x: 0, z: 0 };
   private readonly evShot = { x: 0, z: 0, loud: true };
   private readonly evCrime = { kind: '', x: 0, z: 0, weight: 1 };
-  private readonly evHit = { person: null as unknown as Person, damage: 0, x: 0, z: 0, byPlayer: true };
+  private readonly evHit = { person: null as unknown as Person, damage: 0, x: 0, z: 0, byPlayer: true, by: 0 };
 
   constructor(private readonly game: Game) {
-    const dark = new THREE.MeshStandardMaterial({ color: 0x23262c, metalness: 0.65, roughness: 0.42 });
-    const grip = new THREE.MeshStandardMaterial({ color: 0x6b4a2e, metalness: 0, roughness: 0.7 });
-    const band = new THREE.MeshStandardMaterial({ color: 0xf0a202, metalness: 0.1, roughness: 0.6 });
+    const { dark, band } = mats();
     for (const w of WEAPONS) {
-      if (w.id === 'fists') { this.guns.push(null); continue; }
-      // Built along +Z from the hand, like every model in the game.
-      const g = new THREE.Group();
-      if (w.id === 'pistol') {
-        box(g, dark, 0.034, 0.046, 0.2, 0, 0.03, 0.09);
-        box(g, grip, 0.03, 0.1, 0.045, 0, -0.035, 0.01).rotation.x = 0.25;
-      } else if (w.id === 'smg') {
-        box(g, dark, 0.05, 0.075, 0.3, 0, 0.03, 0.12);
-        box(g, dark, 0.022, 0.022, 0.12, 0, 0.04, 0.33);
-        box(g, dark, 0.03, 0.16, 0.04, 0, -0.08, 0.16);
-        box(g, grip, 0.032, 0.09, 0.04, 0, -0.04, 0.0).rotation.x = 0.25;
-        box(g, dark, 0.02, 0.03, 0.2, 0, 0.04, -0.13);
-      } else if (w.id === 'shotgun') {
-        box(g, dark, 0.036, 0.036, 0.62, 0, 0.04, 0.3);
-        box(g, dark, 0.03, 0.03, 0.5, 0, 0.004, 0.27);
-        box(g, grip, 0.052, 0.05, 0.17, 0, 0, 0.3);
-        box(g, grip, 0.04, 0.085, 0.26, 0, -0.01, -0.12).rotation.x = -0.12;
-      } else {
-        const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.95, 10), dark);
-        tube.rotation.x = Math.PI / 2; tube.position.set(0, 0.1, 0.08);
-        g.add(tube);
-        const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.07, 10), band);
-        ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.1, 0.5);
-        g.add(ring);
-        box(g, grip, 0.03, 0.1, 0.04, 0, 0, 0.02);
-        box(g, dark, 0.03, 0.06, 0.03, 0, 0.18, 0.2);
-      }
-      g.visible = false;
-      game.scene.add(g);
+      const g = makeGun(w.id);
+      if (g) game.scene.add(g);
       this.guns.push(g);
     }
-    const rg = new THREE.BoxGeometry(0.11, 0.11, 0.5);
-    const rm = new THREE.MeshStandardMaterial({ color: 0xf2e8cf, emissive: 0xe4572e, emissiveIntensity: 1.5, roughness: 0.6 });
     for (let i = 0; i < 4; i++) {
-      const mesh = new THREE.Mesh(rg, rm);
-      mesh.visible = false;
+      const mesh = makeRocket();
       game.scene.add(mesh);
       this.rockets.push({ mesh, live: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, t: 0 });
     }
@@ -198,6 +247,8 @@ export class Weapons {
   }
 
   get spec(): WeaponSpec { return WEAPONS[this.slot]; }
+  /** The weapon that is up in her hand for anybody to see (its slot), or 0. Multiplayer shows the others this. */
+  get raised(): number { return this.slot !== 0 && this.aimK > 0.35 && this.game.player.canFight ? this.slot : 0; }
   get armed(): boolean { return this.slot !== 0; }
   get mag(): number { return this.mags[this.slot]; }
   get reserve(): number { return this.spare[this.slot]; }
@@ -425,8 +476,10 @@ export class Weapons {
         // In front of her: within sixty degrees of the way she faces.
         if (d < bd && ox * s + oz * c > d * 0.5) { bd = d; best = o; }
       }
+      this.net?.swing();
       if (best) {
-        this.hurtPerson(best, this.spec.damage, s, c, true);
+        // (Another player: their own browser decides what the blow did. Here it is a claim.)
+        if (!this.net?.hitPlayer(best, this.spec.damage, s, c, true)) this.hurtPerson(best, this.spec.damage, s, c, true);
         g.cam.shake(0.12);
         this.crime('assault', per.x, per.z, 0.5);
       }
@@ -461,6 +514,8 @@ export class Weapons {
         this.from.x = this.mx; this.from.y = this.my; this.from.z = this.mz;
         this.to.x = hx; this.to.y = hy; this.to.z = hz;
         fx.tracer(this.from, this.to);
+        // The rounds that leave a line here are the ones the others are shown.
+        this.net?.shot(this.slot, this.hKind, hx, hy, hz);
       }
       const dmg = w.damage * (t <= w.near ? 1 : lerp(1, w.floor, clamp01((t - w.near) / (w.far - w.near))));
       switch (this.hKind) {
@@ -471,8 +526,9 @@ export class Weapons {
           const v = this.hCar!;
           st.car++; st.lastDmg = dmg * CAR_SHARE;
           fx.sparks(hx, hy, hz, this.hnx, this.hny + 0.4, this.hnz, 5, 5);
-          if (!(v as Wreckable).wreck) v.health = Math.max(0, v.health - dmg * CAR_SHARE);
-          this.mine.add(v);
+          // (Another player's car, or one of the town's shown here: whoever counts its health is told.)
+          if (this.net?.hitCar(v, dmg * CAR_SHARE)) { /* theirs */ }
+          else if (!(v as Wreckable).wreck) { v.health = Math.max(0, v.health - dmg * CAR_SHARE); this.mine.add(v); }
           this.hitT = g.time; this.hitDown = false;
           if (v.driver === 'ai' && this.crimeT < 0.3) this.crime('shotVehicle', hx, hz, 0.5);
           break;
@@ -481,7 +537,9 @@ export class Weapons {
           st.body++; st.lastDmg = dmg;
           fx.dust(hx, hy, hz, dx, dz, 0.6, false);
           this.hitT = g.time;
-          this.hitDown = this.hurtPerson(this.hBody!, dmg, dx, dz, false);
+          // Another player is a person like any other to the Patrol: shooting one is 'shotPerson', if anybody saw.
+          // (Whether it put them down is their browser's to say, so it is never 'personDown' here.)
+          this.hitDown = this.net?.hitPlayer(this.hBody!, dmg, dx, dz, false) ? false : this.hurtPerson(this.hBody!, dmg, dx, dz, false);
           this.crime(this.hitDown ? 'personDown' : 'shotPerson', hx, hz, this.hitDown ? 1.5 : 1);
           break;
         }
@@ -516,36 +574,40 @@ export class Weapons {
       break;
     }
 
-    const cars = g.vehicles.list;
-    for (let i = 0; i < cars.length; i++) {
-      const v = cars[i];
-      if (v === skip || v.sunk) continue;
-      const qx = ox - v.x, qy = oy - (v.y + 0.25), qz = oz - v.z;
-      const along = -(qx * dx + qy * dy + qz * dz), R = v.hl + v.hw;
-      if (along < -R || along > best + R || qx * qx + qy * qy + qz * qz - along * along > R * R) continue;
-      // Into the car's own frame: z along its nose, x to its right.
-      const s = Math.sin(v.h), c = Math.cos(v.h);
-      const lz = qx * s + qz * c, lx = -qx * c + qz * s;
-      const ldz = dx * s + dz * c, ldx = -dx * c + dz * s;
-      const top = v.spec.height - 0.25;
-      let t0 = 0, t1 = best, axis = -1, sgn = 0;
-      // Three slabs. `axis` is the one the ray came in through.
-      let ok = true;
-      for (let a = 0; a < 3 && ok; a++) {
-        const o = a === 0 ? lx : a === 1 ? qy : lz, d = a === 0 ? ldx : a === 1 ? dy : ldz;
-        const lo = a === 0 ? -v.hw : a === 1 ? 0 : -v.hl, hi = a === 0 ? v.hw : a === 1 ? top : v.hl;
-        if (Math.abs(d) < 1e-7) { if (o < lo || o > hi) ok = false; continue; }
-        let ta = (lo - o) / d, tb = (hi - o) / d, sg = -1;
-        if (ta > tb) { const x = ta; ta = tb; tb = x; sg = 1; }
-        if (ta > t0) { t0 = ta; axis = a; sgn = sg; }
-        if (tb < t1) t1 = tb;
-        if (t0 > t1) ok = false;
+    // (The other players' cars are not in the list: they come second.)
+    const others = this.net ? this.net.cars() : null;
+    for (let pass = 0; pass < (others ? 2 : 1); pass++) {
+      const cars = pass === 0 ? g.vehicles.list : others!;
+      for (let i = 0; i < cars.length; i++) {
+        const v = cars[i];
+        if (v === skip || v.sunk) continue;
+        const qx = ox - v.x, qy = oy - (v.y + 0.25), qz = oz - v.z;
+        const along = -(qx * dx + qy * dy + qz * dz), R = v.hl + v.hw;
+        if (along < -R || along > best + R || qx * qx + qy * qy + qz * qz - along * along > R * R) continue;
+        // Into the car's own frame: z along its nose, x to its right.
+        const s = Math.sin(v.h), c = Math.cos(v.h);
+        const lz = qx * s + qz * c, lx = -qx * c + qz * s;
+        const ldz = dx * s + dz * c, ldx = -dx * c + dz * s;
+        const top = v.spec.height - 0.25;
+        let t0 = 0, t1 = best, axis = -1, sgn = 0;
+        // Three slabs. `axis` is the one the ray came in through.
+        let ok = true;
+        for (let a = 0; a < 3 && ok; a++) {
+          const o = a === 0 ? lx : a === 1 ? qy : lz, d = a === 0 ? ldx : a === 1 ? dy : ldz;
+          const lo = a === 0 ? -v.hw : a === 1 ? 0 : -v.hl, hi = a === 0 ? v.hw : a === 1 ? top : v.hl;
+          if (Math.abs(d) < 1e-7) { if (o < lo || o > hi) ok = false; continue; }
+          let ta = (lo - o) / d, tb = (hi - o) / d, sg = -1;
+          if (ta > tb) { const x = ta; ta = tb; tb = x; sg = 1; }
+          if (ta > t0) { t0 = ta; axis = a; sgn = sg; }
+          if (tb < t1) t1 = tb;
+          if (t0 > t1) ok = false;
+        }
+        if (!ok || axis < 0 || t0 >= best) continue;
+        best = t0; this.hKind = CAR; this.hCar = v; this.hBody = null;
+        if (axis === 1) { this.hnx = 0; this.hny = sgn; this.hnz = 0; }
+        else if (axis === 0) { this.hnx = -c * sgn; this.hny = 0; this.hnz = s * sgn; }
+        else { this.hnx = s * sgn; this.hny = 0; this.hnz = c * sgn; }
       }
-      if (!ok || axis < 0 || t0 >= best) continue;
-      best = t0; this.hKind = CAR; this.hCar = v; this.hBody = null;
-      if (axis === 1) { this.hnx = 0; this.hny = sgn; this.hnz = 0; }
-      else if (axis === 0) { this.hnx = -c * sgn; this.hny = 0; this.hnz = s * sgn; }
-      else { this.hnx = s * sgn; this.hny = 0; this.hnz = c * sgn; }
     }
 
     const a = dx * dx + dz * dz;
@@ -592,7 +654,7 @@ export class Weapons {
     const g = this.game;
     per.health = Math.max(0, per.health - dmg);
     const e = this.evHit;
-    e.person = per; e.damage = dmg; e.x = per.x; e.z = per.z;
+    e.person = per; e.damage = dmg; e.x = per.x; e.z = per.z; e.by = this.blame;
     g.emit('personHit', e);
     const w = this.walkerOf?.get(per);
     // Multiplayer guest: one of the host's people, shown here. The host is told and decides; this screen shows a first guess.
@@ -628,6 +690,7 @@ export class Weapons {
     // Lobbed a little above the line of sight, so the drop lands near the mark at middling range.
     r.vx = this.dx * ROCKET_V; r.vy = this.dy * ROCKET_V + 1.6; r.vz = this.dz * ROCKET_V;
     r.mesh.visible = true;
+    this.net?.rocket(r.x, r.y, r.z, r.vx, r.vy, r.vz);
   }
 
   private flyRockets(dt: number): void {
@@ -655,16 +718,27 @@ export class Weapons {
 
   // ── Blasts and burning cars ────────────────────────────────────────────────
 
-  /** A blast: damage and a shove for every car and person within `radius`, falling off to nothing at its edge. */
-  explode(x: number, y: number, z: number, radius: number, damage: number, byPlayer: boolean): void {
-    const g = this.game, p = g.player, rng = this.rng;
+  /**
+   * A blast: damage and a shove for every car and person within `radius`, falling off to nothing at its edge.
+   *
+   * In a town (multiplayer) each thing has ONE browser that counts what the blast does to it, so nothing is hurt twice:
+   * a player and the car they drive, their own; the town's cars and people, the host's. The browser the blast went
+   * off on (`from` 0) tells the others; they come here with `from` = that player's number, draw it, and take only
+   * their own share. Alone, `from` is 0 and everything is this browser's, as it always was.
+   */
+  explode(x: number, y: number, z: number, radius: number, damage: number, byPlayer: boolean, from = 0): void {
+    const g = this.game, p = g.player, rng = this.rng, net = this.net;
     this.stats.blasts++;
     g.fx.emitters.explosion(x, y, z, radius / BLAST_R);
     const far = Math.hypot(p.x - x, p.z - z);
     g.cam.shake(clamp(1.3 - far / 40, 0, 1));
+    // Somebody else's blast, and this browser is not the town's host: only its own player and car are its business.
+    const world = from === 0 || (!!net && net.hostsTown());
+    this.blame = from;
 
     for (const v of g.vehicles.list) {
-      if (v.sunk) continue;
+      // (A car shown here for the host is the host's to count.)
+      if (v.sunk || v.shared || (!world && v !== p.vehicle)) continue;
       let nx = v.x - x, nz = v.z - z;
       const c = Math.hypot(nx, nz), d = Math.max(0, c - v.hw);
       if (d >= radius || Math.abs(v.y - y) > radius) continue;
@@ -677,16 +751,20 @@ export class Weapons {
       v.yawRate += (rng.next() - 0.5) * 5 * f;
     }
     const me = p.person;
-    for (const o of g.people.list) {
-      if (o === me || !o.visible) continue;
+    if (world) for (const o of g.people.list) {
+      // (Another player takes their own share on their own browser.)
+      if (o === me || !o.visible || net?.isPlayer(o)) continue;
       let nx = o.x - x, nz = o.z - z;
       const d = Math.hypot(nx, nz);
       if (d >= radius || Math.abs(o.y - y) > radius) continue;
       if (d > 0.1) { nx /= d; nz /= d; }
       if (o.pose === 'down') continue;
+      // One of the host's people, shown here: the host hears of the blast itself and knocks them down. It is still this player's crime.
+      if (this.peds?.guest && this.walkerOf?.has(o)) { if (byPlayer) this.crime('shotPerson', o.x, o.z, 1); continue; }
       const down = this.hurtPerson(o, damage * (1 - d / radius), nx, nz, false, 2.5);
       if (byPlayer) this.crime(down ? 'personDown' : 'shotPerson', o.x, o.z, down ? 1.5 : 1);
     }
+    this.blame = 0;
     if (far < radius && Math.abs(p.y - y) < radius) {
       const f = 1 - far / radius;
       const nx = far > 0.1 ? (p.x - x) / far : 0, nz = far > 0.1 ? (p.z - z) / far : 1;
@@ -694,10 +772,11 @@ export class Weapons {
       p.hurt(damage * f * (p.vehicle ? 0.2 : 0.7), this.from);
       if (!p.vehicle && f > 0.2) p.knockDown(nx * 9 * f, nz * 9 * f, 2 + 4 * f);
     }
-    this.peds?.alarm(x, z, 50);
+    if (world) this.peds?.alarm(x, z, 50);
     this.evShot.x = x; this.evShot.z = z; this.evShot.loud = true;
     g.emit('shot', this.evShot);
     if (byPlayer) this.crime('explosion', x, z, 2);
+    if (from === 0) net?.blast(x, y, z, radius, damage);
   }
 
   private burnCars(dt: number): void {

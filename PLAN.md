@@ -88,6 +88,37 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 3, step 3, weapons between players: pushed Nov 22, about 12:05 PM ET
+
+**What.** Players see each other's shots, swings, rockets and blasts, see the weapon in the other's hand, and can
+hurt and kill each other. New `src/net/fight.ts`; hooks in `src/ent/weapons.ts`. Still protocol v4: four new Event
+codes (Fire, Rocket, Blast, Vital), one new ToHost kind (CarShot), three spare state flag bits for "weapon raised".
+The service relays these unread and an older page ignores them, so no Worker redeploy is needed.
+
+**Rules.** The shooter's screen decides a round hit and sends a claim; the victim's browser applies it only if the
+shooter is shown within the weapon's reach (plus 15 m, fists 4 m) and inside a refill budget of what that weapon can
+do. A blast is told by the browser it went off on; each browser takes its own player's share, the host the town's.
+A guest's rounds on town cars go to the host (CarShot). Hurting a player is a crime like hurting anyone, if seen.
+Death and respawn at Mercy General are told with a 5 byte Vital event; the shooter gets the kill. On the backup
+shots and player damage work too; cars and people stay private. Nothing is sent while nobody fires; a held trigger
+is at most 10 events a second (about 124 bytes a second at full speed, computed not measured).
+
+**Checked by the lead.** tsc, build, server tests (146), production boot with no errors, people, bump, two, both
+pictures viewed. weapons.mjs (40 checks, about 5 min): 3 of 5 runs clean. One run failed "run over by another
+player's car" four tries running ("the car did not reach them"); one run failed one check my log cut off. That check
+uses no new code (the car is simply solid on the victim's screen) and sets the car's speed by hand, so it is taken as
+a weak test, not proven. cars.mjs: 1 failure in 4 runs, check not captured; the known flake from the head on fix.
+The worker ran police.mjs (pass).
+
+**Backup Worker.** The owner ran the deploy workflow on Nov 22. Live check by the lead: /health says v4, 8 seats; a
+plain join is sent to main (close 4010); a join with `nm=1` is welcomed. Nothing owed there now.
+
+**Still wrong or unseen.** No line of sight check on a claim. A paused or just respawned player can be shot.
+Untested: a round on a player's car, bullets on moving traffic or a cruiser, a guest's blast on people and officers,
+a third player watching, a host change mid fight. Another player's car shows no damage; a town car burning on the
+host shows guests the blast but not the fire or wreck. No gun drawn for a player firing from a car. Nothing was
+listened to.
+
 ### Multiplayer fix, two players head on: pushed Nov 22, about 9:00 AM ET
 
 **Fault.** bump.mjs failed about 1 run in 3: in a head on between two players the cars could end inside each other

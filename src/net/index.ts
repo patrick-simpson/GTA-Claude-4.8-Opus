@@ -10,6 +10,7 @@
 // the town's cars by asking the host, and a car a player gets out of stays where it is for everybody.
 // Stage 3 (people.ts, police.ts): on the main service the pedestrians are the host's, and so are the police: each
 // player keeps a wanted level of their own, and the host's one set of police chases whoever is wanted.
+// Stage 3, step 3 (fight.ts): the players see each other's shots and can hurt each other, on both services.
 //
 // Sending (protocol.ts has the rules): a State frame up to SEND_HZ times a second, but only when something has
 // changed since the last one sent; a one byte keepalive every KEEPALIVE_MS otherwise; the measured frame time every
@@ -23,7 +24,7 @@ import type { Game } from '../core/game';
 import { angleDiff } from '../core/util';
 import { KINDS } from '../ent/vehicleSpecs';
 import {
-  KEEPALIVE_FRAME, KEEPALIVE_MS, PERF_CANNOT_HOST_MS, PERF_INTERVAL_MS, PLAYER_STATE_BYTES, POSES, PlayerFlag, PlayerMode, SEND_HZ,
+  HELD_SHIFT, KEEPALIVE_FRAME, KEEPALIVE_MS, PERF_CANNOT_HOST_MS, PERF_INTERVAL_MS, PLAYER_STATE_BYTES, POSES, PlayerFlag, PlayerMode, SEND_HZ,
   Frame, PlayerEvent, WorldKind, blankPlayerState, decodePlayerEvent, decodePlayerState, encodePlayerEvent, encodeMsg, encodePlayerState, frameKind,
   type PlayerEntry, type ServerMsg, type WelcomeMsg,
 } from './protocol';
@@ -33,6 +34,7 @@ import { SharedTraffic } from './shared';
 import { TownCars } from './cars';
 import { TownPeople } from './people';
 import { TownPolice } from './police';
+import { TownFight } from './fight';
 import { SAYS, myName, nameText, rerollName } from './names';
 
 const SEND_MS = 1000 / SEND_HZ;
@@ -51,6 +53,8 @@ export class Net {
   readonly people: TownPeople;
   /** The town's police: the host's, after anybody wanted, seen by everybody (stage 3, step 2). */
   readonly police: TownPolice;
+  /** Weapons between players: their shots seen, their claims on each other judged (stage 3, step 3). */
+  readonly fight: TownFight;
   /** State frames sent, apart from the totals in conn.sent. */
   statesSent = 0;
 
@@ -89,6 +93,7 @@ export class Net {
     this.cars = new TownCars(game, c, this.remotes, this.shared);
     this.people = new TownPeople(game, c, this.remotes, this.shared);
     this.police = new TownPolice(game, c, this.remotes, this.shared, this.people);
+    this.fight = new TownFight(game, c, this.remotes, this.shared, this.cars);
     // A paused game simulates nothing, so it says at once that it cannot host (and, on resuming, that it can again).
     game.on('pause', () => { this.perfAt = 0; });
     c.start();
@@ -155,6 +160,7 @@ export class Net {
     const r = this.remotes.get(id);
     if (!r) return;
     this.cars.dropped(r, performance.now());
+    this.fight.dropped(id);
     r.dispose();
     this.remotes.delete(id);
   }
@@ -162,6 +168,7 @@ export class Net {
   private clear(): void {
     for (const r of this.remotes.values()) r.dispose();
     this.remotes.clear();
+    this.fight.clear();
     this.showCount();
   }
 
@@ -186,8 +193,10 @@ export class Net {
     const k = frameKind(buf);
     if (k === Frame.Event) {
       const e = decodePlayerEvent(buf);
-      // The horn is heard from the flag in the state frames; only waves and shouts come this way.
-      if (e) this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
+      if (!e) return;
+      // The horn is heard from the flag in the state frames; waves and shouts come this way, and so does gunfire.
+      if (e.code >= PlayerEvent.Fire) this.fight.event(e.code, buf, performance.now());
+      else this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
       return;
     }
     if (k === Frame.World) {
@@ -197,7 +206,11 @@ export class Net {
       else this.shared.frame(buf, performance.now());
       return;
     }
-    if (k === Frame.ToHost) { if (!this.people.toHost(buf) && !this.police.toHost(buf, performance.now())) this.shared.toHost(buf, performance.now()); return; }
+    if (k === Frame.ToHost) {
+      const now = performance.now();
+      if (!this.people.toHost(buf) && !this.police.toHost(buf, now) && !this.fight.toHost(buf, now)) this.shared.toHost(buf, now);
+      return;
+    }
     if (k === Frame.ToPlayer) { if (!this.police.toPlayer(buf)) this.cars.toPlayer(buf, performance.now()); return; }
     if (k !== Frame.State) return;
     const s = decodePlayerState(buf, this.inState);
@@ -234,6 +247,8 @@ export class Net {
       o.pitch = 0; o.roll = 0; o.steer = 0; o.vehicle = 0; o.color = 0;
       o.pose = Math.max(0, POSES.indexOf(pose));
       if (per.bench) o.flags |= PlayerFlag.Bench;
+      // The weapon she has up, for the others to put in her hand.
+      o.flags |= p.weapons.raised << HELD_SHIFT;
     }
   }
 
@@ -286,6 +301,7 @@ export class Net {
       for (const r of this.remotes.values()) r.update(now, dt, eye, night);
     }
     // After the others have been placed: a host's drivers are told where they are.
+    this.fight.update(now, dt);
     this.shared.update(now, dt);
     this.cars.update(now);
     this.people.update(now, dt);
@@ -371,6 +387,8 @@ export class Net {
       people: this.people.info(),
       // police: mode, this player's own level, the cars and officers with their numbers and whom they are after (police.ts).
       police: this.police.info(),
+      // fight: shots and claims sent and heard, and the weapon in each other player's hand (fight.ts).
+      fight: this.fight.info(),
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({

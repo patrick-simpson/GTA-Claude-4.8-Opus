@@ -129,6 +129,17 @@ export class TownCars {
   /** Somebody has just arrived: the next Parked frame carries every place. */
   refresh(): void { this.force = true; }
 
+  /** Guest (fight.ts): the place of one of the town's parked cars that nobody has touched yet, or -1. */
+  placeOf(v: Vehicle): number {
+    const i = this.spotOf.get(v);
+    return i !== undefined && !this.gone[i] && v.shared ? i : -1;
+  }
+  /** Host (fight.ts): the car parked in that place, while it is still there. (One that is dented stops being parked at the next tick.) */
+  parkedAt(i: number): Vehicle | null {
+    const s = this.spots[i];
+    return this.shared.mode === 'host' && s && !this.gone[i] && s.v && !s.v.removed ? s.v : null;
+  }
+
   private town(s: ParkedSpot): boolean { return s.roll < PARKED_TOWN_SHARE; }
 
   private atHome(s: ParkedSpot, v: Vehicle): boolean {

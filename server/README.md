@@ -100,7 +100,7 @@ the sender's id; the service reads nothing else and forwards the same buffer.
 | 0 | Keepalive | anyone | nobody | 1 | "I am alive" |
 | 1 | State | anyone, 10 Hz | everyone else | 96 | own character or car (34 bytes today) |
 | 2 | World | host only | everyone else | 4096 | shared traffic, people, police (stage 2 on) |
-| 3 | Event | anyone, rare | everyone else | 96 | horn, wave, canned shout (4 bytes) |
+| 3 | Event | anyone, only when something happens | everyone else | 96 | horn, wave, canned shout (4 bytes); gunfire, a rocket, a blast, health after a hit (5 to 65 bytes, at most ten a second while firing) |
 | 4 | ToHost | anyone | the host | 96 | a request to the host (stage 2 on) |
 | 5 | ToPlayer | host only | byte 1's player | 4096 | join snapshot for one player (stage 2 on) |
 

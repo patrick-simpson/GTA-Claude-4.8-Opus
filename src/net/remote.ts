@@ -99,6 +99,14 @@ export class Remote {
   lastSaid = '';
   saidCount = 0;
   sayShown = false;
+  /** The flags of the state frame being shown (PlayerFlag, and the weapon they have raised). */
+  flags = 0;
+  /** Stage 3, step 3 (fight.ts): the health they last told of, whether they are dead until they say otherwise, and the counts. */
+  health = 100;
+  dead = false;
+  deaths = 0;
+  respawns = 0;
+  killedBy = 0;
 
   private person: Person | null = null;
   private car: Vehicle | null = null;
@@ -151,6 +159,8 @@ export class Remote {
 
   /** The car they are driving, as drawn here (a ghost: see Vehicles.ghost), or null on foot. */
   get vehicle(): Vehicle | null { return this.car; }
+  /** Their body, as drawn here (hidden while they drive), or null before the first frame. */
+  get body(): Person | null { return this.person; }
 
   /** An Event frame from this player: a wave (arg ignored) or a shout (arg is the line). Anything else is ignored. */
   hear(code: number, arg: number, now: number): void {
@@ -262,6 +272,7 @@ export class Remote {
     const c = this.cur, g = this.game;
     this.x = c.x; this.y = c.y; this.z = c.z; this.h = c.yaw;
     this.mode = c.mode;
+    this.flags = c.flags;
     this.pose = POSES[c.pose] ?? 'stand';
     const kind = c.mode === PlayerMode.Driving && c.vehicle > 0 ? KINDS[c.vehicle - 1] ?? null : null;
     this.kind = kind;
