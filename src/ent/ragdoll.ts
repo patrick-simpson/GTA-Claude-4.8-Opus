@@ -30,6 +30,7 @@ import type { Game } from '../core/game';
 import { clamp, hash2, pickRand } from '../core/util';
 import { groundAt } from '../world/plan';
 import { waterLevelAt } from '../world/mainland';
+import { DUCK as BIG_DUCK } from '../world/duckState';
 import { CH, HIP, NCH, ragAttach, ragDetach, ragPose } from './character';
 
 const STEP = 1 / 60;
@@ -46,7 +47,7 @@ const LIE = 0.115;
 const THIGH = 0.42, SHIN = 0.4, ARM = 0.5;
 const REST_SPEED = 0.5, REST_SPIN = 1.2;
 /** Duck in the harbour (world/landmarks.ts). */
-const DUCK_X = 0, DUCK_Z = 689, DUCK_R = 10, DUCK_TOP = 8.5;
+const DUCK_R = 10, DUCK_TOP = 8.5;
 
 const {
   LEAN, TWIST, SROLL, HYAW, HPITCH, HROLL, ASW, AAB, AEL, LSW, LAB, LKN, LFT,
@@ -356,7 +357,7 @@ export class Ragdolls {
 
     // The duck.
     if (r.opts.silly !== false && !r.ducked) {
-      const dx = r.x - DUCK_X, dz = r.z - DUCK_Z, d2 = dx * dx + dz * dz;
+      const dx = r.x - BIG_DUCK.x, dz = r.z - BIG_DUCK.z, d2 = dx * dx + dz * dz;
       if (d2 < DUCK_R * DUCK_R && r.y < DUCK_TOP + 1) {
         const l = Math.sqrt(d2) || 1;
         r.ducked = true;

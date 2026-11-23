@@ -22,6 +22,11 @@ import {
   bridgeBuilt, bridgeY, groundAt,
 } from './plan';
 import { MAIN_Y } from './mainland';
+import { DUCK, DUCK_HOME } from './duckState';
+import type { Box } from './collide';
+
+/** The wall around the moored duck (world/duckLoose.ts folds it away while the duck is out). */
+export const duckWall: { box: Box | null; y0: number; y1: number } = { box: null, y0: 0, y1: 0 };
 import { Toggle, noticeTexture, progress, sawhorses } from './progress';
 import { RNG, TAU, angleDiff, clamp, damp, headingOf, lerp, money, pickRand, rand, smooth } from '../core/util';
 
@@ -1175,7 +1180,8 @@ function buildDuck(c: Ctx): (dt: number, t: number) => void {
   const { game } = c;
   // Dead ahead of the pier ramp and close enough that a car leaving the gap in the rail arrives on it
   // before the sea does: at speed the drop from the deck is only good for about fifteen meters.
-  const DX = 0, DZ = 689;
+  // Where it is moored (world/duckState.ts); when it breaks loose, world/duckLoose.ts moves DUCK and this follows.
+  let DX: number = DUCK_HOME.x, DZ: number = DUCK_HOME.z;
   const b = new Blob(), yel = 0xf6ae0a;
   b.ball(0, 1.9, 0, 3.6, 2.9, 4.8, yel);                      // body
   b.ball(0, 3.4, 2.6, 2.6, 1.9, 2.2, yel);                    // chest, so the neck is not a ball on a ball
@@ -1206,11 +1212,14 @@ function buildDuck(c: Ctx): (dt: number, t: number) => void {
   spin.rotation.y = 2.6;
   c.parent.add(rock);
   // It turns, so the wall around it is a square that fits the duck at any heading.
-  game.col.addBoxC(DX, DZ, 8.5, 8.5, 8.5, -4);
+  duckWall.box = game.col.addBoxC(DX, DZ, 8.5, 8.5, 8.5, -4);
+  duckWall.y0 = -4; duckWall.y1 = 8.5;
 
-  let cool = 0, touching = false, amp = 0, vel = 0, px = 0, pz = 1;
+  let cool = 0, touching = false, amp = 0, vel = 0, px = 0, pz = 1, turn = 0;
   return (dt, t) => {
     cool -= dt;
+    DX = DUCK.x; DZ = DUCK.z;
+    rock.position.x = DX; rock.position.z = DZ;
     let hit = false, hx = 0, hz = 0;
     const pl = game.player;
     if (pl && pl.y < 9) {
@@ -1237,10 +1246,11 @@ function buildDuck(c: Ctx): (dt: number, t: number) => void {
     touching = hit;
     vel += (-16 * amp - 1.1 * vel) * dt;
     amp += vel * dt;
-    spin.rotation.y += dt * 0.06;
-    rock.position.y = WATER_Y + Math.sin(t * 0.9) * 0.22;
-    rock.rotation.x = Math.sin(t * 0.53 + 1) * 0.025 + amp * pz;
-    rock.rotation.z = Math.sin(t * 0.7) * 0.03 - amp * px;
+    turn += dt * 0.06;
+    spin.rotation.y = 2.6 + turn + DUCK.yaw;
+    rock.position.y = DUCK.loose ? DUCK.y : WATER_Y + Math.sin(t * 0.9) * 0.22;
+    rock.rotation.x = Math.sin(t * 0.53 + 1) * 0.025 + amp * pz + DUCK.tiltX;
+    rock.rotation.z = Math.sin(t * 0.7) * 0.03 - amp * px + DUCK.tiltZ;
   };
 }
 

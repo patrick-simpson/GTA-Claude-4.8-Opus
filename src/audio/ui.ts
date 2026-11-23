@@ -11,6 +11,7 @@ import type { Game } from '../core/game';
 import { save } from '../game/save';
 import { progress } from '../world/progress';
 import type { AudioCore } from './audio';
+import { DUCK } from '../world/duckState';
 import { hiss, ping, thud, type Rand } from './sfx';
 import { clank } from './world';
 
@@ -146,7 +147,7 @@ export function booked(core: AudioCore, t: number, out: AudioNode, r: Rand): voi
 
 // ── The part the game runs ───────────────────────────────────────────────────
 
-const DUCK_X = 0, DUCK_Z = 689;
+// The giant duck can be out on the water (world/duckLoose.ts): wherever it is now.
 
 export class UiSounds {
   private heat = 0;
@@ -182,7 +183,7 @@ export class UiSounds {
       this.heat = lv;
     });
     game.on('duck', (e) => {
-      if (Math.hypot(e.x - DUCK_X, e.z - DUCK_Z) <= 3) return;
+      if (Math.hypot(e.x - DUCK.x, e.z - DUCK.z) <= 3) return;
       duckSqueak(core, core.now + 0.02, this.out(0.8), r);
       chime(core, core.now + 0.35, this.out(0.6));
     });

@@ -17,6 +17,7 @@ import { signalState } from './signals';
 import { Fireworks } from '../fx/fireworks';
 import { Launchers } from './launchers';
 import { Moose } from './moose';
+import { DuckLoose } from './duckLoose';
 
 export class World implements WorldApi {
   readonly group = new THREE.Group();
@@ -55,11 +56,14 @@ export class World implements WorldApi {
     this.parts.push(buildMainlandPlaces(g.plan.mainlandLots, g.plan.lots.length));
     this.boxMarks.push(g.col.allBoxes.length);
     // Fireworks over Pelican Pier (fx/fireworks.ts): the Saturday and holiday show, and the stall on the pier.
-    this.parts.push(new Fireworks(g, this.group));
+    const fireworks = new Fireworks(g, this.group);
+    this.parts.push(fireworks);
     // Cannons and catapults (world/launchers.ts): five machines that put Dess into the sky.
     this.parts.push(new Launchers(g, this.group));
     // Moose crossings (world/moose.ts): bulls, cows and calves on the country roads, from the shared clock.
     this.parts.push(new Moose(g, this.group));
+    // Giant rubber duck events (world/duckLoose.ts): the duck breaks loose now and then; push it home for a reward.
+    this.parts.push(new DuckLoose(g, this.group, fireworks));
     await step(1, 'Sweeping up');
   }
 

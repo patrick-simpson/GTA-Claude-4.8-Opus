@@ -14,6 +14,7 @@ import { BREAKWATER, BRIDGE, LIGHTHOUSE, PIER, PIER_HEAD, islandSD } from '../wo
 import { FOOTBRIDGE, HILL, MAIN_SPLIT_Z, MXS, RAIL, RAIL_TRESTLE, RAIL_Z, ROAD_BRIDGE, SITES, coastSD, hillAt, waterDist } from '../world/mainland';
 import type { AudioCore, Bus } from './audio';
 import { hiss, ping, thud, type Rand } from './sfx';
+import { DUCK } from '../world/duckState';
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 
@@ -452,7 +453,7 @@ export function squawk(core: AudioCore, t: number, out: AudioNode, r: Rand): voi
 
 // ── The part the game runs ───────────────────────────────────────────────────
 
-const DUCK_X = 0, DUCK_Z = 689;
+// The giant duck can be out on the water (world/duckLoose.ts): wherever it is now.
 const rectDist = (x: number, z: number, r: { x0: number; z0: number; x1: number; z1: number }): number =>
   Math.hypot(Math.max(r.x0 - x, 0, x - r.x1), Math.max(r.z0 - z, 0, z - r.z1));
 
@@ -485,7 +486,7 @@ export class WorldSounds {
     });
     game.on('duck', (e) => {
       // The small ducks she collects use the same event; theirs is in ui.ts.
-      if (Math.hypot(e.x - DUCK_X, e.z - DUCK_Z) > 3 || !core.claim('duck', 1, 1.2)) return;
+      if (Math.hypot(e.x - DUCK.x, e.z - DUCK.z) > 3 || !core.claim('duck', 1, 1.2)) return;
       const sp = core.place(e.x, 6, e.z, { ref: 45, max: 600, wet: 0.6 });
       if (sp) duckHonk(core, core.now + sp.lag, sp.in, r);
     });
