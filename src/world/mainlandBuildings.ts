@@ -23,6 +23,7 @@ import { CURB, groundAt, type Block, type Lot, type Rect } from './plan';
 import { FENCE_UV, MAIN_SHOPS, MWALL, makeMainlandTextures, mwallV, signKey, type MainlandTextures } from './textures';
 import { RNG } from '../core/util';
 import { FASCIA_OUT, MainStreet } from './mainStreetAssets';
+import { PardonsStore } from './pardonsStore';
 
 const CELL = MWALL.cell, ROW = MWALL.rows, RED = MWALL.redBrick;
 /** Edge of a chunk of town. Small enough that the shadow pass and the distance cull below drop most of the town most of the time. */
@@ -1109,7 +1110,8 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
   b.stacks(plan.mainlandLots, plan.blocks, plan.lots.length);
   b.mill(plan.mainlandLots, plan.lots.length);
   // No kit.finish() here: mainlandPlaces.ts draws the landmarks into the same batches and builds the meshes.
-  return { update: () => { kit.update(); ms.update(); }, setNight: (n: number) => { kit.setNight(); ms.setNight(n); } };
+  const pd = new PardonsStore(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
+  return { update: () => { kit.update(); ms.update(); pd.update(); }, setNight: (n: number) => { kit.setNight(); ms.setNight(n); pd.setNight(n); } };
 }
 
 void CURB; void IRON; void WHITE;

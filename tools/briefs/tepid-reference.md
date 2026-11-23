@@ -114,3 +114,33 @@ parking marked in white, a raised island at the square.
 - **Dithers College** (exists): Georgian Revival red brick `#8a3f30` quadrangles with white trim and slate roofs, a
   library with a tall white spire (about 60 m, the town's landmark from the bridge) and the **Chapel of Second
   Thoughts** with its own white spire; the library should carry the name **The Overdue Library**.
+
+## The surplus store: Pardon's Surplus & Salvage (store unit 1: built)
+
+The real store is the Waterville branch of Maine's surplus-and-salvage chain, 458 Kennedy Memorial Drive, on the
+commercial strip (Route 137) that runs west out of downtown to the I-95 interchange; it stands on the south side of
+the drive just short of the interstate, Airport Road nearby. Seen for proportion and colour only (pictures kept in
+scratch/mardens/ref/, never in the repo): Google Maps satellite at 0.21 m per pixel, two Google Street View panoramas
+taken in the lot (June 2026), web picture grids of the storefront and of the inside (checkouts, the front soffit).
+Nothing from Wikimedia Commons (no pictures of this store there).
+
+**In the game: Pardon's Surplus & Salvage** ("Pardon's" on the sign, same eight characters and the same red block
+letters as the real name). Kennedy Memorial Drive maps onto **Second Thought Ave** (z -1295, the avenue west from Main
+St) and I-95 onto **The Thruway** (x -700): the store takes the exits block south of the avenue beside the Thruway
+exit (grid cells i 0, j 7 and 8; world x -690..-596, z -1285..-1086), faces north over its lot to the avenue as the
+real one faces its lot and the drive, entrance at the east end of the front as on the real building. No new road was
+needed: the strip road already existed. Numbers in src/world/pardonsSite.ts.
+
+| | Real (measured) | Game |
+|---|---|---|
+| Footprint | about 104 x 79 m (8,200 m2, about 88,000 sq ft), long side = front | 82 x 62 m (0.79 scale), front x -683..-601 at z -1158, back at z -1096 |
+| Height | block walls about 6.5-7 m; entrance block about 8.5-9 m with parapet | walls 6.8 m (roof 6.6), raised parapet beside the entrance 7.9-8.1 m, entrance block 8.8 m |
+| Front | long flat front of light grey split-face block with one red stripe at door-head height and a grey coping; at the east end a taller white entrance block standing slightly proud, red cap band along its parapet, a red band over the storefront, then a full-width aluminium storefront with dark bronze frames, two sets of sliding doors, red steel bollards along the walk; an overhead door and a steel door toward the west end; a small light-grey loading annex at the west corner (not modelled) | same, entrance block 23 m wide and 1.6 m proud, storefront 21.8 m with 14 bays, doors 3 m wide (two 1.5 m leaves, sliding), 11 bollards |
+| Sign | "MARDEN'S" in huge red block capitals (bold, wide, slightly flared) with a dark edge, centred on the white block between the two red bands; no other words | "PARDON'S", red `#cc2229` letters 2.3 m tall, extruded 0.14 m with dark-red sides `#5e1114` |
+| Colours (sRGB) | white panels `#f1f0eb`; red bands and letters `#cc2229`; split-face block `#b4b6b3` with a darker coping `#8e908f`; red stripe `#b3242b`; storefront `#2e2a26`; roof membrane dark `#3b3e42`; rooftop units `#b7b9b6`; lot lines yellow `#d9b23a` | the same |
+| Entrances | two automatic sliding entrances in the storefront at the east end; crosswalks from the lot straight to them | two, store x 3.5-6.5 and 16.5-19.5 (world x -604.5..-607.5 and -617.5..-620.5, z -1159.6); yellow crosswalk stripes |
+| Lot | large asphalt lot north-east of the front, rows of 90-degree stalls in yellow paint with aisles running toward the store, grass islands with curbs at the row ends, tall single steel poles (about 10 m) with flat shoebox heads, galvanised pipe cart corrals with a red-and-white "please return carts" sign, a pylon road sign by the drive | x -686.5..-599.5, z -1281.5..-1164: one single row and four double rows of 2.74 x 5.5 m stalls, five 7.5 m aisles, a drive along the front and along the avenue, 8 curbed islands, 8 double-head lamp standards, 3 corrals, the road sign on its island at (-647, -1277.5) facing along the avenue, two driveways onto the avenue and one onto Offramp Rd |
+| Inside | one big open floor; suspended ceiling of 2 x 4 ft tiles at about 4-4.5 m with 2 x 4 fluorescent troffers in rows; light even and white; cream vinyl tile floor; white walls with a red band near the top; white steel columns on a grid; a white soffit along the front over the checkouts and the way in, with a red stripe and the name in red letters; red checkout counters with dark belts, each with a red square lane number on a pole; aisles of red-based gondolas with white pegboard; hand-lettered red-and-white sale signs; dark entrance mats | ceiling 4.3 m (tile grid drawn in the game), 514 troffer lenses, VCT floor (0.305 m tiles), walls with a red band at 3.0-3.45 m and a dark base, columns on a 12 m grid, soffit at 3.3 m over the front 9 m (x 0.3..60) with the name facing the doors and twice facing the floor, 8 red checkout lanes numbered 1-8, a service desk by the door, stockroom and office doors in the back wall |
+
+Unit 2 fills the sales floor from `DEPARTMENTS` in pardonsSite.ts (grocery, health and beauty, housewares and
+seasonal, hardware, clothing racks, fabric, furniture, flooring rolls), gondolas front to back on a 3.6 m pitch.

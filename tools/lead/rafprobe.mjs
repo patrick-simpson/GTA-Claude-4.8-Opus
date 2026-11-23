@@ -15,6 +15,9 @@ const SC = {
   heights: { at: [0, -320, 1.57], path: [-240, -320, 300, -320] },
   mainst: { land: 1, at: [80, -1300, 3.14], path: [80, -1100, 80, -1560] },
   park: { at: [140, -110, 1.57], path: [60, -110, 300, -110] },
+  // Pardon's (src/world/pardonsStore.ts): inside along the sales floor, and the lot in front.
+  pardons: { land: 1, at: [-628, -1135, 0], path: [-606, -1126, -676, -1126] },
+  pardonslot: { land: 1, at: [-640, -1200, 0], path: [-640, -1270, -640, -1172] },
 }[name];
 const query = [`q=${q}`, 'save=0', SC.land ? 'bridge=8&stage=4' : '', typeof opt.query === 'string' ? opt.query : ''].filter(Boolean).join('&');
 // --vsync: the same page in a browser that paces frames at 60 a second (pw.mjs switches that off), which is

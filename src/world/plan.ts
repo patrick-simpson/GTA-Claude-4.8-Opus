@@ -16,6 +16,7 @@ import {
   RIVER_HW, STAGE_OF, STAGE_OVERRIDE, coastSD, hillAt, mCell, mainlandTerrain, mhSeg, mvSeg, riverX, waterDist,
   type MainDistrict,
 } from './mainland';
+import { PD, pardonsStalls } from './pardonsSite';
 
 export type IslandDistrict =
   | 'downtown' | 'midtown' | 'oldtown' | 'suburb' | 'industrial' | 'port' | 'strand' | 'park' | 'arena';
@@ -484,7 +485,8 @@ export class CityPlan {
         this.blocks.push(block);
         this.mblock.push(block.id);
         M_RECTS[i * MNJ + j] = rect;
-        if (cell.d === 'square') continue;
+        // Pardon's (pardonsStore.ts) has the exits block by Second Thought Ave: no lots for the other builders there.
+        if (cell.d === 'square' || PD.CELLS.some(([a, b]) => a === i && b === j)) continue;
         const inner: Rect = {
           x0: rect.x0 + (road[3] ? SIDEWALK : 0), x1: rect.x1 - (road[1] ? SIDEWALK : 0),
           z0: rect.z0 + (road[0] ? SIDEWALK : 0), z1: rect.z1 - (road[2] ? SIDEWALK : 0),
@@ -507,6 +509,7 @@ export class CityPlan {
         }
       }
     }
+    for (const s of pardonsStalls()) this.mainlandParking.push(s);
     for (const x of EXTRA_LOTS) this.mainlandLots.push({ rect: x.rect, block: -1, district: x.district, face: x.face, interior: false });
 
     const prng = new RNG(8842);

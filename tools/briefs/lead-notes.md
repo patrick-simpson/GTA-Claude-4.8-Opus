@@ -158,3 +158,4 @@ owner's ground rules for the takeover and the running state.
 - Nov 23, 10:45 AM ET: OWNER: ragdoll physics when hit by a car, funny. Brief tools/briefs/ragdoll.md. Queue: Tepid Falls unit 1 (running), Marden's (top priority), ragdoll, SpeedScan HQ, then the rest of Tepid Falls.
 - Nov 23, 10:55 AM ET: OWNER: use Haiku wherever it can do the job. Plan per step: builder on the top model only for modelling/physics/design; every independent check, screenshot set, benchmark run, boot test and data count on Haiku (Sonnet only if Haiku fails it twice).
 - Nov 23, 11:15 AM ET: Tepid Falls unit 1 (Main St) pushed. Next: Marden's unit 1 (top model builder, Haiku checker).
+- Nov 23, 12:30 PM ET: store unit 1 pushed. Next: store unit 2 (merchandise, baked light, carts, shoppers).

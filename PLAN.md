@@ -88,6 +88,20 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Pardon's Surplus & Salvage, unit 1 (the owner's Marden's): pushed Nov 23, about 12:30 PM ET
+
+Owner: hyper-real, full walk-in interior, in the real store's place, top priority (`tools/briefs/
+mardens.md`; reference section "The surplus store" in `tepid-reference.md`). On Second Thought Ave
+(Kennedy Memorial Drive) by the Thruway exit, south of the road, entrance at the east end, as the real
+one. `buildings.py -- --store` writes `pardons.glb` (245 kB gzipped) and `pardons_far.glb` (phones);
+`src/world/pardonsSite.ts` (numbers, lot stalls, `DEPARTMENTS` for unit 2) and `pardonsStore.ts`
+(collision, lot, sliding doors, interior drawn only near or inside). Store front x -683..-601 at z -1158,
+floor y 5.16. Inside 82 fps, lot 67 (Iris Xe, high). Checked by a Haiku worker and the lead.
+`tools/shot.mjs --wait` now re-applies `--hour` after waiting.
+Owed (unit 2 and 3): the store is EMPTY (no merchandise, carts, shoppers), lighting flat, checkouts
+plain; loading annex, flag, wall wear; doors open only for the player; night not looked at; few parked
+cars seen in the lot.
+
 ### Tepid Falls in Waterville's likeness, unit 1: Main St: pushed Nov 23, about 11:15 AM ET
 
 Owner request and decisions: `tools/briefs/tepid-waterville.md`; reference with invented names and

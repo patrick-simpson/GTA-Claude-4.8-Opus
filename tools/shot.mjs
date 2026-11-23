@@ -38,7 +38,7 @@ try {
     for (const k of keys) await t.page.keyboard.down(k);
     await t.step(Number(opt.steps ?? 30));
     for (const k of keys) await t.page.keyboard.up(k);
-    if (opt.wait) { await t.page.waitForTimeout(Number(opt.wait)); await t.step(2); }
+    if (opt.wait) { await t.page.waitForTimeout(Number(opt.wait)); if (opt.hour !== undefined) await t.game((g, h) => g.setTime(h), Number(opt.hour)); await t.step(2); }
     if (opt.view) { await t.game((g, a) => g.view(...a), nums(opt.view)); await t.step(1); }
   } else {
     await t.page.waitForTimeout(600);

@@ -2,6 +2,7 @@
 # the real buildings each design follows, and their invented names: tools/briefs/tepid-reference.md).
 #
 #   blender --factory-startup --python tools/blender/buildings.py --python-expr "import bpy; bpy.ops.wm.quit_blender()" -- [names...] [--no-bake] [--no-export]
+#   blender --factory-startup --python tools/blender/buildings.py -- --store     (Pardon's, the surplus store: see store_build)
 #   (with its window showing, never --background: the owner watches the screen)
 #
 # Writes, in public/models (BLD_OUT overrides the folder for a trial):
@@ -775,7 +776,278 @@ def main():
     with open(os.path.join(SHOTS, 'mainst_meta.json'), 'w') as fh: json.dump({'stats': out, 'meta': meta}, fh, indent=1)
 
 
-main()
+# ── Pardon's Surplus & Salvage (`-- --store`): the big box on Second Thought Ave ──────────────────────────────
+# After the Waterville store of the surplus-and-salvage chain on Kennedy Memorial Drive (reference and numbers:
+# tools/briefs/tepid-reference.md, "The surplus store"). Writes public/models/pardons.glb (everything below) and
+# pardons_far.glb (pd_far alone, for phones and distance). src/world/pardonsStore.ts is the other half of the contract.
+#
+# Frame: x along the storefront from the east end (0) to the west end (SW), left to right as seen from the lot;
+# y up from the store floor (= the lot); z out of the front wall toward the lot (front wall z = 0, back wall z = -SD).
+# The entrance block (x 0..SEW) stands SBZ proud of the front wall. Objects, each with its own material in the game:
+#   pd_ext    exterior, vertex colour (white panels, red bands, roof, units, sidewalk, bollards, the sign letters)
+#   pd_cmu    the split-face block walls (vertex colour; the game lays a block texture over them in meters)
+#   pd_glass  storefront glass (see-through), door openings left empty (the game slides its own door leaves)
+#   pd_int    interior shell with its light already in the vertex colour (walls, soffit, columns, checkouts, desk)
+#   pd_floor  floor (the game tiles it), pd_ceil ceiling (the game draws the tile grid), pd_lights the lamp lenses
+#   pd_far    the far box; pd_sign the road sign, pd_corral a cart corral, pd_lamp a lot light (origin at its base)
+SW, SD, SH, SEW, SBZ, SEH, SCH = 82.0, 62.0, 6.8, 23.0, 1.6, 8.8, 4.3
+S_WHITE, S_RED, S_REDD, S_CMU, S_COPE, S_ROOF = 0xf1f0eb, 0xcc2229, 0x5e1114, 0xb4b6b3, 0x8e908f, 0x3b3e42
+S_BRONZE, S_CONC = 0x2e2a26, 0xc9c6be
+S_DOORS = [(3.5, 6.5), (16.5, 19.5)]           # entrance openings in the storefront, x0..x1 (two leaves each)
+S_LANES = [27.0 + 3.6 * k for k in range(8)]   # checkout counters, west edge x
+
+
+def _font():
+    for f in ('ariblk.ttf', 'arialbd.ttf'):
+        p = os.path.join('C:/Windows/Fonts', f)
+        if os.path.exists(p): return bpy.data.fonts.load(p)
+    return None
+
+
+def text_into(m, s, height, maxw, place, face_hex, side_hex, extrude=0.06, res=None):
+    """Extruded letters into Mesh m. place(tx, ty, tz) maps text space (x right, y up, z toward the reader, centred,
+    cap height = `height`, at most `maxw` wide) into the game frame; it must be a rotation, not a mirror."""
+    cu = bpy.data.curves.new('txt', 'FONT'); cu.body = s
+    f = _font()
+    if f: cu.font = f
+    cu.size = 1.0; cu.extrude = extrude; cu.resolution_u = res or (3 if height > 1 else 1); cu.align_x = 'CENTER'; cu.align_y = 'CENTER'
+    ob = bpy.data.objects.new('txt', cu); bpy.context.scene.collection.objects.link(ob)
+    dg = bpy.context.evaluated_depsgraph_get(); eo = ob.evaluated_get(dg); me = eo.to_mesh()
+    xs = [v.co.x for v in me.vertices]; ys = [v.co.y for v in me.vertices]
+    k = height / max(1e-6, max(ys) - min(ys))
+    k = min(k, maxw / max(1e-6, max(xs) - min(xs)))
+    cx, cy = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2
+    for p in me.polygons:
+        pts = [me.vertices[i].co for i in p.vertices]
+        col = face_hex if abs(p.normal.z) > 0.7 else side_hex
+        m.face([place((v.x - cx) * k, (v.y - cy) * k, v.z) for v in pts], col, 0.0)
+    eo.to_mesh_clear(); bpy.data.objects.remove(ob); bpy.data.curves.remove(cu)
+
+
+def cyl(m, cx, cz, r, y0, y1, hex_, n=8, top=True):
+    pts = [(cx + r * cos(2 * pi * i / n), cz + r * sin(2 * pi * i / n)) for i in range(n)]
+    for i in range(n):
+        (ax, az), (bx, bz) = pts[i], pts[(i + 1) % n]
+        m.face([(ax, y0, az), (bx, y0, bz), (bx, y1, bz), (ax, y1, az)], hex_, 0.0, ((ax + bx) / 2 - cx, 0, (az + bz) / 2 - cz))
+    if top: m.face([(x, y1, z) for x, z in pts], hex_, 0.0, (0, 1, 0))
+
+
+def wall_x(m, x, z0, z1, bands, nx):
+    """A wall in the plane x = const, in horizontal bands [(y0, y1, hex)], facing nx."""
+    for y0, y1, h in bands: m.face([(x, y0, z0), (x, y0, z1), (x, y1, z1), (x, y1, z0)], h, 0.0, (nx, 0, 0))
+
+
+def wall_z(m, z, x0, x1, bands, nz):
+    for y0, y1, h in bands: m.face([(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)], h, 0.0, (0, 0, nz))
+
+
+def store_build():
+    ext, cmu, gl, it, fl, ce, li, far = Mesh(), Mesh(), Mesh(), Mesh(), Mesh(), Mesh(), Mesh(), Mesh()
+    rnd = random.Random(458)
+    # ── Block walls: front (west of the entrance block), both ends, back; a red stripe and a coping all round.
+    STR = (2.35, 2.7)
+    cmu.face([(SEW, 0, 0), (SW, 0, 0), (SW, SH, 0), (SEW, SH, 0)], S_CMU, 1.0, (0, 0, 1))
+    cmu.face([(SW, 0, 0), (SW, 0, -SD), (SW, SH, -SD), (SW, SH, 0)], S_CMU, 1.0, (1, 0, 0))
+    cmu.face([(0, 0, -SD), (SW, 0, -SD), (SW, SH, -SD), (0, SH, -SD)], S_CMU, 1.0, (0, 0, -1))
+    cmu.face([(0, 0, -2), (0, 0, -SD), (0, SH, -SD), (0, SH, -2)], S_CMU, 1.0, (-1, 0, 0))
+    # The raised parapet beside the entrance block.
+    cmu.face([(SEW, SH, 0), (SEW + 10, SH, 0), (SEW + 10, 7.9, 0), (SEW, 7.9, 0)], 0xc3c5c2, 1.0, (0, 0, 1))
+    ext.box(SEW, SEW + 10, SH, 7.9, -0.6, 0, 0xc3c5c2, skip='fb')
+    ext.box(SEW - 0.02, SEW + 10.08, 7.9, 8.1, -0.68, 0.06, S_COPE, skip='b')
+    q = 0.03
+    ext.box(SEW, SW + q, STR[0], STR[1], -0.0, q, S_RED, skip='lkb')
+    ext.box(SW, SW + q, STR[0], STR[1], -SD - q, 0, S_RED, skip='lkbft')
+    ext.box(-q, SW + q, STR[0], STR[1], -SD - q, -SD, S_RED, skip='fbt')
+    ext.box(-q, 0, STR[0], STR[1], -SD - q, -2, S_RED, skip='rbtf')
+    for (x0, x1, z0, z1) in ((SEW + 10, SW, -0.05, 0.05), (SW - 0.05, SW + 0.05, -SD, 0), (0, SW, -SD - 0.05, -SD + 0.05), (-0.05, 0.05, -SD, -2)):
+        ext.box(x0, x1, SH - 0.22, SH + 0.05, z0, z1, S_COPE, skip='b')
+    ext.face([(0, 6.6, 0), (SW, 6.6, 0), (SW, 6.6, -SD), (0, 6.6, -SD)], S_ROOF, 0.0, (0, 1, 0))
+    for _ in range(11):
+        ux, uz = rnd.uniform(SEW + 14, SW - 6), rnd.uniform(-SD + 6, -8)
+        ext.box(ux, ux + 2.4, 6.6, 8.0, uz, uz + 1.6, 0xb7b9b6, skip='b')
+        ext.box(ux + 0.3, ux + 2.1, 8.0, 8.12, uz + 0.2, uz + 1.4, 0x9a9c99, skip='b')
+    ext.box(30, 30.1, 6.6, 12.8, -6.1, -6.0, 0xd0d0cc)
+    # Overhead door and a steel door in the block front, at the west end.
+    ext.face([(73, 0, 0.02), (77, 0, 0.02), (77, 3.9, 0.02), (73, 3.9, 0.02)], 0xe7e7e3, 0.0, (0, 0, 1))
+    for k in range(7): ext.face([(73, 0.5 + k * 0.55, 0.03), (77, 0.5 + k * 0.55, 0.03), (77, 0.53 + k * 0.55, 0.03), (73, 0.53 + k * 0.55, 0.03)], 0xb9b9b5, 0.0, (0, 0, 1))
+    ext.box(72.8, 77.2, 3.9, 4.05, 0, 0.08, 0x8a8c8b)
+    ext.face([(61, 0, 0.02), (62, 0, 0.02), (62, 2.15, 0.02), (61, 2.15, 0.02)], 0x8e9399, 0.0, (0, 0, 1))
+    # ── The white entrance block, its red bands and the sign.
+    Z = SBZ
+    ext.face([(0, 3.75, Z), (SEW, 3.75, Z), (SEW, SEH, Z), (0, SEH, Z)], S_WHITE, 0.0, (0, 0, 1))
+    for x0, x1 in ((0, 0.6), (SEW - 0.6, SEW)): ext.face([(x0, 0, Z), (x1, 0, Z), (x1, 3.75, Z), (x0, 3.75, Z)], S_WHITE, 0.0, (0, 0, 1))
+    ext.face([(0, 0, -2), (0, 0, Z), (0, SEH, Z), (0, SEH, -2)], S_WHITE, 0.0, (-1, 0, 0))
+    ext.face([(SEW, 0, Z), (SEW, 0, 0), (SEW, SEH, 0), (SEW, SEH, Z)], S_WHITE, 0.0, (1, 0, 0))
+    ext.face([(SEW, SH, 0), (SEW, SH, -2), (SEW, SEH, -2), (SEW, SEH, 0)], S_WHITE, 0.0, (1, 0, 0))
+    ext.face([(0, SEH, Z), (SEW, SEH, Z), (SEW, SEH, -2), (0, SEH, -2)], S_ROOF, 0.0, (0, 1, 0))
+    ext.face([(0, 6.6, -2), (SEW, 6.6, -2), (SEW, SEH, -2), (0, SEH, -2)], S_WHITE, 0.0, (0, 0, -1))
+    ext.box(-0.08, SEW + 0.08, SEH - 0.38, SEH + 0.04, -2.08, Z + 0.1, S_RED, skip='b')
+    ext.box(-0.05, SEW + 0.05, 3.85, 4.45, -0.05, Z + 0.07, S_RED, skip='k')
+    text_into(ext, "PARDON'S", 2.3, 20.0, lambda x, y, z: (SEW / 2 + x, 6.25 + y, Z + 0.1 + z), S_RED, S_REDD, 0.07)
+    # Storefront: bronze frame and mullions, a transom bar, glass; the door openings stay open (the game's leaves).
+    gx0, gx1 = 0.6, SEW - 0.6
+    ext.box(gx0, gx1, 3.62, 3.75, Z - 0.12, Z + 0.02, S_BRONZE)
+    ext.box(gx0, gx1, 0, 0.12, Z - 0.12, Z + 0.02, S_BRONZE)
+    xs = [gx0 + k * (gx1 - gx0) / 14 for k in range(15)]
+    for d0, d1 in S_DOORS: xs += [d0, d1]
+    for x in sorted(set(round(v, 3) for v in xs)):
+        if any(d0 + 0.05 < x < d1 - 0.05 for d0, d1 in S_DOORS): continue
+        ext.box(x - 0.06, x + 0.06, 0, 3.75, Z - 0.12, Z + 0.03, S_BRONZE)
+    ext.box(gx0, gx1, 2.4, 2.5, Z - 0.12, Z + 0.03, S_BRONZE)
+    for d0, d1 in S_DOORS: ext.box(d0, d1, 2.28, 2.4, Z - 0.14, Z + 0.03, S_BRONZE)
+    segs, x = [], gx0
+    for d0, d1 in S_DOORS: segs.append((x, d0)); x = d1
+    segs.append((x, gx1))
+    for a, b in segs: gl.face([(a, 0.12, Z - 0.05), (b, 0.12, Z - 0.05), (b, 2.4, Z - 0.05), (a, 2.4, Z - 0.05)], 0x8fa3aa, 0.5, (0, 0, 1))
+    gl.face([(gx0, 2.5, Z - 0.05), (gx1, 2.5, Z - 0.05), (gx1, 3.62, Z - 0.05), (gx0, 3.62, Z - 0.05)], 0x8fa3aa, 0.5, (0, 0, 1))
+    # Sidewalk along the front, red bollards at the entrance block.
+    ext.face([(SEW, 0.03, 0), (SW + 1.5, 0.03, 0), (SW + 1.5, 0.03, 4.0), (SEW, 0.03, 4.0)], S_CONC, 0.0, (0, 1, 0))
+    ext.face([(-1.5, 0.03, Z), (SEW, 0.03, Z), (SEW, 0.03, Z + 4.2), (-1.5, 0.03, Z + 4.2)], S_CONC, 0.0, (0, 1, 0))
+    ext.face([(-1.5, 0.03, -SD), (-1.5, 0.03, Z), (0, 0.03, Z), (0, 0.03, -SD)], S_CONC, 0.0, (0, 1, 0))
+    for k in range(11):
+        bx = 1.1 + k * 2.08
+        cyl(ext, bx, Z + 3.7, 0.15, 0.03, 1.1, 0xc42a2e)
+        cyl(ext, bx, Z + 3.7, 0.16, 1.1, 1.16, 0xb22428)
+    # ── Interior shell. Light baked as a gentle fall-off up the walls (fluorescent rows, even light).
+    i0, i1, d0 = 0.3, SW - 0.3, -SD + 0.3
+    WB = [(0, 0.12, 0x4d4d4d), (0.12, 1.2, 0xe6e4de), (1.2, 2.2, 0xe9e7e1), (2.2, 3.0, 0xe8e6e0), (3.0, 3.45, 0xbf232c), (3.45, SCH, 0xd8d6d0)]
+    wall_x(it, i0, d0, Z - 0.12, WB, 1)
+    wall_x(it, i1, d0, -0.3, WB, -1)
+    wall_z(it, d0, i0, i1, WB, 1)
+    wall_z(it, -0.3, SEW - 0.3, i1, WB, -1)
+    wall_x(it, SEW - 0.3, -0.3, Z - 0.12, WB, -1)
+    wall_z(it, Z - 0.12, i0, SEW - 0.3, [(3.75, SCH, 0xdcdad4)], -1)
+    for x0, x1 in ((i0, gx0 + 0.06), (gx1 - 0.06, SEW - 0.3)): wall_z(it, Z - 0.12, x0, x1, [(0, 3.75, 0xdcdad4)], -1)
+    it.face([(73, 0, -0.29), (77, 0, -0.29), (77, 3.9, -0.29), (73, 3.9, -0.29)], 0xa9adb1, 0.0, (0, 0, -1))
+    # Back wall: stockroom double doors, the office door.
+    for dx, wd in ((6, 1.0), (20, 2.4), (41, 2.4), (66, 2.4)):
+        it.face([(dx, 0, d0 + 0.02), (dx + wd, 0, d0 + 0.02), (dx + wd, 2.3, d0 + 0.02), (dx, 2.3, d0 + 0.02)], 0x8d9196, 0.0, (0, 0, 1))
+        if wd > 2: it.face([(dx + wd / 2 - 0.02, 0, d0 + 0.03), (dx + wd / 2 + 0.02, 0, d0 + 0.03), (dx + wd / 2 + 0.02, 2.3, d0 + 0.03), (dx + wd / 2 - 0.02, 2.3, d0 + 0.03)], 0x55585c, 0.0, (0, 0, 1))
+        for wx in ((dx + 0.35, dx + 0.75), (dx + wd - 0.75, dx + wd - 0.35)) if wd > 2 else ((dx + 0.3, dx + 0.7),):
+            it.face([(wx[0], 1.3, d0 + 0.035), (wx[1], 1.3, d0 + 0.035), (wx[1], 1.85, d0 + 0.035), (wx[0], 1.85, d0 + 0.035)], 0x2a2f33, 0.0, (0, 0, 1))
+    # Columns on a 12 m grid.
+    for cx in (11, 23, 35, 47, 59, 71):
+        for cz in (-14, -26, -38, -50):
+            it.box(cx - 0.15, cx + 0.15, 0, SCH, cz - 0.15, cz + 0.15, 0xe0e0dc, skip='tb')
+            it.box(cx - 0.17, cx + 0.17, 0, 0.1, cz - 0.17, cz + 0.17, 0x56595c, skip='b')
+    # The soffit over the front (checkouts and the way in), red stripe and the name facing into the store.
+    SZ = -9.0
+    it.face([(i0, 3.3, -0.3), (60, 3.3, -0.3), (60, 3.3, SZ), (i0, 3.3, SZ)], 0xe4e3de, 0.0, (0, -1, 0))
+    it.face([(i0, 3.3, SZ), (60, 3.3, SZ), (60, SCH, SZ), (i0, SCH, SZ)], 0xeceae4, 0.0, (0, 0, -1))
+    it.face([(60, 3.3, SZ), (60, 3.3, -0.3), (60, SCH, -0.3), (60, SCH, SZ)], 0xeceae4, 0.0, (1, 0, 0))
+    it.box(i0, 60.02, 3.3, 3.55, SZ - 0.03, SZ, 0xc4232d, skip='kt')
+    text_into(it, "PARDON'S", 0.55, 6.0, lambda x, y, z: (14 - x, 3.95 + y, SZ - 0.04 - z), S_RED, S_REDD, 0.02)
+    text_into(it, "PARDON'S", 0.55, 6.0, lambda x, y, z: (44 - x, 3.95 + y, SZ - 0.04 - z), S_RED, S_REDD, 0.02)
+    # Its face toward the doors, over the way in: the name again, as you walk in.
+    it.face([(i0, 3.3, -0.3), (SEW - 0.3, 3.3, -0.3), (SEW - 0.3, SCH, -0.3), (i0, SCH, -0.3)], 0xeceae4, 0.0, (0, 0, 1))
+    it.face([(i0, 3.3, -0.29), (SEW - 0.3, 3.3, -0.29), (SEW - 0.3, 3.55, -0.29), (i0, 3.55, -0.29)], 0xc4232d, 0.0, (0, 0, 1))
+    text_into(it, "PARDON'S", 0.5, 6.0, lambda x, y, z: (11.5 + x, 3.95 + y, -0.27 + z), S_RED, S_REDD, 0.02)
+    for k in range(int((60 - 2) / 3)):
+        for zz in (-2.4, -6.4):
+            x = 2 + k * 3; li.face([(x - 0.13, 3.29, zz - 0.13), (x + 0.13, 3.29, zz - 0.13), (x + 0.13, 3.29, zz + 0.13), (x - 0.13, 3.29, zz + 0.13)], 0xffffff, 0.0, (0, -1, 0))
+    # Checkout lanes: red counters with a black belt, a register stand at the front end, a numbered lane light.
+    for n, lx in enumerate(S_LANES):
+        it.box(lx, lx + 0.8, 0, 0.88, -7.2, -3.0, 0xc22430, skip='b')
+        it.box(lx - 0.02, lx + 0.82, 0.88, 0.93, -7.22, -3.0, 0x2c2d30, skip='b')
+        it.box(lx + 0.1, lx + 0.7, 0.93, 0.95, -6.9, -4.6, 0x18191b, skip='b')
+        it.box(lx, lx + 0.8, 0, 1.12, -3.0, -2.3, 0x3a3c40, skip='b')
+        it.box(lx + 0.15, lx + 0.65, 1.12, 1.45, -2.9, -2.5, 0x202124, skip='b')
+        it.box(lx + 0.8, lx + 1.5, 0, 0.82, -3.6, -2.3, 0xb81f2b, skip='b')
+        it.box(lx + 0.35, lx + 0.45, 0.93, 2.6, -7.15, -7.05, 0x9a9da1, skip='b')
+        it.box(lx + 0.1, lx + 0.7, 2.6, 3.15, -7.14, -7.06, 0xc4232d)
+        num = str(n + 1)
+        text_into(it, num, 0.34, 0.4, lambda x, y, z, lx=lx: (lx + 0.4 + x, 2.875 + y, -7.06 + 0.012 + z * 0.2), 0xffffff, 0xffffff, 0.01)
+        text_into(it, num, 0.34, 0.4, lambda x, y, z, lx=lx: (lx + 0.4 - x, 2.875 + y, -7.14 - 0.012 - z * 0.2), 0xffffff, 0xffffff, 0.01)
+    # Service desk by the door, entrance mats.
+    it.box(1.0, 7.0, 0, 1.05, -6.4, -5.6, 0xc22430, skip='b'); it.box(0.95, 7.05, 1.05, 1.1, -6.45, -5.55, 0x2c2d30, skip='b')
+    it.box(6.2, 7.0, 0, 1.05, -9.0, -6.4, 0xc22430, skip='b')
+    for a, b in S_DOORS: fl.face([(a - 0.8, 0.008, -3.0), (b + 0.8, 0.008, -3.0), (b + 0.8, 0.008, Z - 0.14), (a - 0.8, 0.008, Z - 0.14)], 0x26282b, 0.5, (0, 1, 0))
+    # Floor and ceiling (the game tiles them); the lamp lenses in rows of 2x4 troffers past the soffit.
+    fl.face([(i0, 0, d0), (i1, 0, d0), (i1, 0, -0.3), (i0, 0, -0.3)], 0xffffff, 1.0, (0, 1, 0))
+    fl.face([(i0, 0, -0.3), (SEW - 0.3, 0, -0.3), (SEW - 0.3, 0, Z - 0.12), (i0, 0, Z - 0.12)], 0xffffff, 1.0, (0, 1, 0))
+    ce.face([(i0, SCH, d0), (i1, SCH, d0), (i1, SCH, -0.3), (i0, SCH, -0.3)], 0xffffff, 1.0, (0, -1, 0))
+    ce.face([(i0, SCH, -0.3), (SEW - 0.3, SCH, -0.3), (SEW - 0.3, SCH, Z - 0.12), (i0, SCH, Z - 0.12)], 0xffffff, 1.0, (0, -1, 0))
+    x = 2.4
+    while x < SW - 1.5:
+        z = -10.8
+        while z > -SD + 1.5:
+            if not (x < 60 and z > SZ - 0.5):
+                li.face([(x - 0.3, SCH - 0.01, z - 0.6), (x + 0.3, SCH - 0.01, z - 0.6), (x + 0.3, SCH - 0.01, z + 0.6), (x - 0.3, SCH - 0.01, z + 0.6)], 0xffffff, 0.0, (0, -1, 0))
+            z -= 2.4
+        x += 3.6
+    for k in range(int((SW - 2 - 61) / 3) + 1):
+        for zz in (-2.4, -6.4):
+            x = 62 + k * 3
+            li.face([(x - 0.3, SCH - 0.01, zz - 0.6), (x + 0.3, SCH - 0.01, zz - 0.6), (x + 0.3, SCH - 0.01, zz + 0.6), (x - 0.3, SCH - 0.01, zz + 0.6)], 0xffffff, 0.0, (0, -1, 0))
+    # ── Far: the outline and the colours that read from a distance.
+    far.box(0, SW, 0, SH, -SD, 0, S_CMU, skip='b')
+    far.box(0, SEW, 0, SEH, -2, Z, S_WHITE, skip='b')
+    far.box(-0.05, SEW + 0.05, SEH - 0.38, SEH, -2, Z + 0.05, S_RED, skip='bk')
+    far.box(-0.05, SEW + 0.05, 3.85, 4.45, -1, Z + 0.05, S_RED, skip='bkt')
+    far.box(SEW, SW + 0.03, STR[0], STR[1], -SD - 0.03, 0.03, S_RED, skip='bklt')
+    far.face([(0.6, 0.1, Z + 0.02), (SEW - 0.6, 0.1, Z + 0.02), (SEW - 0.6, 3.7, Z + 0.02), (0.6, 3.7, Z + 0.02)], 0x23292d, 0.0, (0, 0, 1))
+    text_into(far, "PARDON'S", 2.3, 20.0, lambda x, y, z: (SEW / 2 + x, 6.25 + y, Z + 0.06 + z * 0.3), S_RED, S_REDD, 0.04, 1)
+    return dict(pd_ext=ext, pd_cmu=cmu, pd_glass=gl, pd_int=it, pd_floor=fl, pd_ceil=ce, pd_lights=li, pd_far=far)
+
+
+def store_props():
+    sign, cor, lamp = Mesh(), Mesh(), Mesh()
+    # Road sign: two steel posts, a white cabinet with the name both ways, the red band, a reader board.
+    for px in (-1.7, 1.7): sign.box(px - 0.17, px + 0.17, 0, 9.4, -0.17, 0.17, 0x6d7177, skip='b')
+    sign.box(-2.9, 2.9, 0, 0.6, -0.6, 0.6, 0x8c8a85, skip='b')
+    sign.box(-2.8, 2.8, 6.3, 9.2, -0.35, 0.35, S_WHITE, skip='b')
+    sign.box(-2.85, 2.85, 9.2, 9.35, -0.4, 0.4, S_RED, skip='b')
+    sign.box(-2.8, 2.8, 6.3, 7.0, -0.37, 0.37, S_RED, skip='tb')
+    for sgn in (1, -1):
+        text_into(sign, "PARDON'S", 1.25, 5.2, lambda x, y, z, s=sgn: (s * x, 8.05 + y, s * (0.37 + z * 0.4)), S_RED, S_REDD, 0.03)
+        text_into(sign, "SURPLUS & SALVAGE", 0.36, 4.8, lambda x, y, z, s=sgn: (s * x, 6.65 + y, s * (0.385 + z * 0.2)), S_WHITE, S_WHITE, 0.01)
+        text_into(sign, "NEW STUFF EVERY DAY", 0.34, 4.4, lambda x, y, z, s=sgn: (s * x, 5.35 + y, s * (0.24 + z * 0.2)), 0x1d1d1f, 0x1d1d1f, 0.01)
+        text_into(sign, "PRICES YOU WONT REGRET", 0.3, 4.4, lambda x, y, z, s=sgn: (s * x, 4.75 + y, s * (0.24 + z * 0.2)), 0x1d1d1f, 0x1d1d1f, 0.01)
+    sign.box(-2.5, 2.5, 4.3, 5.8, -0.22, 0.22, 0xf4f4f0, skip='b')
+    sign.box(-2.55, 2.55, 5.8, 5.9, -0.25, 0.25, 0x3a3c40, skip='b')
+    sign.box(-2.55, 2.55, 4.2, 4.3, -0.25, 0.25, 0x3a3c40)
+    # Cart corral: galvanised pipe, 6 m long, 1.3 m wide, open at z = +3, a sign at the closed end.
+    G = 0xa9aeb2
+    for px in (-0.65, 0.65):
+        for py in (0.45, 1.0): cor.box(px - 0.03, px + 0.03, py - 0.03, py + 0.03, -3, 3, G)
+        for pz in (-3, -1, 1, 3): cor.box(px - 0.03, px + 0.03, 0, 1.0, pz - 0.03, pz + 0.03, G, skip='b')
+    for py in (0.45, 1.0): cor.box(-0.65, 0.65, py - 0.03, py + 0.03, -3.03, -2.97, G)
+    cor.box(-0.03, 0.03, 1.0, 2.1, -3.03, -2.97, G, skip='b')
+    cor.box(-0.45, 0.45, 1.55, 2.15, -3.0, -2.98, S_WHITE)
+    cor.box(-0.45, 0.45, 1.95, 2.15, -3.0, -2.975, S_RED, skip='k')
+    text_into(cor, "PARDON'S", 0.13, 0.8, lambda x, y, z: (x, 2.05 + y, -2.97 + z * 0.1), S_WHITE, S_WHITE, 0.005)
+    text_into(cor, "RETURN CARTS HERE", 0.1, 0.8, lambda x, y, z: (x, 1.72 + y, -2.97 + z * 0.1), S_RED, S_RED, 0.005)
+    # Lot light: square steel pole, 10 m, two shoebox heads.
+    lamp.box(-0.11, 0.11, 0, 10.0, -0.11, 0.11, 0x55595d, skip='b')
+    lamp.box(-0.35, 0.35, 0, 0.7, -0.35, 0.35, 0xa7a49d, skip='b')
+    lamp.box(-1.0, 1.0, 9.85, 9.97, -0.05, 0.05, 0x55595d)
+    for hx in (-1.25, 1.25): lamp.box(hx - 0.45, hx + 0.45, 9.8, 10.05, -0.28, 0.28, 0x2f3134, skip='b')
+    lens = Mesh()
+    for hx in (-1.25, 1.25): lens.face([(hx - 0.4, 9.79, -0.24), (hx + 0.4, 9.79, -0.24), (hx + 0.4, 9.79, 0.24), (hx - 0.4, 9.79, 0.24)], 0xffffff, 0.0, (0, -1, 0))
+    return dict(pd_sign=sign, pd_corral=cor, pd_lamp=lamp, pd_lens=lens)
+
+
+def store_main():
+    for ob in list(bpy.data.objects): bpy.data.objects.remove(ob)
+    coll = bpy.context.scene.collection
+    os.makedirs(OUT, exist_ok=True)
+    parts = store_build(); parts.update(store_props())
+    obs, stats = {}, {}
+    for name, m in parts.items():
+        obs[name] = m.to_object(name, coll); stats[name] = len(m.f)
+        try: bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+        except Exception: pass
+    for name in ('pd_ext', 'pd_cmu', 'pd_int', 'pd_far', 'pd_sign', 'pd_corral', 'pd_lamp'): vertex_ao(obs[name], rays=10)
+    out = {'faces': stats}
+    if '--no-export' not in FLAGS:
+        out['pardons_kB'] = export([o for n, o in obs.items() if n != 'pd_far'], os.path.join(OUT, 'pardons.glb'))
+        out['far_kB'] = export([obs['pd_far']], os.path.join(OUT, 'pardons_far.glb'))
+    obs['pd_sign'].location = (20, 30, 0); obs['pd_corral'].location = (40, 20, 0); obs['pd_lamp'].location = (50, 20, 0)
+    obs['pd_far'].location = (0, 0, -30)
+    print('BLD_STATS ' + json.dumps(out))
+
+
+store_main() if '--store' in FLAGS else main()
 # Close the window once the files are written: wm.quit_blender can stop on an unsaved-changes prompt.
 if '--stay' not in FLAGS:
     sys.stdout.flush()
