@@ -93,3 +93,14 @@ Asked one question at a time, the owner chose:
     (authenticated with an Ed25519 signature: the private key never leaves the PC, the PUBLIC key
     is committed in server/src/mainkey.ts; no shared secret anywhere), and the game asks the Worker where the main service is (one cheap, cacheable
     request per page load, counted in the budget). No Cloudflare login on the mini PC.
+
+## Owner decisions, Nov 22, 2026, about 8:45 PM ET (these override the text above)
+
+13. **The town's bridge takes the furthest player's progress.** Keep `TOWN_TAKES_FURTHEST = true`.
+14. **Missions are done together.**
+    - Joining: anyone NEAR the starter when a mission begins is in it, automatically, no prompt.
+    - Pay: everyone in the mission gets the full reward.
+    - Story: finishing it ALWAYS counts in a helper's own story too, even if they had not reached it.
+    - Failing: only the mission's own rules (and the starter dying) fail it; a helper who dies respawns and can come back.
+15. **Model use:** when the weekly usage gauge for the model in use reaches 98%, switch to the next model down.
+    "Near" is the lead's choice: within about 30 m of the starter when the mission begins.

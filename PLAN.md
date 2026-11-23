@@ -88,6 +88,38 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 4, step 2, mission and job cars stay their runner's: pushed Nov 22, about 8:55 PM ET
+
+**What.** On MAIN a car a mission or a job is holding stays its runner's: it is not handed to the town, another
+player cannot take it, the host does not tidy it as a wreck, and fail, retry and mission end leave no copy behind.
+Others see it as that player's car (new `src/net/held.ts`, Event `Held` = 9, 19 bytes a car, sent only on change and
+once to a newcomer). A tow job no longer removes a shown town car. Still protocol v4, `server/src` untouched.
+
+**Found before the fix (one run of the new test on the old code, 22 of 55 checks failing).** Another player could get
+into a runner's mission van, which failed the mission "WRITTEN OFF"; a retry left two vans on every screen; a parked
+mission van was not shown to others at all; four tow jobs took two town cars off the guest's screen for good.
+
+**Owner decisions, Nov 22 evening (in tools/briefs/multiplayer.md, 13 to 15).** The town's bridge takes the furthest
+player's progress (as pushed). MISSIONS ARE DONE TOGETHER: anyone near the starter when it begins is in it
+automatically; everyone gets full pay; it always counts in a helper's story; only the mission's own rules fail it.
+This step predates that answer: today a helper is shown the mission car but cannot get in. The next steps change that.
+
+**Checked by the lead.** tsc, build, server tests, production boot with no errors; mission.mjs (new, 58 checks),
+bump.mjs (29), the worker's single player mission check (13); pictures viewed. Held off main for about an hour
+because cars.mjs "by asking the host, who granted it" failed in 2 of 3 lead runs.
+
+**That failure explained: a test fault, and the old cars.mjs flake.** The test never pinned who hosts; when the
+host's job moved to the "guest" before it reached the door, it took the car as a host does, with no ask. Forced with
+a `--flip` option, the same failure line appears on this code and on 74722fc, so the step did not cause it. cars.mjs
+now pins the guest (48 of 48 pinned). Not proven: that the lead's two failing runs were exactly this move, and why it
+showed 2 of 3 times now and 0 of 8 before.
+
+**Still wrong or untested.** A player who drops out while driving a held car leaves it as a town car. Shots do
+nothing to a held car; blasts and rams untested. No test moves a held car (a hooked tow, a tail car). Untested: host
+change while a car is held, missions other than m03, the courier job, more than six held cars, the backup. Two
+players running the same mission each get their own van on the same spot. Nothing was listened to.
+
+
 ### Multiplayer stage 4, step 1, the same hour, weather and bridge: pushed Nov 22, about 6:35 PM ET
 
 **What.** On MAIN everyone in town has the same time of day, the same weather and the same bridge, including a late

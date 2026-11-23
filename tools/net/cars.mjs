@@ -3,6 +3,8 @@
 //
 //   node tools/net/cars.mjs              every check, and two pictures into shots/net/
 //   node tools/net/cars.mjs --noshots
+//   node tools/net/cars.mjs --guest=A      A is the guest in sections 2 to 5 (default B; `--guest=any` pins nobody)
+//   node tools/net/cars.mjs --flip         fault finding: the host's job is moved to the guest just before the door
 //
 // It starts everything itself and stops it again, exactly as tools/net/traffic.mjs does (read its header): the Node
 // home on 8831 is "main" (found through a lookup stand-in on 8832) and a second copy on 8833 is reached as a plain
@@ -27,6 +29,10 @@ import { boot } from '../pw.mjs';
 
 const MAIN = 8831, LOOKUP = 8832, BACKUP = 8833;
 const SHOTS = !process.argv.includes('--noshots');
+// Which of the first two browsers is the guest in sections 2 to 5: `--guest=A` or `--guest=B` (the default). It is
+// pinned (that page says it cannot host, as a hidden tab does), so the take is always asked of a host by a guest.
+// `--guest=any` pins nobody (how this test ran before: the job can then move between two slow pages mid check).
+const GUEST = process.argv.includes('--guest=any') ? '' : process.argv.includes('--guest=A') ? 'A' : 'B';
 const serverDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'server');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failed = 0;
@@ -65,6 +71,8 @@ async function visitor(tag, query, size = [480, 270]) {
   t.net = () => t.page.evaluate(() => window.__game.net());
   t.info = () => t.page.evaluate(() => window.__game.info());
   t.until = async (fn, ms = 45000) => { const end = Date.now() + ms; for (;;) { const n = await t.net(); if (fn(n)) return n; if (Date.now() > end) return null; await sleep(200); } };
+  /** "I cannot host", as a hidden tab says it. */
+  t.pin = (on) => t.page.evaluate((on) => { if (on) Object.defineProperty(document, 'hidden', { get: () => true, configurable: true }); else delete document.hidden; }, on);
   t.go = (x, z, h = 0) => t.page.evaluate(([x, z, h]) => window.__game.teleport(x, z, h), [x, z, h]);
   /** The parked cars in their places on this screen: [number, kind, colour, x, z, heading, shared]. */
   t.parked = () => t.page.evaluate(() => window.__game.game.net.cars.list());
@@ -178,11 +186,13 @@ try {
   let n = await A.until((x) => x.status === 'online');
   check(!!n && n.home === 'main', 'A is online on main', n ? `${n.status} on ${n.home}` : 'timed out');
   const B = await visitor('B', viaMain, big);
+  const pinned = GUEST === 'A' ? A : GUEST === 'B' ? B : null;
+  if (pinned) await pinned.pin(true);
   n = await B.until((x) => x.status === 'online' && x.count === 2);
   check(!!n && n.home === 'main', 'B is online on main with A', n ? `${n.status} on ${n.home}` : 'timed out');
   const spot = await A.info();
   await B.go(spot.x + 4, spot.z + 1.5, spot.h);
-  let r = await settled([A, B], 45000);
+  let r = await wait(async () => { const x = await roles([A, B]); return x && (!pinned || x.guests[0] === pinned) ? x : null; }, 90000, 300);
   check(!!r, 'one of the two is the host and the other its guest', r ? `${r.host.tag} hosts, ${r.guests[0].tag} is a guest` : 'no host');
   await sleep(2500);
   let town = 0;
@@ -209,11 +219,14 @@ try {
     // A car along the street from where they stand, not one of the four the game opens with.
     const pick = list.filter((c) => c.id < list.length + 99 && dist(c, gi) > 25 && dist(c, gi) < 160 && c.kind !== 'bus').sort((p, q) => dist(p, gi) - dist(q, gi))[0];
     const g0 = (await G.net()).cars, h0 = (await H.net()).cars;
+    const was = await G.page.evaluate((i) => { const g = window.__game.game, v = g.parkSpots[i].v; return v ? `shared ${!!v.shared}, driver ${v.driver}` : 'no car'; }, pick.id);
+    // (Fault finding only, `--flip`: the host's job is moved to the guest just before the door, as two slow pages can do by themselves.)
+    if (process.argv.includes('--flip')) { await H.pin(true); await G.pin(false); const moved = await G.until((x) => x.traffic.mode === 'host', 60000); console.log(`      --flip: ${G.tag} is ${moved ? 'the host now' : 'still a guest'}`); }
     const ok = await getIn(G, pick, pick.kind);
     const mine = await G.car();
     check(ok && !!mine && mine.color === pick.color, 'a guest walks up to a parked car and gets in', mine ? `${G.tag} is in car ${pick.id}, a ${mine.kind}` : 'never got in');
     const g1 = (await G.net()).cars, h1 = (await H.net()).cars;
-    check(g1.asks - g0.asks >= 1 && g1.grants - g0.grants === 1 && h1.given - h0.given === 1, 'by asking the host, who granted it', `${g1.asks - g0.asks} ask(s), ${g1.grants - g0.grants} grant; the host gave ${h1.given - h0.given}`);
+    check(g1.asks - g0.asks >= 1 && g1.grants - g0.grants === 1 && h1.given - h0.given === 1, 'by asking the host, who granted it', `${g1.asks - g0.asks} ask(s), ${g1.grants - g0.grants} grant; the host gave ${h1.given - h0.given}; before the door the car on ${G.tag} was: ${was}; now ${G.tag} is ${(await G.net()).traffic.mode}, ${H.tag} is ${(await H.net()).traffic.mode}; places emptied on ${G.tag}: ${g1.lost || 'none'}; on ${H.tag}: ${h1.lost || 'none'}; refusals ${g1.refusals - g0.refusals}, asked of the host ${h1.asked - h0.asked}`);
     taken = pick;
     // Out from the kerb and up the street.
     await G.page.keyboard.down('KeyW'); await G.page.keyboard.down('KeyA');
@@ -268,6 +281,8 @@ try {
     check(g1.leaves - g0.leaves === 1 && g1.lefts - g0.lefts === 1, 'handed to the host in one small message, and numbered in one back', `${g1.leaveBytes - g0.leaveBytes} bytes there, 5 back`);
     await G.go(at.x + 12, at.z + 9, 0);
     // Another guest takes it.
+    // (From here on whoever the service chooses is the host: the later sections ask each time.)
+    if (pinned) await pinned.pin(false);
     const rr = await settled([A, B, C]);
     const T = rr ? rr.guests.find((t) => t !== G) ?? rr.guests[0] : C;
     const c = cars[0] ?? at;
