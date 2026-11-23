@@ -9,6 +9,7 @@ import type { Blip } from '../ui/hud';
 import { WEAPONS } from '../ent/weapons';
 import { frontage } from '../sim/policeAir';
 import { money } from '../core/util';
+import { kid } from '../core/kid';
 import type { Markers, Pt } from './script';
 
 /** Rounds per purchase and the price, by weapon slot. Slot 0 is bare hands. */
@@ -36,7 +37,8 @@ export class Shops {
 
   blips(out: Blip[]): void {
     const p = this.game.player;
-    for (const s of this.list) if (Math.hypot(p.x - s.at.x, p.z - s.at.z) < 260) out.push({ x: s.at.x, z: s.at.z, kind: 'job', label: s.letter });
+    // (Kid-friendly mode, core/kid.ts: the ammunition counter is shut and off the radar.)
+    for (const s of this.list) if ((!kid.on || s.letter !== 'A') && Math.hypot(p.x - s.at.x, p.z - s.at.z) < 260) out.push({ x: s.at.x, z: s.at.z, kind: 'job', label: s.letter });
   }
 
   update(dt: number): void {
@@ -45,10 +47,11 @@ export class Shops {
     this.told -= dt;
     const tell = (text: string): void => { if (this.told <= 0) { this.told = 4; hud.toast(text, 4); } };
     const da = Math.hypot(p.x - this.ammo.x, p.z - this.ammo.z), db = Math.hypot(p.x - this.body.x, p.z - this.body.z);
-    if (da < 120) this.markers.put(this.ammo.x, this.ammo.z, 'job', 1.6, 10);
+    if (kid.on) { if (!v && da < 3.2) this.prompt = 'Forms & Rounds is shut today. A sign on the door says: GONE FISHING. CATCH AND RELEASE.'; }
+    else if (da < 120) this.markers.put(this.ammo.x, this.ammo.z, 'job', 1.6, 10);
     if (db < 120) this.markers.put(this.body.x, this.body.z, 'job', 4, 10);
 
-    if (!v && da < 3.2) {
+    if (!v && da < 3.2 && !kid.on) {
       const w = p.weapons, i = w.slot;
       if (i === 0 && !w.owned[1]) {
         this.prompt = `[G] Buy a ${WEAPONS[1].name} and ${AMMO[1].rounds} rounds: ${money(PISTOL_PRICE)}`;

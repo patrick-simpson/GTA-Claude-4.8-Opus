@@ -26,6 +26,7 @@ import type { RayHit } from '../world/collide';
 import { RNG, angleDiff, clamp, clamp01, damp, lerp } from '../core/util';
 import { WATER_Y, groundAt } from '../world/plan';
 import type { Aimable } from './character';
+import { kid } from '../core/kid';
 
 export type WeaponId = 'fists' | 'pistol' | 'smg' | 'shotgun' | 'launcher';
 
@@ -209,6 +210,8 @@ export class Weapons {
   readonly mags = [0, 0, 0, 0, 0];
   readonly spare = [0, 0, 0, 0, 0];
   slot = 0;
+  /** Kid-friendly mode (core/kid.ts) put away what was in her hand: given back when it ends. */
+  private kidSlot = 0;
   /** Holding the aim key, on foot, able to. The camera and the player read this. */
   aiming = false;
   /** 0 = no reticle, 1 = live, 2 = shown but the shot is not on (drive-by, outside the window's arc). */
@@ -330,7 +333,12 @@ export class Weapons {
   update(dt: number): void {
     const g = this.game;
     if (!this.peds) this.findPeds();
-    if (g.state === 'play') this.control(dt);
+    // Kid-friendly mode: nothing in her hand, nothing to fire, not even fists. What she owns is kept for later.
+    if (kid.on) {
+      if (this.slot !== 0) { this.kidSlot = this.slot; this.select(0); }
+      this.driveBy = false; this.punchT = -1; this.reloadT = 0; this.reloading = 0;
+    } else if (this.kidSlot) { this.select(this.kidSlot); this.kidSlot = 0; }
+    if (g.state === 'play' && !kid.on) this.control(dt);
     else { this.aiming = false; this.reticle = 0; }
     this.pose(dt);
     this.flyRockets(dt);
@@ -684,6 +692,8 @@ export class Weapons {
    */
   hurtPerson(per: Person, dmg: number, dx: number, dz: number, fist: boolean, shove = 1): boolean {
     const g = this.game;
+    // (Kid-friendly mode: nobody is hurt, whatever an older page in town says it did.)
+    if (kid.on) return false;
     per.health = Math.max(0, per.health - dmg);
     const e = this.evHit;
     e.person = per; e.damage = dmg; e.x = per.x; e.z = per.z; e.by = this.blame;
@@ -789,7 +799,8 @@ export class Weapons {
       v.yawRate += (rng.next() - 0.5) * 5 * f;
     }
     const me = p.person;
-    if (world) for (const o of g.people.list) {
+    // (Kid-friendly mode: the bang, the smoke and the shove for the cars, but nobody on foot is hurt or put down.)
+    if (world && !kid.on) for (const o of g.people.list) {
       // (Another player takes their own share on their own browser.)
       if (o === me || !o.visible || o.occupant || net?.isPlayer(o)) continue;
       let nx = o.x - x, nz = o.z - z;
@@ -937,6 +948,9 @@ export class Weapons {
   private spinPickups(dt: number): void {
     const g = this.game, p = g.player, t = g.time;
     for (const k of this.pickups) {
+      // Kid-friendly mode: no crates on the street.
+      if (kid.on) { k.mesh.visible = false; continue; }
+      if (k.wait <= 0 && !k.mesh.visible) k.mesh.visible = true;
       if (k.wait > 0) {
         k.wait -= dt;
         if (k.wait <= 0) k.mesh.visible = true;

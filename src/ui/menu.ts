@@ -26,6 +26,7 @@ import { clock } from '../game/script';
 import { save, type QualityPick } from '../game/save';
 import { season, type SeasonPick } from '../world/season';
 import { autoPresetIfKnown } from '../core/governor';
+import { kid } from '../core/kid';
 import { PEER_COLOR } from '../net/names';
 import { PARDONS_AT, PARDONS_RED } from './hud';
 
@@ -565,7 +566,7 @@ export class Menu {
     <h3>Form S-2 · Incidents</h3>
     ${row('Airtime record', s.airtime > 0 ? `${s.airtime.toFixed(1)} s · ${Math.round(s.airDist * FEET)} ft` : 'None filed')}
     ${row('Times booked', String(s.booked))}
-    ${row('Times clocked out', String(s.deaths))}
+    ${kid.on ? '' : row('Times clocked out', String(s.deaths))}
     ${row('Missions filed', String(s.passed))}
     ${row('Missions, second attempts', String(s.failed))}
     ${row('Fares · tows · parcels', `${s.fares} · ${s.tows} · ${s.parcels}`)}
@@ -576,6 +577,9 @@ export class Menu {
     ${row('Furthest launch', save.count('launchFar') > 0 ? `${Math.round(save.count('launchFar') * FEET)} ft` : 'None filed')}
     ${row('Bullseyes', String(save.count('launchBulls')))}
     ${row('Times fired from a cannon', String(save.count('launchFired')))}
+    ${row('Best trick score', save.count('trickBest') > 0 ? `${save.count('trickBest').toLocaleString('en-US')} pts` : 'None filed')}
+    ${row('Longest airtime (Waiver Park)', save.count('trickAir') > 0 ? `${(save.count('trickAir') / 10).toFixed(1)} s` : 'None filed')}
+    ${row('Loops completed', String(save.count('loops')))}
     ${row('Moose encountered', String(save.count('moose')))}
     <div class="mn-row mn-mistakes"><span class="mn-lbl">Mistakes made</span><span>0*</span></div>
     <p class="mn-note">* As reported by the applicant. Anything typed is not counted.</p>
@@ -607,6 +611,8 @@ export class Menu {
     <div class="mn-row"><span class="mn-lbl">Invert Y</span><span>${tog('invertY', s.invertY)}</span></div>
     <div class="mn-row"><span class="mn-lbl">Full screen on tap</span><span>${tog('fsTap', s.fsTap)}</span></div>
     <div class="mn-row"><span class="mn-lbl">Reduced motion</span><span>${tog('reducedMotion', s.reducedMotion)}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Kid friendly</span><span>${tog('kid', kid.on)}</span></div>
+    <p class="mn-note">Kid friendly: no weapons, and nobody gets hurt; knocked over is as bad as it gets. ${this.game.net.status === 'off' ? 'Saved in this browser.' : 'In town it is for everybody there, and anybody can flip it.'}</p>
     <div class="mn-row"><span class="mn-lbl">Automatic replays</span><span>${tog('autoReplay', this.game.cam.replay.auto)}</span></div>
     <div class="mn-row"><span class="mn-lbl">Quality</span><span class="mn-segs">${q}</span></div>
     <div class="mn-row"><span class="mn-lbl">Season</span><span class="mn-segs">${seasons}</span></div>
@@ -648,6 +654,7 @@ export class Menu {
     else if (key === 'season') { const v = el.dataset.v; s.season = v === 'autumn' || v === 'winter' || v === 'summer' ? v : 'auto'; season.pick = s.season; }
     else if (key === 'invertY' || key === 'fsTap' || key === 'reducedMotion') s[key] = !s[key];
     else if (key === 'autoReplay') this.game.cam.replay.setAuto(!this.game.cam.replay.auto);
+    else if (key === 'kid') kid.flip(!kid.on);
     else return;
     this.todo.applySettings();
     save.write();

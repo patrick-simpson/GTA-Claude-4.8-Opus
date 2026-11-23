@@ -108,6 +108,8 @@ export const FACT_CLOCK = 'clock';
 export const FACT_WEATHER_SEED = 'weather.seed';
 /** [spans built, town stages open, points held toward the next]. Main service only. */
 export const FACT_BRIDGE = 'bridge';
+/** Kid-friendly mode (core/kid.ts): [on 0 or 1, the number in town of whoever flipped it (0 unknown)]. Absent: off. Both services. */
+export const FACT_KID = 'kid';
 /** The order of the weathers in FACT_WEATHER_SEED. Add at the end only. */
 export const TOWN_WEATHERS = ['clear', 'overcast', 'fog', 'rain'] as const;
 
@@ -438,7 +440,7 @@ export function decodePlayerEvent(buf: ArrayBuffer): { id: number; code: number;
 //
 // Byte 2 says what the frame asks. Stage 2, step 2 has one: "my car has just struck your car N". Step 3 adds three
 // (below, "Taking and leaving cars"); a host of an older page of this version ignores a kind it does not know.
-export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7, Heat: 8, CarShot: 9, Give: 10, Mine: 11 } as const;
+export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7, Heat: 8, CarShot: 9, Give: 10, Mine: 11, Kid: 12 } as const;
 
 // The town's bridge (stage 4, step 1; net/town.ts). The durable fact FACT_BRIDGE is [spans, stage, bank]: only the host
 // can write a fact, so a guest tells the host what should go into it. Still version 4: the service passes both unread.
@@ -477,6 +479,23 @@ export function decodeMine(buf: ArrayBuffer): { id: number; spans: number; stage
   const d = new DataView(buf);
   if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.Mine) return null;
   return { id: d.getUint8(1), spans: d.getUint8(3), stage: d.getUint8(4), bank: d.getUint32(5, true) };
+}
+// Kid, 4 bytes: "switch kid-friendly mode on (1) or off (0) for the whole town" (net/town.ts). Anyone may flip it; only the
+// host can write FACT_KID, so a guest asks. A host of an older page ignores it and the asker's screen goes back to the town's.
+//   0 kind  1 id  2 ToHostKind.Kid  3 on u8
+export const KID_BYTES = 4;
+export function encodeKid(on: boolean): ArrayBuffer {
+  const buf = makeFrame(Frame.ToHost, KID_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, ToHostKind.Kid);
+  d.setUint8(3, on ? 1 : 0);
+  return buf;
+}
+export function decodeKid(buf: ArrayBuffer): { id: number; on: boolean } | null {
+  if (buf.byteLength < KID_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.ToHost || d.getUint8(2) !== ToHostKind.Kid) return null;
+  return { id: d.getUint8(1), on: d.getUint8(3) === 1 };
 }
 // CarHit, 10 bytes: 0 kind (Frame.ToHost)  1 id  2 ToHostKind.CarHit  3 car u8 (its number in the World frames)
 //   4 vx i16  6 vz i16 (cm/s: how fast the two closed, pointing from the striker into the car)

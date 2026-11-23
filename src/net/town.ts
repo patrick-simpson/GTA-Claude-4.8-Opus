@@ -31,6 +31,13 @@
 // moves on a goal: "<name>'s points finished span 4 of 8." (the game's made up names only), "Your points ..." on the
 // finisher's own. An older page reads the first three numbers and never looks at the fourth.
 //
+// KID-FRIENDLY MODE (core/kid.ts) is the town's too: FACT_KID = [on, by] (by: the flipper's number in town). Anyone
+// can flip it in the menu. The host writes the fact at once; a guest switches its own screen at once and asks the host
+// (a Kid frame), whose fact then switches everybody else, and everybody is told who did it. A guest whose ask is not
+// answered within KID_WAIT_MS (a host of an older page) goes back to the town's. While the town holds no fact, a
+// player whose own saved choice is on asks for it on arrival, so a browser set up for a child stays that way in town.
+// On leaving the town the screen keeps what it had until the page is reloaded (then it is this browser's own again).
+//
 // Sent: nothing while nothing changes. A fact when the host changes the hour or the weather; the bridge fact when a
 // span or a stage is finished (at once) or the bank has moved (at most every BANK_MS); a guest's Give at most every
 // GIVE_MS while it is earning; a Mine only when a guest is ahead of the town.
@@ -41,12 +48,13 @@ import { cmpStand, progress, type Stand } from '../world/progress';
 import { BRIDGE_SPANS } from '../world/plan';
 import { STAGE_NAMES } from '../world/mainland';
 import {
-  FACT_BRIDGE, FACT_CLOCK, FACT_WEATHER_SEED, GIVE_BYTES, MINE_BYTES, TOWN_WEATHERS, ToHostKind,
+  FACT_BRIDGE, FACT_CLOCK, FACT_KID, FACT_WEATHER_SEED, GIVE_BYTES, KID_BYTES, decodeKid, encodeKid, MINE_BYTES, TOWN_WEATHERS, ToHostKind,
   decodeGive, decodeMine, encodeGive, encodeMine, encodeMsg,
   type FactValue, type ServerMsg, type WelcomeMsg,
 } from './protocol';
 import type { Connection } from './conn';
 import type { Remote } from './remote';
+import { KID_OFF_LINE, KID_ON_LINE, kid } from '../core/kid';
 
 /** Does a player whose own bridge is further along than the town's bring the town up to it? (See the header.) */
 export const TOWN_TAKES_FURTHEST = true;
@@ -70,6 +78,8 @@ const CLAIM_MS = 1500;
 const CLAIM_AFTER_GIVE_MS = 7000;
 const CLAIM_AGAIN_MS = 5000;
 const CLAIM_MAX = 6;
+/** A guest's kid-mode ask not answered by a fact within this long: the screen goes back to the town's. */
+const KID_WAIT_MS = 4000;
 
 /** A number in [0, 1) from two integers, the same in every browser. */
 function hash01(a: number, b: number): number {
@@ -93,7 +103,7 @@ const mod24 = (h: number): number => ((h % 24) + 24) % 24;
 const DEFAULTS: Record<string, string> = { [FACT_CLOCK]: '0', [FACT_WEATHER_SEED]: '[0,0,0]' };
 
 export class Town {
-  readonly stats = { factsSent: 0, factBytes: 0, factsGot: 0, gives: 0, giveBytes: 0, givesGot: 0, claims: 0, claimBytes: 0, claimsGot: 0, lapses: 0, finishes: 0 };
+  readonly stats = { kidAsks: 0, kidGot: 0, kidBytes: 0, factsSent: 0, factBytes: 0, factsGot: 0, gives: 0, giveBytes: 0, givesGot: 0, claims: 0, claimBytes: 0, claimsGot: 0, lapses: 0, finishes: 0 };
 
   /** The service's clock less this browser's (ms); NaN until a welcome. */
   private svcOff = NaN;
@@ -131,9 +141,19 @@ export class Town {
   private aheadSince = 0;
   private claimAt = -1e9;
   private claimsMade = 0;
+  /** FACT_KID as the service holds it: null when it holds none (or no welcome yet). */
+  private kidFact: boolean | null = null;
+  /** A guest's ask still waiting for the host's fact: the value and when. */
+  private kidAsk: { on: boolean; at: number } | null = null;
+  /** Arrived in a town without a fact while this browser's own choice is on: ask once the host is known. */
+  private kidClaim = false;
+  /** The last kid-mode line shown, for the tests. */
+  lastKid = '';
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>) {
     game.sky.asked = (hour, weather) => this.asked(hour, weather);
+    kid.tell = (line) => this.kidSay(line);
+    kid.ask = (on) => this.kidFlip(on);
   }
 
   private get online(): boolean { return this.conn.status === 'online'; }
@@ -147,6 +167,7 @@ export class Town {
     this.down();
     this.svcOff = Number.isFinite(m.now) ? m.now - now : NaN;
     for (const k of Object.keys(m.facts)) this.fact(k, m.facts[k]);
+    if (!(FACT_KID in m.facts)) { this.kidFact = null; this.kidClaim = kid.own; }
   }
 
   msg(m: ServerMsg): void {
@@ -157,7 +178,8 @@ export class Town {
 
   private fact(k: string, v: FactValue): void {
     this.known.set(k, JSON.stringify(v));
-    if (k === FACT_CLOCK) { if (typeof v === 'number' && Number.isFinite(v)) this.clockOff = v >= 0 && v < 24 ? v : mod24(v); }
+    if (k === FACT_KID) this.kidHeard(v);
+    else if (k === FACT_CLOCK) { if (typeof v === 'number' && Number.isFinite(v)) this.clockOff = v >= 0 && v < 24 ? v : mod24(v); }
     else if (k === FACT_WEATHER_SEED) {
       const a = typeof v === 'number' ? [v] : v;
       this.seed = Math.floor(Number(a[0]) || 0);
@@ -193,6 +215,7 @@ export class Town {
     this.led = this.game.sky.led = false;
     this.inTown = false; this.hostReady = false; this.live = false; this.unsent = false;
     progress.sink = null;
+    this.kidFact = null; this.kidAsk = null; this.kidClaim = false;
     this.owed = 0; this.aheadSince = 0; this.claimsMade = 0; this.claimAt = -1e9;
   }
 
@@ -205,6 +228,70 @@ export class Town {
     this.known.set(k, j);
     this.stats.factsSent++; this.stats.factBytes += text.length;
     return true;
+  }
+
+  // ── Kid-friendly mode ───────────────────────────────────────────────────────
+
+  private kidSay(line: string): void {
+    this.lastKid = line;
+    const st = this.game.state;
+    if (st === 'play' || st === 'paused') this.game.hud.toast(line, 6);
+  }
+
+  /** Who did it, in the game's made-up names: '' for this player. */
+  private kidWho(by: number): string {
+    if (by && by === this.conn.id) return '';
+    const r = by ? this.remotes.get(by) : undefined;
+    return r ? r.text : 'Somebody';
+  }
+
+  private kidLine(on: boolean, by: number): string {
+    const who = this.kidWho(by);
+    return (who ? `${who} flipped the switch. ` : '') + (on ? KID_ON_LINE : KID_OFF_LINE);
+  }
+
+  /** The fact has come in (a welcome, or the host's echo). */
+  private kidHeard(v: FactValue): void {
+    const a = typeof v === 'number' ? [v] : v;
+    const on = Number(a[0]) === 1, by = Math.floor(Number(a[1]) || 0);
+    this.kidFact = on; this.kidClaim = false;
+    if (this.kidAsk && this.kidAsk.on === on) this.kidAsk = null;
+    // (A guest's own flip was already shown and said on its screen.)
+    kid.set(on, this.kidLine(on, by));
+  }
+
+  /** The menu's switch while online: false when this is not a town (alone, the switch is this browser's). */
+  private kidFlip(on: boolean): boolean {
+    if (!this.online || !Number.isFinite(this.svcOff)) return false;
+    if (this.host) {
+      this.kidFact = on;
+      this.put(FACT_KID, [on ? 1 : 0, this.conn.id]);
+      kid.set(on, on ? KID_ON_LINE : KID_OFF_LINE);
+      return true;
+    }
+    kid.set(on, on ? KID_ON_LINE : KID_OFF_LINE);
+    this.kidSend(on);
+    return true;
+  }
+
+  private kidSend(on: boolean): void {
+    if (this.conn.send(encodeKid(on))) { this.stats.kidAsks++; this.stats.kidBytes += KID_BYTES; }
+    this.kidAsk = { on, at: performance.now() };
+  }
+
+  private kidTick(now: number): void {
+    if (!this.online || !Number.isFinite(this.svcOff)) return;
+    if (this.kidClaim && this.conn.host) {
+      this.kidClaim = false;
+      if (this.host) { this.kidFact = true; this.put(FACT_KID, [1, this.conn.id]); kid.set(true, KID_ON_LINE); }
+      else this.kidSend(true);
+    }
+    const a = this.kidAsk;
+    if (a && now - a.at > KID_WAIT_MS) {
+      this.kidAsk = null;
+      // Nobody wrote it: the town's stands (alone in it: there is nobody else to switch, so it stays).
+      if (this.kidFact !== null && this.kidFact !== kid.on) kid.set(this.kidFact, this.kidFact ? KID_ON_LINE : KID_OFF_LINE);
+    }
   }
 
   // ── The hour and the weather ────────────────────────────────────────────────
@@ -328,6 +415,15 @@ export class Town {
   toHost(buf: ArrayBuffer): boolean {
     if (buf.byteLength < 3) return false;
     const what = new Uint8Array(buf, 2, 1)[0];
+    if (what === ToHostKind.Kid) {
+      const k = decodeKid(buf);
+      if (!this.host || !k || !this.remotes.has(k.id)) return true;
+      this.stats.kidGot++;
+      this.kidFact = k.on;
+      this.put(FACT_KID, [k.on ? 1 : 0, k.id]);
+      kid.set(k.on, this.kidLine(k.on, k.id));
+      return true;
+    }
     if (what !== ToHostKind.Give && what !== ToHostKind.Mine) return false;
     if (!this.host || !this.inTown || !this.hostReady) return true;
     if (what === ToHostKind.Give) {
@@ -351,6 +447,7 @@ export class Town {
   update(now: number): void {
     this.sky(now);
     this.works(now);
+    this.kidTick(now);
   }
 
   /** For the tests (window.__game.net().town). */
@@ -366,6 +463,7 @@ export class Town {
       // bridge: the fact as the service holds it. shown: on this screen. own: this player's own, which is what is saved. Each [spans, stage, bank].
       inTown: this.inTown, bridge: st(this.bridge), shown: st(progress), own: st(o), apart: progress.mine !== null, owed: +this.owed.toFixed(2),
       lastFinish: this.lastFinish,
+      kid: kid.on, kidOwn: kid.own, kidFact: this.kidFact, kidAsk: this.kidAsk ? this.kidAsk.on : null, lastKid: this.lastKid,
       ...this.stats,
     };
   }

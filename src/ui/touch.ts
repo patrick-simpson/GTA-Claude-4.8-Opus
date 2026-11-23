@@ -7,6 +7,7 @@
 // captured key), so there is one code path for every finger.
 
 import './touch.css';
+import { kid } from '../core/kid';
 import type { Game } from '../core/game';
 import type { Action } from '../core/input';
 
@@ -368,7 +369,8 @@ export class TouchUI {
 
     // The weapon keys are on the glass once she owns anything beyond her hands.
     const own = player.weapons.owned;
-    const armed = own[1] || own[2] || own[3] || own[4];
+    // (Kid-friendly mode, core/kid.ts: nothing to fire, so no FIRE, AIM or SWAP.)
+    const armed = !kid.on && (own[1] || own[2] || own[3] || own[4]);
     if (armed !== this.armed) {
       this.armed = armed;
       this.root.classList.toggle('armed', armed);

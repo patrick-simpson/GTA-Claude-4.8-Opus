@@ -15,6 +15,7 @@ import { clamp, clamp01, damp, dampAngle, headingOf, lerp, money, smooth } from 
 import { groundAt } from '../world/plan';
 import { waterLevelAt } from '../world/mainland';
 import { Weapons } from './weapons';
+import { kid } from '../core/kid';
 import { Boats, type Boat } from './boat';
 
 const RADIUS = 0.35;
@@ -164,7 +165,7 @@ export class Player implements PlayerApi {
    * from, if anywhere. Nothing grows back: health returns at Mercy General.
    */
   hurt(amount: number, from?: { x: number; z: number } | null): void {
-    if (amount <= 0 || this.mode === 'dead') return;
+    if (amount <= 0 || this.mode === 'dead' || kid.on) return;
     this.damage(amount);
     this.hurtT = this.game.time; this.hurtAmount = amount;
     this.hurtFrom = from ? headingOf(from.x - this.x, from.z - this.z) : NaN;
@@ -301,7 +302,8 @@ export class Player implements PlayerApi {
 
   /** Take damage: armor first, then health. Death is noticed on the next update. */
   damage(amount: number): void {
-    if (amount <= 0 || this.mode === 'dead') return;
+    // Kid-friendly mode (core/kid.ts): knocked over, dusted off, never hurt.
+    if (amount <= 0 || this.mode === 'dead' || kid.on) return;
     const a = Math.min(this.armor, amount);
     this.armor -= a;
     this.health = Math.max(0, this.health - (amount - a));
@@ -335,6 +337,8 @@ export class Player implements PlayerApi {
   update(dt: number): void {
     this.boats.update(dt);
     // Anyone may write `health`; whoever brought it to zero, this is where it counts.
+    // (Kid-friendly mode: whatever wrote it, she is fine; and anybody lying there from before gets up.)
+    if (kid.on && !(this.health > 0)) this.health = 100;
     if (this.health <= 0 && this.mode !== 'dead') this.die();
     if (this.safeT > 0) this.safeT -= dt;
     if (this.nagT > 0) this.nagT -= dt;
@@ -849,6 +853,8 @@ export class Player implements PlayerApi {
   }
 
   private lying(dt: number): void {
+    // Kid-friendly mode switched on while she lay there: she gets up where she is, no bill.
+    if (kid.on) { this.health = 100; this.mode = 'tumble'; this.restT = 0; return; }
     if (!this.ragdolled) this.slide(dt);
     this.person.pose = this.swimming ? 'swim' : 'down';
     this.t += dt;

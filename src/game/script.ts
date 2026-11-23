@@ -12,6 +12,7 @@
 // Nothing in here knows a name or a line of dialogue: that is missions.ts.
 
 import * as THREE from 'three';
+import { kid } from '../core/kid';
 import type { Game } from '../core/game';
 import type { Look, Person, Vehicle } from '../core/api';
 import { KINDS, type VehicleKind } from '../ent/vehicleSpecs';
@@ -89,6 +90,13 @@ export interface Giver {
   /** Said by the prompt when she walks up: "Talk to Finch". */
   short: string;
 }
+
+/**
+ * Kid-friendly mode (core/kid.ts): a 'destroy' step (Feathers, m07: three Syndicate vans) is a shove instead. Each car
+ * counts once it has been pushed this far (m) from where it stood when the step first saw it, or wrecked anyway.
+ */
+const KID_SHOVE_M = 8;
+const KID_DESTROY_TEXT = 'Kid-friendly mode: shove all three empty Syndicate vans off their spots with your car. Nobody is in them.';
 
 const HOLDING = new Set(['wait', 'goto', 'getVehicle', 'deliver', 'collect', 'destroy', 'loseHeat', 'tail', 'race', 'survive']);
 export const clock = (s: number): string => { const t = Math.max(0, Math.ceil(s)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
@@ -369,12 +377,20 @@ export class Runner {
     }
     if (!s) return;
     if (s.t === 'collect') { for (const p of this.left.slice(0, 8)) out.push({ x: p.x, z: p.z, kind: 'goal' }); return; }
-    if (s.t === 'destroy') { for (const tag of s.tags) { const v = this.car(tag); if (v && !this.gone(v)) out.push({ x: v.x, z: v.z, kind: 'goal' }); } return; }
+    if (s.t === 'destroy') { for (const tag of s.tags) { const v = this.car(tag); if (v && !this.gone(v) && !this.shoved(v)) out.push({ x: v.x, z: v.z, kind: 'goal' }); } return; }
     if (this.target) out.push({ x: this.target.x, z: this.target.z, kind: 'goal' });
   }
 
   private step(): Step | null { return this.cur ? this.cur.steps[this.i] ?? null : null; }
   private car(tag: string): Vehicle | null { const e = this.ents.get(tag); return e && 'spec' in e ? e : null; }
+  /** Where each car stood when a 'destroy' step first saw it (kid-friendly mode's shove). */
+  private readonly kidHome = new WeakMap<Vehicle, { x: number; z: number }>();
+  /** Kid-friendly mode: pushed far enough from where it stood to count as dealt with. */
+  private shoved(v: Vehicle): boolean {
+    let h = this.kidHome.get(v);
+    if (!h) { h = { x: v.x, z: v.z }; this.kidHome.set(v, h); }
+    return kid.on && Math.hypot(v.x - h.x, v.z - h.z) > KID_SHOVE_M;
+  }
   private gone(v: Vehicle): boolean { return !!v.wreck || v.sunk || (!this.crew?.lent(v) && !this.game.vehicles.list.includes(v)); }
   /** At the wheel of it: this player, or (in a shared town) a helper this player's browser lent it to. */
   private driving(v: Vehicle): boolean { return this.game.player.vehicle === v || !!this.crew?.lent(v); }
@@ -750,7 +766,7 @@ export class Runner {
 
   private enter(s: Step): void {
     const g = this.game;
-    if ('text' in s && s.t !== 'say') this.obj(1, this.i, s.text);
+    if ('text' in s && s.t !== 'say') this.obj(1, this.i, s.t === 'destroy' && kid.on ? KID_DESTROY_TEXT : s.text);
     switch (s.t) {
       case 'collect': this.left = s.items.slice(); this.count = s.items.length; break;
       case 'race': this.cpI = 0; this.timer = s.par; this.timerLabel = 'Par'; this.labelCode = 254; break;
@@ -856,7 +872,7 @@ export class Runner {
       }
       case 'destroy': {
         let alive = 0;
-        for (const tag of s.tags) { const v = this.car(tag); if (v && !this.gone(v)) { alive++; this.mark(v.x, v.z, 'goal', 3.5, 20, true); if (alive === 1) this.target = { x: v.x, z: v.z }; } }
+        for (const tag of s.tags) { const v = this.car(tag); if (v && !this.gone(v) && !this.shoved(v)) { alive++; this.mark(v.x, v.z, 'goal', 3.5, 20, true); if (alive === 1) this.target = { x: v.x, z: v.z }; } }
         return alive === 0;
       }
       case 'loseHeat': return p.heat <= 0 && this.stepT > 0.5;
@@ -911,7 +927,7 @@ export class Runner {
     if (s.t === 'deliver') { w.at = s.at; w.r = s.r ?? 7; w.tag = s.tag; w.stop = true; }
     if (s.t === 'getVehicle') { w.tag = s.tag ?? null; w.kind = s.kind ?? null; }
     if (s.t === 'collect') { w.items = this.left.slice(); w.r = s.r ?? 3; w.mode = s.mode ?? 'any'; }
-    if (s.t === 'destroy') w.tags = s.tags.filter((t) => { const v = this.car(t); return !!v && !this.gone(v); });
+    if (s.t === 'destroy') w.tags = s.tags.filter((t) => { const v = this.car(t); return !!v && !this.gone(v) && !this.shoved(v); });
     if (s.t === 'race') { w.at = s.cps[this.cpI] ?? null; w.r = s.r ?? 10; w.mode = s.mode ?? 'any'; }
     if (s.t === 'tail') { w.tag = s.tag; }
     if (s.t === 'survive') { w.at = s.at ?? null; w.r = s.r ?? 40; }

@@ -12,6 +12,7 @@
 // pool are out depends on the hour, the rain and the district.
 
 import type { Game } from '../core/game';
+import { kid } from '../core/kid';
 import type { Look, Person, Vehicle } from '../core/api';
 import { RNG, clamp, dampAngle } from '../core/util';
 import { PIER, groundAt, type Block, type District, type RoadNode } from '../world/plan';
@@ -871,7 +872,8 @@ export class Peds {
     if (was && w.hitCool > 0) return;
     this.leave(w);
     w.mode = DOWN; w.nb = null; w.flee = 0;
-    w.hard = w.hard || sp >= HARD;
+    // (Kid-friendly mode, core/kid.ts: always only a bump. Down, a flight perhaps, and up again dusted off.)
+    w.hard = !kid.on && (w.hard || sp >= HARD);
     w.timer = w.hard ? 8 : this.rng.range(2.4, 3.8);
     w.hitCool = 1.2;
     p.pose = 'down'; p.speed = 0; p.h = Math.atan2(cvx, cvz);
@@ -908,6 +910,7 @@ export class Peds {
     w.timer -= dt;
     if (w.timer > 0 || sp > 0.3) return;
     const wet = p.y < -0.5;
+    if (kid.on && w.hard) { w.hard = false; p.health = Math.max(p.health, 10); }
     if (!w.hard && !wet) {
       // Only a bump: up, and away from here at a trot.
       p.pose = 'stand';

@@ -230,7 +230,16 @@ export function terrainAt(x: number, z: number): number {
 }
 
 /** Height of whatever you would stand or drive on at (x, z). */
+/** Extra ground laid on top of the plan's (the stunt park's ramps, world/stuntPark.ts); null until something sets it. */
+let groundExtra: ((x: number, z: number, base: number) => number) | null = null;
+export function setGroundExtra(f: ((x: number, z: number, base: number) => number) | null): void { groundExtra = f; }
+
 export function groundAt(x: number, z: number): number {
+  const b = groundBase(x, z);
+  return groundExtra === null ? b : groundExtra(x, z, b);
+}
+
+function groundBase(x: number, z: number): number {
   // Fast path: the flat city core. City blocks sit one curb-height above the streets.
   if (x > -610 && x < 610 && z > -440 && z < 410) {
     let h = 0;

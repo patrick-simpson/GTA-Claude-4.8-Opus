@@ -76,6 +76,19 @@ const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const _q = new THREE.Quaternion(), _qg = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qs = new THREE.Quaternion();
 const _p = new THREE.Vector3(), _s = new THREE.Vector3(), _one = new THREE.Vector3(1, 1, 1);
 const _m = new THREE.Matrix4();
+const _o = new THREE.Vector3();
+
+/**
+ * Two switchable hooks for the stunt park (world/stuntRide.ts), both null unless something sets them, and both
+ * consulted for the player's own car only. step: called before a physics step; returning true means the hook moved
+ * the car itself this step (the loop and the wall ride hold a car to track the height map cannot describe).
+ * pose: may turn the body and wheels (q, qw) about their origins (p, pw) before the matrices are written: a car
+ * upside down in the loop, or a flip in the air.
+ */
+export const carHooks: {
+  step: ((c: Vehicle, dt: number) => boolean) | null;
+  pose: ((c: Vehicle, q: THREE.Quaternion, p: THREE.Vector3, qw: THREE.Quaternion, pw: THREE.Vector3) => void) | null;
+} = { step: null, pose: null };
 const _col = new THREE.Color();
 const _cullCam = new THREE.PerspectiveCamera(), _pv = new THREE.Matrix4(), _frustum = new THREE.Frustum(), _sphere = new THREE.Sphere();
 /** The sun's shadow box is 130 m across and follows the camera's focus; cars within this of the focus are drawn into it. */
@@ -1085,6 +1098,7 @@ export class Vehicles implements VehiclesApi {
   // ── Driving ────────────────────────────────────────────────────────────────
 
   private step(c: Car, dt: number): void {
+    if (carHooks.step !== null && c.driver === 'player' && carHooks.step(c, dt)) return;
     const sp = c.spec, ctl = c.ctl;
     let sh = Math.sin(c.h), ch = Math.cos(c.h);
     let vf = c.vx * sh + c.vz * ch;
@@ -2043,16 +2057,18 @@ export class Vehicles implements VehiclesApi {
     _e.set(-(c.pitch + c.pitchV), c.h, c.groundRoll + c.rollV);
     _q.setFromEuler(_e);
     _p.set(c.x, c.y + c.lift - c.susp, c.z);
-    _m.compose(_p, _q, _one);
-    _m.toArray(c.mat);
     // The wheels follow the road, not the body, so the gap in the arches opens and closes.
     _e.set(-c.pitch, c.h, c.groundRoll);
     _qg.setFromEuler(_e);
+    _o.set(c.x, c.y + c.lift, c.z);
+    if (carHooks.pose !== null && c.driver === 'player') carHooks.pose(c, _q, _p, _qg, _o);
+    _m.compose(_p, _q, _one);
+    _m.toArray(c.mat);
     _s.set(sp.wheelW, sp.wheelR, sp.wheelR);
     for (let i = 0; i < ws.length; i++) {
       const w = ws[i], left = w.x > 0, front = i < 2;
       _p.copy(w).applyQuaternion(_qg);
-      _p.x += c.x; _p.y += c.y + c.lift; _p.z += c.z;
+      _p.add(_o);
       // Right-hand wheels are turned about so the same hub faces outward, which reverses their spin.
       _qw.setFromAxisAngle(Y_AXIS, (front ? -c.steerAng : 0) + (left ? 0 : Math.PI));
       _qs.setFromAxisAngle(X_AXIS, (front ? c.spinF : c.spinR) * (left ? 1 : -1));

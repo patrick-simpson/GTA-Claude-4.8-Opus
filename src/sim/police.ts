@@ -24,6 +24,7 @@
 // are there for it to hook.
 
 import type { Game } from '../core/game';
+import { kid } from '../core/kid';
 import type { Look, Person, Vehicle } from '../core/api';
 import { RNG, TAU, clamp, clamp01, lerp, money } from '../core/util';
 import { groundAt, isWater, type RoadNode } from '../world/plan';
@@ -900,6 +901,7 @@ export class Police {
   }
 
   private fire(c: Cop, d: number): void {
+    if (kid.on) return;
     const g = this.game, pl = c.target, p = c.p, lvl = pl.level;
     c.fireT = this.rng.range(1.1, 1.9) * (lvl >= 5 ? 0.7 : lvl === 4 ? 0.85 : 1);
     const dx = (pl.x - p.x) / d, dz = (pl.z - p.z) / d;
@@ -932,6 +934,7 @@ export class Police {
   /** A round from an officer has found this browser's player (here, or on the host's say so). */
   hurtMe(dmg: number, carDmg: number): void {
     const g = this.game, pl = g.player, v = pl.vehicle;
+    if (kid.on) return;
     if (v && carDmg > 0) v.health = Math.max(0, v.health - carDmg);
     pl.damage(dmg);
     g.cam.shake(0.15);
@@ -951,7 +954,7 @@ export class Police {
       const up = p.visible && p.pose !== 'down' && p.health > 0;
       if ((c.seeT -= dt) <= 0) { c.seeT = 0.25; c.sees = up && lvl > 0 && this.canSee(pl, p.x, p.y + 1.6, p.z, SEE_FOOT); }
       if (!up) c.sees = false;
-      if (lvl > 0 && lvl < 3 && c.sees && pl.speed < 2.2 && d < (pl.vehicle ? pl.vehicle.hw + 2.2 : 2.1)) pl.hold += dt;
+      if (lvl > 0 && (lvl < 3 || kid.on) && c.sees && pl.speed < 2.2 && d < (pl.vehicle ? pl.vehicle.hw + 2.2 : 2.1)) pl.hold += dt;
       return true;
     }
     if (p.health <= 0) {
@@ -996,7 +999,8 @@ export class Police {
       return true;
     }
 
-    const armed = lvl >= 3;
+    // (Kid-friendly mode, core/kid.ts: nobody draws, at any level. They follow, block and put a hand on her shoulder.)
+    const armed = lvl >= 3 && !kid.on;
     if (c.mode === 'guard') {
       // Beside the car, facing up the road; on foot after anyone who gets close.
       if (!pl.vehicle && c.sees && d < 22) c.mode = 'chase';
@@ -1023,6 +1027,7 @@ export class Police {
 
   private book(): void {
     const g = this.game, pl = g.player, lvl = this.level;
+    if (kid.on) { this.ticket(); return; }
     const fine = Math.min(pl.money, 60 + 90 * lvl);
     this.stats.booked++;
     pl.money -= fine;
@@ -1036,6 +1041,20 @@ export class Police {
     g.cam.snap();
     g.hud.stamp('BOOKED', fine > 0 ? `Fined ${money(fine)} and let go` : 'Nothing to fine. Let go anyway');
     g.hud.toast(`${this.station.name}. The Harbor Patrol kept your hardware and wished you a law-abiding afternoon.`, 6);
+  }
+
+  /** Kid-friendly mode's arrest: a ticket on the spot. A small fine, nothing taken, nobody moved; the cars drive off. */
+  private ticket(): void {
+    const g = this.game, pl = g.player, lvl = this.level;
+    const fine = Math.min(pl.money, 20 * lvl);
+    this.stats.booked++;
+    pl.money -= fine;
+    g.emit('booked', { fine, confiscate: false });
+    this.heli.dismiss();
+    for (const u of this.units) if (!u.shown && u.target === this.me) this.standDown(u);
+    this.points = 0; this.setLevel(0);
+    g.hud.stamp('TICKETED', fine > 0 ? `${money(fine)}, payable to the Harbor Patrol` : 'A warning, in writing');
+    g.hud.toast('The officer wrote you a ticket and asked you to drive like your grandmother is watching.', 6);
   }
 
   /** Take every unit and officer off the map at once. Only for moments the player cannot see: an arrest, a death. */
