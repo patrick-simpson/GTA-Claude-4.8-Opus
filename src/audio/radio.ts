@@ -476,7 +476,7 @@ export class StationPlayer {
     if (st.am) chain(c.filter('peaking', 1400, 0.8, 5));
     tail.connect(this.out);
     this.out.connect(dest);
-    const send = c.gain(st.wet); this.out.connect(send); send.connect(c.reverb);
+    const send = c.gain(st.wet); this.out.connect(send); send.connect(c.reverbFor('music'));
     const mk = (level: number, pan: number): GainNode => { const g = c.gain(level), p = c.ctx.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(sum); return g; };
     this.ch = { drums: mk(st.mix.drums, 0), bass: mk(st.mix.bass, 0), stab: mk(st.mix.stab, -0.3), pad: mk(st.mix.pad, 0.25), lead: mk(st.mix.lead, 0.08), lead2: mk(st.mix.lead2, -0.15) };
     if (st.trem) {

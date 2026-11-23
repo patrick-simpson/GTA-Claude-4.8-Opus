@@ -333,7 +333,7 @@ export class TroubleSounds {
       if (have || c.gainAt(u.v.x, u.v.y, u.v.z, 14, 560) < 0.01) continue;
       const g = c.gain(0), pan = c.ctx.createStereoPanner(), send = c.gain(0.35);
       const s = new Siren(c, t, (u.v.id * 0.37) % 1);
-      s.out.connect(g); g.connect(pan); pan.connect(c.bus.sfx); g.connect(send); send.connect(c.reverb);
+      s.out.connect(g); g.connect(pan); pan.connect(c.bus.sfx); g.connect(send); send.connect(c.reverbFor('sfx'));
       this.sirens.push({ v: u.v, s, g, pan });
     }
   }

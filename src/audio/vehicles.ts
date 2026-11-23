@@ -484,7 +484,7 @@ export class VehicleSounds {
       if (have || core.gainAt(c.x, c.y, c.z, 8, 110) < 0.02) continue;
       const gn = core.gain(0), pan = core.ctx.createStereoPanner();
       gn.connect(pan); pan.connect(core.bus.sfx);
-      const send = core.gain(0.3); gn.connect(send); send.connect(core.reverb);
+      const send = core.gain(0.3); gn.connect(send); send.connect(core.reverbFor('sfx'));
       this.aiHorns.push({ v: c, voice: new HornVoice(core, c.spec.kind, gn, t, core.doppler(c.x, c.z, c.vx, c.vz)), g: gn, pan });
     }
     for (let i = this.aiHorns.length - 1; i >= 0; i--) {
@@ -506,7 +506,7 @@ export class VehicleSounds {
       if (have || core.gainAt(r.x, r.y, r.z, 8, 110) < 0.02) continue;
       const gn = core.gain(0), pan = core.ctx.createStereoPanner();
       gn.connect(pan); pan.connect(core.bus.sfx);
-      const send = core.gain(0.3); gn.connect(send); send.connect(core.reverb);
+      const send = core.gain(0.3); gn.connect(send); send.connect(core.reverbFor('sfx'));
       hs.push({ r, voice: new HornVoice(core, r.kind, gn, t, core.doppler(r.x, r.z, r.vx, r.vz)), g: gn, pan });
     }
     for (let i = hs.length - 1; i >= 0; i--) {

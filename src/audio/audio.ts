@@ -20,7 +20,9 @@ export const BUSES: readonly Bus[] = ['engine', 'sfx', 'ambience', 'music', 'ui'
 export interface Volumes { master: number; music: number; sfx: number; ambience: number }
 
 /** How loud each class sits before the player touches a slider. Tuned from the level tables in scratch/audio. */
-const TRIM: Record<Bus, number> = { engine: 0.55, sfx: 0.8, ambience: 0.6, music: 0.5, ui: 1 };
+const TRIM: Record<Bus, number> = { engine: 0.55, sfx: 0.8, ambience: 0.2, music: 0.5, ui: 1 };
+/** The reverb sends were tuned against the old ambience level (0.6); the tail follows the bed down. */
+const REV_TRIM: Record<Bus, number> = { engine: 1, sfx: 1, ambience: 0.2 / 0.6, music: 1, ui: 1 };
 
 export const SOUND_SPEED = 343;
 
@@ -50,6 +52,8 @@ export class AudioCore {
   readonly master: GainNode;
   /** Input of the reverb. One-shots get a send through place(); beds connect their own. */
   readonly reverb: GainNode;
+  /** Per-bus doors into the reverb: each follows its own slider, so a muted class leaves no echo behind. */
+  private readonly revIn = {} as Record<Bus, GainNode>;
   /** Two seconds of white, four of pink, four of brown: every hiss, roar and rumble loops one of these. */
   readonly white: AudioBuffer;
   readonly pink: AudioBuffer;
@@ -109,6 +113,7 @@ export class AudioCore {
     this.reverb = c.createGain();
     this.revOut = c.createGain(); this.revOut.gain.value = 0.5;
     this.revOut.connect(this.world);
+    for (const b of BUSES) { const g = c.createGain(); g.gain.value = 0; g.connect(this.reverb); this.revIn[b] = g; }
     const pre = c.createDelay(0.1); pre.delayTime.value = 0.023;
     this.reverb.connect(pre);
     const times = [0.0437, 0.0571, 0.0683, 0.0797];
@@ -162,7 +167,18 @@ export class AudioCore {
     set(this.bus.ui.gain, sq(v.sfx) * TRIM.ui);
     set(this.bus.ambience.gain, sq(v.ambience) * TRIM.ambience);
     set(this.bus.music.gain, sq(v.music) * TRIM.music);
+    set(this.revIn.engine.gain, sq(v.sfx) * REV_TRIM.engine);
+    set(this.revIn.sfx.gain, sq(v.sfx) * REV_TRIM.sfx);
+    set(this.revIn.ui.gain, sq(v.sfx) * REV_TRIM.ui);
+    set(this.revIn.ambience.gain, sq(v.ambience) * REV_TRIM.ambience);
+    set(this.revIn.music.gain, sq(v.music) * REV_TRIM.music);
   }
+
+  /** Where a send into the reverb must go for a sound on `bus`: it is shut when that bus's slider is. */
+  reverbFor(bus: Bus): GainNode { return this.revIn[bus]; }
+
+  /** Which bus a node is (the ambience bed's own out counts as ambience). */
+  busOf(n: AudioNode): Bus { for (const b of BUSES) if (this.bus[b] === n) return b; return 'ambience'; }
 
   /** Shut or open everything but the UI (the pause card still rustles). */
   setWorld(on: boolean): void {
@@ -238,7 +254,7 @@ export class AudioCore {
     if (wet > 0) {
       // The tail holds up better than the direct sound: far-off bangs are mostly echo.
       const send = c.createGain(); send.gain.value = wet * (0.5 + 0.5 * Math.min(1, d / 60)) / Math.max(g, 0.25) * g;
-      gain.connect(send); send.connect(this.reverb);
+      gain.connect(send); send.connect(this.revIn[o.bus ?? 'sfx']);
     }
     return { in: head, g, lag: d / SOUND_SPEED, d };
   }
@@ -247,7 +263,7 @@ export class AudioCore {
   direct(bus: Bus, level = 1, wet = 0): AudioNode {
     const g = this.ctx.createGain(); g.gain.value = level;
     g.connect(this.bus[bus]);
-    if (wet > 0) { const s = this.ctx.createGain(); s.gain.value = wet; g.connect(s); s.connect(this.reverb); }
+    if (wet > 0) { const s = this.ctx.createGain(); s.gain.value = wet; g.connect(s); s.connect(this.revIn[bus]); }
     return g;
   }
 

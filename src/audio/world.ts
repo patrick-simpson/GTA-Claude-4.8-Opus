@@ -153,7 +153,7 @@ export class Bed {
     if (w > 0.004 && !this.rig) {
       this.g = c.gain(0); this.pan = c.ctx.createStereoPanner();
       this.g.connect(this.pan); this.pan.connect(this.dest);
-      if (this.wet) { const s = c.gain(this.wet); this.g.connect(s); s.connect(c.reverb); }
+      if (this.wet) { const s = c.gain(this.wet); this.g.connect(s); s.connect(c.reverbFor(c.busOf(this.dest))); }
       this.rig = new Rig(c, this.g);
       this.build(this.rig);
       this.quiet = 0;
@@ -502,7 +502,7 @@ export class WorldSounds {
     const c = this.core, g = c.gain(level), p = c.ctx.createStereoPanner();
     p.pan.value = pan;
     g.connect(p); p.connect(bus === 'ambience' ? this.out : c.bus[bus]);
-    if (wet > 0) { const s = c.gain(wet); g.connect(s); s.connect(c.reverb); }
+    if (wet > 0) { const s = c.gain(wet); g.connect(s); s.connect(c.reverbFor(bus)); }
     return g;
   }
 
