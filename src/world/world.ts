@@ -14,6 +14,7 @@ import { buildPlaces } from './places';
 import { buildMainlandBuildings } from './mainlandBuildings';
 import { buildMainlandPlaces } from './mainlandPlaces';
 import { signalState } from './signals';
+import { Fireworks } from '../fx/fireworks';
 
 export class World implements WorldApi {
   readonly group = new THREE.Group();
@@ -51,6 +52,8 @@ export class World implements WorldApi {
     await step(0.98, 'Postponing the opera');
     this.parts.push(buildMainlandPlaces(g.plan.mainlandLots, g.plan.lots.length));
     this.boxMarks.push(g.col.allBoxes.length);
+    // Fireworks over Pelican Pier (fx/fireworks.ts): the Saturday and holiday show, and the stall on the pier.
+    this.parts.push(new Fireworks(g, this.group));
     await step(1, 'Sweeping up');
   }
 
