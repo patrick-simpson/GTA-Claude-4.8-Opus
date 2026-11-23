@@ -118,6 +118,9 @@ export class TouchUI {
     // Say: a wave and a few fixed lines, one per press, only while somebody else is in town (src/net/).
     this.sayKey = act('t-say gone', '', 'Say', 'say');
     act('t-pause always', '', GLYPH.pause, 'pause');
+    // Replay the last ten seconds (fx/replay.ts): a small key under pause, styled here beside its only use.
+    this.key('t-replay always', '', 'Replay', () => game.cam.replay.rewatch(), () => { /* one press, one replay */ }).el.style.cssText =
+      'right:var(--sr);top:calc(var(--st) + 48px + var(--g));width:48px;height:40px;font-size:10px;letter-spacing:0;';
 
     const card = this.div('t-rotate');
     card.innerHTML = '<b>Turn the phone sideways</b><span>The harbor is wider than it is tall.</span>';

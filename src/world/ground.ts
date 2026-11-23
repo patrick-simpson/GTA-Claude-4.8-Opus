@@ -30,6 +30,7 @@ import {
   RIVER_HW, ROAD_BRIDGE, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, hillAt, mainlandTerrain, riverX, waterDist,
 } from './mainland';
 import { sawhorses } from './progress';
+import { SWELL_GLSL, seaClock } from './sea';
 import { flip, sendRange } from '../core/flip';
 import { CUT_FAR, CUT_NEAR, CUT_VERTEX, PropField, loadProps } from './propAssets';
 
@@ -633,12 +634,17 @@ void main() {
 
 // ── The sea ──────────────────────────────────────────────────────────────────
 
+// The sea's mesh is a disc of rings centred under the camera (fine near it, coarse far off: see sea()), lifted by the
+// swell (world/sea.ts) wherever it runs.
 const SEA_VERT = /* glsl */ `
+uniform float uTime;
 varying vec3 vW;
 #include <common>
 #include <fog_pars_vertex>
+${SWELL_GLSL}
 void main() {
-  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vec4 wp = modelMatrix * vec4(position + vec3(cameraPosition.x, 0.0, cameraPosition.z), 1.0);
+  wp.y += swellH(wp.xz, uTime, length(position.xz));
   vW = wp.xyz;
   vec4 mvPosition = viewMatrix * wp;
   gl_Position = projectionMatrix * mvPosition;
@@ -676,6 +682,7 @@ float islandSD(vec2 p) {
   return sd + 13.0 * sin(th * 5.0 + 1.3) + 8.0 * sin(th * 11.0 + 0.4) + 4.0 * sin(th * 23.0);
 }
 ${MAIN_SD}
+${SWELL_GLSL}
 const float E = 1.0 / 256.0;
 vec2 slope(vec2 uv) {
   float h = texture2D(uNoise, uv).r;
@@ -703,7 +710,8 @@ void main() {
          + slope(pf / 19.0 + t * vec2(0.017, -0.022)) * 0.5;
   // Far from the camera the slope noise only reads as grey marble blotches: ease it flat with distance.
   float near = 1.0 - smoothstep(90.0, 600.0, dist);
-  vec3 N = normalize(vec3(-g.x * 26.0 * near, 1.0, -g.y * 26.0 * near));
+  vec2 sg = swellG(p, t, length(toCam.xz));
+  vec3 N = normalize(vec3(-g.x * 26.0 * near - sg.x, 1.0, -g.y * 26.0 * near - sg.y));
 
   float off = smoothstep(-8.0, 190.0, sd);
   vec3 col = mix(mix(uShallow, uShallowN, uNight), mix(uDeep, uDeepN, uNight), pow(off, 0.62));
@@ -742,6 +750,37 @@ void main() {
   #include <colorspace_fragment>
   #include <fog_fragment>
 }`;
+
+/**
+ * The sea's mesh: rings round the origin (the vertex shader moves it under the camera), 1.5 m apart for the first
+ * 60 m and then 5 % further each ring, out past the old 9 km square's corners. About 17,000 vertices.
+ */
+function seaDisc(): THREE.BufferGeometry {
+  const radii: number[] = [];
+  for (let i = 0; i <= 40; i++) radii.push(i * 1.5);
+  while (radii[radii.length - 1] < 6500) radii.push(radii[radii.length - 1] * 1.05);
+  const SEG = 128, n = radii.length;
+  const pos = new Float32Array((1 + (n - 1) * SEG) * 3), idx: number[] = [];
+  let k = 3;
+  for (let r = 1; r < n; r++) {
+    for (let j = 0; j < SEG; j++) {
+      const a = (j / SEG) * Math.PI * 2;
+      pos[k++] = Math.cos(a) * radii[r]; pos[k++] = 0; pos[k++] = Math.sin(a) * radii[r];
+    }
+  }
+  const at = (r: number, j: number): number => (r === 0 ? 0 : 1 + (r - 1) * SEG + (j % SEG));
+  for (let j = 0; j < SEG; j++) idx.push(0, at(1, j + 1), at(1, j));
+  for (let r = 1; r < n - 1; r++) {
+    for (let j = 0; j < SEG; j++) {
+      const a = at(r, j), b = at(r, j + 1), c = at(r + 1, j), d = at(r + 1, j + 1);
+      idx.push(a, b, d, a, d, c);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  return geo;
+}
 
 // ── Districts ────────────────────────────────────────────────────────────────
 
@@ -1115,9 +1154,7 @@ class Ground implements WorldPart {
       uniforms: this.seaU, vertexShader: SEA_VERT, fragmentShader: SEA_FRAG,
       fog: true, transparent: true, depthWrite: false,
     });
-    const geo = new THREE.PlaneGeometry(9000, 9000);
-    geo.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(geo, mat);
+    const m = new THREE.Mesh(seaDisc(), mat);
     m.position.y = WATER_Y;
     m.updateMatrix();
     m.matrixAutoUpdate = false;
@@ -2242,6 +2279,7 @@ class Ground implements WorldPart {
     this.props?.update(this.game.camera);
     const u = this.seaU;
     u.uTime.value += dt;
+    seaClock.t = u.uTime.value;
     // The sky is built after the world, so it may not be there yet.
     const light = this.game.sky?.lightDir;
     if (light) (u.uLight.value as THREE.Vector3).copy(light);

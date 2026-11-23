@@ -786,6 +786,9 @@ export class Traffic {
     let want = (panic ? Math.min(d.cruise * 1.7, v.spec.topSpeed * 0.75) : d.cruise) * (1 - 0.62 * Math.min(1, Math.abs(err) * 1.3));
     if (t) want = Math.min(want, t.vmax);
     if (d.passing) want = Math.min(want, 7);
+    // Snow: everybody creeps (and leaves more room, below).
+    const slick = this.game.sky?.slick ?? 0;
+    if (slick > 0) want *= 1 - 0.35 * slick;
 
     // ── The junction ahead ──
     let hold = false;
@@ -869,7 +872,7 @@ export class Traffic {
       const facing = !t && !out && hd < -0.8 && oF < 1 && -(o.x - from.x) * dz + (o.z - from.z) * dx > -0.5, kp = facing ? 15 : keep;
       const of = Math.max(0, oF), room = Math.max(0, gap - kp);
       // Follow distance grows with speed: 0.7 s of headway on top of the standing gap.
-      let lim = Math.min(Math.sqrt(5 * room) + of, Math.max(0, of + (gap - kp - 0.7 * sp) * 0.9));
+      let lim = Math.min(Math.sqrt(5 * room) + of, Math.max(0, of + (gap - kp - (0.7 + 0.9 * slick) * sp) * 0.9));
       if (gap < kp && of < 1) lim = 0;
       const closing = sp - oF;
       // Cut off: something suddenly close and much slower. Stand on the brake and lean away from it.

@@ -128,6 +128,8 @@ export class CityMaterials {
     this.street = this.mat(tex.street);
     this.avenue = this.mat(tex.avenue);
     this.asphalt = this.mat(tex.asphalt);
+    // Snow on the roads is slush the traffic keeps thin (world/snowCover.ts).
+    for (const r of [this.street, this.avenue, this.asphalt]) r.userData.snowRoad = true;
     this.sidewalk = this.mat(tex.sidewalk);
     this.grass = this.mat(tex.grass, { env: 0.8 });
     this.sand = this.mat(tex.sand);

@@ -7,6 +7,7 @@ import type { Game } from '../core/game';
 import type { Vehicle } from '../core/api';
 import { progress } from '../world/progress';
 import { capture, restore, save, type Settings } from './save';
+import { season } from '../world/season';
 import { Markers, Runner, type Pt } from './script';
 import { story } from './missions';
 import type { Blip } from '../ui/hud';
@@ -87,6 +88,7 @@ export class ThingsToDo {
     g.input.sensitivity = s.sens;
     g.input.invertY = s.invertY;
     document.body.classList.toggle('reduced-motion', s.reducedMotion);
+    season.pick = s.season;
     // "Full screen on tap" lives in ui/title.ts, which asks the document element. With the setting off the
     // request is answered here and goes nowhere; with it on, the browser's own method shows through again.
     const el = document.documentElement as unknown as Record<string, unknown>;

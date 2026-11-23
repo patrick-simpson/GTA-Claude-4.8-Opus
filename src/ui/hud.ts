@@ -8,7 +8,7 @@
 
 import './hud.css';
 import type { Game } from '../core/game';
-import type { GameState, HudApi, Vehicle, Weather } from '../core/api';
+import type { GameState, HudApi, Vehicle, SkyWeather } from '../core/api';
 import { MPH, RNG, TAU, clamp, clamp01, damp } from '../core/util';
 import {
   BREAKWATER, BRIDGE, LIGHTHOUSE, PIER, PIER_HEAD, RAMPS, WATER_Y, ZS,
@@ -664,7 +664,7 @@ class Radar {
 
 // ── The paperwork ────────────────────────────────────────────────────────────
 
-const WEATHER_WORD: Record<Weather, string> = { clear: 'Fair', overcast: 'Overcast', fog: 'Sea fog', rain: 'Rain' };
+const WEATHER_WORD: Record<SkyWeather, string> = { clear: 'Fair', overcast: 'Overcast', fog: 'Sea fog', rain: 'Rain', snow: 'Snow' };
 
 /** What goes under a place name where there is no street to name. */
 const OFF_GRID: Record<string, string> = {
@@ -699,6 +699,7 @@ const KEYS: [string[], string][] = [
   [['V'], 'Change camera'],
   [['C'], 'Look back'],
   [['T'], 'Radio (in a car)'],
+  [['J'], 'Replay the last 10 s'],
   [['LMB', 'RMB'], 'Fire / aim'],
   [['Q', 'E', 'R'], 'Switch / reload'],
   [['Esc'], 'Pause'],
@@ -793,7 +794,7 @@ export class Hud implements HudApi {
   private coarse = matchMedia('(pointer: coarse)').matches;
   private cash = NaN;
   private mins = -1;
-  private weather: Weather | '' = '';
+  private weather: SkyWeather | '' = '';
   private heat = 0;
   private searching = false;
   private veh: Vehicle | null = null;

@@ -13,7 +13,7 @@
 
 import type { Vehicle } from '../core/api';
 import type { Game } from '../core/game';
-import type { VehicleKind } from '../ent/vehicleSpecs';
+import { isBoatKind, type VehicleKind } from '../ent/vehicleSpecs';
 import type { Remote } from '../net/remote';
 import { mulberry, type AudioCore } from './audio';
 import * as sfx from './sfx';
@@ -62,6 +62,11 @@ export const ENGINES: Record<VehicleKind, EngineSpec> = {
   bolt: { cyl: 0, idle: 0, redline: 9000, gears: [1], shift: 0, p: 1, half: 0, low: 0, odd: 0, bright: 6000, breath: 0, clatter: 0, beat: 0, level: 0.5 },
   // The C-Max: a hybrid's quiet two-litre four behind plenty of lagging. Soft shifts, no clatter, never loud.
   cmax: { cyl: 4, idle: 760, redline: 4800, gears: FIVE, shift: 0.5, p: 0.9, half: 0.3, low: 0.14, odd: 0.07, bright: 2400, breath: 0.35, clatter: 0, beat: 0.003, level: 0.6 },
+  // Boats (ent/boat.ts) have no gearbox: one gear, and the propeller slips (Boat.slip) so the revs run ahead of the hull
+  // pulling away and race when it leaves the water. The runabout's outboard is a V6 with a wet, throaty exhaust; the
+  // jet ski a buzzy, bright twin.
+  speedboat: { cyl: 6, idle: 720, redline: 6000, gears: [1.08], shift: 0, p: 0.75, half: 0.45, low: 0.25, odd: 0.1, bright: 3200, breath: 0.7, clatter: 0, beat: 0.007, level: 1 },
+  jetski: { cyl: 2, idle: 1300, redline: 7800, gears: [1.05], shift: 0, p: 0.45, half: 0.3, low: 0.35, odd: 0.15, bright: 6500, breath: 0.6, clatter: 0, beat: 0.004, level: 0.85 },
 };
 
 const HARMONICS = 56;
@@ -340,6 +345,9 @@ export const HORNS: Record<VehicleKind, HornSpec> = {
   // The Bolt's is polite.
   bolt: { f: [415, 523], attack: 0.016, bright: 2000, level: 0.71 },
   cmax: { f: [400, 500], attack: 0.012, bright: 2500, level: 0.8 },
+  // A boat's horn is a low single blast; the jet ski's a toy beeper.
+  speedboat: { f: [233, 294], attack: 0.06, bright: 1500, level: 0.95 },
+  jetski: { f: [740], attack: 0.006, bright: 3800, level: 0.6 },
 };
 
 /** A horn that sounds until it is released. Built when the button goes down, torn down when it comes up. */
@@ -468,7 +476,9 @@ export class VehicleSounds {
       }
     } else { this.wasAir = 0; if (this.horn) { this.horn.release(t); this.horn = null; } }
     this.engine.update(st, dt);
-    this.rolling.update(!!v && !v.sunk, v ? v.speed : 0, v ? v.slip : 0, v ? v.onGround : true, g.sky.wet, dt);
+    // A boat has no tyres: its hull hiss is the wet-road hiss at full wet, with no squeal.
+    const boat = !!v && isBoatKind(v.spec.kind);
+    this.rolling.update(!!v && !v.sunk, v ? v.speed : 0, v && !boat ? v.slip : 0, v ? v.onGround : true, boat ? 1 : g.sky.wet, dt);
 
     // ── Everybody else's ──
     this.scanT -= dt;

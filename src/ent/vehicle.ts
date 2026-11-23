@@ -728,6 +728,10 @@ export class Vehicles implements VehiclesApi {
   private cur!: Car;
   private curS = 0; private curC = 1;
   private wet = 0;
+  /** 0..1 snow on the roads (Sky.slick), as the tires feel it. */
+  private snow = 0;
+  /** Snow makes the roads slippery: less grip, longer stops, wheelspin. A switch for A/B tests and tools. */
+  snowGrip = true;
   private frame = 0;
   private envRT: THREE.WebGLCubeRenderTarget | null = null;
   private envCam: THREE.CubeCamera | null = null;
@@ -986,6 +990,7 @@ export class Vehicles implements VehiclesApi {
     // The sky is built before the vehicles, but tests stub the game with less.
     const sky = game.sky as Game['sky'] | undefined;
     this.wet = sky ? sky.wet : 0;
+    this.snow = sky && this.snowGrip ? sky.slick ?? 0 : 0;
     this.reflect(dt);
     const night = sky ? sky.night : 0;
     // A zero-length step would divide by it; there is nothing to simulate anyway.
@@ -1100,7 +1105,8 @@ export class Vehicles implements VehiclesApi {
     c.steerPos += ds > rate ? rate : ds < -rate ? -rate : ds;
 
     // Sand gives under the tires: less bite, and (below) it drags.
-    const gripBase = sp.grip * (1 - 0.22 * this.wet) * (c.soft ? 0.7 : 1);
+    // Packed snow: about half the bite (the slide comes early and lasts; see snowGrip).
+    const gripBase = sp.grip * (1 - 0.22 * this.wet) * (1 - 0.5 * this.snow) * (c.soft ? 0.7 : 1);
     if (hb) c.hbT = 0.6; else if (c.hbT > 0) c.hbT -= dt;
     const speed2 = vf * vf + vr * vr;
 
@@ -1129,10 +1135,12 @@ export class Vehicles implements VehiclesApi {
       // Wading: the engine labors and the water pushes back harder the faster the car goes. Nothing
       // here holds a stopped car, so it can always back out.
       if (c.wade > 0) along *= 1 - 0.35 * clamp01(c.wade / 0.6);
+      // The wheels spin on snow: a gentler pull away.
+      along *= 1 - 0.4 * this.snow;
       // Feet off: engine braking and drag bring it to rest in a block or so. A car nobody is in sits in gear.
       // Light at speed, so lifting through a bend is not half a brake; firmer near walking pace so it does stop.
       let drag = throttle === 0 ? (0.55 + 0.02 * absV) * (COAST[sp.kind] ?? 1) + (absV < 5 ? 1 - absV / 5 : 0) : 0.15;
-      drag += brake * sp.brake * (1 - 0.15 * this.wet);
+      drag += brake * sp.brake * (1 - 0.15 * this.wet - 0.5 * this.snow);
       // Locked rears scrub little speed: the slide has to carry the car round.
       if (hb) drag += sp.brake * 0.4;
       if (c.wade > 0) drag += c.wade * (0.3 + 2.4 * absV + 0.15 * absV * absV);

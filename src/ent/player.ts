@@ -7,6 +7,7 @@
 // a big one is a fall, and deep water is a swim. Everything else in this file
 // (doors, bail-outs, the hospital) is a short scripted move on top of that.
 
+import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { Look, Person, PlayerApi, Vehicle } from '../core/api';
 import type { Box } from '../world/collide';
@@ -14,6 +15,7 @@ import { clamp, clamp01, damp, dampAngle, headingOf, lerp, money, smooth } from 
 import { groundAt } from '../world/plan';
 import { waterLevelAt } from '../world/mainland';
 import { Weapons } from './weapons';
+import { Boats, type Boat } from './boat';
 
 const RADIUS = 0.35;
 const WALK = 1.8, JOG = 4.3, SPRINT = 7;
@@ -125,9 +127,13 @@ export class Player implements PlayerApi {
   private door = { x: 0, z: 0 };
   private qx = 0; private qy = 0; private qz = 0; private qTop = 0;
 
+  /** The runabout and the jet ski at the Pelican Pier dock (ent/boat.ts). Moved here, at the top of update(), so she is drawn on the boat where it is this frame. */
+  readonly boats: Boats;
+
   constructor(private game: Game) {
     this.person = game.people.spawn(0, 0, 0, DESS);
     this.weapons = new Weapons(game);
+    this.boats = new Boats(game);
     this.person.health = this.health;
   }
 
@@ -202,6 +208,8 @@ export class Player implements PlayerApi {
 
   enter(v: Vehicle, instant = false): void {
     if (this.car === v) return;
+    // A boat is boarded where she stands (from the dock, the pier or the water): no walk round to a door.
+    if (this.boats.has(v)) { if (instant || this.mode === 'foot') { if (this.car) this.release(this.car); this.seat(v); } return; }
     if (this.car) this.release(this.car);
     if (this.rideCar) this.release(this.rideCar);
     if (instant) { this.seat(v); return; }
@@ -249,6 +257,7 @@ export class Player implements PlayerApi {
     if (this.mode === 'enter') { this.mode = 'foot'; this.goal = null; return; }
     const v = this.car ?? this.rideCar;
     if (!v) return;
+    if (this.boats.has(v) && v === this.car) { this.leaveBoat(v); return; }
     const per = this.person, p = this.p;
     const sp = safe ? 0 : Math.hypot(v.vx, v.vz);
     this.pickExit(v);
@@ -324,6 +333,7 @@ export class Player implements PlayerApi {
   // ── Frame ──────────────────────────────────────────────────────────────────
 
   update(dt: number): void {
+    this.boats.update(dt);
     // Anyone may write `health`; whoever brought it to zero, this is where it counts.
     if (this.health <= 0 && this.mode !== 'dead') this.die();
     if (this.safeT > 0) this.safeT -= dt;
@@ -431,7 +441,8 @@ export class Player implements PlayerApi {
       else if (this.airT > 0.12) per.pose = 'fall';
     } else per.pose = sp < 0.25 ? 'stand' : sp < 3 ? 'walk' : 'run';
 
-    this.nearVehicle = this.swimming || !this.grounded || this.rideNear ? null : this.findVehicle();
+    // A swimmer can climb aboard a boat alongside; nothing else.
+    this.nearVehicle = this.swimming ? this.boats.nearest(per.x, per.y + FLOAT, per.z, 1.4) : !this.grounded || this.rideNear ? null : this.findVehicle();
     if (this.nearVehicle && inp.hit('enter')) {
       inp.eat('enter');
       this.enter(this.nearVehicle);
@@ -596,13 +607,13 @@ export class Player implements PlayerApi {
       const d = Math.hypot(Math.max(along, 0), Math.max(across, 0));
       if (d < bd) { bd = d; best = v; }
     }
-    return best;
+    return this.boats.nearest(per.x, per.y, per.z, bd) ?? best;
   }
 
   /** The car she is on her way to the door of, if any. */
   get goingTo(): Vehicle | null { return this.mode === 'enter' ? this.goal : null; }
 
-  private listed(v: Vehicle): boolean { return this.game.vehicles.list.indexOf(v) >= 0; }
+  private listed(v: Vehicle): boolean { return this.game.vehicles.list.indexOf(v) >= 0 || this.boats.has(v); }
 
   private toDoor(dt: number): void {
     const per = this.person, v = this.goal, d = this.door;
@@ -661,9 +672,10 @@ export class Player implements PlayerApi {
     this.sinkT = 0;
     this.mode = 'drive';
     v.driver = 'player';
-    // Hidden rather than sat inside: the roof of the lowest car is below her cap.
-    per.visible = false;
-    per.bench = false;
+    // Hidden rather than sat inside: the roof of the lowest car is below her cap. On a boat she is out in the open.
+    const boat = this.boats.has(v);
+    per.visible = boat;
+    per.bench = boat;
     per.pose = 'sit';
     per.speed = 0;
     per.x = v.x; per.y = v.y; per.z = v.z; per.h = v.h;
@@ -691,8 +703,44 @@ export class Player implements PlayerApi {
     c.accel = inp.padActive && inp.padTrig !== 0 ? inp.padTrig : inp.moveY;
     c.handbrake = inp.down('jump') || inp.down('handbrake');
     c.horn = inp.down('horn');
+    if (this.boats.has(v)) {
+      // At the helm or astride the saddle, where the hull is this frame (Boats.update ran first).
+      const q = v.seatPos(0, this.seatV);
+      per.x = q.x; per.y = q.y; per.z = q.z; per.h = v.h;
+      per.visible = !this.game.cam.tooClose; per.pose = 'sit'; per.bench = true;
+      return;
+    }
     // Kept with the car so anything that reads the person (the map, the camera) is never stale.
     per.x = v.x; per.y = v.y; per.z = v.z; per.h = v.h;
+  }
+  private readonly seatV = new THREE.Vector3();
+
+  /**
+   * Off a boat: onto the dock, the pier or a beach if one is within a step of either side (or the bow or stern), and
+   * into the water beside it if not. A fast boat throws her off like a car would.
+   */
+  private leaveBoat(v: Boat): void {
+    const per = this.person, p = this.p, s = Math.sin(v.h), c = Math.cos(v.h);
+    const sp = Math.hypot(v.vx, v.vz);
+    this.release(v);
+    per.h = v.h; per.bench = false; this.safeT = 1;
+    const tries: [number, number][] = [[-1, 0], [1, 0], [0, 1], [0, -1]];
+    for (const [side, end] of tries) {
+      const off = side * (v.hw + 0.7), along = end * (v.hl + 0.6);
+      p.x = v.x + c * off + s * along; p.z = v.z - s * off + c * along;
+      const g = this.support(p.x, p.z, v.y + 2.2);
+      if (g < swimY(p.x, p.z) + FLOAT - 0.25 || g > v.y + 2.2 || this.game.col.pointBlocked(p.x, p.z, g + 0.9)) continue;
+      if (sp > BAIL_SPEED) break;
+      per.x = p.x; per.z = p.z; per.y = g;
+      this.grounded = true; this.swimming = false; this.vy = 0; this.mode = 'foot';
+      return;
+    }
+    v.doorPos(-1, p);
+    per.x = p.x; per.z = p.z;
+    per.y = swimY(per.x, per.z); this.swimming = true; this.grounded = false; this.wet = true;
+    this.vx = v.vx * 0.5; this.vz = v.vz * 0.5; this.vy = 0;
+    this.mode = 'foot';
+    this.game.emit('splash', { x: per.x, z: per.z, big: false });
   }
 
   /** Hand the car back: nobody at the wheel, pedals up. */
@@ -709,6 +757,7 @@ export class Player implements PlayerApi {
     v.ctl.accel = 0; v.ctl.steer = 0; v.ctl.handbrake = false; v.ctl.horn = false;
     this.car = null;
     this.person.visible = true;
+    this.person.bench = false;
     this.game.emit('exit', { vehicle: v });
   }
 

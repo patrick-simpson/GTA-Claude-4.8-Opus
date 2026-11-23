@@ -20,7 +20,8 @@ import type { Game } from '../core/game';
 import { isWater } from '../world/plan';
 import { WEAPONS } from '../ent/weapons';
 import { SPECS, type VehicleKind } from '../ent/vehicleSpecs';
-import type { Weather } from '../core/api';
+import type { SkyWeather as Weather } from '../core/api';
+import type { SeasonPick } from '../world/season';
 
 const KEY = 'portcalamity.save.v1';
 export const SAVE_VERSION = 1;
@@ -34,6 +35,8 @@ export interface Settings {
   /** A tap or click on the game takes the whole screen. */
   fsTap: boolean;
   reducedMotion: boolean;
+  /** The time of year (world/season.ts): from the calendar, or pinned. */
+  season: SeasonPick;
   /** Sound (src/audio/), each 0..1: everything; the car radio; engines, effects and the UI; the weather and the town. */
   volMaster: number; volMusic: number; volSfx: number; volAmbience: number;
   /** The station the radio was left on: -1 = off, 0 = Claude FM, 1.. = the generated stations (src/audio/radio.ts). */
@@ -102,7 +105,7 @@ export function freshStats(): Stats {
   return { driven: 0, walked: 0, cars: 0, topSpeed: 0, airtime: 0, airDist: 0, booked: 0, deaths: 0, passed: 0, failed: 0, fares: 0, tows: 0, parcels: 0, races: 0, earned: 0, played: 0 };
 }
 export function freshSettings(): Settings {
-  return { sens: 1, invertY: false, quality: 'auto', fsTap: true, reducedMotion: false, volMaster: 0.8, volMusic: 0.7, volSfx: 0.8, volAmbience: 0.8, station: 0 };
+  return { sens: 1, invertY: false, quality: 'auto', fsTap: true, reducedMotion: false, season: 'auto', volMaster: 0.8, volMusic: 0.7, volSfx: 0.8, volAmbience: 0.8, station: 0 };
 }
 function fresh(): SaveDoc {
   return { v: SAVE_VERSION, when: 0, player: null, missions: [], ducks: [], jumps: [], counts: {}, best: {}, stats: freshStats(), settings: freshSettings() };
@@ -123,7 +126,7 @@ export function sanitize(raw: unknown): SaveDoc {
     d.player = {
       x: p.x, z: p.z, h: num(p.h, 0),
       health: num(p.health, 100, 1, 100), armor: num(p.armor, 0, 0, 100), money: num(p.money, 0, -1e7, 1e9),
-      hour: num(p.hour, 8, 0, 24), weather: wx === 'overcast' || wx === 'fog' || wx === 'rain' ? wx : 'clear',
+      hour: num(p.hour, 8, 0, 24), weather: wx === 'overcast' || wx === 'fog' || wx === 'rain' || wx === 'snow' ? wx : 'clear',
       car: typeof c.kind === 'string' && c.kind in SPECS
         ? { kind: c.kind as VehicleKind, color: num(c.color, 0xe4572e, 0, 0xffffff), health: num(c.health, 100, 25, 100) } : null,
       owned: arr(p.owned, (x, i) => i === 0 || x === true) as boolean[],
@@ -145,6 +148,7 @@ export function sanitize(raw: unknown): SaveDoc {
   d.settings.quality = t.quality === 'low' || t.quality === 'medium' || t.quality === 'high' ? t.quality : 'auto';
   d.settings.fsTap = bool(t.fsTap, true);
   d.settings.reducedMotion = bool(t.reducedMotion, false);
+  d.settings.season = t.season === 'autumn' || t.season === 'winter' || t.season === 'summer' ? t.season : 'auto';
   d.settings.volMaster = num(t.volMaster, 0.8, 0, 1);
   d.settings.volMusic = num(t.volMusic, 0.7, 0, 1);
   d.settings.volSfx = num(t.volSfx, 0.8, 0, 1);

@@ -363,6 +363,13 @@ export class Fx {
   readonly emitters = {
     tireSmoke: (x: number, y: number, z: number, vx: number, vz: number, amount: number): void => this.tireSmoke(x, y, z, vx, vz, amount),
     dust: (x: number, y: number, z: number, vx: number, vz: number, amount: number, sand: boolean): void => this.dust(x, y, z, vx, vz, amount, sand),
+    /** Snow thrown up: a snowbank burst (n about 20) or a tire's spray (n 1 or 2). fx/snow.ts. */
+    powder: (x: number, y: number, z: number, vx: number, vz: number, n: number): void => this.powder(x, y, z, vx, vz, n),
+    /** One breath in the cold, from a mouth at (x, y, z) facing (dx, dz). */
+    breath: (x: number, y: number, z: number, dx: number, dz: number): void => {
+      const i = this.A.add(x + dx * 0.15, y, z + dz * 0.15, dx * 0.5, 0.12, dz * 0.5, 1.1 + rnd() * 0.4, 0.06, 0.42, 0.95, 0.97, 1, 0.2);
+      this.A.drag[i] = 2.5; this.A.grav[i] = -0.05; this.A.wind[i] = 1; this.A.fin[i] = 0.1; this.A.erode[i] = 0.5;
+    },
     sparks: (x: number, y: number, z: number, dx: number, dy: number, dz: number, n: number, speed: number): void => this.sparks(x, y, z, dx, dy, dz, n, speed),
     debris: (x: number, y: number, z: number, vx: number, vz: number, n: number, color: number, speed: number): void => this.debris(x, y, z, vx, vz, n, color, speed),
     splash: (x: number, z: number, big: boolean): void => this.splash(x, z, big),
@@ -461,6 +468,7 @@ export class Fx {
     for (const gy of this.geysers) if (gy.t > 0) this.runGeyser(gy, dt);
     for (const f of this.fires) if (f.active) this.runFire(f, dt);
     if (sky.weather === 'rain') this.rain(dt);
+    sky.snowfall?.update(dt);
 
     this.A.step(dt, this.windX, this.windZ);
     this.B.step(dt, this.windX, this.windZ);
@@ -560,6 +568,21 @@ export class Fx {
     const i = A.add(x + sym() * 0.2, y, z + sym() * 0.2, vx + sym() * 0.7, 0.4 + rnd() * 0.7, vz + sym() * 0.7,
       1.5 + rnd() * 1.1, 0.4 + rnd() * 0.2, 1.7 + rnd() * 1.1, (sand ? 0.6 : 0.42) * k, (sand ? 0.5 : 0.4) * k, (sand ? 0.34 : 0.37) * k, (sand ? 0.3 : 0.16) * amount);
     A.drag[i] = 1.8; A.grav[i] = 0.15; A.wind[i] = 1; A.fin[i] = 0.06; A.erode[i] = 0.6;
+  }
+
+  private powder(x: number, y: number, z: number, vx: number, vz: number, n: number): void {
+    const A = this.A, m = Math.max(1, Math.round(n * this.rate));
+    for (let k = 0; k < m; k++) {
+      const t = 0.92 + rnd() * 0.08;
+      let i = A.add(x + sym() * 1.2, y + rnd() * 0.6, z + sym() * 1.2, vx * (0.3 + rnd() * 0.6) + sym() * 2.2, 1.2 + rnd() * 3, vz * (0.3 + rnd() * 0.6) + sym() * 2.2,
+        1.6 + rnd() * 1.6, 0.8 + rnd() * 0.6, 3 + rnd() * 2.5, 0.9 * t, 0.93 * t, 0.98 * t, 0.7 + 0.25 * rnd());
+      A.drag[i] = 2.2; A.grav[i] = 0.6; A.wind[i] = 1; A.fin[i] = 0.04; A.erode[i] = 0.4;
+      if (n > 3 && rnd() < 0.6) {
+        i = A.add(x + sym() * 0.6, y + 0.2 + rnd() * 0.4, z + sym() * 0.6, vx * 0.5 + sym() * 2.5, 2 + rnd() * 3.5, vz * 0.5 + sym() * 2.5,
+          0.9 + rnd() * 0.5, 0.09, 0.07, 0.92, 0.95, 1, 0.9);
+        A.cell[i] = C_DOT; A.grav[i] = 9.8; A.drag[i] = 0.4;
+      }
+    }
   }
 
   // ── Impacts and props ──────────────────────────────────────────────────────

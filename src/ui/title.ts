@@ -7,7 +7,7 @@
 
 import './title.css';
 import type { Game } from '../core/game';
-import type { Weather } from '../core/api';
+import type { SkyWeather as Weather } from '../core/api';
 import { RNG } from '../core/util';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';

@@ -91,6 +91,16 @@ const TEX = {
 
 const made: { m: THREE.MeshStandardMaterial; far: boolean }[] = [];
 export const FAR_GAIN = { value: 0.6 };
+/**
+ * The season on the deciduous trees (src/world/season.ts; the sky sets it). value.x: 0..1 autumn colours on the leaves;
+ * value.y: 0..1 bare (winter: the leaves are not drawn). nearLeafy: deciduous trees drawn as full models near the
+ * camera at the last refill (the falling leaves in fx/snow.ts show where there are some).
+ */
+export const treeSeason = { u: { value: new THREE.Vector2(0, 0) }, nearLeafy: 0 };
+/** Kinds that turn and drop their leaves. */
+const DECIDUOUS = /^(plane|maple|oak|cherry|birch|sugarmaple|redoak|elm)\d*$/;
+/** Added to an impostor's cell number for a deciduous kind (the shader takes it off again). */
+const DEC_CELL = 1000;
 const NO_FADE = new THREE.Vector4(-2, -1, 1e8, 2e8);
 
 /**
@@ -98,7 +108,7 @@ const NO_FADE = new THREE.Vector4(-2, -1, 1e8, 2e8);
  * starts to go, gone), measured from the camera to the instance's foot. `far` makes it the
  * impostor's: the card is built in the vertex shader from the instance's cell and size.
  */
-function makeMaterial(fade: THREE.Vector4, far: boolean): THREE.MeshStandardMaterial {
+function makeMaterial(fade: THREE.Vector4, far: boolean, dec = false): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({
     map: far ? TEX.far : TEX.map, vertexColors: !far, side: THREE.DoubleSide, alphaTest: far ? 0.4 : 0.36, roughness: 0.75, metalness: 0,
     envMapIntensity: 0.2, fog: true,
@@ -110,9 +120,10 @@ function makeMaterial(fade: THREE.Vector4, far: boolean): THREE.MeshStandardMate
     sh.uniforms.uFade = { value: fade };
     sh.uniforms.uFarMask = farMask;
     sh.uniforms.uFarGain = FAR_GAIN;
+    sh.uniforms.uSeason = treeSeason.u;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
-        uniform vec4 uFade; varying float vFade;
+        uniform vec4 uFade; varying float vFade; varying float vTreeH; varying float vDec;
         ${far ? 'attribute vec4 aImp; attribute float aFade; attribute float aKind;' : 'attribute float leaf;'}`)
       .replace('#include <project_vertex>', `#include <project_vertex>
         #ifdef USE_INSTANCING
@@ -123,20 +134,23 @@ function makeMaterial(fade: THREE.Vector4, far: boolean): THREE.MeshStandardMate
             // Negative on the way out. The level coming in keeps the pixels its dither value is under and the one going
             // out keeps the rest, so between them every pixel is drawn once: two dithers of the same sign leave holes.
             vFade = fout < 1.0 ? - fout : fin;
+            vTreeH = fract( sin( dot( floor( foot.xz ), vec2( 12.9898, 78.233 ) ) ) * 43758.5453 );
             // Out of its band: off the screen, so it costs no pixels (the shadow pass has its own shader and still draws it).
             if ( fin * fout <= 0.0 ) gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );
           }
         #else
-          vFade = 1.0;
-        #endif`);
+          vFade = 1.0; vTreeH = 0.5;
+        #endif
+        vDec = ${far ? `step( ${(DEC_CELL - 0.5).toFixed(1)}, aImp.x )` : dec ? '1.0' : '0.0'};`);
     if (far) {
       sh.vertexShader = sh.vertexShader
         .replace('#include <uv_vertex>', `#include <uv_vertex>
           {
             // Two side views a kind in a 128 x 256 cell, sixteen cells a row; the views from above are below them.
-            float slot = aImp.x * 2.0 + aKind;
+            float cellIx = mod( aImp.x, ${DEC_CELL.toFixed(1)} );
+            float slot = cellIx * 2.0 + aKind;
             vec2 px = aKind > 1.5
-              ? vec2( mod( aImp.x, 16.0 ) * 128.0 + 64.0 + position.x * 60.0, 1536.0 + floor( aImp.x / 16.0 ) * 128.0 + 64.0 + position.z * 60.0 )
+              ? vec2( mod( cellIx, 16.0 ) * 128.0 + 64.0 + position.x * 60.0, 1536.0 + floor( cellIx / 16.0 ) * 128.0 + 64.0 + position.z * 60.0 )
               : vec2( mod( slot, 16.0 ) * 128.0 + 64.0 + ( aKind > 0.5 ? - position.z : position.x ) * 60.0, floor( slot / 16.0 ) * 256.0 + 252.0 - position.y * 248.0 );
             vMapUv = px / ${FAR_PX.toFixed(1)};
           }`)
@@ -150,7 +164,7 @@ function makeMaterial(fade: THREE.Vector4, far: boolean): THREE.MeshStandardMate
     }
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-        varying float vFade; uniform sampler2D uFarMask; uniform float uFarGain;
+        varying float vFade; varying float vTreeH; varying float vDec; uniform sampler2D uFarMask; uniform float uFarGain; uniform vec2 uSeason;
         float ign( vec2 p ) { return fract( 52.9829189 * fract( dot( p, vec2( 0.06711056, 0.00583715 ) ) ) ); }`)
       .replace('#include <map_fragment>', `
         {
@@ -167,7 +181,19 @@ function makeMaterial(fade: THREE.Vector4, far: boolean): THREE.MeshStandardMate
           diffuseColor.a *= 1.0 + 0.25 * lod;
         }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-        roughnessFactor = mix( 0.94, 0.7, isLeaf );`)
+        roughnessFactor = mix( 0.94, 0.7, isLeaf );
+        if ( vDec > 0.5 && isLeaf > 0.5 ) {
+          // Winter: bare. Autumn: each tree its own red, orange or yellow, kept at the leaf texture's light and shade.
+          if ( uSeason.y > 0.5 ) discard;
+          if ( uSeason.x > 0.0 ) {
+            float lum = dot( diffuseColor.rgb, vec3( 0.3, 0.59, 0.11 ) );
+            float hh = fract( vTreeH + lum * 1.7 );
+            vec3 fall = vTreeH < 0.34 ? mix( vec3( 0.6, 0.05, 0.02 ), vec3( 0.75, 0.16, 0.03 ), hh )
+              : vTreeH < 0.72 ? mix( vec3( 0.85, 0.3, 0.03 ), vec3( 0.8, 0.12, 0.02 ), hh * 0.6 )
+              : mix( vec3( 0.88, 0.62, 0.06 ), vec3( 0.8, 0.42, 0.04 ), hh * 0.5 );
+            diffuseColor.rgb = mix( diffuseColor.rgb, fall * clamp( lum * 3.0, 0.25, 1.2 ), uSeason.x );
+          }
+        }`)
       .replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace(/float faceDirection = [^;]+;/, 'float faceDirection = 1.0;'))
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
         #if NUM_DIR_LIGHTS > 0
@@ -190,7 +216,7 @@ function makeMaterial(fade: THREE.Vector4, far: boolean): THREE.MeshStandardMate
         diffuseColor.rgb *= uFarGain;`);
     }
   };
-  m.customProgramCacheKey = () => (far ? 'flora-far' : 'flora');
+  m.customProgramCacheKey = () => (far ? 'flora-far' : dec ? 'flora-dec' : 'flora');
   made.push({ m, far });
   return m;
 }
@@ -417,6 +443,8 @@ interface Kind {
   N: number; M: number; cut: number;
   /** The middle model stays in its mesh out to here, for its shadow. */
   cast: number;
+  /** Turns in autumn, bare in winter. */
+  dec: boolean;
 }
 
 /**
@@ -457,9 +485,9 @@ export class TreeField {
       g.push(i);
     });
     const mats = new Map<string, THREE.MeshStandardMaterial>();
-    const mat = (key: string, f: [number, number, number, number]): THREE.MeshStandardMaterial => {
-      let m = mats.get(key);
-      if (!m) mats.set(key, (m = makeMaterial(new THREE.Vector4(f[0], f[1], f[2], f[3]), false)));
+    const mat = (key: string, f: [number, number, number, number], dec: boolean): THREE.MeshStandardMaterial => {
+      let m = mats.get(key + (dec ? 'd' : ''));
+      if (!m) mats.set(key + (dec ? 'd' : ''), (m = makeMaterial(new THREE.Vector4(f[0], f[1], f[2], f[3]), false, dec)));
       return m;
     };
     let farCount = 0;
@@ -474,7 +502,8 @@ export class TreeField {
         for (let k = 0; k < 16; k++) m[i * 16 + k] = plan.m[src * 16 + k];
         for (let k = 0; k < 3; k++) c[i * 3 + k] = plan.c[src * 3 + k];
       });
-      const imp: Kind['imp'] = info.cell >= 0 && info.hw && info.h ? [info.cell, info.hw, info.h, (info.yc ?? 0.6) * info.h] : null;
+      const dec = DECIDUOUS.test(name);
+      const imp: Kind['imp'] = info.cell >= 0 && info.hw && info.h ? [info.cell + (dec ? DEC_CELL : 0), info.hw, info.h, (info.yc ?? 0.6) * info.h] : null;
       // A hedge has no impostor: its middle model carries on to where a hedge is a line a pixel high.
       const cut = imp ? M : 130;
       const tag = small ? 's' : 't';
@@ -489,9 +518,9 @@ export class TreeField {
         parent.add(mesh);
         return mesh;
       };
-      const near = mk(g0, mat('n' + tag, [-2, -1, N - BAND_N, N]), false);
-      const mid = mk(g1, mat('m' + tag + (imp ? '' : 'x'), [N - BAND_N, N, cut - BAND_M, cut]), true);
-      this.kinds.push({ n, m, c, near, mid, imp, N, M, cut, cast: Math.max(cut, S) });
+      const near = mk(g0, mat('n' + tag, [-2, -1, N - BAND_N, N], dec), false);
+      const mid = mk(g1, mat('m' + tag + (imp ? '' : 'x'), [N - BAND_N, N, cut - BAND_M, cut], dec), true);
+      this.kinds.push({ n, m, c, near, mid, imp, N, M, cut, cast: Math.max(cut, S), dec });
       if (imp) farCount += n;
     }
     if (farCount) {
@@ -524,7 +553,7 @@ export class TreeField {
     const far = this.far, fm = far ? (far.instanceMatrix.array as Float32Array) : null, fc = far ? (far.instanceColor!.array as Float32Array) : null;
     const fi = this.farImp ? (this.farImp.array as Float32Array) : null, ff = this.farFade ? (this.farFade.array as Float32Array) : null;
     // Each buffer is sent only if this refill changed it (bit 1 the matrices, 2 the colours, 4 and 8 the impostor's own).
-    let nf = 0, chF = 0;
+    let nf = 0, chF = 0, leafy = 0;
     for (const k of this.kinds) {
       let nn = 0, nm = 0, chN = 0, chM = 0;
       const nearM = k.near ? (k.near.instanceMatrix.array as Float32Array) : null, nearC = k.near ? (k.near.instanceColor!.array as Float32Array) : null;
@@ -548,6 +577,7 @@ export class TreeField {
           nf++;
         }
       }
+      if (k.dec) leafy += nn;
       for (const [mesh, cnt, ch] of [[k.near, nn, chN], [k.mid, nm, chM]] as const) {
         if (!mesh) continue;
         mesh.count = cnt; mesh.visible = cnt > 0;
@@ -555,6 +585,7 @@ export class TreeField {
         if (cnt && ch & 2) upload(mesh.instanceColor!, cnt);
       }
     }
+    treeSeason.nearLeafy = leafy;
     if (far) {
       far.count = nf; far.visible = nf > 0;
       if (nf && chF & 1) upload(far.instanceMatrix, nf);

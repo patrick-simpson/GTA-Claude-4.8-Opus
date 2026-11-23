@@ -15,7 +15,14 @@
 
 import * as THREE from 'three';
 import type { Game } from '../core/game';
-import type { CameraApi, SkyApi, Weather } from '../core/api';
+import type { CameraApi, SkyApi, SkyWeather, Weather } from '../core/api';
+import { installSnowCover, SNOW_U } from './snowCover';
+import { season, type Season } from './season';
+import { treeSeason } from './floraAssets';
+import { Snowfall } from '../fx/snow';
+
+// Before any material is made: every lit material gets the snow-cover term (world/snowCover.ts).
+installSnowCover(true);
 import { RNG, clamp01, lerp, smooth } from '../core/util';
 
 // ── Time-of-day palette ──────────────────────────────────────────────────────
@@ -163,21 +170,24 @@ class Pal {
 
 // What each kind of weather does to the palette. Stored as plain numbers so a
 // change of weather is one array lerp.
-const enum W { cover, sun, amb, sat, dim, fogMul, dens, haze, tint, rain, gloom, cirrus, N }
+const enum W { cover, sun, amb, sat, dim, fogMul, dens, haze, tint, rain, gloom, cirrus, snow, N }
 
-function weatherParams(w: Weather, drawDist: number): Float32Array {
+function weatherParams(w: SkyWeather, drawDist: number): Float32Array {
   const p = new Float32Array(W.N);
   // FogExp2 leaves 5% of the scene's own colour at distance 1.73 / density.
   const vis = (m: number): number => 1.73 / m;
   switch (w) {
     case 'clear':
-      p.set([0.3, 1, 1, 1, 1, 1, 0, 0.075, 0, 0, 0, 1]); break;
+      p.set([0.3, 1, 1, 1, 1, 1, 0, 0.075, 0, 0, 0, 1, 0]); break;
     case 'overcast':
-      p.set([1, 0.27, 1.14, 0.5, 0.9, 1.25, 0, 0.12, 0.15, 0, 0.1, 0]); break;
+      p.set([1, 0.27, 1.14, 0.5, 0.9, 1.25, 0, 0.12, 0.15, 0, 0.1, 0, 0]); break;
     case 'fog':
-      p.set([0.5, 0.3, 1.05, 0.55, 1, 1, vis(150), 3, 1, 0, 0.3, 0]); break;
+      p.set([0.5, 0.3, 1.05, 0.55, 1, 1, vis(150), 3, 1, 0, 0.3, 0, 0]); break;
     case 'rain':
-      p.set([1, 0.1, 0.84, 0.3, 0.52, 1, vis(Math.min(430, drawDist * 0.8)), 0.3, 0.3, 1, 0.3, 0]); break;
+      p.set([1, 0.1, 0.84, 0.3, 0.52, 1, vis(Math.min(430, drawDist * 0.8)), 0.3, 0.3, 1, 0.3, 0, 0]); break;
+    case 'snow':
+      // A white-out lid: little sun, a grey-blue world, the far side of town gone in the flakes.
+      p.set([1, 0.14, 1.0, 0.34, 0.72, 1.1, vis(Math.min(300, drawDist * 0.6)), 0.45, 0.55, 0, 0.22, 0, 1]); break;
   }
   return p;
 }
@@ -196,6 +206,12 @@ const MOON_I = 0.62;
 const FOG_DAY = new THREE.Color(0xeae1ca);
 const FOG_NIGHT = new THREE.Color(0x1f2d3a);
 const WET_GROUND = new THREE.Color(0x6f7068);
+const SNOW_FOG = new THREE.Color(0xc9d2dc);
+const SNOW_SKY = new THREE.Color(0xc4d4ec);
+const SNOW_GND = new THREE.Color(0xb8c0cc);
+const WHITE = new THREE.Color(1, 1, 1);
+/** Seconds of a full storm to bury the town (cover 0 to 1), and for it to melt away again out of winter. */
+const SNOW_BURY = 200, SNOW_MELT = 420;
 /** Seconds for one kind of weather to give way to the next. */
 const WEATHER_BLEND = 20;
 const SHADOW_BOX = 130;
@@ -480,12 +496,27 @@ export class Sky implements SkyApi {
   asked: ((hour: number | null, weather: Weather | null) => void) | null = null;
 
   get night(): number { return this._night; }
-  get weather(): Weather { return this._weather; }
+  get weather(): SkyWeather { return this._weather; }
   get wet(): number { return this._wet; }
+  /** 0..1 how much snow lies on everything (world/snowCover.ts draws it; fx/snow.ts raises the banks). */
+  get snowCover(): number { return this._snow; }
+  /** 0..1 how slippery the roads are: the cover, felt early (vehicle.ts grip, traffic.ts speeds). */
+  get slick(): number { return this._slick; }
+  /** The season this frame (world/season.ts). */
+  get season(): Season { return this._season; }
+  /** Snow in the air and banks along the kerbs; null until built. */
+  snowfall: Snowfall | null = null;
+  /** A test or a cheat sets the cover directly (0..1). */
+  setSnowCover(c: number): void { this._snow = clamp01(c); }
 
   private _night = 0;
-  private _weather: Weather = 'clear';
+  private _weather: SkyWeather = 'clear';
   private _wet = 0;
+  private _snow = 0;
+  private _slick = 0;
+  private _season: Season = season.now;
+  /** The weather asked for (by the rotation, the town, a cheat); `_weather` is what shows: winter rain falls as snow. */
+  private _asked: SkyWeather = 'clear';
 
   private readonly fog = new THREE.FogExp2(0xffffff, 0.001);
   private readonly keys: Pal[];
@@ -499,7 +530,7 @@ export class Sky implements SkyApi {
   private readonly wFrom: Float32Array;
   private readonly wTo: Float32Array;
   private readonly w: Float32Array;
-  private readonly wTable: Record<Weather, Float32Array>;
+  private readonly wTable: Record<SkyWeather, Float32Array>;
   private wT = 1;
   /** Game hours until the weather next thinks about changing. */
   private drift = 4;
@@ -553,6 +584,7 @@ export class Sky implements SkyApi {
       overcast: weatherParams('overcast', quality.drawDist),
       fog: weatherParams('fog', quality.drawDist),
       rain: weatherParams('rain', quality.drawDist),
+      snow: weatherParams('snow', quality.drawDist),
     };
     this.wFrom = this.wTable.clear.slice();
     this.wTo = this.wTable.clear.slice();
@@ -644,6 +676,16 @@ export class Sky implements SkyApi {
     this.rain.visible = false;
     scene.add(this.rain);
 
+    // ── Snow and leaves ──
+    // Phones: fewer flakes and no noise in the cover; the cover term itself stays (one uniform branch) unless ?snowcover=0.
+    installSnowCover(new URLSearchParams(location.search).get('snowcover') !== '0');
+    SNOW_U.value.y = quality.name === 'low' ? 0 : 1;
+    this.snowfall = new Snowfall(game, quality.name === 'low');
+    if (this._season === 'winter') this._snow = 0.45;
+    // ?weather=snow (tests and measurements): set at a stroke.
+    const qw = new URLSearchParams(location.search).get('weather');
+    if (qw && qw in this.wTable) this.setWeather(qw as SkyWeather, true);
+
     // ── Environment ──
     // A 64 px cube of the dome alone, prefiltered. Small on purpose: it only
     // has to give paint and glass a sky to mirror, and it is redone often.
@@ -662,29 +704,37 @@ export class Sky implements SkyApi {
   }
 
   /** A cheat or a test wants this hour or this weather: done here, and told to whoever is listening. */
-  ask(hour: number | null, weather: Weather | null = null, instant = false): void {
+  ask(hour: number | null, weather: SkyWeather | null = null, instant = false): void {
     if (hour !== null && Number.isFinite(hour)) this.hour = ((hour % 24) + 24) % 24;
     if (weather !== null) this.setWeather(weather, instant);
-    this.asked?.(hour, weather);
+    // The town only knows its own four: asked-for snow goes out as rain, which every screen shows as snow in winter.
+    this.asked?.(hour, weather === 'snow' ? 'rain' : weather);
   }
 
   /** The town's clock (net/town.ts): the hour, and the day it belongs to (the moon's phase). */
   lead(hour: number, day: number): void { this.hour = hour; this.day = day; }
 
-  setWeather(w: Weather, instant = false): void {
+  setWeather(w: SkyWeather, instant = false): void {
+    // The town asks again every frame while what shows differs from what it asked (winter rain shows as snow).
+    if (w === this._asked && w !== this._weather && !instant) return;
+    this._asked = w;
+    w = this.shown(w);
     this._weather = w;
     this.wFrom.set(this.w);
     this.wTo.set(this.wTable[w]);
     this.wT = instant ? 1 : 0;
-    if (instant) { this.w.set(this.wTo); this.envForce = true; if (w === 'rain') this._wet = 1; }
+    if (instant) { this.w.set(this.wTo); this.envForce = true; if (w === 'rain') this._wet = 1; if (w === 'snow') this._snow = 1; }
     // Whoever asked for this weather gets to keep it for a while.
     this.drift = this.spell(w);
   }
 
+  /** What falls when `w` is asked for in this season: winter rain is snow. */
+  private shown(w: SkyWeather): SkyWeather { return w === 'rain' && this._season === 'winter' ? 'snow' : w; }
+
   /** How many game hours a kind of weather tends to last. */
-  private spell(w: Weather): number {
+  private spell(w: SkyWeather): number {
     const r = this.rng;
-    return w === 'clear' ? r.range(3, 6) : w === 'overcast' ? r.range(2, 4) : w === 'fog' ? r.range(1.5, 3) : r.range(1, 2.5);
+    return w === 'clear' ? r.range(3, 6) : w === 'overcast' ? r.range(2, 4) : w === 'fog' ? r.range(1.5, 3) : w === 'snow' ? r.range(2, 4) : r.range(1, 2.5);
   }
 
   /** Mostly clear; fog belongs to the small hours and burns off; rain now and then. */
@@ -692,7 +742,8 @@ export class Sky implements SkyApi {
     const h = this.hour, r = this.rng.next();
     const early = h > 3.5 && h < 8.5;
     const pFog = early ? 0.4 : h > 10 && h < 19 ? 0.03 : 0.1;
-    const pRain = 0.13, pOver = 0.2;
+    // Winter: more of it, and it falls as snow (shown()); the town's rotation (net/town.ts) keeps its own odds.
+    const pRain = this._season === 'winter' ? 0.24 : 0.13, pOver = 0.2;
     if (r < pFog) return 'fog';
     if (r < pFog + pRain) return 'rain';
     if (r < pFog + pRain + pOver) return 'overcast';
@@ -709,11 +760,19 @@ export class Sky implements SkyApi {
     this.hour = h;
     this.clock += dt;
 
+    // ── Season ──
+    const sn = season.now;
+    if (sn !== this._season) {
+      this._season = sn;
+      // Rain that was falling turns to snow (or back) over the usual blend.
+      if (this.shown(this._asked) !== this._weather) { const a = this._asked, d = this.drift; this._asked = 'clear'; this._weather = 'clear'; this.setWeather(a); this.drift = d; }
+    }
+
     // ── Weather ──
     if (!this.led) this.drift -= this.rate * dt;
     if (this.drift <= 0) {
       const next = this.pickWeather();
-      if (next !== this._weather) this.setWeather(next);
+      if (this.shown(next) !== this._weather) this.setWeather(next);
       else this.drift = this.spell(next);
     }
     if (this.wT < 1) {
@@ -789,6 +848,8 @@ export class Sky implements SkyApi {
     // Fog weather swaps the horizon for sea-fog cream (slate at night), leaning
     // a little on whatever the sky is doing so dawn fog is still peach.
     this.fogFlat.lerpColors(FOG_DAY, FOG_NIGHT, dark).lerp(p.hor, 0.3);
+    const snowing = w[W.snow];
+    if (snowing > 0) this.fogFlat.lerp(this.c1.copy(SNOW_FOG).multiplyScalar(lerp(1, 0.16, dark)), snowing * 0.8);
     this.horBase.copy(p.hor);
     this.horGlow.copy(p.glow);
     this.glowAmt = p.glowAmt;
@@ -796,7 +857,9 @@ export class Sky implements SkyApi {
     // 1.4 / drawDist leaves about 14% of the scene at the draw distance on a
     // clear afternoon: enough air to hide the far edge, thin enough that the
     // skyline still has its shape from the breakwater. Mornings are thicker.
-    this.fog.density = Math.max(1.4 / q.drawDist * p.fog * w[W.fogMul], w[W.dens]);
+    // A storm comes and goes in squalls (from the town's hour, so every screen in town has the same squall).
+    const storm = snowing > 0 ? clamp01(0.55 + 0.45 * Math.sin(h * 2.3 + this.day * 1.7) * Math.sin(h * 0.9 + 1.1)) : 0;
+    this.fog.density = Math.max(1.4 / q.drawDist * p.fog * w[W.fogMul], w[W.dens] * lerp(1, 0.55 + 0.9 * storm, snowing));
     // Through the post pipeline fog is mixed into linear light, before the tone
     // map and the sRGB encode instead of after them, and the same density reads
     // about an eighth thicker on dark walls. Thin it to keep the distances the
@@ -830,6 +893,13 @@ export class Sky implements SkyApi {
     this.hemi.color.copy(p.hemiSky);
     this.hemi.groundColor.copy(p.hemiGnd);
     this.hemi.intensity = p.hemiI * w[W.amb];
+    // Snow light: blue from above, and the white ground throws light back up under everything.
+    if (snowing > 0 || this._snow > 0) {
+      this.sun.color.lerp(SNOW_SKY, 0.45 * snowing);
+      const lum = (this.hemi.color.r + this.hemi.color.g + this.hemi.color.b) / 3;
+      this.hemi.color.lerp(this.c1.copy(SNOW_SKY).multiplyScalar(lum / 0.82), 0.5 * snowing);
+      this.hemi.groundColor.lerp(this.c1.copy(SNOW_GND).multiplyScalar(Math.max(lum, 0.2)), 0.6 * this._snow);
+    }
     this.placeShadowBox();
 
     g.renderer.toneMappingExposure = p.exposure;
@@ -847,6 +917,17 @@ export class Sky implements SkyApi {
       // Streaks are a paler cut of the fog, so they read against dark walls and vanish against the sky.
       (this.rainU.uColor.value as THREE.Color).copy(u.uFog.value as THREE.Color).lerp(this.c1.setRGB(0.85, 0.88, 0.86), 0.35)
         .multiplyScalar(lerp(1.5, 2.6, dark));
+    }
+    // ── Snow cover, the slush on the roads, the trees ──
+    if (snowing > 0.3) this._snow = Math.min(1, this._snow + dt * snowing * (0.4 + 0.6 * storm) / SNOW_BURY * 1.6);
+    else if (this._snow > 0) this._snow = Math.max(0, this._snow - dt / (this._season === 'winter' ? SNOW_MELT * 6 : SNOW_MELT) * (1 + clamp01(sunI / 3)));
+    // A dusting is ploughed and salted; from about a third of the cover up the roads get slippery, fully so in a storm's depth.
+    this._slick = smooth(clamp01((this._snow - 0.2) * 1.6));
+    SNOW_U.value.x = this._snow;
+    treeSeason.u.value.set(this._season === 'autumn' ? 1 : 0, this._season === 'winter' ? 1 : 0);
+    if (this.snowfall) {
+      this.c1.copy(u.uFog.value as THREE.Color).lerp(WHITE, 0.5).multiplyScalar(lerp(1.15, 2.2, dark));
+      this.snowfall.tick(dt, snowing, storm, this._season === 'autumn' ? 1 : 0, this.c1);
     }
     if (rain > 0.02) this._wet = Math.min(1, this._wet + dt * rain / 25);
     else this._wet = Math.max(0, this._wet - dt / lerp(240, 110, clamp01(sunI / 3)));

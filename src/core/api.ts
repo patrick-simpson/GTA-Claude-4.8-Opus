@@ -11,7 +11,10 @@ import type { Prop } from '../world/collide';
 import type { RNG } from './util';
 import type { VehicleKind, VehicleSpec } from '../ent/vehicleSpecs';
 
+/** The town's weathers (net/protocol.ts TOWN_WEATHERS sends these). */
 export type Weather = 'clear' | 'overcast' | 'fog' | 'rain';
+/** What the sky can show: the town's, and snow (winter rain, or asked for). */
+export type SkyWeather = Weather | 'snow';
 export type GameState = 'loading' | 'title' | 'play' | 'paused';
 
 export interface Quality {
@@ -57,12 +60,12 @@ export interface SkyApi {
   readonly night: number;
   /** Unit vector from the ground toward the key light: the sun by day, the moon at night. */
   readonly lightDir: THREE.Vector3;
-  readonly weather: Weather;
+  readonly weather: SkyWeather;
   /** 0 dry .. 1 soaked. Rises in rain and dries slowly afterwards. */
   readonly wet: number;
-  setWeather(w: Weather, instant?: boolean): void;
+  setWeather(w: SkyWeather, instant?: boolean): void;
   /** A cheat or a test asks for an hour, a weather or both: set here, and in a shared town told to everybody by its host. */
-  ask(hour: number | null, weather?: Weather | null, instant?: boolean): void;
+  ask(hour: number | null, weather?: SkyWeather | null, instant?: boolean): void;
   /** Advance the clock; move lights, fog, dome and shadow box (centered on game.cam.focus). */
   update(dt: number): void;
 }

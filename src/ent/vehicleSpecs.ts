@@ -8,7 +8,9 @@
 
 export type VehicleKind =
   | 'sedan' | 'hatch' | 'coupe' | 'muscle' | 'sports' | 'pickup'
-  | 'van' | 'taxi' | 'tow' | 'bus' | 'cruiser' | 'bolt' | 'cmax';
+  | 'van' | 'taxi' | 'tow' | 'bus' | 'cruiser' | 'bolt' | 'cmax'
+  // Boats (ent/boat.ts): last, so every car keeps its index in KINDS (the network sends kinds by index).
+  | 'speedboat' | 'jetski';
 
 export interface VehicleSpec {
   kind: VehicleKind;
@@ -128,7 +130,26 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
     mass: 1650, topSpeed: 51, accel: 6.4, brake: 13, grip: 7.3, steer: 0.6, drive: 'fwd',
     colors: [0x474a48], common: 1.5,
   },
+  // Boats. ent/boat.ts drives them, not ent/vehicle.ts: they live at the Pelican Pier dock and never appear in traffic
+  // (common 0). length/width/height are the hull's overall size; the wheel figures are unused but kept plausible for
+  // anything that reads every spec. topSpeed is flat out on the plane, accel at the start of a run.
+  speedboat: {
+    kind: 'speedboat', name: 'Riptide 21 runabout',
+    length: 6.4, width: 2.3, height: 1.55, wheelbase: 4, track: 1.9, wheelR: 0.3, wheelW: 0.2,
+    mass: 1350, topSpeed: 27, accel: 5.5, brake: 3.5, grip: 2.5, steer: 0.55, drive: 'rwd',
+    colors: [BONE, VERMILION, NAVY, TEAL], common: 0,
+  },
+  jetski: {
+    kind: 'jetski', name: 'Skeeter jet ski',
+    length: 3.2, width: 1.2, height: 1.15, wheelbase: 2, track: 1, wheelR: 0.2, wheelW: 0.15,
+    mass: 380, topSpeed: 24, accel: 8, brake: 4, grip: 3.2, steer: 0.75, drive: 'rwd',
+    colors: [MUSTARD, VERMILION, TEAL, BONE], common: 0,
+  },
 };
+
+/** The kinds ent/boat.ts owns. */
+export const BOAT_KINDS: readonly VehicleKind[] = ['speedboat', 'jetski'];
+export const isBoatKind = (k: VehicleKind): boolean => k === 'speedboat' || k === 'jetski';
 
 export const KINDS = Object.keys(SPECS) as VehicleKind[];
 
@@ -153,6 +174,9 @@ export const PASSENGER_SEATS: Record<VehicleKind, readonly (readonly [number, nu
   cruiser: [FRONT()],
   bolt: [FRONT(), ...REAR2(0.88, 0, 0.48), [0, -0.88, 0]],
   cmax: [FRONT(), ...REAR2(0.88, 0, 0.5), [0, -0.88, 0]],
+  // The runabout's passenger seat beside the helm and its stern bench; the jet ski's pillion behind the rider.
+  speedboat: [[1.0, 0, 0], [0.5, -1.55, 0], [-0.2, -1.55, 0]],
+  jetski: [[0.4, -0.6, 0.06]],
 };
 
 /**
@@ -162,6 +186,8 @@ export const PASSENGER_SEATS: Record<VehicleKind, readonly (readonly [number, nu
 export const CUSHION: Record<VehicleKind, number> = {
   sedan: 0.42, hatch: 0.47, coupe: 0.33, muscle: 0.35, sports: 0.2, pickup: 0.8, van: 1.0, taxi: 0.45,
   tow: 0.9, bus: 1.25, cruiser: 0.44, bolt: 0.55, cmax: 0.56,
+  // Above the waterline (a boat's y): the helm seat and the jet ski's saddle.
+  speedboat: 0.46, jetski: 0.7,
 };
 /** Seats this far behind the driver's door (the model's seat), meters: the tow truck's door line is ahead of its cab's seats. */
 export const SEAT_BACK: Partial<Record<VehicleKind, number>> = { tow: 0.75 };

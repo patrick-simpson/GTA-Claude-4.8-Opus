@@ -16,6 +16,7 @@ import type { Prop } from '../world/collide';
 import { angleDiff, clamp, clamp01, damp, headingOf, lerp, smooth, wrapAngle } from './util';
 import { WATER_Y, groundAt } from '../world/plan';
 import { waterLevelAt } from '../world/mainland';
+import { Replay } from '../fx/replay';
 
 const PITCH_MIN = -0.5, PITCH_MAX = 1.2;
 const FOOT_DIST = 4.6, FOOT_PITCH = 0.2, SHOULDER = 1.5;
@@ -116,8 +117,11 @@ export class CameraRig implements CameraApi {
   private rumble = 0;
   private clock = 0;
   private titleT = 0;
+  /** Stunt replay and slow motion (fx/replay.ts): records after the camera moves, and takes the lens while it plays. */
+  readonly replay: Replay;
 
   constructor(private game: Game) {
+    this.replay = new Replay(game);
     game.on('impact', (e) => {
       const v = game.player.seated;
       if (v && (e.vehicle === v || e.other === v) && e.speed > 1.5) this.shake(clamp(e.speed / 24, 0.1, 1));
@@ -183,6 +187,7 @@ export class CameraRig implements CameraApi {
       this.trauma = Math.max(0, this.trauma - dt * 1.9);
     }
     this.place(dt);
+    this.replay.update(dt);
   }
 
   private wanted(): Mode {
