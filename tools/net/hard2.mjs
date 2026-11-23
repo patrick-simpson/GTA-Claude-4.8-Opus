@@ -15,7 +15,8 @@
 //     still on the crew and at the wheel.
 //  3. The same, 60 s, and C in the pause menu: main lets C go; when the network comes back C has a new seat, A has no
 //     ghost of the old one, C is on nobody's crew, the van is there once (A's), and once C resumes nobody sees PAUSED.
-//  3b. NOT judged, printed: C is the starter and A drives C's lent van when C loses the network for 60 s.
+//  3b. C is the starter and A drives C's lent van when C loses the network for 60 s: C does not stand the van again,
+//     A keeps it as A's own, C's mission has lost its car and ends ("WRITTEN OFF"), and it is there once everywhere.
 //  4. C runs a tow and loses the network for 60 s: the car to tow leaves the others' screens with C, and comes back
 //     with C (once).
 //  5. MAIN restarts (stopped; started again a little later at a NEW address, as its self update does with a new
@@ -232,7 +233,8 @@ try {
     for (const t of [A, C]) await onFoot(t);
   }
 
-  // ── 3b. The other way round, NOT judged (a known gap, printed): C is the starter, A drives C's lent van, C drops 60 s ──
+  // ── 3b. The other way round: C is the starter, A drives C's lent van, C drops 60 s. The lead's rule: C does NOT stand
+  // the van again; A keeps it as A's own, and C's mission has lost its car and ends the ordinary way. ──
   {
     const label = 'C (the starter) loses the network for 60 s while A drives C\'s lent van';
     for (const t of [A, B, C]) await onFoot(t);
@@ -248,6 +250,7 @@ try {
     const ok = !!d && !!van && await getIn(A, van, 'van');
     const car = await A.car();
     if (ok && car && car.lent) {
+      const fails0 = await C.page.evaluate(() => window.__game.game.todo.save.data.stats.failed);
       relay.hold = true;
       const held0 = Date.now();
       await wait(async () => !remoteIds(await A.net()).includes(cid), 58000, 1000);
@@ -255,10 +258,16 @@ try {
       release();
       await wait(async () => { const x = await C.net(); return x.status === 'online' && x.id !== cid && x.count === 3 ? x : null; }, 60000, 500);
       await sleep(5000);
-      const [ac, ct, acar] = await Promise.all([A.crew(), C.todo(), A.car()]);
+      const [ac, ct, acar, cfails] = await Promise.all([A.crew(), C.todo(), A.car(), C.page.evaluate(() => window.__game.game.todo.save.data.stats.failed)]);
       const vs = await Promise.all([A, B, C].map((t) => vansNear(t, acar ? acar.x : van.x, acar ? acar.z : van.z)));
-      note(`${label}: A boss ${ac.boss} "${ac.lastLine}", A at the wheel of ${acar ? acar.kind + (acar.lent ? ' (lent)' : ' (its own now)') : 'nothing'}; C ${ct.cur} failed ${ct.failed}; vans within 6 m of A: A ${JSON.stringify(vs[0])}; B ${JSON.stringify(vs[1])}; C ${JSON.stringify(vs[2])}`);
-    } else note(`${label}: not set up (A drafted ${!!d}, in the van ${ok}, ${JSON.stringify(car)})`);
+      const total = (v) => v.mine.length + v.drawn;
+      const detail = `A boss ${ac.boss} "${ac.lastLine}", A at the wheel of ${acar ? acar.kind + (acar.lent ? ' (lent)' : ' (its own now)') : 'nothing'}; C mission ${ct.cur} failed ${ct.failed}, fails ${fails0} then ${cfails}, busy ${ct.busy}; vans within 6 m of A: A ${JSON.stringify(vs[0])}; B ${JSON.stringify(vs[1])}; C ${JSON.stringify(vs[2])}`;
+      check(ac.boss === 0 && !!acar && acar.kind === 'van' && !acar.lent, `${label}: A is on nobody's crew and keeps the van as A's own`, detail);
+      check(cfails > fails0 && (ct.cur === null || !!ct.failed), `${label}: C's mission has lost its car and ended the ordinary way`, detail);
+      check(vs.every((v) => total(v) === 1) && vs[2].mine.length === 0, `${label}: the van is there once on every screen (A's; C did not stand it again)`, detail);
+      const lv = await Promise.all([A, C].map((t) => t.ask(look, [acar ? acar.x : van.x, acar ? acar.z : van.z, 40])));
+      check(lv.every((l) => l.doubles.length === 0), `${label}: no car is there twice`, lv.map(lookText).join(' || '));
+    } else check(false, `${label}: set up (A drafted, in C's lent van)`, `A drafted ${!!d}, in the van ${ok}, ${JSON.stringify(car)}`);
     await C.page.evaluate(() => window.__game.game.todo.missions.abandon());
     for (const t of [A, C]) await onFoot(t);
   }

@@ -58,6 +58,8 @@
 //  - The mission's people (spawnActor) are shown to the crew (Things: the step that made each, where, which way), in
 //    the same look; targets are the starter's held cars (held.ts) with their markers and blips from Show.
 //  - A helper who leaves town at the wheel of a lent car leaves it to its starter, never to the town (borrowing()).
+//    A STARTER who finds itself out of town while a car is lent out does not stand it again: the helper keeps it and
+//    the mission has lost its car (clear()).
 // Not here yet: taxi riders, job things, pause in town for those not on the crew.
 
 import type { Game } from '../core/game';
@@ -740,11 +742,15 @@ export class TownCrew implements CrewLink {
     this.lentTo.clear();
     this.release('Out of town: the job you were helping with goes on without you.');
     // A car the starter lent goes with the job (stage 5): whenever a helper is out of town, the starter's browser stands
-    // it again where it was last seen (dropped() there, or its own clear() if it is out too). Kept here as well, a
-    // connection that drops and comes back would leave it twice in town: the starter's and this player's.
+    // it again where it was last seen (dropped() there). Kept here as well, a connection that drops and comes back
+    // would leave it twice in town: the starter's and this player's.
     for (const v of [...this.borrowed.keys()]) this.takeAway(v);
     this.team = []; this.mIdx = 0; this.last = null;
-    for (const v of [...this.lentOut.keys()]) { this.lentOut.delete(v); this.standAgain(v, v.x, v.z, v.h, 0, 0, v.health, !!v.wreck); }
+    // The starter out of town (stage 5, the lead's rule): a car lent out at this moment is NOT stood again here. The
+    // helper's browser keeps it as its own once it hears this player has gone (dropped() there), so standing it here
+    // too would put it in town twice when this player comes back. The script's record stays off the streets and not
+    // lent, so the mission has lost its car and ends the ordinary way ("WRITTEN OFF") at its next look.
+    this.lentOut.clear();
   }
 
   // ── Frame ──────────────────────────────────────────────────────────────────

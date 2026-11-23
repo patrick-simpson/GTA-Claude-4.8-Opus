@@ -15,7 +15,8 @@
 //  3. Missions together: A (the host) starts "Double-Entry" with B and D near, then LEAVES: both are let go with a
 //     word, nobody is left on a crew, D hosts. E joins; B starts it with D (the host) and E near; D LEAVES: B's mission
 //     carries on with E, E hosts.
-//  4. A held mission car parked (B's van, B alone) and two tows (F a guest, E the host); E LEAVES: B's van is still B's
+//  4. A held mission car parked (B's van, B alone) and two tows (F a guest, E the host) given ONE kerb place, as can
+//     happen by chance (the higher id moves its car); E LEAVES: B's van is still B's
 //     and shown as B's, not one of the town's cars; F's tow carries on and is still shown; E's towed car is gone.
 // Every line carries the facts it was judged on. PASS or FAIL per check, ALL PASS at the end; exits 1 on a FAIL.
 
@@ -251,8 +252,17 @@ try {
     await ownCar(F, 'tow'); await ownCar(E, 'tow');
     const fok = await F.page.evaluate(() => window.__game.game.todo.jobs.startJob('tow'));
     const eok = await E.page.evaluate(() => window.__game.game.todo.jobs.startJob('tow'));
-    const [ft, et] = await Promise.all([F.mine('#towed'), E.mine('#towed')]);
+    // As happens by chance (1 run in about 20): both tows given ONE kerb place. E's car to tow is put on F's.
+    const ft0 = await F.mine('#towed');
+    if (ft0) await E.page.evaluate(([x, z, h]) => { const c = window.__game.game.todo.jobs.view().towed; if (c) { c.x = x; c.z = z; c.h = h; } }, [ft0.x, ft0.z, ft0.h]);
     await sleep(4000);
+    // (Read after the wait: two tows started in one moment may have been given one kerb place, and then the higher id
+    // moves its car elsewhere: jobs.ts oneSpot.)
+    const [ft, et] = await Promise.all([F.mine('#towed'), E.mine('#towed')]);
+    const [eid, fid] = [(await E.net()).id, fnet.id];
+    const [fjn, ejn] = await Promise.all([F.net(), E.net()]);
+    check(!!ft && !!et && Math.hypot(ft.x - et.x, ft.z - et.z) > 3, 'setting up: two tows started in one moment do not share a car to tow',
+      `F's ${ft ? `${ft.x},${ft.z}` : 'none'}, E's ${et ? `${et.x},${et.z}` : 'none'}; moved: F ${fjn.jobs.reparked}, E ${ejn.jobs.reparked}`);
     const shownVan = van ? await shownHeld(F, van.x, van.z) : null;
     const shownF = ft ? await shownHeld(B, ft.x, ft.z) : null;
     const shownE = et ? await shownHeld(B, et.x, et.z) : null;
@@ -273,8 +283,21 @@ try {
       `${label}: B's parked van is still B's, still shown on F as B's, and is not one of the town's cars`, `B's van ${JSON.stringify(bv)}, B ${bt.cur} failed ${bt.failed}; on F ${JSON.stringify(vanOnF)}; F's town cars there ${JSON.stringify(townAtVan)}`);
     const fOnB = ftd ? await shownHeld(B, ftd.x, ftd.z) : null;
     check(fj.job === 'tow' && !!ftd && ftd.listed && !ftd.shared && !!fOnB && fOnB.d < 1.5, `${label}: F's tow carries on, and B is still shown F's car to tow`, `F job "${fj.job}", towed ${JSON.stringify(ftd)}; on B ${JSON.stringify(fOnB)}`);
-    const eGone = et ? await wait(async () => { const [b, f] = await Promise.all([shownHeld(B, et.x, et.z), shownHeld(F, et.x, et.z)]); return (!b || b.d > 3) && (!f || f.d > 3) ? { b, f } : null; }, 20000) : null;
-    check(!!eGone, `${label}: E's car to tow has gone from both screens with E`, et ? JSON.stringify({ b: await shownHeld(B, et.x, et.z), f: await shownHeld(F, et.x, et.z) }) : 'no towed car');
+    // Any car still drawn on B or F as E's (by its owner, so F's car to tow cannot be taken for E's), and any car of
+    // within 3 m of where E's stood that is nobody's (a copy left behind as a private car). The town's cars, this
+    // screen's own car to tow and other players' shown cars may stand there.
+    const eLeft = (t) => t.page.evaluate(([eid, x, z]) => {
+      const g = window.__game.game, n = g.net;
+      const asE = n.held.list().filter((v) => n.held.shownSlot(v)?.id === eid).map((v) => ({ x: +v.x.toFixed(1), z: +v.z.toFixed(1), kind: v.spec.kind }));
+      const near = [...g.vehicles.list, ...g.vehicles.ghostList].filter((v) => !v.removed && Math.hypot(v.x - x, v.z - z) < 3).map((v) => {
+        const w = n.held.shownSlot(v);
+        return { kind: v.spec.kind, d: +Math.hypot(v.x - x, v.z - z).toFixed(2), shared: !!v.shared, held: !!v.held, ghost: g.vehicles.ghostList.includes(v), owner: w ? w.id : null, mine: g.player.vehicle === v || g.todo.jobs.view().towed === v };
+      });
+      return { asE, near };
+    }, [eid, et ? et.x : 0, et ? et.z : 0]);
+    const okLeft = (x) => x.asE.length === 0 && x.near.every((c) => c.shared || c.mine || (c.owner !== null && c.owner !== eid));
+    const eGone = et ? await wait(async () => { const [b, f] = await Promise.all([eLeft(B), eLeft(F)]); return okLeft(b) && okLeft(f) ? { b, f } : null; }, 20000) : null;
+    check(!!eGone, `${label}: E's car to tow has gone from both screens with E`, et ? `E was ${eid}, F ${fid}; E's stood at ${et.x},${et.z}; ${JSON.stringify({ b: await eLeft(B), f: await eLeft(F) })}` : 'no towed car');
     const l = await Promise.all([B, F].map((t) => t.ask(look, [bv ? bv.x : kerb, bv ? bv.z : MSPOT.z, 60])));
     check(l.every((x) => x.doubles.length === 0), `${label}: no car is there twice near the van`, l.map(lookText).join(' || '));
     const carF = await F.ask(carAt, [ft ? ft.x : 0, ft ? ft.z : 0, 3]);

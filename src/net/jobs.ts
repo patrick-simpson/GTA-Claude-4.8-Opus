@@ -32,7 +32,8 @@ const MOVED = 0.5;
 interface Theirs { rec: JobRec; rider: Person | null; look: number }
 
 export class TownJobs {
-  readonly stats = { sent: 0, bytesSent: 0, got: 0, bytesGot: 0, riders: 0 };
+  readonly stats = { sent: 0, bytesSent: 0, got: 0, bytesGot: 0, riders: 0, reparked: 0 };
+  private spotAt = 0;
 
   private readonly rec = blankJob();
   private last: JobRec | null = null;
@@ -142,7 +143,26 @@ export class TownJobs {
 
   update(now: number): void {
     if (!this.inTown) { if (this.theirs.size || this.last || this.held.towing) this.clear(); return; }
+    this.oneSpot(now);
     this.send(now);
+  }
+
+  /**
+   * Two players who start a tow in the same moment can be given the same kerb place (neither browser had been shown
+   * the other's car to tow yet): one car on top of another on every screen. The one not yet hooked whose runner has
+   * the higher id moves its car elsewhere (Activities.reparkTowed); the lower id keeps the place. Checked twice a
+   * second, nothing sent for it (the held list says where the car went).
+   */
+  private oneSpot(now: number): void {
+    if (now - this.spotAt < 500) return;
+    this.spotAt = now;
+    const w = this.jobsHere.view(), c = w.job === 'tow' && !w.hooked ? w.towed : null;
+    if (!c) return;
+    for (const o of this.held.list()) {
+      if (Math.hypot(o.x - c.x, o.z - c.z) > 2.5) continue;
+      const who = this.held.shownSlot(o);
+      if (who && who.id < this.conn.id) { if (this.jobsHere.reparkTowed()) this.stats.reparked++; return; }
+    }
   }
 
   /** For the tests (window.__game.net().jobs). */

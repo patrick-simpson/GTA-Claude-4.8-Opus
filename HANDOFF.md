@@ -7,6 +7,13 @@ at the top of "Where things stand"), then `tools/briefs/multiplayer.md`. That is
 To take over, the owner only needs to give a new agent this repository and tell it:
 "Read HANDOFF.md at the root of the repository (main branch) and take over as lead."
 
+> **Update, Nov 23, 2026, about 6:20 AM ET: the multiplayer job this file handed over is FINISHED.** All five
+> stages are live on main, still protocol version 4. Read the top entries of "Where things stand" in `PLAN.md` (the
+> newest is "Multiplayer stage 5, hardening part 2") for what was built, measured and left open, and the last lines
+> of `tools/briefs/lead-notes.md` for how the work was run. Owner decisions are in `tools/briefs/multiplayer.md`
+> (1 to 15). Section 5 below is history. What a person still has to do: play it with friends on real hardware and
+> listen to it; decide whether the backup should send at 5 a second (PLAN.md, the cost count).
+
 ## 0. You do not have the owner's laptop (read this first)
 
 The session that wrote this ran ON the owner's Windows laptop. The owner has decided the next lead

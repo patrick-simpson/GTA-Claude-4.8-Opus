@@ -71,12 +71,23 @@ export function services({ main, lookup: lookupPort, backup, mainAddr }) {
     t.tag = tag;
     // Binary frames this page sends, by kind (and for frames 2 to 5 what they carry: '2.1' traffic, '3.10' crew...).
     t.out = { n: {}, bytes: {} };
-    t.page.on('websocket', (ws) => ws.on('framesent', (f) => {
-      const p = f.payload;
-      if (typeof p === 'string' || p.length === 0) return;
-      const k = p[0] >= 2 && p[0] <= 5 ? `${p[0]}.${p[2]}` : String(p[0]);
-      t.out.n[k] = (t.out.n[k] ?? 0) + 1; t.out.bytes[k] = (t.out.bytes[k] ?? 0) + p.length;
-    }));
+    // Also (the soak): text frames sent, and every frame received by the same key ('text' for JSON).
+    t.outText = { n: 0, bytes: 0 };
+    t.inn = { n: {}, bytes: {} };
+    const key = (p) => p[0] >= 2 && p[0] <= 5 ? `${p[0]}.${p[2]}` : String(p[0]);
+    t.page.on('websocket', (ws) => {
+      ws.on('framesent', (f) => {
+        const p = f.payload;
+        if (typeof p === 'string') { t.outText.n++; t.outText.bytes += Buffer.byteLength(p); return; }
+        if (p.length === 0) return;
+        const k = key(p);
+        t.out.n[k] = (t.out.n[k] ?? 0) + 1; t.out.bytes[k] = (t.out.bytes[k] ?? 0) + p.length;
+      });
+      ws.on('framereceived', (f) => {
+        const p = f.payload, k = typeof p === 'string' ? 'text' : p.length ? key(p) : 'empty';
+        t.inn.n[k] = (t.inn.n[k] ?? 0) + 1; t.inn.bytes[k] = (t.inn.bytes[k] ?? 0) + (typeof p === 'string' ? Buffer.byteLength(p) : p.length);
+      });
+    });
     if (again) {
       await t.page.reload({ waitUntil: 'load' });
       await t.page.waitForFunction(() => window.__game && (window.__game.ready || window.__game.error), null, { timeout: 90000 });

@@ -88,6 +88,51 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 5, hardening part 2 (two faults fixed, the soak, the cost count): pushed Nov 23, about 6:20 AM ET. ALL FIVE STAGES DONE.
+
+**Fault 1 fixed (game, `src/net/crew.ts`).** A crew starter who drops while a helper drives the lent van no longer
+stands the van again on return: the helper keeps it, the starter's mission ends the ordinary way, one van in town.
+hard2's NOTE is now 5 real checks.
+
+**Fault 2 explained and fixed (test and game).** Two tow jobs started in the same moment could be given the same
+kerb place, because neither browser had yet been shown the other's car; the test then found the other player's car
+on the departed host's spot. `src/net/jobs.ts` `oneSpot()` now makes the runner with the higher id move its car
+(`Activities.reparkTowed()`, a toast says so); nothing new on the wire. hard1 forces the collision every run.
+
+**The soak (`tools/net/soak.mjs`, `--minutes N`).** Four players on MAIN for 31 minutes: drive, chase with the
+helicopter, shooting, a crew mission, a tow job, a pause, a host stall and change, a leave and rejoin. ALL PASS in
+the worker's full run: no page errors, nobody stuck, one host, guests agree with the host (47 town cars on all
+four, people within 200 m with 0 missing and 0 ghosts), heap level at 42 MB. Average sent: host about 310 B/s and
+3.5 messages a second; a guest about 25 B/s and 1 a second. Game speed here is about 10% of real, so these rates
+are a floor for busy real play, not a ceiling, and it ran on main only. Town cars left behind grew to 47 (the test
+makes a car per player per scene; the traffic code caps kept cars at `KEPT_MAX` 40) and were not seen to level off.
+
+**The cost count for the BACKUP (`tools/net/cost.mjs`), against the limits stated in `server/src/budget.ts`.**
+Measured on local `wrangler dev` with real pages and the service's own meter; the real Worker was not run.
+- A still player: 0.6 messages a second, about 108 billed requests a player hour (measured).
+- A driving player: about 1,827 requests a player hour; a fight at most 3,600 (COMPUTED from the 10 a second rule;
+  the test machine could not draw fast enough to measure them).
+- Under the service's pause line (40% of each daily limit): everybody driving, about 22 player hours a day, 8
+  players for 2.7 hours, first limit hit Durable Object requests; mostly still, first limit hit is duration at 11.3
+  town hours a day; half and half, about 41 player hours.
+- The pause line fires before 50%: with a test limit of 60 it sent "rest" at 25.05 (41.75%), all four pages showed
+  the resting notice with the resume time and played on alone, and were let in again a day later (7 of 7 checks).
+- A refused join or a /main lookup costs 1 Worker request, and nothing else once the answer is in memory.
+- So the backup never crosses 50%; it rests early instead. NOT DONE, the owner's call: sending state frames at 5 a
+  second while on the backup would roughly double its hours (8 drivers about 5.4 hours); client only, no redeploy.
+
+**Checked by the lead.** tsc, build, server tests, production boot with no errors; hard1 48 of 48 and hard2 37 of
+37 (run without pictures), cost.mjs --pause 7 of 7, a 7 minute soak 8 of 8; the worker's 30 minute soak log read.
+
+**Still wrong or untested, for whoever comes next.** The real Cloudflare Worker, its billing and the real tunnel
+through a real restart have never been exercised by a test. Driving and fighting message rates at real speed are
+computed, not measured. No soak on the backup. story.mjs "park the same kerb cars" failed 1 of 2 worker runs (cause
+not proven, likely counted mid parking). cars.mjs section 6 failed once on Nov 22 and never again (cause not
+proven). No line of sight check on hit claims; claims, pay, story marks, bridge points and blame are trusted from
+browsers. The rider aboard another player's cab is not drawn. Mainland kerb cars are each browser's own. Nothing in
+multiplayer was ever listened to, and smoothness was never judged on real hardware: both need a person.
+
+
 ### Multiplayer stage 5, hardening part 1 (host change, joining, reconnecting, the backup): pushed Nov 23, about 3:35 AM ET
 
 **What.** Three new tests and one game fix. `tools/net/hard1.mjs` (47 checks): the host stalls or leaves mid chase

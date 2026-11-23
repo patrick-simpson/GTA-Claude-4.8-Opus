@@ -336,7 +336,7 @@ export class Activities {
     } else {
       if (v.spec.kind !== 'tow') return false;
       // (In a shared town a place where this browser is only shown a car is not free to tow from: clearOf says so.)
-      const spots = (p.z < -900 ? g.plan.mainlandParking : g.plan.parking).filter((s) => { const d = Math.hypot(s.x - p.x, s.z - p.z); return d > 160 && d < 520 && clearOf(g, s, s.h) === s; });
+      const spots = this.towSpots(p.x, p.z);
       if (!spots.length) { g.hud.toast('Nothing to tow. Everyone has parked legally, which is suspicious.', 4); return false; }
       const s = spots[Math.floor(Math.random() * spots.length)];
       const own = (o: Vehicle): boolean => o.driver === null && o !== v && !o.shared && !o.held;
@@ -350,6 +350,33 @@ export class Activities {
       this.yard = yards.slice().sort((a, b) => Math.hypot(b.at.x - s.x, b.at.z - s.z) - Math.hypot(a.at.x - s.x, a.at.z - s.z))[0];
       g.hud.toast(`One ${this.towed.spec.name}, parked "creatively" on ${g.plan.streetAt(s.x, s.z)}.`, 5);
     }
+    return true;
+  }
+
+  /** Kerb places a car to tow may stand in: 160 to 520 m from (x, z), and (in a shared town) none where this browser is only shown a car (clearOf). */
+  private towSpots(x: number, z: number): { x: number; z: number; h: number }[] {
+    const g = this.game;
+    return (z < -900 ? g.plan.mainlandParking : g.plan.parking).filter((s) => { const d = Math.hypot(s.x - x, s.z - z); return d > 160 && d < 520 && clearOf(g, s, s.h) === s; });
+  }
+
+  /**
+   * Multiplayer (net/jobs.ts): another player started a tow in the same moment and their car to tow stands where
+   * this one does (neither browser had been shown the other's yet). The car not yet hooked moves to another free
+   * place, so the town never has two cars in one. False when there is nowhere else (it stays; the toast says so).
+   */
+  reparkTowed(): boolean {
+    const g = this.game, c = this.towed, p = g.player;
+    if (this.job !== 'tow' || !c || this.hooked || c.removed) return false;
+    const spots = this.towSpots(p.x, p.z).filter((s) => Math.hypot(s.x - c.x, s.z - c.z) > 6);
+    if (!spots.length) return false;
+    const s = spots[Math.floor(Math.random() * spots.length)];
+    const own = (o: Vehicle): boolean => o.driver === null && o !== c && o !== p.vehicle && !o.shared && !o.held;
+    for (let o = g.vehicles.nearest(s.x, s.z, 5, own); o; o = g.vehicles.nearest(s.x, s.z, 5, own)) g.vehicles.remove(o);
+    c.x = s.x; c.z = s.z; c.h = s.h; c.vx = 0; c.vz = 0;
+    g.vehicles.wake(c);
+    const yards = p.z < -900 ? [{ at: { x: SITES.landing.x, z: SITES.landing.z - 20 }, name: 'the lot at Tepid Landing' }] : this.yards;
+    this.yard = yards.slice().sort((a, b) => Math.hypot(b.at.x - s.x, b.at.z - s.z) - Math.hypot(a.at.x - s.x, a.at.z - s.z))[0];
+    g.hud.toast(`Somebody else got that one. Yours is on ${g.plan.streetAt(s.x, s.z)}.`, 5);
     return true;
   }
 
