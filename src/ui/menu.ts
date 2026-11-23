@@ -573,6 +573,9 @@ export class Menu {
     ${row('Pedestrians given flying lessons', String(save.count('ragFlights')))}
     ${row('Longest unscheduled flight', save.count('ragFar') > 0 ? `${Math.round(save.count('ragFar') * FEET)} ft` : 'None filed')}
     ${row('Times used as a hood ornament', String(save.count('ragSelf')))}
+    ${row('Furthest launch', save.count('launchFar') > 0 ? `${Math.round(save.count('launchFar') * FEET)} ft` : 'None filed')}
+    ${row('Bullseyes', String(save.count('launchBulls')))}
+    ${row('Times fired from a cannon', String(save.count('launchFired')))}
     <div class="mn-row mn-mistakes"><span class="mn-lbl">Mistakes made</span><span>0*</span></div>
     <p class="mn-note">* As reported by the applicant. Anything typed is not counted.</p>
   </div>

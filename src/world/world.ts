@@ -15,6 +15,7 @@ import { buildMainlandBuildings } from './mainlandBuildings';
 import { buildMainlandPlaces } from './mainlandPlaces';
 import { signalState } from './signals';
 import { Fireworks } from '../fx/fireworks';
+import { Launchers } from './launchers';
 
 export class World implements WorldApi {
   readonly group = new THREE.Group();
@@ -54,6 +55,8 @@ export class World implements WorldApi {
     this.boxMarks.push(g.col.allBoxes.length);
     // Fireworks over Pelican Pier (fx/fireworks.ts): the Saturday and holiday show, and the stall on the pier.
     this.parts.push(new Fireworks(g, this.group));
+    // Cannons and catapults (world/launchers.ts): five machines that put Dess into the sky.
+    this.parts.push(new Launchers(g, this.group));
     await step(1, 'Sweeping up');
   }
 
