@@ -1,0 +1,5727 @@
+{
+ "about": "Tepid Falls street plan after real Waterville (step 1 of tools/briefs/tepid-streets.md). Game metres, north = -z. Traced from OpenStreetMap (Overpass, 2026-11-23, ODbL) and mapped by a thin-plate-spline warp through the anchors below. Polylines are road centrelines. No real names go into the game: real_name is for the lead only.",
+ "transform": {
+  "real_frame": "local metres from 44.5500N 69.6400W, x east, z south",
+  "method": "thin-plate spline, smoothing 0.002, no fold (Jacobian > 0 over the whole area)",
+  "local_scale": {
+   "downtown": "0.6 E-W x 0.88 N-S",
+   "South End": 0.55,
+   "Colby": 0.43,
+   "Kennedy Memorial Dr strip": "0.11 E-W x 0.55 N-S",
+   "Upper Main": "0.19 x 0.35",
+   "exit 127": "0.25 x 0.76"
+  },
+  "rotation": "none (north stays north; Main St downtown, which runs 12 deg west of north, is straightened onto x 70)",
+  "anchors": [
+   {
+    "real": [
+     -3200,
+     575
+    ],
+    "game": [
+     -700,
+     -1295
+    ],
+    "what": "I-95 x Kennedy Memorial Dr (exit 127)"
+   },
+   {
+    "real": [
+     -3069,
+     786
+    ],
+    "game": [
+     -642,
+     -1127
+    ],
+    "what": "Marden's store (Pardon's)"
+   },
+   {
+    "real": [
+     -2694,
+     538
+    ],
+    "game": [
+     -590,
+     -1300
+    ],
+    "what": "Airport Rd x KMD"
+   },
+   {
+    "real": [
+     -690,
+     1090
+    ],
+    "game": [
+     -300,
+     -1135
+    ],
+    "what": "KMD over Messalonskee Stream"
+   },
+   {
+    "real": [
+     1050,
+     420
+    ],
+    "game": [
+     316,
+     -1570
+    ],
+    "what": "Lockwood Dam (Threadbare Dam)"
+   },
+   {
+    "real": [
+     930,
+     290
+    ],
+    "game": [
+     176,
+     -1620
+    ],
+    "what": "Ticonic Bridge west end"
+   },
+   {
+    "real": [
+     841,
+     218
+    ],
+    "game": [
+     70,
+     -1650
+    ],
+    "what": "Main St south end (Spring/Bridge St)"
+   },
+   {
+    "real": [
+     691,
+     -319
+    ],
+    "game": [
+     70,
+     -2075
+    ],
+    "what": "Main St x Elm St / College Ave"
+   },
+   {
+    "real": [
+     1037,
+     -91
+    ],
+    "game": [
+     250,
+     -1890
+    ],
+    "what": "Two Cent footbridge west end"
+   },
+   {
+    "real": [
+     911,
+     -77
+    ],
+    "game": [
+     170,
+     -1885
+    ],
+    "what": "Front St x Temple St"
+   },
+   {
+    "real": [
+     1113,
+     -435
+    ],
+    "game": [
+     370,
+     -2120
+    ],
+    "what": "Kennebec centre"
+   },
+   {
+    "real": [
+     1350,
+     -1233
+    ],
+    "game": [
+     343,
+     -2420
+    ],
+    "what": "Kennebec centre north"
+   },
+   {
+    "real": [
+     1258,
+     -1731
+    ],
+    "game": [
+     240,
+     -2650
+    ],
+    "what": "College Ave north"
+   },
+   {
+    "real": [
+     -60,
+     -2410
+    ],
+    "game": [
+     -130,
+     -2850
+    ],
+    "what": "I-95 x Upper Main (exit 130)"
+   },
+   {
+    "real": [
+     -2073,
+     -2122
+    ],
+    "game": [
+     -640,
+     -2720
+    ],
+    "what": "I-95 bend north-west of Colby"
+   },
+   {
+    "real": [
+     -2984,
+     -129
+    ],
+    "game": [
+     -700,
+     -1760
+    ],
+    "what": "I-95 west arm"
+   },
+   {
+    "real": [
+     -1837,
+     -1558
+    ],
+    "game": [
+     -470,
+     -2420
+    ],
+    "what": "Miller Library (Overdue Library)"
+   },
+   {
+    "real": [
+     -1392,
+     -1860
+    ],
+    "game": [
+     -300,
+     -2560
+    ],
+    "what": "North Circle roundabout"
+   },
+   {
+    "real": [
+     -2144,
+     -1733
+    ],
+    "game": [
+     -595,
+     -2490
+    ],
+    "what": "Washington Circle roundabout"
+   },
+   {
+    "real": [
+     -248,
+     -500
+    ],
+    "game": [
+     -150,
+     -2060
+    ],
+    "what": "Mayflower Hill Dr east end"
+   },
+   {
+    "real": [
+     580,
+     1081
+    ],
+    "game": [
+     320,
+     -1250
+    ],
+    "what": "Kennebec centre south"
+   },
+   {
+    "real": [
+     230,
+     1612
+    ],
+    "game": [
+     341,
+     -1090
+    ],
+    "what": "Kennebec centre far south"
+   },
+   {
+    "real": [
+     530,
+     701
+    ],
+    "game": [
+     175,
+     -1400
+    ],
+    "what": "Water St (South End)"
+   },
+   {
+    "real": [
+     277,
+     1131
+    ],
+    "game": [
+     180,
+     -1160
+    ],
+    "what": "Water St south"
+   },
+   {
+    "real": [
+     1700,
+     300
+    ],
+    "game": [
+     560,
+     -1600
+    ],
+    "what": "Winslow"
+   },
+   {
+    "real": [
+     1600,
+     -1000
+    ],
+    "game": [
+     590,
+     -2280
+    ],
+    "what": "Winslow north"
+   },
+   {
+    "real": [
+     -4300,
+     620
+    ],
+    "game": [
+     -880,
+     -1300
+    ],
+    "what": "KMD west (toward Oakland)"
+   }
+  ]
+ },
+ "roads": [
+  {
+   "id": "the_thruway_0",
+   "game_name": "The Thruway",
+   "real_name": "Interstate 95",
+   "type": "highway",
+   "lanes_per_dir": 2,
+   "one_way": false,
+   "divided": true,
+   "stage": 4,
+   "length_m": 2277,
+   "note": "I-95, divided; exits 127 (Second Thought Ave) and 130 (Main St)",
+   "pts": [
+    [
+     -70.8,
+     -2909.4
+    ],
+    [
+     -98.7,
+     -2872.1
+    ],
+    [
+     -125.1,
+     -2846.0
+    ],
+    [
+     -147.9,
+     -2832.9
+    ],
+    [
+     -366.3,
+     -2802.9
+    ],
+    [
+     -450.2,
+     -2797.7
+    ],
+    [
+     -516.6,
+     -2779.1
+    ],
+    [
+     -552.1,
+     -2761.1
+    ],
+    [
+     -614.1,
+     -2708.1
+    ],
+    [
+     -642.0,
+     -2637.0
+    ],
+    [
+     -657.0,
+     -2543.0
+    ],
+    [
+     -683.6,
+     -2078.5
+    ],
+    [
+     -690.3,
+     -1753.3
+    ],
+    [
+     -692.4,
+     -1295.3
+    ],
+    [
+     -672.7,
+     -1043.7
+    ]
+   ],
+   "real_pts": [
+    [
+     773,
+     -2905
+    ],
+    [
+     646,
+     -2749
+    ],
+    [
+     538,
+     -2648
+    ],
+    [
+     449,
+     -2583
+    ],
+    [
+     336,
+     -2514
+    ],
+    [
+     129,
+     -2432
+    ],
+    [
+     -38,
+     -2396
+    ],
+    [
+     -190,
+     -2384
+    ],
+    [
+     -1317,
+     -2354
+    ],
+    [
+     -1563,
+     -2323
+    ],
+    [
+     -1742,
+     -2266
+    ],
+    [
+     -1838,
+     -2220
+    ],
+    [
+     -2018,
+     -2104
+    ],
+    [
+     -2150,
+     -1982
+    ],
+    [
+     -2278,
+     -1821
+    ],
+    [
+     -2354,
+     -1677
+    ],
+    [
+     -2714,
+     -782
+    ],
+    [
+     -2943,
+     -121
+    ],
+    [
+     -3165,
+     570
+    ],
+    [
+     -3257,
+     804
+    ],
+    [
+     -3367,
+     1036
+    ],
+    [
+     -3472,
+     1228
+    ],
+    [
+     -3638,
+     1502
+    ]
+   ]
+  },
+  {
+   "id": "second_thought_ave_0",
+   "game_name": "Second Thought Ave",
+   "real_name": "Kennedy Memorial Drive",
+   "type": "arterial",
+   "lanes_per_dir": 2,
+   "one_way": false,
+   "divided": true,
+   "stage": 4,
+   "length_m": 695,
+   "note": "Route 137 strip, 4-5 lanes, divided in parts",
+   "pts": [
+    [
+     -857.3,
+     -1277.1
+    ],
+    [
+     -810.6,
+     -1245.4
+    ],
+    [
+     -769.9,
+     -1248.5
+    ],
+    [
+     -760,
+     -1295
+    ],
+    [
+     -590,
+     -1295
+    ],
+    [
+     -560,
+     -1290
+    ],
+    [
+     -551.8,
+     -1240.7
+    ],
+    [
+     -473.3,
+     -1187.9
+    ],
+    [
+     -412.0,
+     -1171.8
+    ],
+    [
+     -313.0,
+     -1133.4
+    ],
+    [
+     -277.7,
+     -1136.6
+    ]
+   ],
+   "real_pts": [
+    [
+     -632,
+     1095
+    ],
+    [
+     -732,
+     1087
+    ],
+    [
+     -943,
+     996
+    ],
+    [
+     -1140,
+     937
+    ],
+    [
+     -1701,
+     816
+    ],
+    [
+     -2329,
+     665
+    ],
+    [
+     -2539,
+     623
+    ],
+    [
+     -3062,
+     546
+    ],
+    [
+     -3133,
+     544
+    ],
+    [
+     -3239,
+     562
+    ],
+    [
+     -3539,
+     662
+    ],
+    [
+     -3945,
+     694
+    ],
+    [
+     -4244,
+     646
+    ],
+    [
+     -4499,
+     537
+    ]
+   ]
+  },
+  {
+   "id": "tarnish_st_0",
+   "game_name": "Tarnish St",
+   "real_name": "Silver Street",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 810,
+   "note": "KMD continues into downtown",
+   "pts": [
+    [
+     -277.7,
+     -1136.6
+    ],
+    [
+     -255.6,
+     -1147.2
+    ],
+    [
+     -240.5,
+     -1161.1
+    ],
+    [
+     -22.5,
+     -1552.2
+    ],
+    [
+     -20.1,
+     -1603.8
+    ],
+    [
+     -20,
+     -1745
+    ],
+    [
+     -30,
+     -1767
+    ],
+    [
+     70,
+     -1767
+    ]
+   ],
+   "real_pts": [
+    [
+     -632,
+     1095
+    ],
+    [
+     -567,
+     1078
+    ],
+    [
+     -517,
+     1050
+    ],
+    [
+     392,
+     384
+    ],
+    [
+     653,
+     130
+    ]
+   ]
+  },
+  {
+   "id": "main_st_0_downtown",
+   "game_name": "Main St",
+   "real_name": "Main Street",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 461,
+   "note": "downtown two-way (OSM 2026); Upper Main north to exit 130",
+   "pts": [
+    [
+     70.0,
+     -1624.3
+    ],
+    [
+     70.0,
+     -1631.9
+    ],
+    [
+     70.0,
+     -2081.2
+    ],
+    [
+     70.0,
+     -2085.0
+    ]
+   ],
+   "real_pts": [
+    [
+     -329,
+     -2946
+    ],
+    [
+     -149,
+     -2583
+    ],
+    [
+     145,
+     -1924
+    ],
+    [
+     250,
+     -1612
+    ],
+    [
+     595,
+     -884
+    ],
+    [
+     696,
+     -286
+    ],
+    [
+     844,
+     200
+    ],
+    [
+     826,
+     262
+    ]
+   ]
+  },
+  {
+   "id": "main_st_0_upper",
+   "game_name": "Main St",
+   "real_name": "Main Street",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 882,
+   "note": "Upper Main, the strip north to exit 130",
+   "pts": [
+    [
+     70.0,
+     -2085.0
+    ],
+    [
+     68.7,
+     -2091.2
+    ],
+    [
+     76.5,
+     -2351.4
+    ],
+    [
+     -29.4,
+     -2592.5
+    ],
+    [
+     -60.1,
+     -2690.4
+    ],
+    [
+     -162.5,
+     -2917.3
+    ]
+   ],
+   "real_pts": [
+    [
+     -329,
+     -2946
+    ],
+    [
+     -149,
+     -2583
+    ],
+    [
+     145,
+     -1924
+    ],
+    [
+     250,
+     -1612
+    ],
+    [
+     595,
+     -884
+    ],
+    [
+     696,
+     -286
+    ],
+    [
+     844,
+     200
+    ],
+    [
+     826,
+     262
+    ]
+   ]
+  },
+  {
+   "id": "tuition_ave_0",
+   "game_name": "Tuition Ave",
+   "real_name": "College Avenue",
+   "type": "arterial",
+   "lanes_per_dir": 2,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 968,
+   "note": "Route 201/11 north along the river",
+   "pts": [
+    [
+     412.5,
+     -2908.7
+    ],
+    [
+     395.5,
+     -2879.6
+    ],
+    [
+     294.6,
+     -2775.2
+    ],
+    [
+     262.1,
+     -2733.4
+    ],
+    [
+     216.8,
+     -2458.6
+    ],
+    [
+     213.1,
+     -2317.5
+    ],
+    [
+     216.1,
+     -2300.6
+    ],
+    [
+     234.6,
+     -2273.5
+    ],
+    [
+     201.4,
+     -2265.7
+    ],
+    [
+     191.6,
+     -2258.9
+    ],
+    [
+     70.0,
+     -2074.4
+    ]
+   ],
+   "real_pts": [
+    [
+     1924,
+     -2566
+    ],
+    [
+     1771,
+     -2384
+    ],
+    [
+     1452,
+     -2078
+    ],
+    [
+     1349,
+     -1956
+    ],
+    [
+     1063,
+     -1229
+    ],
+    [
+     885,
+     -809
+    ],
+    [
+     883,
+     -766
+    ],
+    [
+     907,
+     -705
+    ],
+    [
+     848,
+     -678
+    ],
+    [
+     831,
+     -660
+    ],
+    [
+     691,
+     -319
+    ]
+   ]
+  },
+  {
+   "id": "dutch_elm_st_0",
+   "game_name": "Dutch Elm St",
+   "real_name": "Elm Street",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 629,
+   "note": "",
+   "pts": [
+    [
+     -41.3,
+     -1518.5
+    ],
+    [
+     -27.8,
+     -1511.0
+    ],
+    [
+     15,
+     -1758.1
+    ],
+    [
+     15,
+     -2060
+    ],
+    [
+     70,
+     -2085
+    ]
+   ],
+   "real_pts": [
+    [
+     691,
+     -319
+    ],
+    [
+     308,
+     446
+    ]
+   ]
+  },
+  {
+   "id": "front_st_0",
+   "game_name": "Front St",
+   "real_name": "Front Street",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 710,
+   "note": "riverside street behind the east blocks (game Water St north of the dam today)",
+   "pts": [
+    [
+     234.6,
+     -2273.5
+    ],
+    [
+     252.3,
+     -2242.3
+    ],
+    [
+     224.7,
+     -2124.5
+    ],
+    [
+     170.0,
+     -2114.7
+    ],
+    [
+     170.0,
+     -1617.5
+    ]
+   ],
+   "real_pts": [
+    [
+     907,
+     -705
+    ],
+    [
+     930,
+     -637
+    ],
+    [
+     911,
+     -70
+    ],
+    [
+     890,
+     169
+    ],
+    [
+     874,
+     239
+    ],
+    [
+     854,
+     278
+    ]
+   ]
+  },
+  {
+   "id": "trestle_st_0",
+   "game_name": "Trestle St",
+   "real_name": "Spring Street",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": true,
+   "stage": 2,
+   "length_m": 407,
+   "note": "to the Ticonic Bridge (Route 201) (OSM maps it as a one-way pair across the bridge: build as two-way, divided)",
+   "pts": [
+    [
+     260.0,
+     -1634.0
+    ],
+    [
+     260.2,
+     -1628.8
+    ],
+    [
+     152.4,
+     -1616.0
+    ],
+    [
+     106.1,
+     -1617.5
+    ],
+    [
+     23.4,
+     -1654.0
+    ],
+    [
+     -60.0,
+     -1770.7
+    ],
+    [
+     -72.1,
+     -1774.2
+    ]
+   ],
+   "real_pts": [
+    [
+     1038,
+     296
+    ],
+    [
+     903,
+     291
+    ],
+    [
+     854,
+     278
+    ],
+    [
+     742,
+     214
+    ],
+    [
+     646,
+     138
+    ],
+    [
+     500,
+     61
+    ]
+   ]
+  },
+  {
+   "id": "trestle_st_0_b",
+   "game_name": "Trestle St",
+   "real_name": "Bridge Street",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": true,
+   "stage": 2,
+   "length_m": 83,
+   "note": "Ticonic Bridge over the river (OSM maps it as a one-way pair across the bridge: build as two-way, divided)",
+   "pts": [
+    [
+     333.8,
+     -1635.2
+    ],
+    [
+     337.8,
+     -1637.7
+    ],
+    [
+     260.0,
+     -1634.0
+    ]
+   ],
+   "real_pts": [
+    [
+     1163,
+     291
+    ],
+    [
+     1036,
+     286
+    ]
+   ]
+  },
+  {
+   "id": "far_bank_rd_0",
+   "game_name": "Far Bank Rd",
+   "real_name": "Bay Street",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 464,
+   "note": "Winslow, Route 201 south",
+   "pts": [
+    [
+     332.1,
+     -1637.9
+    ],
+    [
+     388.6,
+     -1546.4
+    ],
+    [
+     493.2,
+     -1305.9
+    ],
+    [
+     524.4,
+     -1216.7
+    ]
+   ],
+   "real_pts": [
+    [
+     1153,
+     290
+    ],
+    [
+     1159,
+     476
+    ],
+    [
+     1147,
+     555
+    ],
+    [
+     1005,
+     1052
+    ],
+    [
+     897,
+     1300
+    ]
+   ]
+  },
+  {
+   "id": "upriver_rd_0",
+   "game_name": "Upriver Rd",
+   "real_name": "Benton Avenue",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 783,
+   "note": "Winslow, north along the east bank",
+   "pts": [
+    [
+     720.6,
+     -2284.7
+    ],
+    [
+     676.4,
+     -2209.6
+    ],
+    [
+     601.2,
+     -2122.5
+    ],
+    [
+     585.8,
+     -2092.4
+    ],
+    [
+     558.5,
+     -2008.6
+    ],
+    [
+     527.8,
+     -1953.7
+    ],
+    [
+     341.1,
+     -1762.2
+    ],
+    [
+     321.7,
+     -1711.9
+    ],
+    [
+     332.1,
+     -1637.9
+    ]
+   ],
+   "real_pts": [
+    [
+     1960,
+     -1108
+    ],
+    [
+     1842,
+     -1000
+    ],
+    [
+     1744,
+     -888
+    ],
+    [
+     1558,
+     -620
+    ],
+    [
+     1531,
+     -546
+    ],
+    [
+     1509,
+     -377
+    ],
+    [
+     1478,
+     -271
+    ],
+    [
+     1212,
+     79
+    ],
+    [
+     1175,
+     160
+    ],
+    [
+     1153,
+     290
+    ]
+   ]
+  },
+  {
+   "id": "upriver_rd_1",
+   "game_name": "Upriver Rd",
+   "real_name": "Benton Avenue",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 153,
+   "note": "Winslow, north along the east bank",
+   "pts": [
+    [
+     720.6,
+     -2284.7
+    ],
+    [
+     676.4,
+     -2209.6
+    ],
+    [
+     639.8,
+     -2160.3
+    ],
+    [
+     636.4,
+     -2163.3
+    ]
+   ],
+   "real_pts": [
+    [
+     1960,
+     -1108
+    ],
+    [
+     1842,
+     -1000
+    ],
+    [
+     1744,
+     -888
+    ],
+    [
+     1640,
+     -738
+    ]
+   ]
+  },
+  {
+   "id": "blockhouse_rd_0",
+   "game_name": "Blockhouse Rd",
+   "real_name": "Halifax Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 382,
+   "note": "Winslow, toward the fort",
+   "pts": [
+    [
+     499.9,
+     -1286.7
+    ],
+    [
+     523.9,
+     -1296.2
+    ],
+    [
+     531.7,
+     -1305.2
+    ],
+    [
+     517.2,
+     -1372.1
+    ],
+    [
+     552.3,
+     -1387.3
+    ],
+    [
+     570.7,
+     -1389.3
+    ],
+    [
+     592.1,
+     -1384.7
+    ],
+    [
+     675.9,
+     -1349.6
+    ],
+    [
+     739.8,
+     -1349.1
+    ],
+    [
+     782.2,
+     -1353.3
+    ]
+   ],
+   "real_pts": [
+    [
+     976,
+     1105
+    ],
+    [
+     1061,
+     1085
+    ],
+    [
+     1100,
+     1062
+    ],
+    [
+     1199,
+     886
+    ],
+    [
+     1333,
+     843
+    ],
+    [
+     1396,
+     834
+    ],
+    [
+     1455,
+     841
+    ],
+    [
+     1647,
+     916
+    ],
+    [
+     1843,
+     896
+    ],
+    [
+     1970,
+     872
+    ]
+   ]
+  },
+  {
+   "id": "offramp_rd_0",
+   "game_name": "Offramp Rd",
+   "real_name": "Airport Road",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 4,
+   "length_m": 248,
+   "note": "service road by exit 127, beside the store",
+   "pts": [
+    [
+     -567.8,
+     -1048.5
+    ],
+    [
+     -578.2,
+     -1148.3
+    ],
+    [
+     -590.2,
+     -1295.0
+    ]
+   ],
+   "real_pts": [
+    [
+     -2796,
+     1186
+    ],
+    [
+     -2721,
+     762
+    ],
+    [
+     -2694,
+     538
+    ]
+   ]
+  },
+  {
+   "id": "drifting_west_ave_0",
+   "game_name": "Drifting West Ave",
+   "real_name": "Western Avenue",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 467,
+   "note": "",
+   "pts": [
+    [
+     -297.3,
+     -1779.1
+    ],
+    [
+     -331.0,
+     -1789.1
+    ],
+    [
+     -329.7,
+     -1767.1
+    ],
+    [
+     -326.1,
+     -1755.7
+    ],
+    [
+     -257.7,
+     -1739.0
+    ],
+    [
+     -232.8,
+     -1720.7
+    ],
+    [
+     -226.9,
+     -1698.6
+    ],
+    [
+     -218.3,
+     -1644.4
+    ],
+    [
+     -205.1,
+     -1638.8
+    ],
+    [
+     -167.3,
+     -1646.3
+    ],
+    [
+     -58.1,
+     -1612.5
+    ],
+    [
+     -22.5,
+     -1575.2
+    ]
+   ],
+   "real_pts": [
+    [
+     -962,
+     -178
+    ],
+    [
+     -924,
+     -132
+    ],
+    [
+     -887,
+     -106
+    ],
+    [
+     -476,
+     -9
+    ],
+    [
+     -330,
+     44
+    ],
+    [
+     -288,
+     85
+    ],
+    [
+     -234,
+     177
+    ],
+    [
+     -177,
+     193
+    ],
+    [
+     -18,
+     200
+    ],
+    [
+     375,
+     285
+    ],
+    [
+     436,
+     348
+    ]
+   ]
+  },
+  {
+   "id": "due_north_st_0",
+   "game_name": "Due North St",
+   "real_name": "North Street",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 692,
+   "note": "campus to downtown, past the hospital",
+   "pts": [
+    [
+     71.8,
+     -2195.8
+    ],
+    [
+     86.7,
+     -2195.4
+    ],
+    [
+     -39.1,
+     -2192.8
+    ],
+    [
+     -51.4,
+     -2202.6
+    ],
+    [
+     -170.8,
+     -2564.9
+    ],
+    [
+     -181.0,
+     -2580.1
+    ],
+    [
+     -205.5,
+     -2593.5
+    ],
+    [
+     -245.3,
+     -2606.9
+    ],
+    [
+     -260.5,
+     -2601.2
+    ],
+    [
+     -286.8,
+     -2576.6
+    ],
+    [
+     -297.5,
+     -2574.8
+    ],
+    [
+     -299.4,
+     -2576.2
+    ]
+   ],
+   "real_pts": [
+    [
+     659,
+     -527
+    ],
+    [
+     306,
+     -593
+    ],
+    [
+     240,
+     -630
+    ],
+    [
+     -765,
+     -1799
+    ],
+    [
+     -821,
+     -1845
+    ],
+    [
+     -958,
+     -1897
+    ],
+    [
+     -1146,
+     -1948
+    ],
+    [
+     -1218,
+     -1940
+    ],
+    [
+     -1338,
+     -1894
+    ],
+    [
+     -1374,
+     -1891
+    ]
+   ]
+  },
+  {
+   "id": "chapel_hill_rd_0",
+   "game_name": "Chapel Hill Rd",
+   "real_name": "Mayflower Hill Drive",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 759,
+   "note": "up the hill to the college",
+   "pts": [
+    [
+     -129.3,
+     -2066.1
+    ],
+    [
+     -306.6,
+     -2044.0
+    ],
+    [
+     -326.9,
+     -2055.8
+    ],
+    [
+     -358.4,
+     -2087.1
+    ],
+    [
+     -364.0,
+     -2118.6
+    ],
+    [
+     -379.1,
+     -2283.7
+    ],
+    [
+     -385.3,
+     -2330.7
+    ],
+    [
+     -385.4,
+     -2366.5
+    ],
+    [
+     -377.0,
+     -2425.1
+    ],
+    [
+     -359.8,
+     -2473.0
+    ],
+    [
+     -328.1,
+     -2522.9
+    ],
+    [
+     -298.4,
+     -2559.8
+    ],
+    [
+     -297.5,
+     -2574.8
+    ]
+   ],
+   "real_pts": [
+    [
+     -82,
+     -467
+    ],
+    [
+     -1155,
+     -691
+    ],
+    [
+     -1267,
+     -733
+    ],
+    [
+     -1435,
+     -819
+    ],
+    [
+     -1479,
+     -890
+    ],
+    [
+     -1597,
+     -1253
+    ],
+    [
+     -1622,
+     -1357
+    ],
+    [
+     -1625,
+     -1435
+    ],
+    [
+     -1605,
+     -1563
+    ],
+    [
+     -1561,
+     -1668
+    ],
+    [
+     -1477,
+     -1778
+    ],
+    [
+     -1387,
+     -1859
+    ]
+   ]
+  },
+  {
+   "id": "chapel_hill_rd_1",
+   "game_name": "Chapel Hill Rd",
+   "real_name": "Mayflower Hill Drive",
+   "type": "arterial",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 89,
+   "note": "up the hill to the college",
+   "pts": [
+    [
+     -217.8,
+     -2046.1
+    ],
+    [
+     -306.6,
+     -2044.0
+    ]
+   ],
+   "real_pts": [
+    [
+     -658,
+     -586
+    ],
+    [
+     -1155,
+     -691
+    ]
+   ]
+  },
+  {
+   "id": "cherry_tree_st_0",
+   "game_name": "Cherry Tree St",
+   "real_name": "Washington Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 4,
+   "length_m": 1268,
+   "note": "west side, past the college",
+   "pts": [
+    [
+     -587.9,
+     -1271.0
+    ],
+    [
+     -611.0,
+     -1269.2
+    ],
+    [
+     -619.8,
+     -1357.7
+    ],
+    [
+     -674.8,
+     -1629.7
+    ],
+    [
+     -682.8,
+     -1681.8
+    ],
+    [
+     -684.3,
+     -1708.3
+    ],
+    [
+     -682.5,
+     -1759.6
+    ],
+    [
+     -633.2,
+     -1959.0
+    ],
+    [
+     -593.3,
+     -2099.0
+    ],
+    [
+     -590.3,
+     -2125.8
+    ],
+    [
+     -588.3,
+     -2258.8
+    ],
+    [
+     -573.9,
+     -2402.2
+    ],
+    [
+     -589.4,
+     -2490.1
+    ],
+    [
+     -587.9,
+     -2492.8
+    ]
+   ],
+   "real_pts": [
+    [
+     -2818,
+     582
+    ],
+    [
+     -2809,
+     458
+    ],
+    [
+     -2929,
+     73
+    ],
+    [
+     -2942,
+     -6
+    ],
+    [
+     -2937,
+     -48
+    ],
+    [
+     -2904,
+     -136
+    ],
+    [
+     -2568,
+     -549
+    ],
+    [
+     -2394,
+     -783
+    ],
+    [
+     -2344,
+     -864
+    ],
+    [
+     -2323,
+     -924
+    ],
+    [
+     -2259,
+     -1223
+    ],
+    [
+     -2139,
+     -1548
+    ],
+    [
+     -2128,
+     -1732
+    ]
+   ]
+  },
+  {
+   "id": "cherry_tree_st_1",
+   "game_name": "Cherry Tree St",
+   "real_name": "Washington Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 4,
+   "length_m": 287,
+   "note": "west side, past the college",
+   "pts": [
+    [
+     -677.2,
+     -1786.1
+    ],
+    [
+     -644.1,
+     -1919.3
+    ],
+    [
+     -602.6,
+     -2063.2
+    ]
+   ],
+   "real_pts": [
+    [
+     -2864,
+     -186
+    ],
+    [
+     -2637,
+     -462
+    ],
+    [
+     -2394,
+     -783
+    ]
+   ]
+  },
+  {
+   "id": "room_temperature_st_0",
+   "game_name": "Room Temperature St",
+   "real_name": "Cool Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 515,
+   "note": "",
+   "pts": [
+    [
+     -348.8,
+     -1146.2
+    ],
+    [
+     -218.3,
+     -1644.4
+    ]
+   ],
+   "real_pts": [
+    [
+     -840,
+     1040
+    ],
+    [
+     -234,
+     177
+    ]
+   ]
+  },
+  {
+   "id": "halfway_rangeway_0",
+   "game_name": "Halfway Rangeway",
+   "real_name": "First Rangeway",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 4,
+   "length_m": 895,
+   "note": "",
+   "pts": [
+    [
+     -473.3,
+     -1187.9
+    ],
+    [
+     -217.8,
+     -2046.1
+    ]
+   ],
+   "real_pts": [
+    [
+     -1701,
+     816
+    ],
+    [
+     -658,
+     -586
+    ]
+   ]
+  },
+  {
+   "id": "passable_st_0",
+   "game_name": "Passable St",
+   "real_name": "Pleasant Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 700,
+   "note": "North End grid",
+   "pts": [
+    [
+     74.5,
+     -2285.1
+    ],
+    [
+     87.6,
+     -2284.7
+    ],
+    [
+     73.9,
+     -2273.3
+    ],
+    [
+     -113.9,
+     -1631.4
+    ]
+   ],
+   "real_pts": [
+    [
+     628,
+     -720
+    ],
+    [
+     600,
+     -697
+    ],
+    [
+     185,
+     243
+    ]
+   ]
+  },
+  {
+   "id": "middling_st_0",
+   "game_name": "Middling St",
+   "real_name": "High Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 195,
+   "note": "",
+   "pts": [
+    [
+     120.3,
+     -2501.4
+    ],
+    [
+     130.2,
+     -2537.8
+    ],
+    [
+     90.3,
+     -2552.1
+    ],
+    [
+     55.5,
+     -2568.7
+    ],
+    [
+     -9.4,
+     -2571.2
+    ],
+    [
+     -20.0,
+     -2567.2
+    ]
+   ],
+   "real_pts": [
+    [
+     880,
+     -1399
+    ],
+    [
+     752,
+     -1429
+    ],
+    [
+     632,
+     -1478
+    ],
+    [
+     344,
+     -1528
+    ],
+    [
+     288,
+     -1529
+    ]
+   ]
+  },
+  {
+   "id": "porch_st_0",
+   "game_name": "Porch St",
+   "real_name": "Summer Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 431,
+   "note": "South End triple-deckers",
+   "pts": [
+    [
+     36,
+     -1520
+    ],
+    [
+     36.4,
+     -1488.7
+    ],
+    [
+     30.8,
+     -1358.2
+    ],
+    [
+     -0.5,
+     -1268.5
+    ],
+    [
+     -10.4,
+     -1095.1
+    ]
+   ],
+   "real_pts": [
+    [
+     427,
+     500
+    ],
+    [
+     236,
+     704
+    ],
+    [
+     90,
+     847
+    ],
+    [
+     -196,
+     1294
+    ]
+   ]
+  },
+  {
+   "id": "porch_st_1",
+   "game_name": "Porch St",
+   "real_name": "Summer Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 143,
+   "note": "South End triple-deckers",
+   "pts": [
+    [
+     -10.4,
+     -1095.1
+    ],
+    [
+     -2.5,
+     -1237.9
+    ]
+   ],
+   "real_pts": [
+    [
+     -196,
+     1294
+    ],
+    [
+     54,
+     905
+    ]
+   ]
+  },
+  {
+   "id": "birch_st_0",
+   "game_name": "Birch St",
+   "real_name": "Grove Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 0,
+   "length_m": 559,
+   "note": "real Grove St; becomes the street along the bluff from Second Thought Ave to Water St (the old Front St line)",
+   "pts": [
+    [
+     -279.7,
+     -1136.4
+    ],
+    [
+     -280,
+     -1140
+    ],
+    [
+     -259.8,
+     -1094.8
+    ],
+    [
+     207.8,
+     -1109.3
+    ],
+    [
+     170.0,
+     -1109.3
+    ]
+   ],
+   "real_pts": [
+    [
+     156,
+     1370
+    ],
+    [
+     -656,
+     1198
+    ]
+   ]
+  },
+  {
+   "id": "triple_st_0",
+   "game_name": "Triple St",
+   "real_name": "Gilman Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 98,
+   "note": "",
+   "pts": [
+    [
+     -31.4,
+     -2068.8
+    ],
+    [
+     -129.3,
+     -2066.1
+    ]
+   ],
+   "real_pts": [
+    [
+     448,
+     -346
+    ],
+    [
+     -82,
+     -467
+    ]
+   ]
+  },
+  {
+   "id": "waiting_room_pkwy_0",
+   "game_name": "Waiting Room Pkwy",
+   "real_name": "Eustis Parkway",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 149,
+   "note": "by the hospital",
+   "pts": [
+    [
+     -142.5,
+     -2479.0
+    ],
+    [
+     -135.6,
+     -2481.3
+    ],
+    [
+     -129.0,
+     -2487.0
+    ],
+    [
+     -11.1,
+     -2511.5
+    ],
+    [
+     -1.0,
+     -2519.2
+    ]
+   ],
+   "real_pts": [
+    [
+     -537,
+     -1535
+    ],
+    [
+     -484,
+     -1534
+    ],
+    [
+     279,
+     -1370
+    ],
+    [
+     311,
+     -1364
+    ],
+    [
+     362,
+     -1375
+    ]
+   ]
+  },
+  {
+   "id": "waiting_room_pkwy_1",
+   "game_name": "Waiting Room Pkwy",
+   "real_name": "Eustis Parkway",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 98,
+   "note": "by the hospital",
+   "pts": [
+    [
+     -17.4,
+     -2510.7
+    ],
+    [
+     -112.8,
+     -2490.5
+    ]
+   ],
+   "real_pts": [
+    [
+     279,
+     -1370
+    ],
+    [
+     -355,
+     -1506
+    ]
+   ]
+  },
+  {
+   "id": "shirttail_st_0",
+   "game_name": "Shirttail St",
+   "real_name": "Chaplin Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 141,
+   "note": "",
+   "pts": [
+    [
+     76.5,
+     -2351.4
+    ],
+    [
+     213.1,
+     -2317.5
+    ]
+   ],
+   "real_pts": [
+    [
+     595,
+     -884
+    ],
+    [
+     885,
+     -809
+    ]
+   ]
+  },
+  {
+   "id": "sidetrack_st_0",
+   "game_name": "Sidetrack St",
+   "real_name": "Colby Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 276,
+   "note": "to the rail yard",
+   "pts": [
+    [
+     160.5,
+     -2332.1
+    ],
+    [
+     164.0,
+     -2341.4
+    ],
+    [
+     229.8,
+     -2376.4
+    ],
+    [
+     247.0,
+     -2373.5
+    ],
+    [
+     272.2,
+     -2360.6
+    ],
+    [
+     288.5,
+     -2342.1
+    ],
+    [
+     293.3,
+     -2324.2
+    ],
+    [
+     275.2,
+     -2248.8
+    ],
+    [
+     265.3,
+     -2242.6
+    ],
+    [
+     252.3,
+     -2242.3
+    ]
+   ],
+   "real_pts": [
+    [
+     785,
+     -833
+    ],
+    [
+     796,
+     -858
+    ],
+    [
+     972,
+     -984
+    ],
+    [
+     1010,
+     -987
+    ],
+    [
+     1052,
+     -967
+    ],
+    [
+     1064,
+     -922
+    ],
+    [
+     1052,
+     -871
+    ],
+    [
+     969,
+     -660
+    ],
+    [
+     952,
+     -642
+    ],
+    [
+     930,
+     -637
+    ]
+   ]
+  },
+  {
+   "id": "spindle_st_0",
+   "game_name": "Spindle St",
+   "real_name": "Center Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 2,
+   "length_m": 102,
+   "note": "one-way",
+   "pts": [
+    [
+     70.0,
+     -2057.8
+    ],
+    [
+     60.3,
+     -2057.8
+    ],
+    [
+     -31.4,
+     -2068.8
+    ]
+   ],
+   "real_pts": [
+    [
+     680,
+     -296
+    ],
+    [
+     448,
+     -346
+    ]
+   ]
+  },
+  {
+   "id": "pocket_change_st_0",
+   "game_name": "Pocket Change St",
+   "real_name": "Temple Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 100,
+   "note": "Main St to the footbridge",
+   "pts": [
+    [
+     70,
+     -1874
+    ],
+    [
+     170,
+     -1874
+    ]
+   ],
+   "real_pts": [
+    [
+     965,
+     -63
+    ],
+    [
+     954,
+     -81
+    ],
+    [
+     768,
+     -65
+    ]
+   ]
+  },
+  {
+   "id": "bobbin_st_0",
+   "game_name": "Bobbin St",
+   "real_name": "Common Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 2,
+   "length_m": 100,
+   "note": "the square cross street (one-way)",
+   "pts": [
+    [
+     70,
+     -1767
+    ],
+    [
+     170,
+     -1767
+    ]
+   ],
+   "real_pts": [
+    [
+     899,
+     74
+    ],
+    [
+     824,
+     59
+    ],
+    [
+     803,
+     64
+    ]
+   ]
+  },
+  {
+   "id": "applejack_st_0",
+   "game_name": "Applejack St",
+   "real_name": "Appleton Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 2,
+   "length_m": 278,
+   "note": "partly one-way",
+   "pts": [
+    [
+     -26.0,
+     -1931.9
+    ],
+    [
+     -7.7,
+     -1926.5
+    ],
+    [
+     9.7,
+     -1907.0
+    ],
+    [
+     43.5,
+     -1944.8
+    ],
+    [
+     98.6,
+     -1974.0
+    ],
+    [
+     119.5,
+     -1980.7
+    ],
+    [
+     193.6,
+     -1974.7
+    ],
+    [
+     170.0,
+     -1974.7
+    ]
+   ],
+   "real_pts": [
+    [
+     597,
+     -132
+    ],
+    [
+     645,
+     -105
+    ],
+    [
+     694,
+     -150
+    ],
+    [
+     774,
+     -185
+    ],
+    [
+     803,
+     -194
+    ],
+    [
+     913,
+     -191
+    ]
+   ]
+  },
+  {
+   "id": "holding_pattern_ln_0",
+   "game_name": "Holding Pattern Ln",
+   "real_name": "Concourse West",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 104,
+   "note": "through the big lot",
+   "pts": [
+    [
+     69.4,
+     -1875.1
+    ],
+    [
+     42.9,
+     -1867.6
+    ],
+    [
+     26.8,
+     -1854.1
+    ],
+    [
+     18.1,
+     -1835.2
+    ],
+    [
+     15.1,
+     -1801.1
+    ]
+   ],
+   "real_pts": [
+    [
+     768,
+     -65
+    ],
+    [
+     727,
+     -56
+    ],
+    [
+     703,
+     -40
+    ],
+    [
+     695,
+     -18
+    ],
+    [
+     705,
+     23
+    ]
+   ]
+  },
+  {
+   "id": "holding_pattern_ln_0_b",
+   "game_name": "Holding Pattern Ln",
+   "real_name": "Concourse East",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 2,
+   "length_m": 249,
+   "note": "through the big lot",
+   "pts": [
+    [
+     35.3,
+     -1934.3
+    ],
+    [
+     38.4,
+     -1849.8
+    ],
+    [
+     31.6,
+     -1709.7
+    ],
+    [
+     7.4,
+     -1713.9
+    ]
+   ],
+   "real_pts": [
+    [
+     684,
+     -137
+    ],
+    [
+     727,
+     -35
+    ],
+    [
+     773,
+     135
+    ]
+   ]
+  },
+  {
+   "id": "dithers_loop_0",
+   "game_name": "Dithers Loop",
+   "real_name": "Campus Drive",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 350,
+   "note": "campus loop",
+   "pts": [
+    [
+     -587.9,
+     -2492.8
+    ],
+    [
+     -443.9,
+     -2613.2
+    ],
+    [
+     -411.4,
+     -2623.6
+    ],
+    [
+     -371.2,
+     -2623.3
+    ],
+    [
+     -348.0,
+     -2617.3
+    ],
+    [
+     -313.4,
+     -2594.6
+    ],
+    [
+     -299.4,
+     -2576.2
+    ]
+   ],
+   "real_pts": [
+    [
+     -2122,
+     -1737
+    ],
+    [
+     -2030,
+     -1771
+    ],
+    [
+     -1700,
+     -1952
+    ],
+    [
+     -1621,
+     -1978
+    ],
+    [
+     -1529,
+     -1984
+    ],
+    [
+     -1477,
+     -1975
+    ],
+    [
+     -1404,
+     -1932
+    ],
+    [
+     -1379,
+     -1894
+    ]
+   ]
+  },
+  {
+   "id": "depot_st_0",
+   "game_name": "Depot St",
+   "real_name": "Industrial Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 172,
+   "note": "by the rail yard",
+   "pts": [
+    [
+     -2.3,
+     -2907.6
+    ],
+    [
+     -56.4,
+     -2840.2
+    ],
+    [
+     -55.4,
+     -2831.7
+    ],
+    [
+     -23.0,
+     -2762.1
+    ]
+   ],
+   "real_pts": [
+    [
+     1039,
+     -2944
+    ],
+    [
+     865,
+     -2690
+    ],
+    [
+     753,
+     -2580
+    ],
+    [
+     587,
+     -2442
+    ],
+    [
+     303,
+     -2312
+    ],
+    [
+     301,
+     -2290
+    ],
+    [
+     399,
+     -2073
+    ]
+   ]
+  },
+  {
+   "id": "drill_hall_rd_0",
+   "game_name": "Drill Hall Rd",
+   "real_name": "Armory Road",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 190,
+   "note": "",
+   "pts": [
+    [
+     96.6,
+     -2755.3
+    ],
+    [
+     68.0,
+     -2764.1
+    ],
+    [
+     -1.0,
+     -2770.3
+    ],
+    [
+     -17.1,
+     -2765.5
+    ],
+    [
+     -44.6,
+     -2747.2
+    ],
+    [
+     -75.6,
+     -2747.9
+    ],
+    [
+     -81.7,
+     -2740.6
+    ]
+   ],
+   "real_pts": [
+    [
+     880,
+     -1987
+    ],
+    [
+     782,
+     -2018
+    ],
+    [
+     506,
+     -2075
+    ],
+    [
+     429,
+     -2076
+    ],
+    [
+     281,
+     -2056
+    ],
+    [
+     115,
+     -2097
+    ],
+    [
+     72,
+     -2087
+    ]
+   ]
+  },
+  {
+   "id": "acorn_st_0",
+   "game_name": "Acorn St",
+   "real_name": "Oak Street",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 179,
+   "note": "",
+   "pts": [
+    [
+     170.9,
+     -2487.6
+    ],
+    [
+     22.3,
+     -2528.1
+    ],
+    [
+     10.1,
+     -2520.8
+    ],
+    [
+     -1.0,
+     -2519.2
+    ]
+   ],
+   "real_pts": [
+    [
+     960,
+     -1278
+    ],
+    [
+     471,
+     -1380
+    ],
+    [
+     414,
+     -1369
+    ],
+    [
+     362,
+     -1375
+    ]
+   ]
+  },
+  {
+   "id": "bagpipe_ave_0",
+   "game_name": "Bagpipe Ave",
+   "real_name": "Drummond Avenue",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 397,
+   "note": "",
+   "pts": [
+    [
+     144.6,
+     -2896.6
+    ],
+    [
+     131.9,
+     -2879.4
+    ],
+    [
+     96.6,
+     -2755.3
+    ],
+    [
+     89.5,
+     -2713.0
+    ],
+    [
+     92.4,
+     -2516.5
+    ],
+    [
+     90.5,
+     -2509.5
+    ]
+   ],
+   "real_pts": [
+    [
+     1259,
+     -2530
+    ],
+    [
+     1048,
+     -2323
+    ],
+    [
+     880,
+     -1987
+    ],
+    [
+     838,
+     -1871
+    ],
+    [
+     731,
+     -1330
+    ]
+   ]
+  },
+  {
+   "id": "bagpipe_ave_1",
+   "game_name": "Bagpipe Ave",
+   "real_name": "Drummond Avenue",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 3,
+   "length_m": 138,
+   "note": "",
+   "pts": [
+    [
+     91.5,
+     -2577.8
+    ],
+    [
+     88.6,
+     -2577.8
+    ],
+    [
+     89.5,
+     -2713.0
+    ]
+   ],
+   "real_pts": [
+    [
+     765,
+     -1500
+    ],
+    [
+     838,
+     -1871
+    ]
+   ]
+  },
+  {
+   "id": "ramp_127_43139502",
+   "game_name": "Thruway exit 127 ramp",
+   "real_name": "I-95 exit 127 ramp",
+   "type": "ramp",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 4,
+   "length_m": 255,
+   "note": "Waterville;Oakland",
+   "pts": [
+    [
+     -692.0,
+     -1542.7
+    ],
+    [
+     -700.9,
+     -1542.8
+    ],
+    [
+     -704.5,
+     -1510.3
+    ],
+    [
+     -710.2,
+     -1481.0
+    ],
+    [
+     -719.5,
+     -1456.7
+    ],
+    [
+     -733.9,
+     -1432.8
+    ],
+    [
+     -737.6,
+     -1414.9
+    ],
+    [
+     -738.1,
+     -1403.8
+    ],
+    [
+     -735.6,
+     -1377.5
+    ],
+    [
+     -722.7,
+     -1317.4
+    ],
+    [
+     -714.5,
+     -1326.6
+    ]
+   ],
+   "real_pts": [
+    [
+     -3083,
+     212
+    ],
+    [
+     -3113,
+     262
+    ],
+    [
+     -3151,
+     307
+    ],
+    [
+     -3204,
+     346
+    ],
+    [
+     -3286,
+     385
+    ],
+    [
+     -3316,
+     412
+    ],
+    [
+     -3325,
+     429
+    ],
+    [
+     -3330,
+     467
+    ],
+    [
+     -3304,
+     551
+    ]
+   ]
+  },
+  {
+   "id": "ramp_127_43139503",
+   "game_name": "Thruway exit 127 ramp",
+   "real_name": "I-95 exit 127 ramp",
+   "type": "ramp",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 4,
+   "length_m": 242,
+   "note": "",
+   "pts": [
+    [
+     -726.7,
+     -1295.0
+    ],
+    [
+     -726.7,
+     -1281.0
+    ],
+    [
+     -720.6,
+     -1279.7
+    ],
+    [
+     -713.3,
+     -1269.9
+    ],
+    [
+     -705.3,
+     -1249.3
+    ],
+    [
+     -699.4,
+     -1226.2
+    ],
+    [
+     -682.5,
+     -1070.8
+    ],
+    [
+     -674.8,
+     -1071.4
+    ]
+   ],
+   "real_pts": [
+    [
+     -3361,
+     605
+    ],
+    [
+     -3327,
+     605
+    ],
+    [
+     -3295,
+     616
+    ],
+    [
+     -3270,
+     642
+    ],
+    [
+     -3262,
+     673
+    ],
+    [
+     -3266,
+     700
+    ],
+    [
+     -3347,
+     908
+    ]
+   ]
+  },
+  {
+   "id": "ramp_127_43139504",
+   "game_name": "Thruway exit 127 ramp",
+   "real_name": "I-95 exit 127 ramp",
+   "type": "ramp",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 4,
+   "length_m": 179,
+   "note": "Waterville;Oakland",
+   "pts": [
+    [
+     -679.6,
+     -1131.8
+    ],
+    [
+     -682.6,
+     -1310.5
+    ]
+   ],
+   "real_pts": [
+    [
+     -3257,
+     804
+    ],
+    [
+     -3239,
+     780
+    ],
+    [
+     -3111,
+     544
+    ]
+   ]
+  },
+  {
+   "id": "ramp_130_43139522",
+   "game_name": "Thruway exit 130 ramp",
+   "real_name": "I-95 exit 130 ramp",
+   "type": "ramp",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 4,
+   "length_m": 78,
+   "note": "Waterville;Winslow",
+   "pts": [
+    [
+     -79.9,
+     -2897.3
+    ],
+    [
+     -94.6,
+     -2908.3
+    ],
+    [
+     -116.7,
+     -2886.8
+    ],
+    [
+     -143.1,
+     -2874.2
+    ]
+   ],
+   "real_pts": [
+    [
+     275,
+     -2553
+    ],
+    [
+     185,
+     -2514
+    ],
+    [
+     54,
+     -2483
+    ],
+    [
+     -101,
+     -2475
+    ]
+   ]
+  },
+  {
+   "id": "ramp_130_43139523",
+   "game_name": "Thruway exit 130 ramp",
+   "real_name": "I-95 exit 130 ramp",
+   "type": "ramp",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 4,
+   "length_m": 73,
+   "note": "Waterville",
+   "pts": [
+    [
+     -188.8,
+     -2827.3
+    ],
+    [
+     -187.8,
+     -2820.2
+    ],
+    [
+     -122.1,
+     -2828.2
+    ]
+   ],
+   "real_pts": [
+    [
+     -461,
+     -2377
+    ],
+    [
+     -46,
+     -2351
+    ]
+   ]
+  },
+  {
+   "id": "ramp_130_43139524",
+   "game_name": "Thruway exit 130 ramp",
+   "real_name": "I-95 exit 130 ramp",
+   "type": "ramp",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 4,
+   "length_m": 104,
+   "note": "",
+   "pts": [
+    [
+     -119.6,
+     -2821.2
+    ],
+    [
+     -107.8,
+     -2839.4
+    ],
+    [
+     -68.8,
+     -2909.9
+    ],
+    [
+     -70.8,
+     -2909.4
+    ]
+   ],
+   "real_pts": [
+    [
+     -42,
+     -2332
+    ],
+    [
+     46,
+     -2364
+    ],
+    [
+     336,
+     -2514
+    ]
+   ]
+  },
+  {
+   "id": "ramp_130_297170947",
+   "game_name": "Thruway exit 130 ramp",
+   "real_name": "I-95 exit 130 ramp",
+   "type": "ramp",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 4,
+   "length_m": 78,
+   "note": "",
+   "pts": [
+    [
+     -143.1,
+     -2874.2
+    ],
+    [
+     -153.8,
+     -2858.0
+    ],
+    [
+     -160.8,
+     -2852.2
+    ],
+    [
+     -197.6,
+     -2835.4
+    ],
+    [
+     -196.3,
+     -2826.2
+    ]
+   ],
+   "real_pts": [
+    [
+     -101,
+     -2475
+    ],
+    [
+     -186,
+     -2445
+    ],
+    [
+     -237,
+     -2436
+    ],
+    [
+     -492,
+     -2415
+    ]
+   ]
+  },
+  {
+   "id": "ramp_127_297170948",
+   "game_name": "Thruway exit 127 ramp",
+   "real_name": "I-95 exit 127 ramp",
+   "type": "ramp",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 4,
+   "length_m": 265,
+   "note": "",
+   "pts": [
+    [
+     -682.6,
+     -1310.5
+    ],
+    [
+     -693.1,
+     -1575.3
+    ]
+   ],
+   "real_pts": [
+    [
+     -3111,
+     544
+    ],
+    [
+     -3035,
+     184
+    ],
+    [
+     -3035,
+     162
+    ]
+   ]
+  },
+  {
+   "id": "ramp_127_397489876",
+   "game_name": "Thruway exit 127 ramp",
+   "real_name": "I-95 exit 127 ramp",
+   "type": "ramp",
+   "lanes_per_dir": 1,
+   "one_way": true,
+   "divided": false,
+   "stage": 4,
+   "length_m": 257,
+   "note": "",
+   "pts": [
+    [
+     -692.3,
+     -1318.7
+    ],
+    [
+     -703.4,
+     -1318.8
+    ],
+    [
+     -714.5,
+     -1326.6
+    ],
+    [
+     -724.2,
+     -1342.9
+    ],
+    [
+     -728.5,
+     -1354.3
+    ],
+    [
+     -734.6,
+     -1382.9
+    ],
+    [
+     -736.1,
+     -1400.5
+    ],
+    [
+     -735.5,
+     -1415.7
+    ],
+    [
+     -732.9,
+     -1426.4
+    ],
+    [
+     -724.0,
+     -1430.9
+    ],
+    [
+     -719.1,
+     -1425.5
+    ],
+    [
+     -710.9,
+     -1406.2
+    ],
+    [
+     -705.6,
+     -1379.7
+    ],
+    [
+     -700.8,
+     -1325.3
+    ],
+    [
+     -692.3,
+     -1325.3
+    ]
+   ],
+   "real_pts": [
+    [
+     -3201,
+     542
+    ],
+    [
+     -3252,
+     535
+    ],
+    [
+     -3292,
+     515
+    ],
+    [
+     -3307,
+     499
+    ],
+    [
+     -3320,
+     459
+    ],
+    [
+     -3317,
+     433
+    ],
+    [
+     -3304,
+     411
+    ],
+    [
+     -3285,
+     394
+    ],
+    [
+     -3238,
+     385
+    ],
+    [
+     -3217,
+     392
+    ],
+    [
+     -3188,
+     418
+    ],
+    [
+     -3176,
+     454
+    ],
+    [
+     -3184,
+     531
+    ]
+   ]
+  },
+  {
+   "id": "water_st_0",
+   "game_name": "Water St",
+   "real_name": "Water Street (South End)",
+   "type": "local",
+   "lanes_per_dir": 1,
+   "one_way": false,
+   "divided": false,
+   "stage": 1,
+   "length_m": 520,
+   "note": "kept on x 170 (the built mills front it); real Water St bends south-west with the river",
+   "pts": [
+    [
+     170,
+     -1628
+    ],
+    [
+     169.9,
+     -1108.1
+    ]
+   ],
+   "real_pts": []
+  },
+  {
+   "id": "landing_rd_0",
+   "game_name": "Landing Rd",
+   "real_name": "(none: where the island bridge lands)",
+   "type": "arterial",
+   "lanes_per_dir": 2,
+   "one_way": false,
+   "divided": false,
+   "stage": 0,
+   "length_m": 59,
+   "note": "the Perpetual Bridge deck ends at (-30,-1072); joins Birch St",
+   "pts": [
+    [
+     -30.9,
+     -1101.9
+    ],
+    [
+     -30,
+     -1072
+    ],
+    [
+     -30,
+     -1101
+    ]
+   ],
+   "real_pts": []
+  }
+ ],
+ "junctions": [
+  {
+   "at": [
+    -692.4,
+    -1295.0
+   ],
+   "roads": [
+    "Second Thought Ave",
+    "The Thruway"
+   ],
+   "kind": "overpass",
+   "control": "none",
+   "real_at": [
+    -3174,
+    570
+   ]
+  },
+  {
+   "at": [
+    -129.2,
+    -2843.6
+   ],
+   "roads": [
+    "Main St",
+    "The Thruway"
+   ],
+   "kind": "overpass",
+   "control": "none",
+   "real_at": [
+    -71,
+    -2395
+   ]
+  },
+  {
+   "at": [
+    -674.9,
+    -1071.4
+   ],
+   "roads": [
+    "The Thruway",
+    "Thruway exit 127 ramp"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -3293,
+    893
+   ]
+  },
+  {
+   "at": [
+    -679.6,
+    -1131.8
+   ],
+   "roads": [
+    "The Thruway",
+    "Thruway exit 127 ramp"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -3283,
+    781
+   ]
+  },
+  {
+   "at": [
+    -188.8,
+    -2827.3
+   ],
+   "roads": [
+    "The Thruway",
+    "Thruway exit 130 ramp"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -375,
+    -2383
+   ]
+  },
+  {
+   "at": [
+    -70.8,
+    -2909.4
+   ],
+   "roads": [
+    "The Thruway",
+    "Thruway exit 130 ramp"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    293,
+    -2508
+   ]
+  },
+  {
+   "at": [
+    -691.3,
+    -1530.5
+   ],
+   "roads": [
+    "The Thruway",
+    "Thruway exit 127 ramp"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -3062,
+    241
+   ]
+  },
+  {
+   "at": [
+    -277.7,
+    -1136.6
+   ],
+   "roads": [
+    "Birch St",
+    "Second Thought Ave",
+    "Tarnish St"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    -591,
+    1097
+   ]
+  },
+  {
+   "at": [
+    -590.2,
+    -1295.0
+   ],
+   "roads": [
+    "Offramp Rd",
+    "Second Thought Ave"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -2685,
+    547
+   ]
+  },
+  {
+   "at": [
+    -613.6,
+    -1295.0
+   ],
+   "roads": [
+    "Cherry Tree St",
+    "Second Thought Ave"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    -2807,
+    547
+   ]
+  },
+  {
+   "at": [
+    -348.5,
+    -1147.2
+   ],
+   "roads": [
+    "Room Temperature St",
+    "Second Thought Ave"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -985,
+    1019
+   ]
+  },
+  {
+   "at": [
+    -473.3,
+    -1187.9
+   ],
+   "roads": [
+    "Halfway Rangeway",
+    "Second Thought Ave"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -1879,
+    803
+   ]
+  },
+  {
+   "at": [
+    -726.7,
+    -1295.0
+   ],
+   "roads": [
+    "Second Thought Ave",
+    "Thruway exit 127 ramp"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    -3362,
+    581
+   ]
+  },
+  {
+   "at": [
+    -682.3,
+    -1295.0
+   ],
+   "roads": [
+    "Second Thought Ave",
+    "Thruway exit 127 ramp"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    -3126,
+    566
+   ]
+  },
+  {
+   "at": [
+    70.0,
+    -1767.0
+   ],
+   "roads": [
+    "Bobbin St",
+    "Main St",
+    "Tarnish St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    806,
+    56
+   ]
+  },
+  {
+   "at": [
+    -41.3,
+    -1518.5
+   ],
+   "roads": [
+    "Dutch Elm St",
+    "Tarnish St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    380,
+    411
+   ]
+  },
+  {
+   "at": [
+    15.0,
+    -1767.0
+   ],
+   "roads": [
+    "Dutch Elm St",
+    "Tarnish St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    661,
+    45
+   ]
+  },
+  {
+   "at": [
+    -20.0,
+    -1714.8
+   ],
+   "roads": [
+    "Tarnish St",
+    "Trestle St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    571,
+    107
+   ]
+  },
+  {
+   "at": [
+    34.4,
+    -1767.0
+   ],
+   "roads": [
+    "Holding Pattern Ln",
+    "Tarnish St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    717,
+    49
+   ]
+  },
+  {
+   "at": [
+    70.0,
+    -2074.4
+   ],
+   "roads": [
+    "Dutch Elm St",
+    "Main St",
+    "Tuition Ave"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    685,
+    -321
+   ]
+  },
+  {
+   "at": [
+    70.0,
+    -1633.4
+   ],
+   "roads": [
+    "Main St",
+    "Trestle St"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    817,
+    245
+   ]
+  },
+  {
+   "at": [
+    70.0,
+    -2057.8
+   ],
+   "roads": [
+    "Main St",
+    "Spindle St"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    692,
+    -293
+   ]
+  },
+  {
+   "at": [
+    70.0,
+    -1874.0
+   ],
+   "roads": [
+    "Main St",
+    "Pocket Change St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    737,
+    -71
+   ]
+  },
+  {
+   "at": [
+    70.0,
+    -1958.8
+   ],
+   "roads": [
+    "Applejack St",
+    "Main St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    708,
+    -164
+   ]
+  },
+  {
+   "at": [
+    71.8,
+    -2195.8
+   ],
+   "roads": [
+    "Due North St",
+    "Main St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    571,
+    -602
+   ]
+  },
+  {
+   "at": [
+    74.5,
+    -2285.1
+   ],
+   "roads": [
+    "Main St",
+    "Passable St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    504,
+    -844
+   ]
+  },
+  {
+   "at": [
+    -18.5,
+    -2567.8
+   ],
+   "roads": [
+    "Main St",
+    "Middling St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    46,
+    -1669
+   ]
+  },
+  {
+   "at": [
+    76.5,
+    -2351.4
+   ],
+   "roads": [
+    "Main St",
+    "Shirttail St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    478,
+    -1029
+   ]
+  },
+  {
+   "at": [
+    2.6,
+    -2519.7
+   ],
+   "roads": [
+    "Acorn St",
+    "Main St",
+    "Waiting Room Pkwy"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    129,
+    -1529
+   ]
+  },
+  {
+   "at": [
+    -143.1,
+    -2874.2
+   ],
+   "roads": [
+    "Main St",
+    "Thruway exit 130 ramp"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    -75,
+    -2465
+   ]
+  },
+  {
+   "at": [
+    -122.3,
+    -2828.2
+   ],
+   "roads": [
+    "Main St",
+    "Thruway exit 130 ramp"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    -71,
+    -2359
+   ]
+  },
+  {
+   "at": [
+    234.6,
+    -2273.5
+   ],
+   "roads": [
+    "Front St",
+    "Tuition Ave"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    970,
+    -788
+   ]
+  },
+  {
+   "at": [
+    213.1,
+    -2317.5
+   ],
+   "roads": [
+    "Shirttail St",
+    "Tuition Ave"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    933,
+    -910
+   ]
+  },
+  {
+   "at": [
+    214.4,
+    -2368.2
+   ],
+   "roads": [
+    "Sidetrack St",
+    "Tuition Ave"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    959,
+    -1052
+   ]
+  },
+  {
+   "at": [
+    2.1,
+    -1683.8
+   ],
+   "roads": [
+    "Dutch Elm St",
+    "Trestle St"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    652,
+    156
+   ]
+  },
+  {
+   "at": [
+    20.6,
+    -2062.6
+   ],
+   "roads": [
+    "Dutch Elm St",
+    "Passable St",
+    "Spindle St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    523,
+    -335
+   ]
+  },
+  {
+   "at": [
+    15.0,
+    -1912.9
+   ],
+   "roads": [
+    "Applejack St",
+    "Dutch Elm St"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    568,
+    -133
+   ]
+  },
+  {
+   "at": [
+    170.0,
+    -1618.1
+   ],
+   "roads": [
+    "Front St",
+    "Trestle St",
+    "Water St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    922,
+    293
+   ]
+  },
+  {
+   "at": [
+    252.3,
+    -2242.3
+   ],
+   "roads": [
+    "Front St",
+    "Sidetrack St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    994,
+    -704
+   ]
+  },
+  {
+   "at": [
+    170.0,
+    -1874.0
+   ],
+   "roads": [
+    "Front St",
+    "Pocket Change St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    919,
+    -64
+   ]
+  },
+  {
+   "at": [
+    170.0,
+    -1767.0
+   ],
+   "roads": [
+    "Bobbin St",
+    "Front St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    976,
+    67
+   ]
+  },
+  {
+   "at": [
+    170.0,
+    -1976.6
+   ],
+   "roads": [
+    "Applejack St",
+    "Front St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    899,
+    -173
+   ]
+  },
+  {
+   "at": [
+    332.4,
+    -1637.4
+   ],
+   "roads": [
+    "Far Bank Rd",
+    "Trestle St",
+    "Upriver Rd"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    1165,
+    286
+   ]
+  },
+  {
+   "at": [
+    499.9,
+    -1286.7
+   ],
+   "roads": [
+    "Blockhouse Rd",
+    "Far Bank Rd"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    993,
+    1112
+   ]
+  },
+  {
+   "at": [
+    -588.2,
+    -1271.0
+   ],
+   "roads": [
+    "Cherry Tree St",
+    "Offramp Rd"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -2678,
+    583
+   ]
+  },
+  {
+   "at": [
+    -218.3,
+    -1644.4
+   ],
+   "roads": [
+    "Drifting West Ave",
+    "Room Temperature St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -304,
+    156
+   ]
+  },
+  {
+   "at": [
+    -305.7,
+    -1750.7
+   ],
+   "roads": [
+    "Drifting West Ave",
+    "Halfway Rangeway"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -790,
+    -44
+   ]
+  },
+  {
+   "at": [
+    -297.5,
+    -2574.8
+   ],
+   "roads": [
+    "Chapel Hill Rd",
+    "Dithers Loop",
+    "Due North St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -1361,
+    -1891
+   ]
+  },
+  {
+   "at": [
+    50.9,
+    -2194.7
+   ],
+   "roads": [
+    "Due North St",
+    "Passable St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    500,
+    -611
+   ]
+  },
+  {
+   "at": [
+    -142.5,
+    -2479.0
+   ],
+   "roads": [
+    "Due North St",
+    "Waiting Room Pkwy"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -625,
+    -1540
+   ]
+  },
+  {
+   "at": [
+    -129.3,
+    -2066.1
+   ],
+   "roads": [
+    "Chapel Hill Rd",
+    "Triple St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -152,
+    -491
+   ]
+  },
+  {
+   "at": [
+    -217.8,
+    -2046.1
+   ],
+   "roads": [
+    "Chapel Hill Rd",
+    "Halfway Rangeway"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -554,
+    -528
+   ]
+  },
+  {
+   "at": [
+    -587.9,
+    -2492.8
+   ],
+   "roads": [
+    "Cherry Tree St",
+    "Dithers Loop"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -2125,
+    -1737
+   ]
+  },
+  {
+   "at": [
+    -26.0,
+    -1931.9
+   ],
+   "roads": [
+    "Applejack St",
+    "Passable St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    416,
+    -179
+   ]
+  },
+  {
+   "at": [
+    91.9,
+    -2551.5
+   ],
+   "roads": [
+    "Bagpipe Ave",
+    "Middling St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    572,
+    -1553
+   ]
+  },
+  {
+   "at": [
+    -10.0,
+    -1102.5
+   ],
+   "roads": [
+    "Birch St",
+    "Porch St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    15,
+    1216
+   ]
+  },
+  {
+   "at": [
+    169.9,
+    -1108.1
+   ],
+   "roads": [
+    "Birch St",
+    "Water St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    177,
+    1278
+   ]
+  },
+  {
+   "at": [
+    -30.9,
+    -1101.9
+   ],
+   "roads": [
+    "Birch St",
+    "Landing Rd"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    -13,
+    1215
+   ]
+  },
+  {
+   "at": [
+    -31.4,
+    -2068.8
+   ],
+   "roads": [
+    "Spindle St",
+    "Triple St"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    303,
+    -395
+   ]
+  },
+  {
+   "at": [
+    96.6,
+    -2755.3
+   ],
+   "roads": [
+    "Bagpipe Ave",
+    "Drill Hall Rd"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    785,
+    -2053
+   ]
+  },
+  {
+   "at": [
+    90.5,
+    -2509.5
+   ],
+   "roads": [
+    "Acorn St",
+    "Bagpipe Ave"
+   ],
+   "kind": "junction",
+   "control": "stop/give-way",
+   "real_at": [
+    544,
+    -1448
+   ]
+  },
+  {
+   "at": [
+    -714.5,
+    -1326.6
+   ],
+   "roads": [
+    "Thruway exit 127 ramp"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    -3276,
+    535
+   ]
+  },
+  {
+   "at": [
+    -682.6,
+    -1310.5
+   ],
+   "roads": [
+    "Thruway exit 127 ramp"
+   ],
+   "kind": "junction",
+   "control": "signal",
+   "real_at": [
+    -3118,
+    546
+   ]
+  }
+ ],
+ "roundabouts": [
+  {
+   "real_name": "North Circle",
+   "game_name": "Hesitation Circle",
+   "at": [
+    -302.0,
+    -2568.2
+   ],
+   "radius": 13,
+   "real_at": [
+    -1392,
+    -1877
+   ]
+  },
+  {
+   "real_name": "Washington Circle",
+   "game_name": "Second Lap Circle",
+   "at": [
+    -594.3,
+    -2497.9
+   ],
+   "radius": 13,
+   "real_at": [
+    -2136,
+    -1747
+   ]
+  }
+ ],
+ "signals_osm_warped": [
+  [
+   -120,
+   -2821
+  ],
+  [
+   -143,
+   -2874
+  ],
+  [
+   -122,
+   -2828
+  ],
+  [
+   -8,
+   -1926
+  ],
+  [
+   501,
+   -1286
+  ],
+  [
+   523,
+   -1222
+  ],
+  [
+   70,
+   -2074
+  ],
+  [
+   252,
+   -2697
+  ],
+  [
+   -17,
+   -1711
+  ],
+  [
+   -60,
+   -1771
+  ],
+  [
+   -61,
+   -1762
+  ],
+  [
+   -54,
+   -1609
+  ],
+  [
+   -28,
+   -1511
+  ],
+  [
+   -58,
+   -1780
+  ],
+  [
+   -15,
+   -1717
+  ],
+  [
+   78,
+   -1630
+  ],
+  [
+   -102,
+   -2785
+  ],
+  [
+   -80,
+   -2737
+  ],
+  [
+   -82,
+   -2741
+  ],
+  [
+   -397,
+   -1167
+  ],
+  [
+   -398,
+   -1172
+  ],
+  [
+   -400,
+   -1173
+  ],
+  [
+   -118,
+   -2823
+  ],
+  [
+   -609,
+   -1276
+  ],
+  [
+   -614,
+   -1270
+  ],
+  [
+   -612,
+   -1283
+  ],
+  [
+   -610,
+   -1263
+  ],
+  [
+   -737,
+   -1287
+  ],
+  [
+   -734,
+   -1269
+  ],
+  [
+   -731,
+   -1285
+  ],
+  [
+   -721,
+   -1310
+  ],
+  [
+   -718,
+   -1293
+  ],
+  [
+   -716,
+   -1307
+  ],
+  [
+   -688,
+   -1312
+  ],
+  [
+   -682,
+   -1302
+  ],
+  [
+   -679,
+   -1316
+  ],
+  [
+   -285,
+   -1135
+  ],
+  [
+   -279,
+   -1142
+  ],
+  [
+   -276,
+   -1134
+  ],
+  [
+   -312,
+   -1129
+  ],
+  [
+   -319,
+   -1135
+  ],
+  [
+   -311,
+   -1139
+  ],
+  [
+   -349,
+   -1156
+  ],
+  [
+   -342,
+   -1138
+  ],
+  [
+   -353,
+   -1148
+  ],
+  [
+   -338,
+   -1146
+  ],
+  [
+   -101,
+   -2787
+  ],
+  [
+   235,
+   -2274
+  ],
+  [
+   106,
+   -1618
+  ],
+  [
+   108,
+   -1624
+  ],
+  [
+   79,
+   -1624
+  ],
+  [
+   -400,
+   -1168
+  ],
+  [
+   -79,
+   -2739
+  ],
+  [
+   -100,
+   -2780
+  ],
+  [
+   -99,
+   -2782
+  ],
+  [
+   -80,
+   -2743
+  ],
+  [
+   533,
+   -1215
+  ],
+  [
+   516,
+   -1214
+  ],
+  [
+   524,
+   -1210
+  ],
+  [
+   598,
+   -1196
+  ],
+  [
+   609,
+   -1193
+  ],
+  [
+   604,
+   -1197
+  ],
+  [
+   605,
+   -1190
+  ],
+  [
+   329,
+   -1633
+  ],
+  [
+   349,
+   -1636
+  ],
+  [
+   325,
+   -1661
+  ],
+  [
+   350,
+   -1615
+  ]
+ ],
+ "stages": {
+  "0": "Landing Rd + Birch St to Water St (opens with the bridge)",
+  "1": "Loom Row: Water St and the mills",
+  "2": "Lower Main: downtown, Trestle St bridge, the far bank, the South End streets",
+  "3": "Dithers Hill: the college, Upper Main, the North End",
+  "4": "The Exits and Lake Indecision: the Thruway, its ramps, Second Thought Ave, Offramp Rd"
+ },
+ "stage_reach": {
+  "0": {
+   "open": 2,
+   "reachable_from_landing": 2,
+   "unreached": []
+  },
+  "1": {
+   "open": 3,
+   "reachable_from_landing": 3,
+   "unreached": []
+  },
+  "2": {
+   "open": 22,
+   "reachable_from_landing": 22,
+   "unreached": []
+  },
+  "3": {
+   "open": 41,
+   "reachable_from_landing": 41,
+   "unreached": []
+  },
+  "4": {
+   "open": 56,
+   "reachable_from_landing": 56,
+   "unreached": []
+  }
+ },
+ "placed": [
+  {
+   "thing": "Main St blocks, south end (east and west rows)",
+   "now": [
+    70,
+    -1075
+   ],
+   "plan": [
+    70,
+    -1640
+   ],
+   "moves_m": 565,
+   "how": "slide north 565 m on the same x; the 433 m row fits the 445 m from Trestle St (real Spring St) to Dutch Elm St / Tuition Ave",
+   "files": "mainStreetAssets.ts (Z_SOUTH/Z_NORTH)"
+  },
+  {
+   "thing": "Main St blocks, north end",
+   "now": [
+    70,
+    -1508
+   ],
+   "plan": [
+    70,
+    -2073
+   ],
+   "moves_m": 565,
+   "how": "same slide",
+   "files": "mainStreetAssets.ts"
+  },
+  {
+   "thing": "Quorum Square + Postponement Hall",
+   "now": [
+    20,
+    -1452
+   ],
+   "plan": [
+    20,
+    -1768
+   ],
+   "moves_m": 316,
+   "how": "real Castonguay Square / City Hall at Main x Common St (Bobbin St); check on Street View which side the hall faces",
+   "files": "mainlandPlaces.ts, civicAssets.ts"
+  },
+  {
+   "thing": "The Dead Letter Office (post office)",
+   "now": [
+    -34,
+    -1414
+   ],
+   "plan": [
+    210,
+    -2237
+   ],
+   "moves_m": 858,
+   "how": "real federal post office: east side at the north end of downtown, Main x Tuition Ave",
+   "files": "civicAssets.ts"
+  },
+  {
+   "thing": "Our Lady of Perpetual Hesitation",
+   "now": [
+    -99,
+    -1412
+   ],
+   "plan": [
+    -86,
+    -1312
+   ],
+   "moves_m": 101,
+   "how": "real Notre Dame du Perpetuel Secours, on Silver St (Tarnish St)",
+   "files": "civicAssets.ts"
+  },
+  {
+   "thing": "First Church of the Lukewarm (candidate)",
+   "now": null,
+   "plan": [
+    -15,
+    -1954
+   ],
+   "moves_m": null,
+   "how": "real First Baptist, Elm St (Dutch Elm St)",
+   "files": "civicAssets.ts (Blender lane)"
+  },
+  {
+   "thing": "St. Dither's (candidate)",
+   "now": null,
+   "plan": [
+    -34,
+    -2042
+   ],
+   "moves_m": null,
+   "how": "real Pleasant St Methodist (stone) or First Congregational at [-19, -2525]",
+   "files": "civicAssets.ts"
+  },
+  {
+   "thing": "The Holding Pattern (east lot, as built)",
+   "now": [
+    125,
+    -1345
+   ],
+   "plan": [
+    125,
+    -1860
+   ],
+   "moves_m": 515,
+   "how": "option A: keep it east of Main between the blocks and Front St, slid north with downtown",
+   "files": "mainStreetAssets.ts / riverfrontAssets.ts"
+  },
+  {
+   "thing": "The Holding Pattern (real Concourse position)",
+   "now": [
+    125,
+    -1345
+   ],
+   "plan": [
+    26,
+    -1837
+   ],
+   "moves_m": 502,
+   "how": "option B (likeness): the real Concourse lot is WEST of Main St between Main, Appleton and Spring/Elm",
+   "files": "same"
+  },
+  {
+   "thing": "Threadbare mills + storehouse (Loom Row)",
+   "now": [
+    214,
+    -1380
+   ],
+   "plan": [
+    214,
+    -1380
+   ],
+   "moves_m": 0,
+   "how": "stay: real Hathaway mill stands just below the dam on Water St, as No. 1 does",
+   "files": "riverfrontAssets.ts, mainland.ts EXTRA_LOTS"
+  },
+  {
+   "thing": "Threadbare Dam (falls)",
+   "now": [
+    316,
+    -1570
+   ],
+   "plan": [
+    316,
+    -1570
+   ],
+   "moves_m": 0,
+   "how": "stays = Lockwood Dam (anchor)",
+   "files": "mainland.ts DAM_Z"
+  },
+  {
+   "thing": "Exact Change Footbridge",
+   "now": [
+    313,
+    -1345
+   ],
+   "plan": [
+    313,
+    -1890
+   ],
+   "moves_m": 545,
+   "how": "real Two Cent Bridge is ABOVE the dam, at Temple St (Pocket Change St)",
+   "files": "mainland.ts FOOTBRIDGE_Z, mainlandPlaces.ts, ground.ts"
+  },
+  {
+   "thing": "Road bridge over the river",
+   "now": [
+    320,
+    -1735
+   ],
+   "plan": [
+    300,
+    -1635
+   ],
+   "moves_m": 102,
+   "how": "Trestle St = Spring St + the Ticonic Bridge (Route 201), just above the dam",
+   "files": "mainland.ts ROAD_BRIDGE, ground.ts"
+  },
+  {
+   "thing": "Pardon's Surplus & Salvage + lot",
+   "now": [
+    -642,
+    -1190
+   ],
+   "plan": [
+    -642,
+    -1190
+   ],
+   "moves_m": 0,
+   "how": "stays: Second Thought Ave still meets the Thruway at z -1295 (anchored)",
+   "files": "pardonsSite.ts"
+  },
+  {
+   "thing": "Idle Hands truck stop",
+   "now": [
+    -650,
+    -1330
+   ],
+   "plan": [
+    -650,
+    -1330
+   ],
+   "moves_m": 0,
+   "how": "stays by exit 127, north side",
+   "files": "mainlandPlaces.ts"
+  },
+  {
+   "thing": "Dithers College (hill centre)",
+   "now": [
+    -525,
+    -1672
+   ],
+   "plan": [
+    -470,
+    -2420
+   ],
+   "moves_m": 750,
+   "how": "Colby: Miller Library on the top; campus scale about 0.42 (real 950 x 900 m -> about 400 x 380 m)",
+   "files": "mainland.ts HILL, mainlandPlaces.ts, college unit"
+  },
+  {
+   "thing": "River catapult (Muddle River Crossing)",
+   "now": [
+    243.8,
+    -1250
+   ],
+   "plan": [
+    243.8,
+    -1250
+   ],
+   "moves_m": 0,
+   "how": "stays (South End riverbank)",
+   "files": "launchers.ts"
+  },
+  {
+   "thing": "Fort Reluctance + catapult",
+   "now": [
+    428,
+    -1444
+   ],
+   "plan": [
+    428,
+    -1444
+   ],
+   "moves_m": 0,
+   "how": "stays; real Fort Halifax would warp to [559, -1204] (on the bluff), so keep the game spot",
+   "files": "launchers.ts, mainland.ts"
+  },
+  {
+   "thing": "Railway (east-west line + trestle)",
+   "now": [
+    0,
+    -1897
+   ],
+   "plan": [
+    0,
+    -2110
+   ],
+   "moves_m": 213,
+   "how": "optional: shift to just north of downtown; real tracks run up the river side of College Ave to the yard",
+   "files": "mainland.ts RAIL_*"
+  },
+  {
+   "thing": "Depot / rail yard",
+   "now": [
+    120,
+    -1950
+   ],
+   "plan": [
+    279,
+    -2464
+   ],
+   "moves_m": 538,
+   "how": "real yard lies between College Ave and the river north of downtown",
+   "files": "mainlandPlaces.ts"
+  },
+  {
+   "thing": "Bridge landing (Perpetual Bridge)",
+   "now": [
+    -30,
+    -1080
+   ],
+   "plan": [
+    -30,
+    -1080
+   ],
+   "moves_m": 0,
+   "how": "stays; Landing Rd tees into Birch St (old Front St line)",
+   "files": "plan.ts bridge edge"
+  },
+  {
+   "thing": "Lake Indecision + Afterthought Stream",
+   "now": [
+    -830,
+    -2110
+   ],
+   "plan": [
+    -830,
+    -2110
+   ],
+   "moves_m": 0,
+   "how": "stay (Messalonskee Lake analogue, west of the Thruway)",
+   "files": "mainland.ts"
+  }
+ ],
+ "moose_places": [
+  {
+   "where": "The Thruway, west arm by the lake",
+   "at": [
+    -684,
+    -2068
+   ]
+  },
+  {
+   "where": "The Thruway, north bend",
+   "at": [
+    -642,
+    -2635
+   ]
+  },
+  {
+   "where": "Chapel Hill Rd, woods below the campus",
+   "at": [
+    -377,
+    -2257
+   ]
+  },
+  {
+   "where": "Cherry Tree St, west of the college",
+   "at": [
+    -592,
+    -2115
+   ]
+  },
+  {
+   "where": "Upriver Rd, far bank north",
+   "at": [
+    605,
+    -2127
+   ]
+  },
+  {
+   "where": "Second Thought Ave west end, toward the lake",
+   "at": [
+    -823,
+    -1254
+   ]
+  },
+  {
+   "where": "Offramp Rd south",
+   "at": [
+    -573,
+    -1098
+   ]
+  }
+ ],
+ "river": {
+  "stays": "riverX(z), RIVER_HW, POND_Y unchanged",
+  "dam_z": -1570,
+  "road_bridge_z": -1635,
+  "footbridge_z": -1890,
+  "tributary": "Sidle Brook stays at z -1530"
+ },
+ "dangling_ends": [
+  [
+   "second_thought_ave_0",
+   [
+    -857,
+    -1277
+   ],
+   131
+  ],
+  [
+   "main_st_0",
+   [
+    -162,
+    -2917
+   ],
+   47
+  ],
+  [
+   "tuition_ave_0",
+   [
+    413,
+    -2909
+   ],
+   268
+  ],
+  [
+   "far_bank_rd_0",
+   [
+    524,
+    -1217
+   ],
+   74
+  ],
+  [
+   "blockhouse_rd_0",
+   [
+    782,
+    -1353
+   ],
+   288
+  ],
+  [
+   "offramp_rd_0",
+   [
+    -568,
+    -1048
+   ],
+   117
+  ],
+  [
+   "porch_st_0",
+   [
+    36,
+    -1520
+   ],
+   61
+  ],
+  [
+   "depot_st_0",
+   [
+    -2,
+    -2908
+   ],
+   67
+  ],
+  [
+   "acorn_st_0",
+   [
+    171,
+    -2488
+   ],
+   50
+  ],
+  [
+   "bagpipe_ave_0",
+   [
+    145,
+    -2897
+   ],
+   147
+  ]
+ ],
+ "main_st_row_gaps": [
+  {
+   "road": "Applejack St",
+   "row": "east",
+   "z": -1973
+  },
+  {
+   "road": "Applejack St",
+   "row": "east",
+   "z": -1966
+  },
+  {
+   "road": "Pocket Change St",
+   "row": "east",
+   "z": -1874
+  },
+  {
+   "road": "Bobbin St",
+   "row": "east",
+   "z": -1767
+  },
+  {
+   "road": "Dutch Elm St",
+   "row": "west",
+   "z": -2072
+  },
+  {
+   "road": "Spindle St",
+   "row": "west",
+   "z": -2060
+  },
+  {
+   "road": "Spindle St",
+   "row": "west",
+   "z": -2058
+  },
+  {
+   "road": "Applejack St",
+   "row": "west",
+   "z": -1952
+  },
+  {
+   "road": "Applejack St",
+   "row": "west",
+   "z": -1944
+  },
+  {
+   "road": "Holding Pattern Ln",
+   "row": "west",
+   "z": -1871
+  },
+  {
+   "road": "Holding Pattern Ln",
+   "row": "west",
+   "z": -1867
+  },
+  {
+   "road": "Tarnish St",
+   "row": "west",
+   "z": -1767
+  },
+  {
+   "road": "Trestle St",
+   "row": "west",
+   "z": -1646
+  }
+ ],
+ "exit127_ramps_over_pardons_lot": [
+  "ramp_127_43139503",
+  "ramp_127_43139504"
+ ],
+ "infill_zones": [
+  {
+   "name": "The Stacks (South End)",
+   "real": "South End triple-decker streets",
+   "poly": [
+    [
+     -250,
+     -1140
+    ],
+    [
+     170,
+     -1110
+    ],
+    [
+     170,
+     -1620
+    ],
+    [
+     40,
+     -1640
+    ],
+    [
+     -20,
+     -1720
+    ]
+   ],
+   "grid_m": 90,
+   "stage": 2
+  },
+  {
+   "name": "West End",
+   "real": "west Waterville residential grid (Western Ave, Chase Ave, First Rangeway area)",
+   "poly": [
+    [
+     -590,
+     -1320
+    ],
+    [
+     -300,
+     -1170
+    ],
+    [
+     -200,
+     -1650
+    ],
+    [
+     -330,
+     -1900
+    ],
+    [
+     -590,
+     -1950
+    ]
+   ],
+   "grid_m": 110,
+   "stage": 3
+  },
+  {
+   "name": "North End",
+   "real": "North End between Main St and College Ave",
+   "poly": [
+    [
+     70,
+     -2090
+    ],
+    [
+     170,
+     -2125
+    ],
+    [
+     250,
+     -2400
+    ],
+    [
+     30,
+     -2420
+    ],
+    [
+     -60,
+     -2200
+    ]
+   ],
+   "grid_m": 90,
+   "stage": 3
+  },
+  {
+   "name": "Mayflower Hill houses",
+   "real": "residential between Mayflower Hill Dr and North St",
+   "poly": [
+    [
+     -300,
+     -2100
+    ],
+    [
+     -150,
+     -2065
+    ],
+    [
+     -60,
+     -2350
+    ],
+    [
+     -250,
+     -2450
+    ]
+   ],
+   "grid_m": 110,
+   "stage": 3
+  }
+ ],
+ "notes": [
+  "Polylines are drawn from OSM and kept at their real bends; the current engine (plan.ts RoadEdge.horiz, traffic.ts, ground.ts) only knows axis-aligned edges, so step 2 must add angled/curved edges.",
+  "Infill zones get small local grids (like the Stacks today) clipped to the arterials; they are not traced street by street.",
+  "Main St downtown is straightened onto x 70 (real Main St runs 12 deg west of north); everything else keeps its real shape.",
+  "The real Concourse lot is WEST of Main St; the built Holding Pattern is east. Placed list gives both options.",
+  "The second Winslow crossing (Carter Memorial Bridge, route 137) falls south of the bluff in the warp and is left out; the Perpetual Bridge from the island takes its place as the southern way in."
+ ]
+}

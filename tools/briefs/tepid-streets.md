@@ -29,3 +29,17 @@ Multiplayer: the map is static and the same for every browser; the host-run traf
 rails (check src/net/shared.ts and cars.ts key traffic by rail/edge ids).
 This is big: split it into a first unit that produces the new street plan as data plus a picture of
 it overlaid on the real map for the lead to check BEFORE rebuilding, then the rebuild.
+
+## Step 1 done (Nov 23): the plan is tools/briefs/tepid-streets-plan.json (pictures in scratch/streets/)
+Owner decisions on it: (1) "Yes, real layout": downtown moves ~560 m north above the dam, arrival is the
+South End by the mills, diagonals and the I-95 curve kept; (2) The Holding Pattern moves WEST of Main St
+to the real Concourse's place (option B in the plan). Lead decision: the exit 127 ramps clash with
+Pardon's lot: move the Thruway ~35 m west through the exit (Pardon's stays at its real place).
+Step 2, about six units in order: (1) plan graph with angled/curved edges from the JSON (plan.ts;
+island untouched and first in the lists); (2) ground meshes along polylines, junction pads,
+roundabouts, bridges; (3) traffic on polylines, signals, roundabouts, adoption in multiplayer;
+(4) move the assets (Main St rows, Quorum Square and civic buildings, footbridge, road bridge, rail,
+depot, Holding Pattern to the west, college hill site); (5) radar, map, parking, pedestrians, police,
+moose places, flood reach, snowbanks, activities; (6) per-road stages, protocol version bump (edge ids
+change), full checks. Each unit leaves the game working (use a switch such as ?streets=old until unit 6
+makes the new plan the default).
