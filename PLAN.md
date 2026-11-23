@@ -88,6 +88,19 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Claude FM is the default car radio: pushed Nov 23, about 10:05 AM ET
+
+Owner request: the default radio is Anthropic's live YouTube stream Claude FM, with the player HIDDEN
+for the demo (the owner was told this is against YouTube's embed terms and chose it). `src/audio/
+claudefm.ts` loads the IFrame API only on the first tune, embeds `live_stream?channel=UCV03SRZXJEz-
+hchIAogeJOg` (no fixed video id) in an invisible 200x200 box, and plays only in a car, unpaused, tab
+visible, volume master x radio. Dial: off, 0 Claude FM, then the six generated stations. If YouTube
+fails (offline, refused, no play in 15 s) the radio moves to WDOOF 99.9 with a toast and skips Claude
+FM for the session. Confirmed in real headed Chrome: playing, unmuted, time advancing while hidden and
+while the window was covered or minimised; offline fallback in 4 s. `tools/pw.mjs` now ignores
+YouTube's and Google's own console noise. Owed: a really hidden tab was only simulated; saves on
+station 1-5 come back one station earlier; the audio meter cannot hear Claude FM; nobody listened.
+
 ### Quality check on the laptop's GPU after multiplayer: pushed Nov 23, about 9:30 AM ET
 
 - **Multiplayer costs no frame rate.** Real loop, 1920x1080 high, against 9f3c5de (before

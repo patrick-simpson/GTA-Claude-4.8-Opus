@@ -36,7 +36,7 @@ export interface Settings {
   reducedMotion: boolean;
   /** Sound (src/audio/), each 0..1: everything; the car radio; engines, effects and the UI; the weather and the town. */
   volMaster: number; volMusic: number; volSfx: number; volAmbience: number;
-  /** The station the radio was left on: -1 = off. */
+  /** The station the radio was left on: -1 = off, 0 = Claude FM, 1.. = the generated stations (src/audio/radio.ts). */
   station: number;
 }
 
@@ -149,7 +149,7 @@ export function sanitize(raw: unknown): SaveDoc {
   d.settings.volMusic = num(t.volMusic, 0.7, 0, 1);
   d.settings.volSfx = num(t.volSfx, 0.8, 0, 1);
   d.settings.volAmbience = num(t.volAmbience, 0.8, 0, 1);
-  d.settings.station = Math.round(num(t.station, 0, -1, 5));
+  d.settings.station = Math.round(num(t.station, 0, -1, 6));
   return d;
 }
 

@@ -24,6 +24,7 @@ import { save } from '../game/save';
 import { progress } from '../world/progress';
 import { mulberry, type AudioCore } from './audio';
 import { hiss, ping, thud } from './sfx';
+import { ClaudeFM, CLAUDE_FM_CALL } from './claudefm';
 
 // ── Harmony ──────────────────────────────────────────────────────────────────
 
@@ -556,27 +557,46 @@ export function staticBurst(core: AudioCore, t: number, out: AudioNode, r: () =>
 // ── The part the game runs ───────────────────────────────────────────────────
 
 export class Radio {
-  /** Index into STATIONS, or -1 for off. */
+  /**
+   * The dial: -1 off, 0 Claude FM (the live stream, src/audio/claudefm.ts, and the default), then 1.. for
+   * STATIONS[0..]. Saved as save.data.settings.station.
+   */
   station: number;
   player: StationPlayer | null = null;
+  /** Claude FM's hidden YouTube player. Loads nothing until she first tunes to it. */
+  readonly fm: ClaudeFM;
   private wasIn = false;
+  private paused = false;
 
   constructor(private readonly core: AudioCore, private readonly game: Game) {
     this.station = Math.min(save.data.settings.station, this.count() - 1);
+    this.fm = new ClaudeFM((why) => {
+      console.warn('Claude FM unavailable: ' + why);
+      // Silently over to the first generated station, with a word on the HUD; never in the way of the game.
+      if (this.station === 0) {
+        this.station = 1;
+        if (this.game.player.vehicle) { this.game.hud.toast('Claude FM is off the air. Over to ' + STATIONS[0].call + '.', 3.5); this.show(); }
+      }
+    });
+    game.on('pause', (e) => { this.paused = e.on; if (e.on) this.fm.pause(); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.fm.pause(); });
   }
 
-  /** How many stations can be had: Tepid Falls' transmitter does not reach until the bridge does. */
-  count(): number { return progress.complete ? STATIONS.length : STATIONS.length - 1; }
+  /** How many places on the dial: Claude FM, then the generated stations; Tepid Falls' transmitter does not reach until the bridge does. */
+  count(): number { return 1 + (progress.complete ? STATIONS.length : STATIONS.length - 1); }
 
   private show(): void {
-    const s = this.station >= 0 ? STATIONS[this.station] : null;
+    if (this.station === 0) { this.game.hud.radio(CLAUDE_FM_CALL, ''); return; }
+    const s = this.station > 0 ? STATIONS[this.station - 1] : null;
     this.game.hud.radio(s ? s.call : 'Radio off', s ? s.name : '');
   }
 
-  /** The dial, one click on. */
+  /** The dial, one click on. Claude FM is skipped once it has failed this session. */
   next(): void {
     const c = this.core;
-    this.station = this.station + 1 >= this.count() ? -1 : this.station + 1;
+    let n = this.station + 1 >= this.count() ? -1 : this.station + 1;
+    if (n === 0 && this.fm.state === 'failed') n = 1;
+    this.station = n;
     save.data.settings.station = this.station;
     save.write();
     if (this.player) { this.player.stop(c.now); this.player = null; }
@@ -592,10 +612,14 @@ export class Radio {
    */
   clock(i: number): number { return this.game.time + STATIONS[i].seed * 13.7; }
 
-  /** The radio key, read whether or not the context is awake yet. */
+  /** The radio key, read whether or not the context is awake yet; and Claude FM, which lives outside the context. */
   keys(): void {
-    const g = this.game;
-    if (g.player.vehicle && g.input.hit('radio')) this.next();
+    const g = this.game, s = save.data.settings, v = g.player.vehicle;
+    if (v && g.input.hit('radio')) this.next();
+    if (this.station === 0 && this.fm.state === 'failed') this.station = 1;
+    const fm = this.station === 0 && !!v && !v.sunk && !this.paused && document.visibilityState !== 'hidden'
+      && s.volMaster > 0 && s.volMusic > 0 && this.core.now >= this.tuneAt;
+    this.fm.set(fm, s.volMaster * s.volMusic);
   }
 
   update(_dt: number): void {
@@ -604,12 +628,13 @@ export class Radio {
     if (inCar && !this.wasIn && this.station >= 0) this.show();
     this.wasIn = inCar;
     if (this.station >= this.count()) this.station = -1;
-    const want = inCar && this.station >= 0 && save.data.settings.volMusic > 0;
+    const want = inCar && this.station > 0 && save.data.settings.volMusic > 0;
     if (!want) { if (this.player) { this.player.stop(t); this.player = null; } return; }
     if (!this.player) {
       if (t < this.tuneAt) return;
-      this.player = new StationPlayer(c, STATIONS[this.station], c.bus.music);
-      this.player.start(t + 0.03, this.clock(this.station));
+      const st = STATIONS[this.station - 1];
+      this.player = new StationPlayer(c, st, c.bus.music);
+      this.player.start(t + 0.03, this.clock(this.station - 1));
     }
     this.player.pump(t);
   }

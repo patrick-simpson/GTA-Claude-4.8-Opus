@@ -152,3 +152,4 @@ owner's ground rules for the takeover and the running state.
   improvements using the laptop. Weekly gauge for this model 4% at 7:05 AM.
 - Nov 23, 7:40 AM ET: OWNER: Claude FM (YouTube live) is the DEFAULT car radio, player HIDDEN for the demo (told it is against YouTube's terms; chose it). Brief tools/briefs/claude-fm.md, queued after the QA worker.
 - Nov 23, 9:30 AM ET: QA pushed (governor touch-laptop fix; MP costs no frames). Next: Claude FM radio.
+- Nov 23, 10:05 AM ET: Claude FM pushed. Next: Tepid Falls Waterville (tools/briefs/tepid-waterville.md), reference gathering first.

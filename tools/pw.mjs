@@ -66,10 +66,13 @@ export async function boot(o = {}) {
     ? { viewport: { width, height }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
     : { viewport: { width, height }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
+  // The Claude FM radio embeds a YouTube player; its own ad, tracking and stream hiccups are not the game's errors.
+  const THIRD = /youtube\.com|youtube-nocookie|ytimg\.com|googlevideo\.com|doubleclick\.net|google\.com|gstatic\.com|googleads|compute-pressure/i;
   const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  const add = (s) => { if (!THIRD.test(s)) errors.push(s); };
+  page.on('console', (m) => { if (m.type() === 'error') add(m.text() + ' ' + (m.location()?.url ?? '')); });
   page.on('pageerror', (e) => errors.push(String(e.stack || e)));
-  page.on('requestfailed', (r) => errors.push('request failed: ' + r.url()));
+  page.on('requestfailed', (r) => add('request failed: ' + r.url()));
   const file = dist && !fs.existsSync(path.join(ROOT, 'dist', pagePath)) ? '' : pagePath;
   const url = `http://127.0.0.1:${port}/${file}${query ? '?' + query : ''}`;
   await page.goto(url, { waitUntil: 'load', timeout });
