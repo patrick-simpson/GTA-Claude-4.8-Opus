@@ -11,7 +11,8 @@ import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { Look, Person, Pose, Vehicle } from '../core/api';
 import { RNG, angleDiff, clamp } from '../core/util';
-import { KINDS, SPECS, type VehicleKind } from '../ent/vehicleSpecs';
+import { KINDS, SPECS, isBoatKind, type VehicleKind } from '../ent/vehicleSpecs';
+import type { Boat, BoatKind } from '../ent/boat';
 import { DAMAGE_WRECK, POSES, RAG_FLOATS, stepHealth, PlayerEvent, PlayerFlag, PlayerMode, type PlayerState } from './protocol';
 import { charCar } from '../ent/weapons';
 import { SAYS, nameText } from './names';
@@ -339,7 +340,21 @@ export class Remote {
     let top: number;
     if (kind) {
       // (Another kind, or a whole car where a burnt out one was shown: another car.)
-      if (this.car && (this.car.spec.kind !== kind || (this.car.wreck && c.damage < DAMAGE_WRECK))) { g.vehicles.unghost(this.car); this.car = null; }
+      if (this.car && (this.car.spec.kind !== kind || (this.car.wreck && c.damage < DAMAGE_WRECK))) { this.drop(); }
+      if (isBoatKind(kind)) {
+        // A boat (ent/boat.ts): drawn by the boats, with its wake and spray, and its driver sat on the seat.
+        if (!this.car) this.car = g.player.boats.ghost(kind as BoatKind, c.color);
+        const boat = this.car as unknown as Boat;
+        this.damage = 0;
+        g.player.boats.ghostPose(boat, c.x, c.y, c.z, c.yaw, c.pitch, c.roll, dt);
+        per.visible = true;
+        const sp = boat.seatPos(0, this.seat);
+        per.x = sp.x; per.y = sp.y; per.z = sp.z; per.h = c.yaw; per.pose = 'sit'; per.speed = 0; per.bench = true;
+        top = SPECS[kind].height + 1.2;
+        this.top = top;
+        if (!this.placed) { this.placed = true; this.tag(eye, night); }
+        return;
+      }
       if (!this.car) this.car = g.vehicles.ghost(kind, c.color);
       const car = this.car;
       // Stage 3, step 4: as bent as its owner's browser says, which is what makes it steam, smoke and burn here.
@@ -354,7 +369,7 @@ export class Remote {
       per.x = c.x; per.y = c.y; per.z = c.z; per.h = c.yaw; per.pose = 'sit'; per.speed = 0;
       top = SPECS[kind].height + 0.3;
     } else {
-      if (this.car) { g.vehicles.unghost(this.car); this.car = null; }
+      if (this.car) { this.drop(); }
       this.damage = 0;
       per.visible = true;
       per.x = c.x; per.y = c.y; per.z = c.z; per.h = c.yaw;
@@ -374,6 +389,15 @@ export class Remote {
 
     this.top = top;
     if (!this.placed) { this.placed = true; this.tag(eye, night); }
+  }
+
+  private readonly seat = new THREE.Vector3();
+  /** Take down whatever this player's ghost vehicle is (a car, or a boat). */
+  private drop(): void {
+    const v = this.car, g = this.game;
+    if (!v) return;
+    if (isBoatKind(v.spec.kind)) g.player.boats.unghost(v as never); else g.vehicles.unghost(v);
+    this.car = null;
   }
 
   /** The tag keeps about the same size on screen until it is far off, then shrinks and fades. */
@@ -408,7 +432,7 @@ export class Remote {
   dispose(): void {
     const g = this.game;
     if (this.person) { g.people.remove(this.person); this.person = null; }
-    if (this.car) { g.vehicles.unghost(this.car); this.car = null; }
+    if (this.car) { this.drop(); }
     g.scene.remove(this.label);
     g.scene.remove(this.sayLabel);
     this.sayTex?.dispose();

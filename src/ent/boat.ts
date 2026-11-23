@@ -442,7 +442,7 @@ export class Boats {
 
   // ── Other players' boats (for net/remote.ts to draw instead of a ghost car) ──────────────────────────
 
-  private readonly ghosts: Boat[] = [];
+  readonly ghosts: Boat[] = [];
   private named: Map<string, THREE.Object3D> | null = null;
   private ghostId = 9100;
 
