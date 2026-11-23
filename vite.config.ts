@@ -7,11 +7,20 @@ import { fileURLToPath } from 'node:url';
 const models = fileURLToPath(new URL('./public/models', import.meta.url));
 const modelBytes = Object.fromEntries(fs.readdirSync(models).map((f) => [f, fs.statSync(`${models}/${f}`).size]));
 
+// This build's id: the commit on GitHub, BUILD_ID when a test sets one, else the time. It is baked into the bundle as
+// __BUILD_ID__ and written to dist/version.json, which the running game polls (src/core/update.ts).
+const buildId = process.env.GITHUB_SHA || process.env.BUILD_ID || String(Date.now());
+
 // Relative base so the build works on the custom domain and on a /repo/ sub-path alike.
 export default defineConfig({
   base: './',
-  define: { __MODEL_BYTES__: JSON.stringify(modelBytes) },
+  define: { __MODEL_BYTES__: JSON.stringify(modelBytes), __BUILD_ID__: JSON.stringify(buildId) },
   plugins: [{
+    name: 'version-stamp',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ id: buildId }) });
+    },
+  }, {
     // The game's script is a dynamic import of the small entry script (src/main.ts), so the page would only learn
     // its address after running that one. Name it in the page itself and the two are fetched side by side.
     name: 'preload-game',

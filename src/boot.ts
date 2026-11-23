@@ -11,6 +11,7 @@ import { FLORA_FILES } from './world/floraAssets';
 import { PROPS_FILE } from './world/propAssets';
 import { MPH } from './core/util';
 import { progress } from './world/progress';
+import { watchForUpdates } from './core/update';
 import { title, titleAt } from './ui/title';
 import type { Weather } from './core/api';
 import type { VehicleKind } from './ent/vehicleSpecs';
@@ -33,6 +34,7 @@ const game = new Game(canvas);
   assets.plan([...opening, ...cars.later], opening.length);
 }
 title.attach(game);
+watchForUpdates(game);
 
 /**
  * Test hooks. Playwright drives the simulation through these instead of
