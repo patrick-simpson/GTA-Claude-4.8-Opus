@@ -25,7 +25,7 @@ import { progress } from '../world/progress';
 import { commonKind } from '../ent/vehicleSpecs';
 import { money } from '../core/util';
 import { save } from './save';
-import { clock, type Markers, type Pt } from './script';
+import { clearOf, clock, type Markers, type Pt } from './script';
 
 const FEET = 3.28084;
 export const DUCKS = 30;
@@ -88,6 +88,8 @@ export class Activities {
   private clockT = 0; private haul = 0;
   // tow
   private towed: Vehicle | null = null; private hooked = false; private yard: { at: Pt; name: string } | null = null;
+  /** The cab, van or truck the job is being done in: the job's own while it runs (Vehicle.held; net/held.ts). */
+  private ride: Vehicle | null = null;
   // race
   private race: RaceDef | null = null; private cpI = 0;
   // jumps
@@ -184,13 +186,28 @@ export class Activities {
     return null;
   }
 
-  private begin(job: string): void { this.job = job; this.awayT = 0; this.setBusy(job); }
+  private begin(job: string): void {
+    this.job = job; this.awayT = 0;
+    // A race is run in whatever she happens to be driving; the other three are done in one vehicle, which is the job's.
+    if (job !== 'race') this.hold(this.game.player.vehicle);
+    this.setBusy(job);
+  }
+
+  /** The job's vehicle changes (or, with null, the job lets go of it). */
+  private hold(v: Vehicle | null): void {
+    if (this.ride === v) return;
+    if (this.ride) this.ride.held = false;
+    this.ride = v;
+    if (v) v.held = true;
+  }
 
   /** End whatever job is running, with a word about why. */
   stop(why?: string): void {
     if (!this.job) return;
     const g = this.game;
     if (this.rider) { g.people.remove(this.rider); this.rider = null; }
+    this.hold(null);
+    if (this.towed) this.towed.held = false;
     if (this.towed && g.vehicles.list.includes(this.towed) && g.player.vehicle !== this.towed) {
       if (this.job === 'tow' && !this.hooked) g.vehicles.remove(this.towed);
     }
@@ -233,6 +250,8 @@ export class Activities {
       return;
     }
     this.awayT = 0;
+    // (Another cab will do as well as the one the shift began in: the job is in this one now.)
+    if (need) this.hold(v);
     if (this.job === 'taxi') this.tickTaxi(dt, v);
     else if (this.job === 'courier') this.tickCourier(dt, v);
     else if (this.job === 'tow') this.tickTow(dt, v);
@@ -281,12 +300,15 @@ export class Activities {
       g.hud.toast(`${drops.length} parcels, any order. Stop at each ring.`, 5);
     } else {
       if (v.spec.kind !== 'tow') return false;
-      const spots = (p.z < -900 ? g.plan.mainlandParking : g.plan.parking).filter((s) => { const d = Math.hypot(s.x - p.x, s.z - p.z); return d > 160 && d < 520; });
+      // (In a shared town a place where this browser is only shown a car is not free to tow from: clearOf says so.)
+      const spots = (p.z < -900 ? g.plan.mainlandParking : g.plan.parking).filter((s) => { const d = Math.hypot(s.x - p.x, s.z - p.z); return d > 160 && d < 520 && clearOf(g, s, s.h) === s; });
       if (!spots.length) { g.hud.toast('Nothing to tow. Everyone has parked legally, which is suspicious.', 4); return false; }
       const s = spots[Math.floor(Math.random() * spots.length)];
-      for (let c = g.vehicles.nearest(s.x, s.z, 5, (o) => o.driver === null && o !== v); c; c = g.vehicles.nearest(s.x, s.z, 5, (o) => o.driver === null && o !== v)) g.vehicles.remove(c);
+      const own = (o: Vehicle): boolean => o.driver === null && o !== v && !o.shared && !o.held;
+      for (let c = g.vehicles.nearest(s.x, s.z, 5, own); c; c = g.vehicles.nearest(s.x, s.z, 5, own)) g.vehicles.remove(c);
       this.begin('tow');
       this.towed = g.vehicles.spawn(commonKind(Math.random()), s.x, s.z, s.h, 0x8a9a6b);
+      this.towed.held = true;
       this.hooked = false;
       // The farther yard, so there is a haul in it. On the mainland the pound is "the landing".
       const yards = p.z < -900 ? [{ at: { x: SITES.landing.x, z: SITES.landing.z - 20 }, name: 'the lot at Tepid Landing' }] : this.yards;
@@ -368,7 +390,7 @@ export class Activities {
 
   private tickTow(dt: number, v: Vehicle): void {
     const g = this.game, hud = g.hud, c = this.towed, y = this.yard;
-    if (!c || !y || c.wreck || c.sunk || !g.vehicles.list.includes(c)) { this.towed = null; hud.stamp('WRITTEN OFF', 'There is nothing left to tow. The owner will be thrilled.'); this.stop(); return; }
+    if (!c || !y || c.wreck || c.sunk || !g.vehicles.list.includes(c)) { if (c) c.held = false; this.towed = null; hud.stamp('WRITTEN OFF', 'There is nothing left to tow. The owner will be thrilled.'); this.stop(); return; }
     if (!this.hooked) {
       this.target = { x: c.x, z: c.z };
       this.markers.put(c.x, c.z, 'job', 4, 22);

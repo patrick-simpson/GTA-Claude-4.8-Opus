@@ -17,6 +17,9 @@
 // Stage 4, step 1 (town.ts): the hour and the weather are the town's on both services, worked out from the service's
 // clock without a message; on the main service the bridge and the far town's stages are the town's too.
 //
+// Stage 4, step 2 (held.ts): each player runs their own missions and jobs; a car one of them is holding stays its
+// runner's, is shown to the others as theirs, and is taken away for everybody when the script takes it away.
+//
 // Sending (protocol.ts has the rules): a State frame up to SEND_HZ times a second, but only when something has
 // changed since the last one sent; a one byte keepalive every KEEPALIVE_MS otherwise; the measured frame time every
 // PERF_INTERVAL_MS. Alone in the city, nothing at all is sent, so the city sleeps.
@@ -42,6 +45,7 @@ import { TownPolice } from './police';
 import { TownFight } from './fight';
 import { TownProps } from './props';
 import { Town } from './town';
+import { TownHeld } from './held';
 import { SAYS, myName, nameText, rerollName } from './names';
 
 const SEND_MS = 1000 / SEND_HZ;
@@ -66,6 +70,8 @@ export class Net {
   readonly props: TownProps;
   /** The town's hour, weather and bridge (stage 4, step 1). */
   readonly town: Town;
+  /** The cars missions and jobs are holding: their runner's own, and shown to the others as that (stage 4, step 2). */
+  readonly held: TownHeld;
   /** State frames sent, apart from the totals in conn.sent. */
   statesSent = 0;
 
@@ -107,6 +113,9 @@ export class Net {
     this.fight = new TownFight(game, c, this.remotes, this.shared, this.cars);
     this.props = new TownProps(game, c, this.remotes, this.shared);
     this.town = new Town(game, c, this.remotes);
+    this.held = new TownHeld(game, c, this.remotes, this.shared, this.cars);
+    this.fight.held = this.held;
+    this.shared.heldCars = () => this.held.list();
     // A paused game simulates nothing, so it says at once that it cannot host (and, on resuming, that it can again).
     game.on('pause', () => { this.perfAt = 0; });
     c.start();
@@ -168,6 +177,7 @@ export class Net {
     this.cars.refresh();
     this.people.refresh();
     this.props.refresh();
+    this.held.refresh();
   }
 
   private drop(id: number): void {
@@ -175,6 +185,7 @@ export class Net {
     if (!r) return;
     this.cars.dropped(r, performance.now());
     this.fight.dropped(id);
+    this.held.dropped(id);
     r.dispose();
     this.remotes.delete(id);
   }
@@ -183,6 +194,7 @@ export class Net {
     for (const r of this.remotes.values()) r.dispose();
     this.remotes.clear();
     this.fight.clear();
+    this.held.clear();
     this.showCount();
   }
 
@@ -211,7 +223,8 @@ export class Net {
       const e = decodePlayerEvent(buf);
       if (!e) return;
       // The horn is heard from the flag in the state frames; waves and shouts come this way, and so does gunfire.
-      if (e.code === PlayerEvent.Prop) this.props.event(buf);
+      if (e.code === PlayerEvent.Held) this.held.event(buf, performance.now());
+      else if (e.code === PlayerEvent.Prop) this.props.event(buf);
       else if (e.code >= PlayerEvent.Fire) this.fight.event(e.code, buf, performance.now());
       else this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
       return;
@@ -316,6 +329,8 @@ export class Net {
     if (this.conn.status === 'off') return;
     const now = performance.now(), g = this.game;
     if (this.noteKind && !this.told[this.noteKind] && g.state === 'play') this.tellOnce(this.noteKind);
+    // (Before this player's own state goes: a car they have this moment got out of is in the list by then.)
+    this.held.update(now, dt);
     this.pump(now);
     if (g.state === 'play' && g.input.hit('say')) this.sayCycle();
     if (this.remotes.size > 0) {
@@ -418,6 +433,8 @@ export class Net {
       props: this.props.info(),
       // town: the hour and weather on this screen and the town's, the bridge as the service holds it, as shown and this player's own (town.ts).
       town: this.town.info(),
+      // held: the cars scripts hold for this player (`mine`) and the other players' as drawn here (`theirs`), and the lists sent and heard (held.ts).
+      held: this.held.info(),
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({

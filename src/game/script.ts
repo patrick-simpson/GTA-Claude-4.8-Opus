@@ -112,6 +112,28 @@ export function streetRoute(plan: CityPlan, a: Pt, b: Pt, lane = 3): Pt[] {
   return out;
 }
 
+/**
+ * Where a script's own car can go when it wants the spot `at` (facing h). Alone that is the spot: whatever the city
+ * parked there has been towed. In a shared town a car this browser is only SHOWN (the town's, placed by the host;
+ * another player's) cannot be towed from here, because it would still be standing there for everybody else: the
+ * script's car then takes the nearest clear length of the same lane instead.
+ */
+export function clearOf(game: Game, at: Pt, h: number): Pt {
+  const vs = game.vehicles;
+  const taken = (x: number, z: number): boolean => {
+    for (const o of vs.list) if (o.shared && Math.hypot(o.x - x, o.z - z) < 5) return true;
+    for (const o of vs.ghostList) if (Math.hypot(o.x - x, o.z - z) < 5) return true;
+    return false;
+  };
+  if (!taken(at.x, at.z)) return at;
+  const sx = Math.sin(h), sz = Math.cos(h);
+  for (let k = 1; k <= 5; k++) for (const s of [1, -1]) {
+    const x = at.x + sx * 6.5 * k * s, z = at.z + sz * 6.5 * k * s;
+    if (!taken(x, z) && !vs.nearest(x, z, 5)) return { x, z };
+  }
+  return at;
+}
+
 // ── World markers ────────────────────────────────────────────────────────────
 
 export type MarkKind = 'goal' | 'giver' | 'job' | 'item';
@@ -290,6 +312,8 @@ export class Runner {
     const g = this.game;
     for (const e of this.ents.values()) {
       if ('spec' in e) {
+        // Let go of (the mark is for a shared town: net/held.ts). The one she is sitting in is hers to keep, as an ordinary car.
+        e.held = false;
         if (g.player.vehicle === e) continue;
         if (g.vehicles.list.includes(e)) { if (e.driver === 'ai') e.driver = null; g.vehicles.remove(e); }
       } else g.people.remove(e);
@@ -364,9 +388,12 @@ export class Runner {
 
   private spawnCar(kind: VehicleKind, at: Pt, h: number, color?: number): Vehicle {
     const vs = this.game.vehicles;
-    // Whatever the city parked on the spot makes way.
-    for (let c = vs.nearest(at.x, at.z, 5, (o) => o.driver === null && o !== this.game.player.vehicle); c; c = vs.nearest(at.x, at.z, 5, (o) => o.driver === null && o !== this.game.player.vehicle)) vs.remove(c);
-    return vs.spawn(kind, at.x, at.z, h, color);
+    // Whatever the city parked on the spot makes way. (Not a car this browser is only shown in a shared town, and not
+    // one a script is holding: see clearOf.)
+    const own = (o: Vehicle): boolean => o.driver === null && o !== this.game.player.vehicle && !o.shared && !o.held;
+    for (let c = vs.nearest(at.x, at.z, 5, own); c; c = vs.nearest(at.x, at.z, 5, own)) vs.remove(c);
+    const p = clearOf(this.game, at, h);
+    return vs.spawn(kind, p.x, p.z, h, color);
   }
 
   // ── Per frame ──────────────────────────────────────────────────────────────
@@ -475,7 +502,13 @@ export class Runner {
     const g = this.game;
     switch (s.t) {
       case 'say': this.lines.push({ who: s.who, text: s.text, left: -1 }); break;
-      case 'spawnVehicle': this.ents.set(s.tag, this.spawnCar(s.kind, s.at, s.h, s.color)); break;
+      case 'spawnVehicle': {
+        const v = this.spawnCar(s.kind, s.at, s.h, s.color);
+        // The script's own until it lets go: in a shared town it stays this player's (net/held.ts).
+        v.held = true;
+        this.ents.set(s.tag, v);
+        break;
+      }
       case 'spawnActor': {
         const p = g.people.spawn(s.at.x, s.at.z, s.h, { ...g.people.randomLook(), ...s.look });
         p.pose = 'stand';
@@ -485,7 +518,7 @@ export class Runner {
       case 'despawn': {
         const e = this.ents.get(s.tag);
         if (!e) break;
-        if ('spec' in e) { if (g.player.vehicle !== e && g.vehicles.list.includes(e)) { e.driver = null; g.vehicles.remove(e); } } else g.people.remove(e);
+        if ('spec' in e) { e.held = false; if (g.player.vehicle !== e && g.vehicles.list.includes(e)) { e.driver = null; g.vehicles.remove(e); } } else g.people.remove(e);
         if (this.rail && this.rail.v === e) this.rail = null;
         this.ents.delete(s.tag);
         break;

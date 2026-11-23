@@ -303,7 +303,7 @@ export function decodePlayerState(buf: ArrayBuffer, out?: PlayerState): PlayerSt
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9 } as const;
 
 export function encodePlayerEvent(code: number, arg = 0): ArrayBuffer {
   const buf = makeFrame(Frame.Event, 2);
@@ -1215,6 +1215,67 @@ export function decodeProps(buf: ArrayBuffer): number[] | null {
   const keys: number[] = [];
   for (let i = 0, o = PROPS_HEADER_BYTES; i < n; i++, o += PROP_BYTES) keys.push(d.getUint32(o, false));
   return keys;
+}
+
+// ---- Cars a script holds for its player (stage 4, step 2; net/held.ts) ----
+//
+// A mission's cars and a job's cars stay their runner's for as long as the script holds them. Only in a town on the
+// MAIN service. The runner's browser is the one that simulates them; the others are told where they stand, so that
+// they can show them (drawn, solid, nobody else's to get into), with one Event frame holding the WHOLE list. It is
+// sent when the list or a car in it changes (at most SEND_HZ times a second), once more when somebody arrives, and
+// never while the cars stand still. The car the runner is driving is not in it: the State frames show that one.
+// Still version 4: the service passes an Event unread, and a page that does not know the code ignores it.
+//
+// Held (Event), 4 + 15 per car bytes:
+//   0 kind (Frame.Event)  1 id  2 PlayerEvent.Held  3 n u8 (0..HELD_MAX; 0 = "none any more")
+//   4.. per car: slot (low 3 bits: the same car keeps its slot) | damage (high 4 bits, the 16 steps of DAMAGE_BURN)
+//     kind u8  colour u24 (a mission paints its cars as it likes)  x u16  z u16 (5 cm steps from TRAFFIC_X0,
+//     TRAFFIC_Z0)  y i16 (cm)  yaw u16  pitch i8  roll i8 (1/200 rad)
+export const HELD_MAX = 6;
+export const HELD_HEADER_BYTES = 4;
+export const HELD_CAR_BYTES = 15;
+export interface HeldCar { slot: number; damage: number; kind: number; color: number; x: number; y: number; z: number; yaw: number; pitch: number; roll: number }
+export function blankHeldCar(): HeldCar { return { slot: 0, damage: 0, kind: 0, color: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0 }; }
+export function encodeHeld(cars: readonly HeldCar[], n: number): ArrayBuffer {
+  const m = Math.min(n, HELD_MAX);
+  const buf = makeFrame(Frame.Event, HELD_HEADER_BYTES - FRAME_HEADER_BYTES + m * HELD_CAR_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, PlayerEvent.Held); d.setUint8(3, m);
+  for (let i = 0, o = HELD_HEADER_BYTES; i < m; i++, o += HELD_CAR_BYTES) {
+    const c = cars[i], col = c.color >>> 0;
+    d.setUint8(o, (c.slot & 7) | ((c.damage & 15) << 4));
+    d.setUint8(o + 1, c.kind & 0xff);
+    d.setUint8(o + 2, (col >> 16) & 0xff); d.setUint8(o + 3, (col >> 8) & 0xff); d.setUint8(o + 4, col & 0xff);
+    d.setUint16(o + 5, clampU16((c.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+    d.setUint16(o + 7, clampU16((c.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+    d.setInt16(o + 9, clampI16(c.y * 100), true);
+    const turn = (((c.yaw % TAU) + TAU) % TAU) / TAU;
+    d.setUint16(o + 11, Math.round(turn * 65535) & 0xffff, true);
+    d.setInt8(o + 13, clampI8(c.pitch * 200));
+    d.setInt8(o + 14, clampI8(c.roll * 200));
+  }
+  return buf;
+}
+/** Null when the frame is not a well formed list of held cars. */
+export function decodeHeld(buf: ArrayBuffer): { id: number; cars: HeldCar[] } | null {
+  const len = buf.byteLength;
+  if (len < HELD_HEADER_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.Event || d.getUint8(2) !== PlayerEvent.Held) return null;
+  const n = d.getUint8(3);
+  if (n > HELD_MAX || HELD_HEADER_BYTES + n * HELD_CAR_BYTES > len) return null;
+  const cars: HeldCar[] = [];
+  for (let i = 0, o = HELD_HEADER_BYTES; i < n; i++, o += HELD_CAR_BYTES) {
+    const sd = d.getUint8(o);
+    cars.push({
+      slot: sd & 7, damage: sd >> 4, kind: d.getUint8(o + 1),
+      color: (d.getUint8(o + 2) << 16) | (d.getUint8(o + 3) << 8) | d.getUint8(o + 4),
+      x: d.getUint16(o + 5, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(o + 7, true) * TRAFFIC_STEP + TRAFFIC_Z0,
+      y: d.getInt16(o + 9, true) / 100, yaw: (d.getUint16(o + 11, true) / 65535) * TAU,
+      pitch: d.getInt8(o + 13) / 200, roll: d.getInt8(o + 14) / 200,
+    });
+  }
+  return { id: d.getUint8(1), cars };
 }
 
 // ---- JSON control messages ----

@@ -111,6 +111,12 @@ export interface Vehicle {
   readonly removed?: boolean;
   /** Burnt out by fire and explosion (ent/weapons.ts): driverless, inert, cannot be entered, removed once the player is far away. */
   wreck?: boolean;
+  /**
+   * A mission or a job of this browser's player is using this car (game/script.ts, game/activities.ts) and has not let
+   * go of it. Alone it means nothing. In a shared town the car stays this player's while it is set: it is not handed
+   * to the town when they get out, and the others are shown it as this player's (net/held.ts).
+   */
+  held?: boolean;
   /** Half length and half width of the collision box, meters. */
   readonly hl: number; readonly hw: number;
   /** Where a person stands to use a door. side: -1 = left (driver), +1 = right. */

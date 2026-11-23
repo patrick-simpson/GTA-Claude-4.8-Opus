@@ -159,6 +159,8 @@ export class SharedTraffic {
   onOtherHit: ((b: Vehicle, cvx: number, cvz: number, rx: number, rz: number) => void) | null = null;
   /** The police's cars (police.ts). */
   police: CarOwner | null = null;
+  /** The cars scripts are holding for the other players, as drawn here (held.ts): solid in the host's streets like their own cars. */
+  heldCars: (() => readonly Vehicle[]) | null = null;
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>) {
     const amb = game.systems.find((s): s is Ambient => s instanceof Ambient);
@@ -328,6 +330,8 @@ export class SharedTraffic {
         walkers.push(w);
       }
     }
+    // (And the cars their missions and jobs have standing about: the drivers here must see those too.)
+    if (this.heldCars) for (const v of this.heldCars()) others.push(v);
     tr.extra = list; tr.others = others; tr.walkers = walkers;
   }
 
@@ -393,7 +397,8 @@ export class SharedTraffic {
     this.burntAt = now;
     const tr = this.traffic as Traffic;
     for (const v of this.game.vehicles.list) {
-      if ((v.health >= BURN_HEALTH && !v.wreck) || v.driver !== null || v.sunk || v.shared || v.removed) continue;
+      // (Nor one a mission or a job of this player's is holding: it is theirs, wreck or not, and shown as theirs. held.ts.)
+      if ((v.health >= BURN_HEALTH && !v.wreck) || v.driver !== null || v.sunk || v.shared || v.removed || v.held) continue;
       // (A cruiser whose crew has this moment run from it is still on the Patrol's books: the Patrol hands it over
       // itself, under the number it has, so the town goes on seeing the same car.)
       if (this.police?.has(v)) continue;

@@ -192,6 +192,8 @@ class Car implements Vehicle {
 
   /** Placed by the network, not by physics (src/net/shared.ts): solid and immovable. See Vehicles.setShared. */
   shared = false;
+  /** A mission or job of this player's holds it (core/api.ts): only the network reads this (src/net/held.ts). */
+  held = false;
   removed = false;
   /** Another player's car (src/net/remote.ts): placed by the network, solid, and never moved from here. See Vehicles.ghost. */
   puppet = false;

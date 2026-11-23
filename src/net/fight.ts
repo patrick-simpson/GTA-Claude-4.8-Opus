@@ -122,6 +122,9 @@ export class TownFight implements WeaponsNet {
   private readonly b = { x: 0, y: 0, z: 0 };
   private readonly v3 = new THREE.Vector3();
 
+  /** The other players' held cars as drawn here (held.ts), set by index.ts. */
+  held: { list(): readonly Vehicle[]; has(v: Vehicle): boolean } | null = null;
+
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>, private readonly shared: SharedTraffic, private readonly parked: TownCars) {}
 
   private get on(): boolean { return this.conn.status === 'online' && this.remotes.size > 0; }
@@ -164,6 +167,8 @@ export class TownFight implements WeaponsNet {
   hitCar(v: Vehicle, dmg: number): boolean {
     const r = this.carOf.get(v);
     if (r) { this.claim(r.id, dmg, 0, 1, HitFlag.Car); return true; }
+    // A car a script is holding for another player: theirs to count, and nothing tells them of a shot at it yet.
+    if (this.held?.has(v)) return true;
     if (!v.shared) return false;
     // One of the town's, shown here: the host counts its health. By its number in the traffic frames, or by its place at the kerb.
     const wid = this.shared.widOf(v), place = wid ? -1 : this.parked.placeOf(v);
@@ -455,6 +460,8 @@ export class TownFight implements WeaponsNet {
       if (b) bodies.set(b, r);
       if (v) { cars.push(v); carOf.set(v, r); }
     }
+    // (And the cars their scripts have standing about: shown here, so they stop a round and burn when their owner says.)
+    if (this.held) for (const v of this.held.list()) cars.push(v);
     p.weapons.net = on ? this : null;
     if (!on) {
       this.nShots = 0; this.hits.length = 0; this.swung = false; this.carShots.clear();

@@ -30,6 +30,9 @@
 // same way, as a wreck: the Leave says "burnt out" in the damage it always carried, and the host stands a wreck
 // there, which nobody blows up a second time. So the town sees what is left of it for as long as the host keeps it.
 //
+// Stage 4, step 2 (held.ts). A car a mission or a job is holding (Vehicle.held) is NOT left to the town when its
+// player gets out: it stays that player's own, in that player's browser, until the script lets go of it.
+//
 // The mainland's kerbs (world/progress.ts) are not part of this yet: they stay each browser's own.
 
 import type { Game } from '../core/game';
@@ -188,7 +191,8 @@ export class TownCars {
         if (v && !this.atHome(s, v)) {
           // Moved or driven while alone: that was another town. (The car this player is sitting in stays, as a private one.)
           this.unspot(i);
-          if (v.driver !== 'player' && !v.removed) vs.remove(v);
+          // (Nor one a job of theirs is holding: held.ts.)
+          if (v.driver !== 'player' && !v.held && !v.removed) vs.remove(v);
           v = null;
         }
         if (this.town(s)) vs.setShared(v ?? this.put(i), true);
@@ -214,7 +218,7 @@ export class TownCars {
       if (v && this.atHome(s, v)) continue;
       if (v) {
         this.unspot(i);
-        if (tr && !v.removed && !v.sunk && !v.wreck && v.driver === null) tr.abandon(v);
+        if (tr && !v.removed && !v.sunk && !v.wreck && v.driver === null && !v.held) tr.abandon(v);
         gone[i] = 1;
       } else if (s.roll < this.localShare) gone[i] = 1;
       // (A place this browser's quality setting had left empty.)
@@ -452,8 +456,12 @@ export class TownCars {
 
   // ── Getting out ────────────────────────────────────────────────────────────
 
+  /** A script has let go of a car that is standing with nobody in it (held.ts): from here it is a car its player has just left. */
+  release(v: Vehicle): void { this.exited(v); }
+
   private exited(v: Vehicle): void {
-    if (!this.shared.town || v.removed || v.sunk) return;
+    // (A car a mission or a job is holding stays its player's: held.ts.)
+    if (!this.shared.town || v.removed || v.sunk || v.held) return;
     if (this.granted && this.granted.v === v) this.granted = null;
     if (!this.rolling.some((r) => r.v === v)) this.rolling.push({ v, at: performance.now() });
   }
@@ -461,7 +469,7 @@ export class TownCars {
   /** The car this player left has come to rest: it is the town's now. */
   private hand(v: Vehicle, now: number): void {
     const sh = this.shared, tr = sh.sim, mode = sh.mode;
-    if (!sh.town || !tr) return;
+    if (!sh.town || !tr || v.held) return;
     // Host, or alone in town for now: it is already on the streets the town will be shown.
     if (mode !== 'guest') { tr.abandon(v); return; }
     const r = this.rec;
@@ -485,7 +493,7 @@ export class TownCars {
     const ro = this.rolling;
     for (let k = ro.length - 1; k >= 0; k--) {
       const { v, at } = ro[k];
-      if (!sh.town || v.removed || v.sunk || v.driver !== null) { ro.splice(k, 1); continue; }
+      if (!sh.town || v.removed || v.sunk || v.driver !== null || v.held) { ro.splice(k, 1); continue; }
       // (What is left of a car that went up is still in the air for a moment: it is handed over where it lands.)
       if ((Math.abs(v.speed) < 0.3 && (!v.wreck || v.onGround)) || now - at > ROLL_MS) { ro.splice(k, 1); this.hand(v, now); }
     }
