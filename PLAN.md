@@ -88,6 +88,18 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Pardon's, unit 2: stocked, lit, peopled: pushed Nov 23, about 2:15 PM ET
+
+`buildings.py -- --stock` writes `pardons_kit.glb` (17 fixtures), `pardons_stock.json` (587 fixtures,
+50 gondola runs by department) and `pardons_lm.webp` (floor light baked in Cycles/OptiX on the RTX).
+`src/world/pardonsStock.ts`: a packaging atlas drawn at load (invented brands only), instanced goods,
+collision per run, hanging department and sale signs, carts, 16 shoppers, 4 cashiers; unlit baked
+light plus a shader floor gloss. `post.ts` `nightBloom.scale` (0 indoors) stops the night bloom
+washing the interior white. Inside 64 fps standing / 68 moving, lot 65 (Iris Xe, high).
+Owed (unit 3): garments flat slabs, fabric too saturated, flooring rolls read as wedges, pegboard
+occlusion blotchy, light too even (walls and ceiling not baked), only 4 fps over target, shoppers on
+fixed paths walk into the player, lot lamps at night, loading annex, flag. About 75% of the real store.
+
 ### Pardon's Surplus & Salvage, unit 1 (the owner's Marden's): pushed Nov 23, about 12:30 PM ET
 
 Owner: hyper-real, full walk-in interior, in the real store's place, top priority (`tools/briefs/

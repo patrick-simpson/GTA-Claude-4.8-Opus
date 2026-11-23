@@ -1047,7 +1047,415 @@ def store_main():
     print('BLD_STATS ' + json.dumps(out))
 
 
-store_main() if '--store' in FLAGS else main()
+# ── Pardon's stock (`-- --stock`): the fixture kit, the sales-floor layout and the baked floor light (store unit 2) ──
+# Writes, in public/models:
+#   pardons_kit.glb    one mesh per fixture, at the origin, vertex colour times occlusion (the game instances them):
+#     pk_gond   gondola section, 1.22 m long (z) x 1.2 m deep (x), 1.83 m, red base deck, white pegboard, three shelves
+#               a side (goods stand at y = GOND_LEVELS); pk_gondp the hardware version (one shelf, pegboard and hooks
+#               to 2.13 m); pk_end an endcap facing +z (0.5 m deep); pk_low a fabric table (bolts at 0.75 m)
+#     pk_rround round clothing rack (ring 1.2 m at 1.3 m), pk_rline two-way rack (rail 1.5 m along x at 1.35 m)
+#     pk_sofa, pk_recl, pk_matt, pk_dress, pk_table furniture (light upholstery: the game tints by instance colour)
+#     pk_rack   a pallet-rack bay for flooring rolls (2.4 m along x, 3.6 m deep along -z, beams at ROLL_LEVELS)
+#     pk_rugbin a bin of standing rugs' dividers; pk_cart a shopping cart (nose toward -x); pk_reg a register on its
+#               stand (top at 1.12 m), pk_candy an impulse rack stocked, pk_bags a bag carousel (on the 0.82 m shelf)
+#   pardons_stock.json the layout in the store frame: fx [kit, x, z, rot, dept] and runs [x, z0, z1, dept, height]
+#                      (each run of gondolas is one collision box in the game); the game stocks the shelves from it
+#   pardons_lm.webp    the floor's light, baked in Cycles (GPU) from the troffers and soffit lights with the fixtures,
+#                      counters and columns in place: R = the floor (contact shadows under the runs), G = the same
+#                      room with no fixtures (what lights the goods and fixtures); 0.5 = the median of G.
+#                      u = x / SW, v = (z + SD) / (SD + SBZ), 20 px a meter.
+PK_DEPTS = [('grocery', 1.5, 21, -40, -11, 'gondola'), ('hba', 1.5, 21, -57, -42, 'gondola'),
+            ('house', 24, 45, -34, -11, 'gondola'), ('hardware', 24, 45, -57, -36, 'gondola'),
+            ('clothing', 48, 58, -57, -11, 'racks'), ('fabric', 61, 80, -30, -11, 'gondola'),
+            ('furniture', 61, 80, -50, -32, 'floor'), ('flooring', 61, 81.4, -57.5, -51, 'rolls')]
+PK_COLS = [(cx, cz) for cx in (11, 23, 35, 47, 59, 71) for cz in (-14, -26, -38, -50)]
+GL = 1.22
+GOND_H = {'pk_gond': 1.83, 'pk_gondp': 2.13, 'pk_low': 1.1}
+GOND_RED, GOND_WHITE, SHELF = 0xc22430, 0xefefeb, 0xe3e3df
+
+
+def stock_layout():
+    fx, runs = [], []
+    for di, (name, x0, x1, z0, z1, fill) in enumerate(PK_DEPTS):
+        if fill == 'gondola':
+            kit = 'pk_gondp' if name == 'hardware' else ('pk_low' if name == 'fabric' else 'pk_gond')
+            ends = kit != 'pk_low'
+            k = 0
+            while 0.6 + 3.6 * k + 0.6 <= x1:
+                x = 0.6 + 3.6 * k; k += 1
+                if x - 0.6 < x0: continue
+                blocks = [(cz - 0.8, cz + 0.8) for cx, cz in PK_COLS if abs(cx - x) < 0.8]
+                if z1 - z0 > 18: zm = (z0 + z1) / 2; blocks.append((zm - 1.3, zm + 1.3))
+                free, top = [], z1
+                for b0, b1 in sorted(blocks, key=lambda b: -b[1]):
+                    if b1 < top and b1 > z0: free.append((max(z0, b1), top))
+                    top = min(top, b0)
+                if top > z0: free.append((z0, top))
+                for za, zb in free:
+                    n = int((zb - za - (1.0 if ends else 0)) / GL)
+                    if n < 2: continue
+                    L = n * GL; zc = (za + zb) / 2
+                    for i in range(n): fx.append([kit, x, zc + L / 2 - GL / 2 - i * GL, 0, di])
+                    e = 0.5 if ends else 0
+                    if ends:
+                        fx.append(['pk_end', x, zc + L / 2 + 0.25, 0, di]); fx.append(['pk_end', x, zc - L / 2 - 0.25, pi, di])
+                    runs.append([x, round(zc - L / 2 - e, 3), round(zc + L / 2 + e, 3), di, GOND_H[kit]])
+        elif fill == 'racks':
+            for j in range(17):
+                z = z1 - 1.6 - j * 2.65
+                if z < z0 + 0.8: break
+                for i, x in enumerate((49.7, 53.0, 56.3)):
+                    fx.append(['pk_rround' if (i + j) % 2 == 0 else 'pk_rline', x, z, 0 if (i + j) % 4 < 2 else pi / 2, di])
+        elif fill == 'floor':
+            for x in (63.2, 66.8, 75.0, 78.4): fx.append(['pk_sofa', x, -33.6, 0, di])
+            for x in (62.4, 64.0, 65.6, 67.2, 68.8, 74.0, 75.6, 77.2, 78.8): fx.append(['pk_recl', x, -37.4, 0, di])
+            for x in (62.9, 65.4, 67.9, 74.2, 76.7, 79.2): fx.append(['pk_matt', x, -42.4, 0, di])
+            for x in (63.0, 65.2, 74.0, 76.2): fx.append(['pk_dress', x, -46.9, 0, di])
+            for x in (68.0, 78.5): fx.append(['pk_table', x, -47.2, 0, di])
+        elif fill == 'rolls':
+            for b in range(8): fx.append(['pk_rack', 62.4 + b * 2.4, -53.95, 0, di])
+            for x in (63.0, 66.0, 69.0, 74.0, 77.0): fx.append(['pk_rugbin', x, -51.6, 0, di])
+    # Carts nested in two rows between the entrances, and the checkout detail.
+    for r, zz in enumerate((1.0, 0.25)):
+        for i in range(16): fx.append(['pk_cart', 8.2 + i * 0.32 + r * 0.6, zz, 0, -1])
+    for lx in S_LANES:
+        fx.append(['pk_reg', lx + 0.4, -2.65, 0, -1]); fx.append(['pk_candy', lx + 3.35, -5.7, 0, -1])
+        fx.append(['pk_bags', lx + 1.15, -2.95, 0, -1])
+    return fx, runs
+
+
+def kit_gond(m, kit):
+    H = GOND_H[kit]; hz = GL / 2
+    if kit == 'pk_low':
+        for sx in (-1, 1):
+            for sz in (-1, 1): m.box(sx * 0.55 - 0.03, sx * 0.55 + 0.03, 0, 0.7, sz * 0.55 - 0.03, sz * 0.55 + 0.03, 0x8a8c8f, skip='b')
+        m.box(-0.6, 0.6, 0.55, 0.7, -hz, hz, GOND_RED, skip='t')
+        m.box(-0.6, 0.6, 0.7, 0.75, -hz, hz, 0xe6e4de)
+        m.box(-0.025, 0.025, 0.75, H, -hz, hz, GOND_WHITE, skip='b')
+        m.box(-0.6, 0.6, 0.04, 0.08, -hz + 0.05, hz - 0.05, 0x8a8c8f)
+        return
+    m.box(-0.6, 0.6, 0, 0.14, -hz, hz, GOND_RED, skip='tb')
+    m.face([(-0.6, 0.14, -hz), (0.6, 0.14, -hz), (0.6, 0.14, hz), (-0.6, 0.14, hz)], SHELF, 0.0, (0, 1, 0))
+    m.box(-0.03, 0.03, 0.14, H, -hz, hz, GOND_WHITE, skip='b')
+    for sz in (-1, 1): m.box(-0.045, 0.045, 0.0, H + 0.02, sz * hz - 0.02, sz * hz + 0.02, 0xa9abad, skip='b')
+    levels = (0.55,) if kit == 'pk_gondp' else (0.55, 0.95, 1.35)
+    for sx in (-1, 1):
+        for y in levels:
+            m.box(sx * 0.03, sx * 0.58, y - 0.025, y, -hz + 0.02, hz - 0.02, SHELF)
+            m.box(sx * 0.58, sx * 0.605, y - 0.06, y + 0.012, -hz + 0.02, hz - 0.02, 0xf6f6f2)
+            for t in range(3):
+                tz = -hz + 0.2 + t * 0.4 + (0.05 if sx > 0 else -0.03)
+                m.box(sx * 0.606, sx * 0.607, y - 0.052, y + 0.004, tz, tz + 0.06, 0xf2d03a if t == 1 and y == 0.95 else 0xffffff, skip='b')
+        m.box(sx * 0.58, sx * 0.605, 0.11, 0.15, -hz + 0.02, hz - 0.02, 0xf6f6f2)
+        if kit == 'pk_gondp':
+            for y in (1.0, 1.32, 1.64, 1.96):
+                for i in range(5):
+                    hz0 = -hz + 0.16 + i * 0.225
+                    m.box(sx * 0.03, sx * 0.3, y - 0.006, y + 0.006, hz0 - 0.004, hz0 + 0.004, 0xb5b8bb, skip='b')
+    m.box(-0.07, 0.07, H, H + 0.03, -hz, hz, 0xd8d8d4, skip='b')
+
+
+def kit_end(m):
+    m.box(-0.6, 0.6, 0, 0.14, -0.25, 0.25, GOND_RED, skip='tbk')
+    m.face([(-0.6, 0.14, -0.22), (0.6, 0.14, -0.22), (0.6, 0.14, 0.25), (-0.6, 0.14, 0.25)], SHELF, 0.0, (0, 1, 0))
+    m.box(-0.6, 0.6, 0.14, 1.83, -0.25, -0.22, GOND_WHITE, skip='bk')
+    for sx in (-1, 1): m.box(sx * 0.6 - 0.02, sx * 0.6 + 0.02, 0, 1.85, -0.25, -0.2, 0xa9abad, skip='b')
+    for y in (0.55, 0.95, 1.35):
+        m.box(-0.58, 0.58, y - 0.025, y, -0.22, 0.23, SHELF)
+        m.box(-0.58, 0.58, y - 0.06, y + 0.012, 0.23, 0.255, 0xf6f6f2)
+    m.box(-0.58, 0.58, 0.11, 0.15, 0.23, 0.255, 0xf6f6f2)
+
+
+def kit_rack(m, round_):
+    G = 0xb8bbbe
+    if round_:
+        for a in range(4):
+            ca, sa = round(cos(a * pi / 2)), round(sin(a * pi / 2))
+            m.box(min(0, ca * 0.55) - 0.02, max(0, ca * 0.55) + 0.02, 0.02, 0.05, min(0, sa * 0.55) - 0.02, max(0, sa * 0.55) + 0.02, G)
+        m.box(-0.025, 0.025, 0.02, 1.3, -0.025, 0.025, G, skip='b')
+        n = 12
+        for i in range(n):
+            a0, a1 = 2 * pi * i / n, 2 * pi * (i + 1) / n
+            p0 = (0.6 * cos(a0), 0.6 * sin(a0)); p1 = (0.6 * cos(a1), 0.6 * sin(a1))
+            for y0, y1, o in ((1.29, 1.31, 0.0), (1.27, 1.33, 0.015)):
+                m.face([(p0[0], y1, p0[1]), (p1[0], y1, p1[1]), (p1[0], y0, p1[1]), (p0[0], y0, p0[1])], G, 0.0, ((p0[0] + p1[0]), 0, (p0[1] + p1[1])))
+            m.face([(p0[0] * 0.97, 1.31, p0[1] * 0.97), (p1[0] * 0.97, 1.31, p1[1] * 0.97), (p1[0], 1.31, p1[1]), (p0[0], 1.31, p0[1])], G, 0.0, (0, 1, 0))
+        for a in (0, pi / 2): m.box(-0.6 * abs(cos(a)) - 0.01, 0.6 * abs(cos(a)) + 0.01, 1.28, 1.3, -0.6 * abs(sin(a)) - 0.01, 0.6 * abs(sin(a)) + 0.01, G)
+    else:
+        for sx in (-0.75, 0.75):
+            m.box(sx - 0.02, sx + 0.02, 0.02, 1.38, -0.02, 0.02, G, skip='b')
+            m.box(sx - 0.03, sx + 0.03, 0.0, 0.05, -0.32, 0.32, G)
+        for sz in (-0.27, 0.27): m.box(-0.78, 0.78, 1.33, 1.36, sz - 0.012, sz + 0.012, G)
+        m.box(-0.75, 0.75, 0.12, 0.15, -0.015, 0.015, G)
+
+
+def kit_furniture():
+    U, D = 0xe2e0dc, 0x2b2420
+    so, re, ma, dr, ta = Mesh(), Mesh(), Mesh(), Mesh(), Mesh()
+    for sx in (-1, 1):
+        for sz in (-1, 1): so.box(sx * 0.95 - 0.03, sx * 0.95 + 0.03, 0, 0.1, sz * 0.38 - 0.03, sz * 0.38 + 0.03, D, skip='b')
+    so.box(-1.05, 1.05, 0.1, 0.42, -0.46, 0.46, shade(U, 0.92), skip='b')
+    so.box(-1.05, 1.05, 0.42, 0.88, -0.46, -0.24, U)
+    for sx in (-1, 1): so.box(sx * 1.05 - sx * 0.18, sx * 1.05, 0.42, 0.66, -0.46, 0.46, U)
+    for i in range(3):
+        x0 = -0.87 + i * 0.58
+        so.box(x0 + 0.01, x0 + 0.57, 0.42, 0.55, -0.24, 0.45, shade(U, 1.04) if i != 1 else U)
+        so.box(x0 + 0.03, x0 + 0.55, 0.55, 0.84, -0.24, -0.1, shade(U, 1.02))
+    so.box(0.6, 0.8, 0.85, 0.86, -0.3, -0.29, 0xf4f4f4)
+    re.box(-0.42, 0.42, 0.0, 0.12, -0.4, 0.4, D, skip='b')
+    re.box(-0.45, 0.45, 0.12, 0.48, -0.45, 0.45, shade(U, 0.94), skip='b')
+    re.box(-0.33, 0.33, 0.48, 0.58, -0.25, 0.42, U)
+    re.box(-0.36, 0.36, 0.48, 1.05, -0.45, -0.22, U)
+    for sx in (-1, 1): re.box(sx * 0.45 - sx * 0.12, sx * 0.45, 0.48, 0.7, -0.45, 0.45, U)
+    ma.box(-0.78, 0.78, 0, 0.36, -1.03, 1.03, 0x3c3e42, skip='b')
+    ma.box(-0.76, 0.76, 0.36, 0.64, -1.0, 1.0, 0xf3f2ee, skip='b')
+    ma.box(-0.765, 0.765, 0.43, 0.47, -1.005, 1.005, 0x8a9db8, skip='tb')
+    for i in range(6):
+        for j in range(8):
+            ma.box(-0.66 + i * 0.25, -0.64 + i * 0.25, 0.64, 0.645, -0.9 + j * 0.25, -0.88 + j * 0.25, 0xd8d6d0, skip='b')
+    ma.box(0.5, 0.75, 0.25, 0.6, 1.035, 1.04, 0xfafafa)
+    ma.box(0.52, 0.73, 0.5, 0.58, 1.041, 1.042, 0xcc2229)
+    W = 0x9a6b44
+    dr.box(-0.75, 0.75, 0.05, 0.85, -0.25, 0.25, W, skip='b')
+    dr.box(-0.77, 0.77, 0.85, 0.88, -0.27, 0.27, shade(W, 1.08))
+    for r in range(3):
+        for c in range(2):
+            x0, y0 = -0.72 + c * 0.73, 0.1 + r * 0.25
+            dr.box(x0, x0 + 0.7, y0, y0 + 0.23, 0.25, 0.262, shade(W, 1.1))
+            dr.box(x0 + 0.3, x0 + 0.4, y0 + 0.1, y0 + 0.13, 0.262, 0.28, 0xc9b27a)
+    for sx in (-1, 1):
+        for sz in (-1, 1): dr.box(sx * 0.7 - 0.03, sx * 0.7 + 0.03, 0, 0.05, sz * 0.2 - 0.03, sz * 0.2 + 0.03, shade(W, 0.7), skip='b')
+    ta.box(-0.75, 0.75, 0.72, 0.76, -0.45, 0.45, W)
+    for sx in (-1, 1):
+        for sz in (-1, 1): ta.box(sx * 0.68 - 0.03, sx * 0.68 + 0.03, 0, 0.72, sz * 0.38 - 0.03, sz * 0.38 + 0.03, shade(W, 0.85), skip='b')
+    for cx, cz, f in ((-0.35, 0.62, 1), (0.35, 0.62, 1), (-0.35, -0.62, -1), (0.35, -0.62, -1)):
+        ta.box(cx - 0.2, cx + 0.2, 0.44, 0.48, cz - 0.2, cz + 0.2, shade(W, 0.95))
+        ta.box(cx - 0.2, cx + 0.2, 0.48, 0.95, cz + f * 0.17, cz + f * 0.2, shade(W, 0.95))
+        for sx in (-1, 1):
+            for sz in (-1, 1): ta.box(cx + sx * 0.17 - 0.015, cx + sx * 0.17 + 0.015, 0, 0.44, cz + sz * 0.17 - 0.015, cz + sz * 0.17 + 0.015, shade(W, 0.85), skip='b')
+    return dict(pk_sofa=so, pk_recl=re, pk_matt=ma, pk_dress=dr, pk_table=ta)
+
+
+def kit_misc():
+    rk, rb, ca, rg, cd, bg = Mesh(), Mesh(), Mesh(), Mesh(), Mesh(), Mesh()
+    O, BL = 0xd8642a, 0x2f5a9e
+    for sx in (-1.2, 1.2):
+        for sz in (0.0, -3.6): rk.box(sx - 0.04, sx + 0.04, 0, 2.5, sz - 0.04, sz + 0.04, BL, skip='b')
+        rk.box(sx - 0.02, sx + 0.02, 0.3, 2.4, -3.6, 0.0, BL, skip='tb')
+    for y in (0.15, 0.75, 1.35, 1.95):
+        for sz in (0.0, -3.6, -1.8): rk.box(-1.2, 1.2, y - 0.1, y, sz - 0.05, sz + 0.05, O)
+    rk.box(-1.2, 1.2, 2.4, 2.5, -0.05, 0.05, O)
+    G = 0x8d9095
+    rb.box(-1.2, 1.2, 0, 0.08, -0.4, 0.4, G, skip='b')
+    for sz in (-0.4, 0.4): rb.box(-1.2, 1.2, 0.08, 0.6, sz - 0.02, sz + 0.02, G, skip='b')
+    for sx in (-1.2, -0.6, 0, 0.6, 1.2): rb.box(sx - 0.02, sx + 0.02, 0.08, 0.6, -0.4, 0.4, G, skip='b')
+    # Cart: wire basket on a frame, nose toward -x, handle at +x (0.95 m long, 0.58 wide).
+    W, R = 0xb9bdc1, 0xc4232d
+    for sz in (-0.27, 0.27):
+        ca.box(-0.45, 0.42, 0.14, 0.17, sz - 0.012, sz + 0.012, W)
+        ca.box(0.4, 0.43, 0.14, 1.0, sz - 0.012, sz + 0.012, W)
+        for k in range(8): x = -0.4 + k * 0.1; ca.box(x - 0.004, x + 0.004, 0.45, 0.93, sz - 0.006, sz + 0.006, W)
+        ca.box(-0.45, 0.4, 0.92, 0.94, sz - 0.01, sz + 0.01, W); ca.box(-0.42, 0.4, 0.45, 0.47, sz - 0.008, sz + 0.008, W)
+        for wx in (-0.38, 0.36):
+            ca.box(wx - 0.04, wx + 0.04, 0.0, 0.08, sz - 0.015, sz + 0.015, 0x202224)
+            ca.box(wx - 0.01, wx + 0.01, 0.06, 0.15, sz - 0.01, sz + 0.01, W)
+    for k in range(6): z = -0.25 + k * 0.1; ca.box(-0.45, 0.4, 0.92, 0.935, z - 0.004, z + 0.004, W); ca.box(-0.42, 0.4, 0.45, 0.46, z - 0.004, z + 0.004, W)
+    ca.box(-0.47, -0.45, 0.45, 0.94, -0.27, 0.27, W, skip='lr'); ca.box(0.38, 0.4, 0.45, 0.94, -0.27, 0.27, W, skip='lr')
+    for k in range(5): z = -0.22 + k * 0.11; ca.box(-0.47, -0.45, 0.45, 0.94, z - 0.004, z + 0.004, W)
+    ca.box(0.44, 0.5, 0.98, 1.04, -0.29, 0.29, R)
+    ca.box(0.2, 0.39, 0.7, 0.92, -0.25, 0.25, R, skip='b')
+    # Register on its stand: screen on a stalk toward the cashier (+x), drawer, keypad; a card terminal toward -x.
+    D = 0x1d1e21
+    rg.box(-0.2, 0.2, 1.12, 1.24, -0.22, 0.22, 0x2a2b2f, skip='b')
+    rg.box(-0.15, 0.15, 1.24, 1.27, -0.18, 0.12, D)
+    rg.box(-0.02, 0.02, 1.24, 1.5, 0.14, 0.18, D)
+    rg.box(-0.02, 0.06, 1.42, 1.7, 0.0, 0.32, D)
+    rg.box(0.06, 0.065, 1.44, 1.68, 0.02, 0.3, 0x5a7d9a)
+    rg.box(-0.26, -0.18, 1.12, 1.4, -0.06, 0.06, D)
+    rg.box(-0.27, -0.17, 1.4, 1.55, -0.07, 0.07, 0x2c2e33)
+    rg.box(-0.275, -0.274, 1.47, 1.53, -0.05, 0.05, 0x4f7f6a)
+    rg.box(-0.12, 0.12, 1.27, 1.29, -0.33, -0.23, 0x9ea2a6)
+    # Impulse rack: four wire shelves of sweets and gum along z, facing -x and +x.
+    rnd = random.Random(31)
+    cd.box(-0.18, 0.18, 0, 0.12, -0.8, 0.8, 0x2c2d30, skip='b')
+    cd.box(-0.02, 0.02, 0.12, 1.45, -0.8, 0.8, 0x2c2d30, skip='b')
+    cd.box(-0.18, 0.18, 1.45, 1.6, -0.8, 0.8, GOND_RED)
+    COLS = [0xd23a2a, 0x2b6cc4, 0xf2c230, 0x3aa35a, 0x8a3fb0, 0xf07a1a, 0xffffff, 0x5a3a22, 0xe85a9a]
+    for y in (0.2, 0.52, 0.84, 1.16):
+        for sx in (-1, 1):
+            cd.box(sx * 0.02, sx * 0.18, y - 0.01, y, -0.78, 0.78, 0x9a9da1)
+            z = -0.76
+            while z < 0.74:
+                w = rnd.choice((0.05, 0.07, 0.09, 0.12)); h = rnd.choice((0.12, 0.16, 0.2, 0.24)); c = rnd.choice(COLS)
+                cd.box(sx * 0.03, sx * 0.17, y, y + h, z, z + w - 0.005, c, skip='b')
+                cd.box(sx * 0.171, sx * 0.172, y + h * 0.55, y + h * 0.8, z + 0.008, z + w - 0.013, 0xffffff if c != 0xffffff else 0xd23a2a, skip='b')
+                z += w
+    # Bag carousel on the bagging shelf: a post, three arms, white bags.
+    bg.box(-0.02, 0.02, 0.82, 1.42, -0.02, 0.02, 0x9ea2a6, skip='b')
+    for a in range(3):
+        ca_, sa = cos(a * 2 * pi / 3), sin(a * 2 * pi / 3)
+        bg.box(min(0, ca_ * 0.25) - 0.01, max(0, ca_ * 0.25) + 0.01, 1.38, 1.4, min(0, sa * 0.25) - 0.01, max(0, sa * 0.25) + 0.01, 0x9ea2a6)
+        bx, bz = ca_ * 0.2, sa * 0.2
+        bg.box(bx - 0.13, bx + 0.13, 0.98, 1.36, bz - 0.09, bz + 0.09, 0xf4f4f2, skip='t')
+        bg.box(bx - 0.04, bx + 0.04, 1.2, 1.28, bz + 0.09, bz + 0.092, 0xcc2229, skip='b')
+    return dict(pk_rack=rk, pk_rugbin=rb, pk_cart=ca, pk_reg=rg, pk_candy=cd, pk_bags=bg)
+
+
+def cycles_gpu(sc):
+    sc.render.engine = 'CYCLES'
+    try:
+        pr = bpy.context.preferences.addons['cycles'].preferences
+        for t in ('OPTIX', 'CUDA'):
+            try:
+                pr.compute_device_type = t; pr.get_devices()
+                if any(d.type == t for d in pr.devices):
+                    for d in pr.devices: d.use = d.type == t
+                    sc.cycles.device = 'GPU'; return t
+            except Exception: pass
+    except Exception: pass
+    sc.cycles.device = 'CPU'; return 'CPU'
+
+
+def stock_bake(fx, runs, coll, samples):
+    """The floor's light: R with the fixtures, G without. Returns the stats."""
+    import numpy as np, time
+    sc = bpy.context.scene
+    dev = cycles_gpu(sc)
+    sc.cycles.samples = samples; sc.cycles.use_denoising = False
+    w = bpy.data.worlds.new('stockworld'); sc.world = w
+    w.use_nodes = True
+    try: w.node_tree.nodes['Background'].inputs[1].default_value = 0.0
+    except Exception: pass
+    i0, i1, d0, Z = 0.3, SW - 0.3, -SD + 0.3, SBZ
+    fl, room, blk, li = Mesh(), Mesh(), Mesh(), Mesh()
+    fl.face([(i0, 0, d0), (i1, 0, d0), (i1, 0, -0.3), (i0, 0, -0.3)], 0xffffff, 0, (0, 1, 0))
+    fl.face([(i0, 0, -0.3), (SEW - 0.3, 0, -0.3), (SEW - 0.3, 0, Z - 0.12), (i0, 0, Z - 0.12)], 0xffffff, 0, (0, 1, 0))
+    room.box(i0, i1, 0, SCH, d0, Z - 0.12, 0xffffff, skip='')
+    for f in room.f: pass
+    # Turn the room box inside out (normals inward): rebuild with reversed winding.
+    room.f = [list(reversed(f)) for f in room.f]
+    room.box(i0, 60, 3.3, SCH, -9.0, -0.3, 0xffffff)
+    for cx, cz in PK_COLS: room.box(cx - 0.15, cx + 0.15, 0, SCH, cz - 0.15, cz + 0.15, 0xffffff, skip='tb')
+    for lx in S_LANES:
+        room.box(lx, lx + 0.82, 0, 0.93, -7.22, -3.0, 0xffffff, skip='b'); room.box(lx, lx + 0.8, 0, 1.12, -3.0, -2.3, 0xffffff, skip='b')
+        room.box(lx + 0.8, lx + 1.5, 0, 0.82, -3.6, -2.3, 0xffffff, skip='b')
+    room.box(1.0, 7.0, 0, 1.1, -6.45, -5.55, 0xffffff, skip='b'); room.box(6.2, 7.0, 0, 1.05, -9.0, -6.4, 0xffffff, skip='b')
+    SIZE = {'pk_gond': (1.2, 1.83, GL), 'pk_gondp': (1.2, 2.13, GL), 'pk_low': (1.2, 1.1, GL), 'pk_end': (1.2, 1.83, 0.5),
+            'pk_rround': (1.25, 1.35, 1.25), 'pk_rline': (1.6, 1.4, 0.65), 'pk_sofa': (2.1, 0.88, 0.92), 'pk_recl': (0.9, 1.05, 0.9),
+            'pk_matt': (1.56, 0.64, 2.06), 'pk_dress': (1.54, 0.88, 0.54), 'pk_table': (1.5, 0.76, 1.6), 'pk_rugbin': (2.4, 1.6, 0.8),
+            'pk_cart': (0.95, 1.0, 0.58), 'pk_candy': (0.36, 1.6, 1.6)}
+    for k, x, z, r, d in fx:
+        if k not in SIZE: continue
+        sx, sy, sz = SIZE[k]
+        if abs(sin(r)) > 0.7: sx, sz = sz, sx
+        y0 = 0.12 if k in ('pk_rround', 'pk_rline') else (0.0 if k != 'pk_low' else 0.55)
+        if k in ('pk_rround', 'pk_rline'): y0 = 0.45      # hanging clothes: open below
+        blk.box(x - sx / 2, x + sx / 2, y0, sy, z - sz / 2, z + sz / 2, 0xffffff, skip='b' if y0 == 0 else '')
+        if k in ('pk_rround', 'pk_rline'): blk.box(x - 0.05, x + 0.05, 0, y0, z - 0.05, z + 0.05, 0xffffff, skip='b')
+    for k, x, z, r, d in fx:
+        if k == 'pk_rack': blk.box(x - 1.2, x + 1.2, 0.05, 2.2, z - 3.6, z, 0xffffff, skip='')
+    x = 2.4
+    while x < SW - 1.5:
+        z = -10.8
+        while z > -SD + 1.5:
+            if not (x < 60 and z > -9.5):
+                li.face([(x - 0.3, SCH - 0.02, z - 0.6), (x + 0.3, SCH - 0.02, z - 0.6), (x + 0.3, SCH - 0.02, z + 0.6), (x - 0.3, SCH - 0.02, z + 0.6)], 0xffffff, 0, (0, -1, 0))
+            z -= 2.4
+        x += 3.6
+    for k in range(19):
+        for zz in (-2.4, -6.4):
+            x = 2 + k * 3; li.face([(x - 0.36, 3.28, zz - 0.36), (x + 0.36, 3.28, zz - 0.36), (x + 0.36, 3.28, zz + 0.36), (x - 0.36, 3.28, zz + 0.36)], 0xffffff, 0, (0, -1, 0))
+    for k in range(7):
+        for zz in (-2.4, -6.4):
+            x = 62 + k * 3; li.face([(x - 0.3, SCH - 0.02, zz - 0.6), (x + 0.3, SCH - 0.02, zz - 0.6), (x + 0.3, SCH - 0.02, zz + 0.6), (x - 0.3, SCH - 0.02, zz + 0.6)], 0xffffff, 0, (0, -1, 0))
+
+    def mat(name, col, emit=0.0):
+        m = bpy.data.materials.new(name); m.use_nodes = True
+        b = next(x for x in m.node_tree.nodes if x.type == 'BSDF_PRINCIPLED')
+        b.inputs['Base Color'].default_value = (col, col, col, 1); b.inputs['Roughness'].default_value = 0.9
+        if emit:
+            b.inputs['Emission Color'].default_value = (1, 1, 1, 1); b.inputs['Emission Strength'].default_value = emit
+        return m
+    obs = {}
+    for name, m, mt in (('bk_floor', fl, mat('bkf', 0.62)), ('bk_room', room, mat('bkr', 0.78)), ('bk_blk', blk, mat('bkb', 0.55)), ('bk_li', li, mat('bkl', 0.8, 40.0))):
+        o = m.to_object(name, coll); o.data.materials.append(mt); obs[name] = o
+    W_, H_ = int(SW * 20), int((SD + SBZ) * 20)
+    me = obs['bk_floor'].data; uvl = me.uv_layers.new(name='LM')
+    for lp in me.loops:
+        co = me.vertices[lp.vertex_index].co
+        uvl.data[lp.index].uv = (co.x / SW, (-co.y + SD) / (SD + SBZ))
+    out = {'device': dev, 'px': [W_, H_], 'samples': samples}
+    res = []
+    for tag, hide in (('R', False), ('G', True)):
+        img = bpy.data.images.new('lm' + tag, W_, H_, alpha=False, float_buffer=True); img.colorspace_settings.name = 'Non-Color'
+        nt = obs['bk_floor'].data.materials[0].node_tree
+        nd = nt.nodes.new('ShaderNodeTexImage'); nd.image = img
+        for x in nt.nodes: x.select = False
+        nd.select = True; nt.nodes.active = nd
+        obs['bk_blk'].hide_render = hide
+        bpy.ops.object.select_all(action='DESELECT'); obs['bk_floor'].select_set(True); bpy.context.view_layer.objects.active = obs['bk_floor']
+        try: bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+        except Exception: pass
+        t0 = time.time()
+        sc.render.bake.use_pass_direct = True; sc.render.bake.use_pass_indirect = True; sc.render.bake.use_pass_color = False
+        bpy.ops.object.bake(type='DIFFUSE', pass_filter={'DIRECT', 'INDIRECT'}, margin=6, use_clear=True)
+        out['bake_s_' + tag] = round(time.time() - t0, 1)
+        a = np.empty(W_ * H_ * 4, dtype=np.float32); img.pixels.foreach_get(a)
+        a = a.reshape(H_, W_, 4)[:, :, :3].mean(axis=2)
+        r = 2 if tag == 'R' else 4
+        acc = np.zeros_like(a); n = 0
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1): acc += np.roll(np.roll(a, dy, 0), dx, 1); n += 1
+        res.append(acc / n)
+        nt.nodes.remove(nd)
+    R, G = res
+    ref = float(np.median(G[G > 1e-4]))
+    out['ref'] = ref
+    rgb = np.zeros((H_, W_, 4), dtype=np.float32)
+    rgb[:, :, 0] = np.clip(R / ref * 0.5, 0, 1); rgb[:, :, 1] = np.clip(G / ref * 0.5, 0, 1); rgb[:, :, 3] = 1
+    out['R_p5_p50_p95'] = [round(float(np.percentile(rgb[:, :, 0], q)), 3) for q in (5, 50, 95)]
+    im = bpy.data.images.new('pardons_lm', W_, H_, alpha=False); im.colorspace_settings.name = 'Non-Color'
+    im.pixels.foreach_set(rgb.ravel())
+    p = os.path.join(OUT, 'pardons_lm.webp'); im.filepath_raw = p; im.file_format = 'WEBP'; im.save(quality=90)
+    out['lm_kB'] = round(os.path.getsize(p) / 1000)
+    return out
+
+
+def stock_main():
+    for ob in list(bpy.data.objects): bpy.data.objects.remove(ob)
+    coll = bpy.context.scene.collection
+    os.makedirs(OUT, exist_ok=True)
+    fx, runs = stock_layout()
+    kit = {}
+    for k in ('pk_gond', 'pk_gondp', 'pk_low'): kit[k] = Mesh(); kit_gond(kit[k], k)
+    kit['pk_end'] = Mesh(); kit_end(kit['pk_end'])
+    kit['pk_rround'] = Mesh(); kit_rack(kit['pk_rround'], True)
+    kit['pk_rline'] = Mesh(); kit_rack(kit['pk_rline'], False)
+    kit.update(kit_furniture()); kit.update(kit_misc())
+    obs, stats = {}, {}
+    for i, (name, m) in enumerate(kit.items()):
+        obs[name] = m.to_object(name, coll); stats[name] = len(m.f)
+        obs[name].location = ((i % 6) * 4.0, -(i // 6) * 5.0 - 80, 0)
+        vertex_ao(obs[name], rays=10, reach=0.8)
+        try: bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+        except Exception: pass
+    for o in obs.values(): o.location = (0, 0, 0)
+    out = {'faces': stats, 'fixtures': len(fx), 'runs': len(runs)}
+    with open(os.path.join(OUT, 'pardons_stock.json'), 'w') as f:
+        json.dump({'fx': [[k, round(x, 3), round(z, 3), round(r, 4), d] for k, x, z, r, d in fx], 'runs': runs,
+                   'depts': [d[0] for d in PK_DEPTS]}, f, separators=(',', ':'))
+    out['json_kB'] = round(os.path.getsize(os.path.join(OUT, 'pardons_stock.json')) / 1000)
+    if '--no-export' not in FLAGS:
+        out['kit_kB'] = export(list(obs.values()), os.path.join(OUT, 'pardons_kit.glb'))
+    for i, o in enumerate(obs.values()): o.location = ((i % 6) * 4.0, -(i // 6) * 5.0 - 80, 0)
+    if '--no-bake' not in FLAGS:
+        out.update(stock_bake(fx, runs, coll, int(os.environ.get('PK_SAMPLES', '128'))))
+    print('BLD_STATS ' + json.dumps(out))
+
+
+if '--stock' in FLAGS: stock_main()
+elif '--store' in FLAGS: store_main()
+else: main()
 # Close the window once the files are written: wm.quit_blender can stop on an unsaved-changes prompt.
 if '--stay' not in FLAGS:
     sys.stdout.flush()

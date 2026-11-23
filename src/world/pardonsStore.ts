@@ -1,7 +1,8 @@
 // Pardon's Surplus & Salvage: the big box on Second Thought Ave, its lot, and the store shell you can walk into.
 // Where everything stands: pardonsSite.ts. The models: tools/blender/buildings.py `-- --store` (its header lists the
-// objects in models/pardons.glb and what each is for). Unit 1 of the store: the place, the shell, the checkouts;
-// the merchandise (pardonsSite.ts DEPARTMENTS) and baked interior light come next.
+// objects in models/pardons.glb and what each is for). Unit 1 of the store: the place, the shell, the checkouts.
+// Unit 2 (pardonsStock.ts): the stocked sales floor, the baked floor light (the floor material here reads it too),
+// carts, shoppers and cashiers; the stock is drawn only from inside or right at the glass.
 //
 // Loaded through the download queue only once the mainland is wanted, like Main St's models:
 //   high / medium: models/pardons.glb (exterior, interior, props); low (phones): models/pardons_far.glb alone.
@@ -18,6 +19,8 @@ import { assets } from '../core/assets';
 import { progress } from './progress';
 import { BRIDGE_SPANS, groundAt } from './plan';
 import { CORRALS, DRIVES_N, LOT_COLS, LOT_LAMPS, PD, ROAD_SIGN, STALL, pdRect } from './pardonsSite';
+import { PardonsStock, bakedLight } from './pardonsStock';
+import { nightBloom } from '../core/post';
 
 const NIGHT = { value: 0 };
 
@@ -108,6 +111,8 @@ export class PardonsStore {
   private lens: THREE.MeshBasicMaterial | null = null;
   private leaves: { mesh: THREE.Object3D; x0: number; dir: number; open: number }[] = [];
   private doorAt: { x: number; z: number }[] = [];
+  private stock: PardonsStock | null = null;
+  private last = 0;
   /** Whether the camera is inside the store (for the rest of the game: sound, weather). */
   inside = false;
 
@@ -209,17 +214,23 @@ export class PardonsStore {
     const dx = cam.x - (PD.XE - PD.SW / 2), dz = cam.z - (PD.ZF + PD.SD / 2);
     const see = dx * dx + dz * dz < (this.game.quality.drawDist + 120) ** 2;
     if (see !== this.shown) { this.shown = see; this.group.visible = see; }
-    if (!see) return;
+    if (!see) { nightBloom.scale = 1; this.inside = false; return; }
     const l = this.loc.copy(cam).applyMatrix4(this.inv);
     this.inside = l.x > -0.5 && l.x < PD.SW + 0.5 && l.z > -PD.SD - 0.5 && l.z < PD.SBZ && l.y < PD.SEH;
     const front = l.z >= PD.SBZ && l.z < PD.SBZ + 45 && l.x > -20 && l.x < PD.SEW + 20;
     this.interior.visible = !this.low && (this.inside || front);
+    nightBloom.scale = this.inside ? 0 : 1;
     // The doors open for whoever is near: the player (or the camera) within 4 m of the opening.
     const p = this.game.player;
     const pl = this.loc.set(p ? p.x : cam.x, this.Y, p ? p.z : cam.z).applyMatrix4(this.inv);
-    const dt = 1 / 60;
+    const now = performance.now(), dt = Math.min(0.1, this.last ? (now - this.last) / 1000 : 1 / 60); this.last = now;
+    const near = this.stock ? this.stock.nearDoors : [];
+    // The stock (most of the interior's triangles) only from inside or right at the glass: from the lot it is not drawn.
+    const stockOn = this.interior.visible && (this.inside || l.z < PD.SBZ + 14);
+    if (this.stock) { this.stock.group.visible = stockOn; this.stock.update(dt, stockOn); }
     for (const lf of this.leaves) {
-      const d = this.doorAt.reduce((m, q) => Math.min(m, Math.hypot(pl.x - q.x, pl.z - q.z)), 1e9);
+      let d = this.doorAt.reduce((m, q) => Math.min(m, Math.hypot(pl.x - q.x, pl.z - q.z)), 1e9);
+      for (const s of near) for (const q of this.doorAt) d = Math.min(d, Math.hypot(s.x - q.x, s.z - q.z));
       const want = d < 4.2 ? 1 : 0;
       lf.open += Math.sign(want - lf.open) * Math.min(Math.abs(want - lf.open), dt * 1.6);
       lf.mesh.position.x = lf.x0 + lf.dir * 1.4 * (lf.open * lf.open * (3 - 2 * lf.open));
@@ -266,10 +277,14 @@ export class PardonsStore {
     const fg = geo.get('pd_floor'), ceg = geo.get('pd_ceil');
     if (fg) planarUV(fg, VCT_M, this.M);
     if (ceg) planarUV(ceg, CEIL_M, this.M);
-    put('pd_floor', new THREE.MeshBasicMaterial({ vertexColors: true, map: vctTex(), color: 0xeeeeee, fog: false }), this.interior, new THREE.Matrix4().makeTranslation(0, 0.04, 0).multiply(this.M));
+    put('pd_floor', bakedLight(new THREE.MeshBasicMaterial({ vertexColors: true, map: vctTex(), color: 0xeeeeee, fog: false }), 'floor'), this.interior, new THREE.Matrix4().makeTranslation(0, 0.04, 0).multiply(this.M));
     put('pd_ceil', new THREE.MeshBasicMaterial({ vertexColors: true, map: ceilTex(), color: 0xc8c8c8, fog: false }), this.interior);
     put('pd_lights', new THREE.MeshBasicMaterial({ color: new THREE.Color(1.9, 1.88, 1.8), fog: false }), this.interior);
     this.group.add(this.interior);
+    this.stock = new PardonsStock(this.game, this.M, this.Y, this.group);
+    this.stock.group.matrixWorldNeedsUpdate = true;
+    this.interior.add(this.stock.group);
+    void this.stock.load();
     this.doors();
     // Props: the road sign, corrals, lamp standards (one geometry each, placed by matrix).
     const at = (x: number, z: number, rot: number) => new THREE.Matrix4().makeRotationY(rot).setPosition(x, this.Y, z);

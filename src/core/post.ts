@@ -50,6 +50,8 @@ const TIERS: Record<'medium' | 'high', Tier> = {
 const AO_RADIUS = 1.4;
 /** Past this the search is a pixel or two wide and only makes noise, so it fades out. */
 const AO_FADE = 150;
+/** Scales how much of the night glow applies: a lit interior (pardonsStore.ts) sets it to 0 while the camera is inside, so the night bloom bar does not wash a bright room out. */
+export const nightBloom = { scale: 1 };
 const AO_STRENGTH = 0.92;
 
 const VERT = /* glsl */ `
@@ -491,7 +493,7 @@ export class Post {
     // By day only what is brighter than a sunlit white wall may glow; after
     // dark the bar drops so lamps, windows and tail lamps all carry a halo,
     // but not so far that a pale car or a lit pavement glows with them.
-    const night = g.sky ? g.sky.night : 0;
+    const night = (g.sky ? g.sky.night : 0) * nightBloom.scale;
     const exposure = r.toneMappingExposure;
     const br = this.brightMat.uniforms;
     br.uExposure.value = exposure;
