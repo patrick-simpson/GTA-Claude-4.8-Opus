@@ -160,3 +160,5 @@ owner's ground rules for the takeover and the running state.
 - Nov 23, 11:15 AM ET: Tepid Falls unit 1 (Main St) pushed. Next: Marden's unit 1 (top model builder, Haiku checker).
 - Nov 23, 12:30 PM ET: store unit 1 pushed. Next: store unit 2 (merchandise, baked light, carts, shoppers).
 - Nov 23, 2:15 PM ET: store unit 2 pushed. Next: store unit 3 (polish), Haiku check after.
+- Nov 23, 2:25 PM ET: OWNER: passengers ride together in another player's car. Brief tools/briefs/passengers.md. Queue: store unit 3 (running), passengers, ragdoll, SpeedScan HQ, rest of Tepid Falls.
+- Nov 23, 3:40 PM ET: store unit 3 + marker pushed. Next: passengers (multiplayer), Haiku check after.

@@ -31,14 +31,22 @@ export const LM = {
   uLmY: { value: 0 },
   uLmK: { value: 1.0 },
   uGloss: { value: 1.0 },
+  /** Floor wear in the store frame (same mapping as uLm): R the worn traffic paths, G scuffs and cart-wheel marks. */
+  uWear: { value: null as THREE.Texture | null },
 };
 const W_LIGHT = new THREE.DataTexture(new Uint8Array([200, 200, 0, 255]), 1, 1);
 W_LIGHT.needsUpdate = true;
 LM.uLm.value = W_LIGHT;
+const NO_WEAR = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+NO_WEAR.needsUpdate = true;
+LM.uWear.value = NO_WEAR;
 
-/** Make an unlit material read the baked light: 'floor' (R, plus the troffers' reflection) or 'obj' (G, darker low down). */
-export function bakedLight<T extends THREE.MeshBasicMaterial>(mat: T, kind: 'floor' | 'obj', atlas = false): T {
-  mat.defines = { ...(mat.defines ?? {}), ...(kind === 'floor' ? { LM_FLOOR: '' } : {}), ...(atlas ? { USE_ATLAS: '' } : {}) };
+/**
+ * Make an unlit material read the baked light: 'floor' (R, a pool under each troffer, the worn paths and scuffs, and the
+ * troffers' reflection), 'obj' (G, darker low down: fixtures, goods, the walls) or 'ceil' (B, the ceiling's own light).
+ */
+export function bakedLight<T extends THREE.MeshBasicMaterial>(mat: T, kind: 'floor' | 'obj' | 'ceil', atlas: boolean | 'tray' = false): T {
+  mat.defines = { ...(mat.defines ?? {}), ...(kind === 'floor' ? { LM_FLOOR: '' } : {}), ...(kind === 'ceil' ? { LM_CEIL: '' } : {}), ...(atlas ? { USE_ATLAS: '' } : {}), ...(atlas === 'tray' ? { USE_TRAY: '' } : {}) };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, LM);
     sh.vertexShader = sh.vertexShader
@@ -46,10 +54,16 @@ export function bakedLight<T extends THREE.MeshBasicMaterial>(mat: T, kind: 'flo
 uniform vec4 uLmT; varying vec2 vLmUv; varying vec3 vLmW;
 #ifdef USE_ATLAS
 attribute vec2 aCell;
+#endif
+#ifdef USE_TRAY
+attribute vec4 aRep; varying vec4 vTrU; varying vec2 vTrC;
 #endif`)
       .replace('#include <uv_vertex>', `#include <uv_vertex>
 #ifdef USE_ATLAS
 vMapUv = (aCell + uv * 0.94 + 0.03) / 16.0;
+#endif
+#ifdef USE_TRAY
+vTrU = vec4(uv * aRep.xy, aRep.zw); vTrC = aCell;
 #endif`)
       .replace('#include <project_vertex>', `#include <project_vertex>
 { vec4 lw = vec4(transformed, 1.0);
@@ -57,12 +71,26 @@ vMapUv = (aCell + uv * 0.94 + 0.03) / 16.0;
 lw = instanceMatrix * lw;
 #endif
 lw = modelMatrix * lw; vLmW = lw.xyz; vLmUv = vec2((uLmT.x - lw.x) * uLmT.z, (uLmT.y - lw.z + 62.0) * uLmT.w); }`);
+    if (atlas === 'tray') sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec4 vTrU; varying vec2 vTrC;`)
+      .replace('#include <map_fragment>', `{ // a row of facings: the cell repeated along the tray and up its stack, mip level from the unbroken coordinates
+  vec2 f = vec2(vTrU.z + fract(vTrU.x) * vTrU.w, fract(vTrU.y));
+  vec2 k = vec2(vTrU.w * 0.94 / 16.0, 0.94 / 16.0);
+  diffuseColor *= textureGrad(map, (vTrC + f * 0.94 + 0.03) / 16.0, dFdx(vTrU.xy) * k, dFdy(vTrU.xy) * k);
+}`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-uniform sampler2D uLm; uniform vec4 uLmT; uniform float uLmY; uniform float uLmK; uniform float uGloss; varying vec2 vLmUv; varying vec3 vLmW;`)
+uniform sampler2D uLm; uniform sampler2D uWear; uniform vec4 uLmT; uniform float uLmY; uniform float uLmK; uniform float uGloss; varying vec2 vLmUv; varying vec3 vLmW;`)
       .replace('#include <opaque_fragment>', `{ vec3 lm = texture2D(uLm, clamp(vLmUv, 0.001, 0.999)).rgb;
 #ifdef LM_FLOOR
-  outgoingLight *= lm.r * 2.0 * uLmK;
+  vec2 sp = vec2(uLmT.x - vLmW.x, uLmT.y - vLmW.z);
+  vec2 gp = vec2(mod(sp.x - 0.6, 3.6) - 1.8, mod(sp.y + 12.0, 2.4) - 1.2);
+  float pool = exp(-dot(gp, gp) / 2.2) * step(sp.y, -9.6);
+  vec3 wear = texture2D(uWear, vLmUv).rgb;
+  float lit = pow(lm.r * 2.0, 1.45) * (0.8 + 0.38 * pool);
+  outgoingLight *= lit * uLmK * (1.0 - 0.16 * wear.r) * (1.0 - 0.5 * wear.g);
+  outgoingLight *= mix(vec3(1.0), vec3(0.97, 0.95, 0.9), wear.r);
   vec3 V = normalize(vLmW - cameraPosition);
   float t = (uLmY + 4.29 - vLmW.y) / max(-V.y, 0.04);
   vec2 hit = vLmW.xz + V.xz * t;
@@ -72,15 +100,59 @@ uniform sampler2D uLm; uniform vec4 uLmT; uniform float uLmY; uniform float uLmK
   float tro = (1.0 - smoothstep(0.3 - b, 0.3 + b, abs(g.x))) * (1.0 - smoothstep(0.6 - b, 0.6 + b, abs(g.y)));
   tro *= step(s.y, -10.0) * step(-61.0, s.y) * step(1.8, s.x) * step(s.x, 80.6);
   float fr = 0.025 + 0.5 * pow(1.0 - clamp(-V.y, 0.0, 1.0), 5.0);
-  outgoingLight += (vec3(0.92, 0.94, 0.97) * tro * 1.5 + 0.08) * fr * uGloss * smoothstep(0.12, 0.42, lm.r);
+  outgoingLight += (vec3(0.92, 0.94, 0.97) * tro * 1.5 + 0.08) * fr * uGloss * smoothstep(0.12, 0.42, lm.r) * (1.0 + 0.6 * wear.r);
+#elif defined(LM_CEIL)
+  float cb = (lm.b < 0.04 || vLmW.y - uLmY < 4.0) ? 0.5 : max(lm.b, 0.34);
+  outgoingLight *= pow(cb * 2.0, 1.6) * uLmK * 0.97;
 #else
-  outgoingLight *= lm.g * 2.0 * uLmK * mix(0.7, 1.0, smoothstep(0.0, 1.9, vLmW.y - uLmY));
+  outgoingLight *= pow(lm.g * 2.0, 1.3) * uLmK * mix(0.7, 1.0, smoothstep(0.0, 1.9, vLmW.y - uLmY)) * mix(1.0, 0.86, smoothstep(2.6, 4.3, vLmW.y - uLmY));
 #endif
 }
 #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'pdlm-' + kind + (atlas ? '-a' : '');
+  mat.customProgramCacheKey = () => 'pdlm-' + kind + (atlas ? '-a' + atlas : '');
   return mat;
+}
+
+// ── Floor wear: traffic paths and scuffs, 5 px a meter over the store frame ─────────
+export function drawWear(runs: Run[]): THREE.CanvasTexture {
+  const K = 5, W = Math.round(PD.SW * K), H = Math.round((PD.SD + PD.SBZ) * K);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d')!;
+  const r = rnd(9127);
+  const X = (x: number) => x * K, Y = (z: number) => (PD.SBZ - z) * K;
+  c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+  c.filter = 'blur(6px)';
+  const path = (pts: [number, number][], w: number, a: number) => {
+    c.strokeStyle = `rgba(255,0,0,${a})`; c.lineWidth = w * K; c.lineCap = 'round'; c.lineJoin = 'round';
+    c.beginPath(); pts.forEach(([x, z], i) => (i ? c.lineTo(X(x), Y(z)) : c.moveTo(X(x), Y(z)))); c.stroke();
+  };
+  // The way in from both doors to the front aisle, the front aisle (action alley), the checkout lanes, the back aisle.
+  path([[5, 1.4], [5.5, -4], [8, -10.2]], 2.2, 0.9); path([[18, 1.4], [18, -4], [16, -10.2]], 2.2, 0.9);
+  path([[1.5, -10.3], [60, -10.3], [80, -10.6]], 2.6, 0.85);
+  for (const lx of PD.LANES) path([[lx + 1.6, -1.6], [lx + 1.6, -8.5]], 0.9, 0.6);
+  path([[2, -58.6], [80, -58.6]], 1.8, 0.45); path([[59.5, -10], [59.5, -58]], 2.0, 0.6); path([[46.5, -10], [46.5, -58]], 1.6, 0.45);
+  const xs = new Set<number>();
+  for (const [x, z0, z1] of runs) for (const ax of [x - 1.8, x + 1.8]) { const k = Math.round(ax * 10); if (xs.has(k)) continue; xs.add(k); path([[ax, Math.min(-10.5, z1 + 0.5)], [ax, z0 - 0.5]], 1.1, 0.35 + r() * 0.25); }
+  c.filter = 'none';
+  // Scuffs: short dark strokes (heels, cart wheels) thickest where the traffic is, and a few long wheel arcs.
+  c.globalCompositeOperation = 'lighter';
+  const img = c.getImageData(0, 0, W, H).data;
+  for (let k = 0; k < 2600; k++) {
+    const x = r() * W, y = r() * H, tr = img[(Math.floor(y) * W + Math.floor(x)) * 4] / 255;
+    if (r() > 0.15 + tr) continue;
+    c.strokeStyle = `rgba(0,${Math.round(40 + r() * 90)},0,${0.25 + r() * 0.4})`; c.lineWidth = 0.5 + r() * 1.2;
+    const a = r() * Math.PI, l = 1 + r() * 4;
+    c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + Math.cos(a) * l, y + Math.sin(a) * l + (r() - 0.5) * 2, x + Math.cos(a) * l * 2, y + Math.sin(a) * l * 2); c.stroke();
+  }
+  for (let k = 0; k < 40; k++) {
+    const x = X(2 + r() * 76), y = Y(-10 - r() * 46);
+    c.strokeStyle = 'rgba(0,30,0,0.5)'; c.lineWidth = 0.7;
+    c.beginPath(); c.arc(x, y, 8 + r() * 30, r() * 6, r() * 6 + 0.6 + r()); c.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.NoColorSpace; t.anisotropy = 4;
+  return t;
 }
 
 // ── The packaging atlas: 16 x 16 cells of 128 px ──────────────────────────────
@@ -95,6 +167,9 @@ const DEPT_SIGNS = ['GROCERY', 'HEALTH & BEAUTY', 'HOUSEWARES', 'HARDWARE', 'CLO
 const SALE = [['$4.99', 'Compare at $12'], ['$1.29', 'WOW!'], ['$19.99', 'Compare at $49'], ['ALL RUGS', '40% OFF'], ['$2 YD', 'Fabric'],
   ['$7.99', 'NEW!'], ['AS IS', 'All sales final'], ['$299', 'Sofa'], ['$0.99', 'LIMIT 6'], ['$3.49', 'Compare at $8'], ['$12.99', "Pardon's Price"],
   ['$5 EA', 'Mix & Match'], ['HALF OFF', 'Marked price'], ['$149', 'Queen set'], ['$9.99', 'Lots of colors'], ['$0.50', 'Clearance']];
+/** Garment colours as clothes come: navy, black, heather, white, maroon, olive, khaki, denim, forest, pastels, mustard. */
+const APPAREL: [number, number, number][] = [[222, 38, 22], [0, 0, 11], [0, 0, 52], [40, 12, 88], [352, 40, 27], [78, 22, 32], [40, 28, 60],
+  [214, 32, 40], [150, 26, 24], [340, 32, 76], [205, 34, 70], [45, 48, 50], [20, 22, 40], [0, 0, 30], [260, 18, 35], [10, 45, 48]];
 const HAND = '"Segoe Print", "Bradley Hand", "Comic Sans MS", cursive';
 const HEAD = '"Arial Black", "Arial", sans-serif';
 
@@ -215,9 +290,9 @@ function drawAtlas(): HTMLCanvasElement {
   });
   // Fabric patterns.
   const pattern = (W: number, H: number, k: number) => {
-    const h = r() * 360, bg = hsl(h, 18 + r() * 40, 32 + r() * 50);
+    const h = r() * 360, bg = hsl(h, 10 + r() * 24, 30 + r() * 45);
     c.fillStyle = bg; c.fillRect(0, 0, W, H);
-    const t = k % 6, fg = hsl(h + 30 + r() * 120, 35 + r() * 25, 45 + r() * 35);
+    const t = k % 6, fg = hsl(h + 30 + r() * 120, 18 + r() * 22, 40 + r() * 35);
     if (t === 0) for (let q = 0; q < 40; q++) { const x = r() * W, y = r() * H; c.fillStyle = fg; for (let p = 0; p < 5; p++) { c.beginPath(); c.arc(x + 4 * Math.cos(p * 1.26), y + 4 * Math.sin(p * 1.26), 3, 0, 7); c.fill(); } c.fillStyle = '#f4e27a'; c.beginPath(); c.arc(x, y, 2, 0, 7); c.fill(); }
     else if (t === 1) { c.fillStyle = fg; c.globalAlpha = 0.5; for (let x = 0; x < W; x += 24) { c.fillRect(x, 0, 10, H); } for (let y = 0; y < H; y += 24) c.fillRect(0, y, W, 10); c.globalAlpha = 1; }
     else if (t === 2) { c.fillStyle = fg; for (let x = 0; x < W; x += 16) c.fillRect(x, 0, 6, H); }
@@ -232,15 +307,15 @@ function drawAtlas(): HTMLCanvasElement {
     const t = k % 8 > 4 ? 4 : k % 8;
     if (t === 0) { c.fillStyle = hsl(215, 45, 28 + r() * 15); c.fillRect(0, 0, W, H); c.strokeStyle = 'rgba(255,255,255,0.12)'; for (let x = -H; x < W; x += 3) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x + H, H); c.stroke(); } }
     else if (t === 1) { pattern(W, H, 4); }
-    else if (t === 2) { c.fillStyle = hsl(r() * 360, 25, 80); c.fillRect(0, 0, W, H); c.fillStyle = hsl(r() * 360, 40, 35); for (let y = 0; y < H; y += 14) c.fillRect(0, y, W, 5); }
-    else if (t === 3) { pattern(W, H, 0); }
-    else { c.fillStyle = r() < 0.3 ? hsl(0, 0, 12 + r() * 75) : hsl(r() * 360, 15 + r() * 45, 22 + r() * 55); c.fillRect(0, 0, W, H); noise(W, H, 600, 0.06); }
+    else if (t === 2) { c.fillStyle = hsl(r() * 360, 12, 84); c.fillRect(0, 0, W, H); c.fillStyle = hsl(r() * 360, 30, 32); for (let y = 0; y < H; y += 14) c.fillRect(0, y, W, 4); }
+    else if (t === 3) { pattern(W, H, 3); }
+    else { const [a, b, l] = APPAREL[Math.floor(r() * APPAREL.length)]; c.fillStyle = hsl(a, b, l + (r() - 0.5) * 6); c.fillRect(0, 0, W, H); noise(W, H, 600, 0.05); c.fillStyle = 'rgba(0,0,0,0.06)'; for (let y = 0; y < H; y += 2) c.fillRect(0, y, W, 1); }
   });
   // Rugs (0-7) and flooring (8-15).
   for (let k = 0; k < 16; k++) cell(k, ROW.rug, 1, (W, H) => {
     if (k < 8) {
       const h = [0, 350, 20, 210, 30, 15, 200, 40][k];
-      c.fillStyle = hsl(h, 55, 28); c.fillRect(0, 0, W, H);
+      c.fillStyle = hsl(h, 38, 28); c.fillRect(0, 0, W, H);
       c.strokeStyle = hsl(h + 30, 50, 70); c.lineWidth = 5; c.strokeRect(8, 8, W - 16, H - 16);
       c.strokeStyle = hsl(h + 180, 40, 40); c.lineWidth = 3; c.strokeRect(16, 16, W - 32, H - 32);
       c.fillStyle = hsl(h + 30, 50, 65); c.beginPath(); c.moveTo(W / 2, 24); c.lineTo(W - 30, H / 2); c.lineTo(W / 2, H - 24); c.lineTo(30, H / 2); c.closePath(); c.fill();
@@ -317,17 +392,76 @@ function latheGeo(profile: [number, number][], n: number): THREE.BufferGeometry 
   for (let i = 0; i < n; i += 2) list.push({ p: [[0, yt, -0.5], R(i), R(i + 1), R(i + 2)], t: [[0.5, 0.99], [0.5, 0.99], [0.5, 0.99], [0.5, 0.99]] });
   return quads(list);
 }
-/** A garment on a hanger: flat, x -0.5..0.5 (shoulders), y -1..0 (hook at 0), z -0.5..0.5. */
-function garmentGeo(): THREE.BufferGeometry {
-  const o: [number, number][] = [[-0.06, -0.06], [-0.5, -0.16], [-0.5, -0.42], [-0.36, -0.36], [-0.34, -1], [0.34, -1], [0.36, -0.36], [0.5, -0.42], [0.5, -0.16], [0.06, -0.06]];
-  const list: { p: V3[]; t: [number, number][] }[] = [];
-  const T = (x: number, y: number): [number, number] => [x + 0.5, y + 1];
-  for (const zf of [0]) for (let i = 1; i < o.length - 1; i += 2) {
-    const a = o[0], b = o[i], d = o[i + 1], e = o[Math.min(i + 2, o.length - 1)];
-    list.push({ p: [[a[0], a[1], zf], [b[0], b[1], zf], [d[0], d[1], zf], [e[0], e[1], zf]], t: [T(a[0], a[1]), T(b[0], b[1]), T(d[0], d[1]), T(e[0], e[1])] });
+/**
+ * A garment draped on a hanger, with its own fold shading in the vertex colours (the goods are unlit): x -0.5..0.5
+ * (shoulders), y -1..0 (hook at 0), z -0.5..0.5 (its thickness). A rounded body whose folds deepen toward the hem,
+ * the shoulders sloping off the hanger, and sleeves hanging at the sides (long or short).
+ */
+function garmentGeo(long: boolean, NX = 8, NY = 5, NS = 3): THREE.BufferGeometry {
+  const pos: number[] = [], uv: number[] = [], col: number[] = [];
+  const ph = 0.7;
+  const halfW = (v: number) => (v < 0.18 ? 0.47 - 0.6 * v : 0.362 + 0.06 * (v - 0.18));
+  const P = (u: number, v: number, side: number): { p: V3; s: number } => {
+    const a = 2 * u - 1, bulge = Math.sqrt(Math.max(0, 1 - a * a));
+    const fold = Math.sin(Math.PI * 2 * 2.5 * u + ph) * Math.pow(v, 1.3);
+    const yTop = -0.075 - 0.11 * Math.abs(a) * Math.min(1, Math.abs(a) * 1.4);
+    const y = yTop + (-1 - yTop) * v + 0.025 * fold * v;          // the hem waves a little with the folds
+    const x = a * halfW(v) + 0.02 * fold;
+    const z = side * (0.5 * bulge * (0.55 + 0.45 * (1 - v * 0.5))) + 0.35 * fold * (side > 0 ? 1 : 0.6);
+    const s = (0.84 + 0.16 * fold) * (0.78 + 0.22 * bulge) * (1 - 0.14 * v) * (side > 0 ? 1 : 0.92);
+    return { p: [x, y, z], s };
+  };
+  const tri = (a: { p: V3; s: number }, b: { p: V3; s: number }, c: { p: V3; s: number }, ua: number[], ub: number[], uc: number[]) => {
+    pos.push(...a.p, ...b.p, ...c.p); uv.push(...ua, ...ub, ...uc); col.push(a.s, a.s, a.s, b.s, b.s, b.s, c.s, c.s, c.s);
+  };
+  for (const side of [1, -1]) for (let i = 0; i < NX; i++) for (let j = 0; j < NY; j++) {
+    const u0 = i / NX, u1 = (i + 1) / NX, v0 = j / NY, v1 = (j + 1) / NY;
+    const a = P(u0, v0, side), b = P(u1, v0, side), c = P(u1, v1, side), d = P(u0, v1, side);
+    const T = (u: number, v: number) => [u, 1 - v * 0.97];
+    tri(a, d, c, T(u0, v0), T(u0, v1), T(u1, v1)); tri(a, c, b, T(u0, v0), T(u1, v1), T(u1, v0));
   }
-  list.push({ p: [[-0.01, -0.06, 0.02], [0.01, -0.06, 0.02], [0.01, 0.05, 0.02], [-0.01, 0.05, 0.02]], t: [[0.5, 0.97], [0.5, 0.97], [0.5, 0.97], [0.5, 0.97]] });
-  return quads(list);
+  // Sleeves: a flattened tube from the shoulder down the side, a little forward of the body's edge.
+  const SL = long ? 0.78 : 0.3;
+  for (const sx of [-1, 1]) for (let j = 0; j < NS; j++) {
+    const v0 = j / NS, v1 = (j + 1) / NS;
+    const E = (v: number, k: number): { p: V3; s: number } => {
+      const out = long ? 0.47 - 0.07 * v : 0.47 + 0.06 * v;
+      const x = sx * (out + k * 0.13 * (1 - 0.35 * v) * (long ? 1 : 1.2)) * (k < 0 ? 1 : 1);
+      const y = -0.16 - 0.04 * (1 - Math.abs(sx)) - SL * v;
+      return { p: [x - sx * 0.13 * (k < 0 ? 1 : 0) * 0, y, 0.12 + 0.1 * Math.sin(v * 3) * (long ? 1 : 0)], s: (0.86 - 0.18 * v) * (k ? 0.9 : 1) };
+    };
+    const a = E(v0, -1), b = E(v0, 0), c = E(v1, 0), d = E(v1, -1);
+    tri(a, d, c, [0.02, 0.9 - v0 * 0.5], [0.02, 0.9 - v1 * 0.5], [0.14, 0.9 - v1 * 0.5]); tri(a, c, b, [0.02, 0.9 - v0 * 0.5], [0.14, 0.9 - v1 * 0.5], [0.14, 0.9 - v0 * 0.5]);
+  }
+  // The hanger: a hook and a bar along the shoulders, dark plastic (the cell's corner, shaded black).
+  const H = (p: V3[]) => { const z = { s: 0.12 }; tri({ p: p[0], ...z }, { p: p[1], ...z }, { p: p[2], ...z }, [0.5, 0.97], [0.5, 0.97], [0.5, 0.97]); tri({ p: p[0], ...z }, { p: p[2], ...z }, { p: p[3], ...z }, [0.5, 0.97], [0.5, 0.97], [0.5, 0.97]); };
+  H([[-0.012, -0.075, 0.02], [0.012, -0.075, 0.02], [0.012, 0.05, 0.02], [-0.012, 0.05, 0.02]]);
+  H([[-0.06, 0.05, 0.02], [0.012, 0.05, 0.02], [0.012, 0.035, 0.02], [-0.06, 0.035, 0.02]]);
+  const g = geo(pos, uv);
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return g;
+}
+/** A roll of flooring or a rug: a lathe of n sides, shaded round its girth (lit from local +z, which is up once it lies
+ *  down), end caps in rings round a cardboard core. Same frame as latheGeo. */
+function rollGeo(n: number): THREE.BufferGeometry {
+  const pos: number[] = [], uv: number[] = [], col: number[] = [];
+  const P = (r: number, a: number, y: number): number[] => [r * Math.sin(a + Math.PI), y, -0.5 + r * Math.cos(a + Math.PI)];
+  const sh = (a: number) => 0.62 + 0.38 * Math.max(0, -Math.cos(a + Math.PI) * 0.8 + 0.2);
+  for (let i = 0; i < n; i++) {
+    const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2, s0 = sh(a0), s1 = sh(a1);
+    pos.push(...P(0.5, a0, 0), ...P(0.5, a1, 0), ...P(0.5, a1, 1), ...P(0.5, a0, 0), ...P(0.5, a1, 1), ...P(0.5, a0, 1));
+    uv.push(i / n, 0.02, (i + 1) / n, 0.02, (i + 1) / n, 0.98, i / n, 0.02, (i + 1) / n, 0.98, i / n, 0.98);
+    col.push(s0, s0, s0, s1, s1, s1, s1, s1, s1, s0, s0, s0, s1, s1, s1, s0, s0, s0);
+    const rings = [0.5, 0.38, 0.27, 0.16, 0.1];
+    for (const y of [0, 1]) for (let k = 0; k < rings.length; k++) {
+      const ra = rings[k], rb = rings[k + 1] ?? 0, s = k === rings.length - 1 ? 0.18 : k === rings.length - 2 ? 0.9 : (k % 2 ? 0.72 : 0.88);
+      const q = [P(ra, a0, y), P(ra, a1, y), P(rb, a1, y), P(rb, a0, y)];
+      for (const t of y ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]) { pos.push(...q[t]); uv.push(0.5, k < 2 ? 0.5 : 0.95); col.push(s, s * (k === 3 ? 0.85 : 1), s * (k === 3 ? 0.7 : 1)); }
+    }
+  }
+  const g = geo(pos, uv);
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return g;
 }
 /** A hand-lettered card on a short post: card x -0.5..0.5, y 0.35..1 (relative), double-sided, uv full. */
 function signGeo(): THREE.BufferGeometry {
@@ -354,10 +488,18 @@ const GEOS = (): Record<string, THREE.BufferGeometry> => ({
   can: latheGeo([[0.5, 0], [0.5, 1]], 6),
   bottle: latheGeo([[0.5, 0], [0.5, 0.72], [0.17, 1]], 6),
   card: quads([{ p: [[-0.5, -1, 0], [0.5, -1, 0], [0.5, 0, 0], [-0.5, 0, 0]], t: FULL }]),
-  garment: garmentGeo(),
-  roll: latheGeo([[0.5, 0], [0.5, 1]], 8),
+  garment: garmentGeo(true), garmentS: garmentGeo(false), garmentF: garmentGeo(true, 3, 2, 1), garmentSF: garmentGeo(false, 3, 2, 1),
+  roll: rollGeo(12),
   sign: signGeo(), hang: hangGeo(),
 });
+
+type Shopper = {
+  p: Person; path: [number, number, number][]; i: number; wait: number; kind: 'aisle' | 'door' | 'still' | 'queue'; ax: number[];
+  /** Index of the cart this one pushes, or -1. */
+  cart: number;
+  /** Checkout line: the lane, the place in line (0 = at the register), and what they are doing. */
+  lane?: number; slot?: number; st?: 'line' | 'pay' | 'leave' | 'away';
+};
 
 // ── The stocker ───────────────────────────────────────────────────────────────
 interface Batch { m: number[]; cell: number[]; col: number[] }
@@ -369,7 +511,11 @@ const KIT_TINT: Record<string, number[]> = {
 
 export class PardonsStock {
   readonly group = new THREE.Group();
-  private shoppers: { p: Person; path: [number, number, number][]; i: number; wait: number; kind: 'aisle' | 'door' | 'still'; ax: number[] }[] = [];
+  private shoppers: Shopper[] = [];
+  /** Carts pushed by shoppers: one instance each, placed every frame ahead of whoever pushes it. */
+  private carts: THREE.Mesh[] = [];
+  private fxMat: THREE.Material | null = null;
+  private cartKit: THREE.BufferGeometry | null = null;
   private r = rnd(458);
   private lookRng = new RNG(458);
   private aisles: { x: number; z0: number; z1: number }[] = [];
@@ -397,6 +543,7 @@ export class PardonsStock {
     const gltf = await new GLTFLoader().parseAsync(kb, '');
     const kit = new Map<string, THREE.BufferGeometry>();
     gltf.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) kit.set(o.name, m.geometry); });
+    LM.uWear.value = drawWear(stock.runs);
     this.collide(stock);
     this.fixtures(stock, kit);
     this.goods(stock);
@@ -424,13 +571,15 @@ export class PardonsStock {
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
     for (const [k, x, z, rot] of s.fx) {
       if (!kit.has(k)) continue;
-      let b = by.get(k); if (!b) by.set(k, b = { m: [], cell: [], col: [] });
+      const key = k + ':' + this.chunkOf(x, z);
+      let b = by.get(key); if (!b) by.set(key, b = { m: [], cell: [], col: [] });
       m4.compose(p.set(x, 0, z), q.setFromAxisAngle(up, rot), one).toArray(b.m, b.m.length);
       const tints = KIT_TINT[k], c = new THREE.Color(tints ? tints[Math.floor(this.r() * tints.length)] : 0xffffff);
       b.col.push(c.r, c.g, c.b);
     }
     const mat = bakedLight(new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }), 'obj');
-    for (const [k, b] of by) this.group.add(this.inst(kit.get(k)!, mat, b, k));
+    this.fxMat = mat; this.cartKit = kit.get('pk_cart') ?? null;
+    for (const [key, b] of by) this.group.add(this.inst(kit.get(key.split(':')[0])!, mat, b, key));
   }
 
   private inst(g: THREE.BufferGeometry, mat: THREE.Material, b: Batch, name: string, atlas = false): THREE.InstancedMesh {
@@ -452,15 +601,28 @@ export class PardonsStock {
     atlasTex.colorSpace = THREE.SRGBColorSpace; atlasTex.anisotropy = 8;
     const mat = bakedLight(new THREE.MeshBasicMaterial({ map: atlasTex, fog: false }), 'obj', true);
     const matDS = bakedLight(new THREE.MeshBasicMaterial({ map: atlasTex, fog: false, side: THREE.DoubleSide }), 'obj', true);
+    const matCloth = bakedLight(new THREE.MeshBasicMaterial({ map: atlasTex, fog: false, side: THREE.DoubleSide, vertexColors: true }), 'obj', true);
     const batches = new Map<string, Batch>();
+    const trays = new Map<string, Batch & { rep: number[] }>();
     const r = this.r;
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), sc = new THREE.Vector3();
-    const put = (g: string, dept: number, x: number, y: number, z: number, rot: number, w: number, h: number, d: number, row: number, i: number, tilt = 0, shade = 1, tx = 0) => {
-      const key = g + ':' + dept;
+    /** Small shelf goods go in the chunk's near set (drawn only close by); everything else is drawn wherever its chunk is in view. */
+    let nearOnly: boolean | 'f' = false;
+    const put = (g: string, _dept: number, x: number, y: number, z: number, rot: number, w: number, h: number, d: number, row: number, i: number, tilt = 0, shade = 1, tx = 0) => {
+      const key = g + ':' + this.chunkOf(x, z) + (nearOnly === 'f' ? ':f' : nearOnly ? ':n' : '');
       let b = batches.get(key); if (!b) batches.set(key, b = { m: [], cell: [], col: [] });
       m4.compose(p.set(x, y, z), q.setFromEuler(e.set(tx, rot, tilt, 'YXZ')), sc.set(w, h, d)).toArray(b.m, b.m.length);
       b.cell.push(i % N, N - 1 - row - Math.floor(i / N));
       const k = shade * (0.9 + r() * 0.12); b.col.push(k, k, k);
+    };
+    /** The far stand-in for a group of facings: one flat card at the shelf edge, the product's cell repeated across and up. */
+    const tray = (x: number, y: number, z: number, rot: number, w: number, h: number, nx: number, ny: number, row: number, i: number, u0: number, uw: number) => {
+      const key = 't:' + this.chunkOf(x, z);
+      let b = trays.get(key); if (!b) trays.set(key, b = { m: [], cell: [], col: [], rep: [] });
+      m4.compose(p.set(x, y, z), q.setFromEuler(e.set(0, rot, 0, 'YXZ')), sc.set(w, h, 1)).toArray(b.m, b.m.length);
+      b.cell.push(i % N, N - 1 - row - Math.floor(i / N));
+      b.rep.push(nx, ny, u0, uw);
+      const k = 0.86 + r() * 0.1; b.col.push(k, k, k);
     };
     type Fam = { g: string; row: number; n: number; off?: number; w: [number, number]; h: [number, number]; d: number; stack?: number };
     const FAM: Record<string, Fam> = {
@@ -492,16 +654,23 @@ export class PardonsStock {
         const h = Math.min(clear - 0.03, fam.h[0] + r() * (fam.h[1] - fam.h[0]));
         const rep = 1 + Math.floor(r() * 4);
         if (u + w >= len / 2) break;
-        for (let k = 0; k < rep && u + w < len / 2; k++) {
+        const stack = fam.stack ? Math.max(1, Math.min(fam.stack, Math.floor(clear / (h + 0.005)))) : 1;
+        const u0 = u;
+        let k = 0;
+        nearOnly = true;
+        for (; k < rep && u + w < len / 2; k++) {
           if (r() < 0.04) { u += w; continue; }      // a gap where something sold
           const back = r() * 0.03, uc = u + w / 2;
-          const stack = fam.stack ? Math.max(1, Math.min(fam.stack, Math.floor(clear / (h + 0.005)))) : 1;
           for (let sIdx = 0; sIdx < stack; sIdx++) {
             const bx = cx + ax * uc + fx * (edge - back), bz = cz + az * uc + fz * (edge - back);
             put(fam.g, dept, bx, y + sIdx * (h + 0.004), bz, rot + (r() - 0.5) * 0.06, w, h, fam.d, fam.row, pickI);
           }
           u += w + 0.005;
         }
+        nearOnly = false;
+        const tc = (u0 + u) / 2, tw = u - u0;
+        if (k > 0) tray(cx + ax * tc + fx * (edge - 0.012), y, cz + az * tc + fz * (edge - 0.012), rot, tw, stack * (h + 0.004), k, stack, fam.row, pickI,
+          fam.g === 'can' ? 0.33 : 0, fam.g === 'can' ? 0.34 : 1);
       }
     };
     const famFor = (dept: number, seed: number) => FAM[DEPT_FAMS[dept][seed % DEPT_FAMS[dept].length]];
@@ -540,19 +709,28 @@ export class PardonsStock {
           }
         }
       } else if (k === 'pk_rround' || k === 'pk_rline') {
-        const ci = Math.floor(r() * 16), tint = 0.75 + r() * 0.3;
-        const long = r() < 0.4;
+        // One kind to a rack, as the real store sorts them: tees, shirts or coats and dresses; colours run in a few
+        // neighbouring cells (a rack of one style in several colours), every garment a little different in tone.
+        const ci = Math.floor(r() * 16), tint = 0.8 + r() * 0.2, kind = r();
+        const g = kind < 0.4 ? 'garmentS' : 'garment', gh = kind < 0.4 ? 0.7 : kind < 0.8 ? 0.8 : 1.02;
+        const cellAt = () => (ci + Math.floor(r() * r() * 3)) % 16;
         if (k === 'pk_rround') {
-          const n = 46;
+          const n = 44;
           for (let i = 0; i < n; i++) {
-            const a = (i / n) * Math.PI * 2, gx = x + Math.cos(a) * 0.6, gz = z + Math.sin(a) * 0.6;
-            put('garment', dept, gx, 1.33, gz, -a, 0.5, long ? 0.95 : 0.72, 0.03, ROW.cloth, (ci + (i % 3 === 0 ? 1 : 0)) % 16, 0, tint);
+            if (r() < 0.06) continue;
+            const a = (i / n) * Math.PI * 2 + (r() - 0.5) * 0.03, gx = x + Math.cos(a) * 0.6, gz = z + Math.sin(a) * 0.6;
+            const gg = gh * (0.97 + r() * 0.06), cc = cellAt(), tl = (r() - 0.5) * 0.04;
+            nearOnly = true; put(g, dept, gx, 1.33, gz, -a, 0.5, gg, 0.085, ROW.cloth, cc, tl, tint);
+            nearOnly = 'f'; put(g + 'F', dept, gx, 1.33, gz, -a, 0.5, gg, 0.085, ROW.cloth, cc, tl, tint); nearOnly = false;
           }
         } else {
           const along = Math.abs(Math.sin(rot)) < 0.5;
-          for (const off of [-0.27, 0.27]) for (let u = -0.7; u <= 0.7; u += 0.055) {
+          for (const off of [-0.27, 0.27]) for (let u = -0.7; u <= 0.7; u += 0.06) {
+            if (r() < 0.06) continue;
             const gx = along ? x + u : x + off, gz = along ? z + off : z + u;
-            put('garment', dept, gx, 1.37, gz, along ? Math.PI / 2 : 0, 0.5, long ? 1.0 : 0.75, 0.03, ROW.cloth, (ci + (u > 0 ? 2 : 0)) % 16, 0, tint);
+            const gg = gh * (0.97 + r() * 0.06), cc = cellAt(), tl = (r() - 0.5) * 0.04, ro = (along ? Math.PI / 2 : 0) + (r() - 0.5) * 0.12;
+            nearOnly = true; put(g, dept, gx, 1.37, gz, ro, 0.5, gg, 0.075, ROW.cloth, cc, tl, tint);
+            nearOnly = 'f'; put(g + 'F', dept, gx, 1.37, gz, ro, 0.5, gg, 0.075, ROW.cloth, cc, tl, tint); nearOnly = false;
           }
         }
       } else if (k === 'pk_rack') {
@@ -563,10 +741,10 @@ export class PardonsStock {
         }
       } else if (k === 'pk_rugbin') {
         for (let c = 0; c < 4; c++) for (let i = 0; i < 6; i++) {
-          const rad = 0.06 + r() * 0.05, hh = 1.4 + r() * 1.1;
+          const rad = 0.08 + r() * 0.05, hh = 1.5 + r() * 0.9;
           const rx = x - 0.9 + c * 0.6 + (r() - 0.5) * 0.3, rz = z + (r() - 0.5) * 0.45;
           // A standing roll: the unit roll stands on its end; lean a little.
-          put('roll', dept, rx, 0.08, rz + rad, 0, rad * 2, hh, rad * 2, ROW.fabric, Math.floor(r() * 16), (r() - 0.5) * 0.12);
+          put('roll', dept, rx, 0.08, rz + rad, r() * 6, rad * 2, hh, rad * 2, ROW.rug, Math.floor(r() * 8), (r() - 0.5) * 0.12);
         }
       } else if (k === 'pk_sofa' && sec % 2 === 0) {
         put('sign', dept, x + 0.7, 0.86, z - 0.3, 0, 0.42, 0.4, 1, ROW.sign, 7);
@@ -582,8 +760,45 @@ export class PardonsStock {
     for (let i = 0; i < 6; i++) put('sign', 4, 51.3 + (i % 2) * 3.3, 0, -14 - i * 7, 0, 0.5, 1.5, 1, ROW.sign, [4, 11, 14, 5, 9, 1][i]);
     put('sign', 7, 64.5, 0, -50.3, 0, 0.6, 1.4, 1, ROW.sign, 3); put('sign', 7, 75.5, 0, -50.3, 0, 0.6, 1.4, 1, ROW.sign, 3);
     for (const [key, b] of batches) {
-      const g = key.split(':')[0];
-      this.group.add(this.inst(geos[g], g === 'card' || g === 'garment' ? matDS : mat, b, 'pk-' + key, true));
+      const [g, ck, n] = key.split(':');
+      const im = this.inst(geos[g], geos[g].getAttribute('color') ? matCloth : g === 'card' ? matDS : mat, b, 'pk-' + key, true);
+      this.group.add(im);
+      if (n === 'n') this.chunk(ck).near.push(im);
+      else if (n === 'f') { im.visible = false; this.chunk(ck).far.push(im); }
+    }
+    const trayMat = bakedLight(new THREE.MeshBasicMaterial({ map: atlasTex, fog: false }), 'obj', 'tray');
+    const trayGeo = quads([{ p: [[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], t: FULL }]);
+    for (const [key, b] of trays) {
+      const g = trayGeo.clone();
+      g.setAttribute('aRep', new THREE.InstancedBufferAttribute(new Float32Array(b.rep), 4));
+      const im = this.inst(g, trayMat, b, 'pk-' + key, true);
+      im.visible = false;
+      this.group.add(im);
+      this.chunk(key.split(':')[1]).far.push(im);
+    }
+  }
+
+  // ── Chunks: goods and fixtures are batched per 10 m square so that whole squares out of view are skipped, and the
+  // small shelf goods of a square are swapped for its trays beyond NEAR_D. ──
+  private static CH = 10;
+  private chunks = new Map<string, { x: number; z: number; near: THREE.Object3D[]; far: THREE.Object3D[]; on: boolean }>();
+  private chunkOf(x: number, z: number): string { return Math.floor(x / PardonsStock.CH) + ',' + Math.floor(z / PardonsStock.CH); }
+  private chunk(k: string) {
+    let c = this.chunks.get(k);
+    if (!c) { const [i, j] = k.split(',').map(Number); this.chunks.set(k, c = { x: (i + 0.5) * PardonsStock.CH, z: (j + 0.5) * PardonsStock.CH, near: [], far: [], on: true }); }
+    return c;
+  }
+  /** Near goods within this many meters of the camera (to the nearest edge of their square). */
+  nearD = 9;
+  private lod(cx: number, cz: number): void {
+    const H = PardonsStock.CH / 2;
+    for (const c of this.chunks.values()) {
+      const dx = Math.max(0, Math.abs(cx - c.x) - H), dz = Math.max(0, Math.abs(cz - c.z) - H);
+      const on = dx * dx + dz * dz < this.nearD * this.nearD;
+      if (on === c.on) continue;
+      c.on = on;
+      for (const o of c.near) o.visible = on;
+      for (const o of c.far) o.visible = !on;
     }
   }
 
@@ -619,39 +834,55 @@ export class PardonsStock {
       const p = ppl.spawn(wx, wz, h + Math.PI, ppl.randomLook(this.lookRng));
       p.y = this.Y; p.visible = false; return p;
     };
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 11; i++) {
       const a = this.aisles[Math.floor(r() * this.aisles.length)];
       const z = a.z0 + r() * (a.z1 - a.z0);
-      this.shoppers.push({ p: spawn(a.x, z, 0), path: [[a.x, z, 0]], i: 0, wait: r() * 3, kind: 'aisle', ax: [] });
+      this.shoppers.push({ p: spawn(a.x, z, 0), path: [[a.x, z, 0]], i: 0, wait: r() * 3, kind: 'aisle', ax: [], cart: i % 2 === 0 ? 0 : -1 });
     }
     const doorPaths: [number, number, number][][] = [[[8, -10, 3], [8, -2, 0], [5, -0.8, 0], [5, 6.5, 5], [5, -0.8, 0], [8, -2, 0]], [[18, -10, 3], [18, -0.8, 0], [18, 6.5, 7], [18, -0.8, 0]]];
-    doorPaths.forEach((path, i) => this.shoppers.push({ p: spawn(path[0][0], path[0][1], 0), path, i: 0, wait: i * 6, kind: 'door', ax: [] }));
-    // Cashiers at lanes 1, 3, 4 and 6, a customer or two in each of those lanes.
+    doorPaths.forEach((path, i) => this.shoppers.push({ p: spawn(path[0][0], path[0][1], 0), path, i: 0, wait: i * 6, kind: 'door', ax: [], cart: i === 0 ? 0 : -1 }));
+    // Cashiers at lanes 1, 3, 4 and 6, and a line at each that moves up as each customer pays and goes out.
     for (const li of [0, 2, 3, 5]) {
       const lx = PD.LANES[li];
       const c = spawn(lx + 1.2, -4.1, 0); this.face(c, -1, 0); c.pose = 'stand';
-      this.shoppers.push({ p: c, path: [], i: 0, wait: 0, kind: 'still', ax: [] });
-      for (let k = 0; k < 1 + (li % 2); k++) {
-        const q = spawn(lx + 2.2, -5.4 - k * 1.3, 0); this.face(q, 0, 1); q.pose = 'stand';
-        this.shoppers.push({ p: q, path: [], i: 0, wait: 0, kind: 'still', ax: [] });
+      this.shoppers.push({ p: c, path: [], i: 0, wait: 0, kind: 'still', ax: [], cart: -1 });
+      for (let k = 0; k < 2 + (li % 2); k++) {
+        const [qx, qz] = this.qPos(li, k);
+        const q = spawn(qx, qz, 0); this.face(q, 0, 1); q.pose = 'stand';
+        this.shoppers.push({ p: q, path: [], i: 0, wait: 2 + r() * 6, kind: 'queue', ax: [], cart: (k + li) % 2 === 0 ? 0 : -1, lane: li, slot: k, st: k === 0 ? 'pay' : 'line' });
       }
     }
+    // Number the carts and make their instances (the kit's cart, lit like the fixtures).
+    let n = 0;
+    for (const s of this.shoppers) if (s.cart >= 0) s.cart = n++;
+    if (this.cartKit && this.fxMat && n) {
+      // Separate meshes, not instances: moving an instance means re-uploading its buffer every frame, which stalls the
+      // Iris Xe (about 4 ms); a mesh's matrix is a uniform. Their geometry needs a white colour per instance: none here.
+      const g = this.cartKit.clone(); const cm = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });
+      bakedLight(cm, 'obj');
+      for (let i = 0; i < n; i++) { const m = new THREE.Mesh(g, cm); m.matrixAutoUpdate = false; m.name = 'pk-pushed-cart'; this.carts.push(m); this.group.add(m); }
+    }
   }
+
+  /** Where the k-th in line stands at a lane (store frame): in the lane's aisle, back from the register. */
+  private qPos(li: number, k: number): [number, number] { return [PD.LANES[li] + 2.25, -4.8 - k * 1.9]; }
 
   private toWorld(x: number, z: number): [number, number] { return [PD.XE - x, PD.ZF - z]; }
   /** Point a person along a store-frame direction. */
   private face(p: Person, dx: number, dz: number): void { p.h = Math.atan2(-dx, -dz); }
 
-  update(dt: number, shown: boolean): void {
+  update(dt: number, shown: boolean, cx = 0, cz = 0, px = 1e9, pz = 1e9): void {
     this.nearDoors.length = 0;
+    if (shown) this.lod(cx, cz);
     const r = this.r;
     for (const s of this.shoppers) {
-      s.p.visible = shown || s.kind === 'door';
+      s.p.visible = (shown || s.kind === 'door') && s.st !== 'away';
       if (s.kind === 'still') continue;
       const lx = PD.XE - s.p.x, lz = PD.ZF - s.p.z;
-      if (s.kind === 'door' && lz > -3) this.nearDoors.push({ x: lx, z: lz });
-      if (!shown && s.kind !== 'door') continue;
-      if (s.wait > 0) { s.wait -= dt; s.p.speed = 0; s.p.pose = 'stand'; continue; }
+      if (s.kind !== 'aisle' && lz > -3 && s.p.visible) this.nearDoors.push({ x: lx, z: lz });
+      if (!shown && s.kind !== 'door') { this.cartAt(s); continue; }
+      if (s.kind === 'queue') { this.queueStep(s, dt, lx, lz, px, pz); this.cartAt(s); continue; }
+      if (s.wait > 0) { s.wait -= dt; s.p.speed = 0; s.p.pose = 'stand'; this.cartAt(s); continue; }
       const tgt = s.path[s.i];
       const dx = tgt[0] - lx, dz = tgt[1] - lz, d = Math.hypot(dx, dz);
       if (d < 0.15) {
@@ -662,7 +893,7 @@ export class PardonsStock {
           const a = this.aisles.find((q) => Math.abs(q.x - lx) < 0.2);
           if (a && r() < 0.75) {
             s.path = [[a.x, a.z0 + r() * (a.z1 - a.z0), 2 + r() * 4]]; s.i = 0;
-            if (r() < 0.5) this.face(s.p, r() < 0.5 ? 1 : -1, 0);
+            if (r() < 0.5 && s.cart < 0) this.face(s.p, r() < 0.5 ? 1 : -1, 0);
           } else {
             const b = this.aisles[Math.floor(r() * this.aisles.length)];
             s.path = [[lx, -10.2, 0], [b.x, -10.2, 0], [b.x, b.z0 + r() * (b.z1 - b.z0), 3]]; s.i = 0; s.ax = [1];
@@ -671,11 +902,74 @@ export class PardonsStock {
         else s.ax = [];
         continue;
       }
-      const sp = 1.15, k = Math.min(1, (sp * dt) / d);
-      const [wx, wz] = this.toWorld(lx + dx * k, lz + dz * k);
-      s.p.x = wx; s.p.z = wz; s.p.y = this.Y;
-      this.face(s.p, dx, dz);
-      s.p.speed = sp; s.p.pose = 'walk';
+      this.walk(s, lx, lz, dx, dz, d, dt, s.cart >= 0 ? 0.95 : 1.15, px, pz);
+      this.cartAt(s);
     }
+  }
+
+  /**
+   * One step toward (lx + dx, lz + dz), stepping round the player: within reach ahead they veer to the side away from
+   * the player, and right in front of the player they stop and wait.
+   */
+  private walk(s: Shopper, lx: number, lz: number, dx: number, dz: number, d: number, dt: number, sp: number, px: number, pz: number): void {
+    let ux = dx / d, uz = dz / d;
+    const ox = px - lx, oz = pz - lz, od = Math.hypot(ox, oz), ahead = ox * ux + oz * uz;
+    const reach = s.cart >= 0 ? 2.4 : 1.7;
+    if (od < reach && ahead > -0.2) {
+      if (od < (s.cart >= 0 ? 1.5 : 0.75) && ahead > 0.25) { s.p.speed = 0; s.p.pose = 'stand'; return; }
+      const cross = ux * oz - uz * ox, k = (1 - od / reach) * 1.8;
+      const sx = cross > 0 ? uz : -uz, sz = cross > 0 ? -ux : ux;      // away from the side the player is on
+      ux += sx * k; uz += sz * k;
+      const n = Math.hypot(ux, uz); ux /= n; uz /= n;
+    }
+    const step = Math.min(d, sp * dt);
+    const [wx, wz] = this.toWorld(lx + ux * step, lz + uz * step);
+    s.p.x = wx; s.p.z = wz; s.p.y = this.Y;
+    this.face(s.p, ux, uz);
+    s.p.speed = sp; s.p.pose = 'walk';
+  }
+
+  /** The checkout line: move up to your place, pay at the front, go out by the nearer door, come back to the end of a line. */
+  private queueStep(s: Shopper, dt: number, lx: number, lz: number, px: number, pz: number): void {
+    const li = s.lane!, r = this.r;
+    if (s.st === 'away') {
+      s.wait -= dt; if (s.wait > 0) return;
+      // Back in from the aisles to the end of this lane's line.
+      s.slot = this.shoppers.filter((o) => o.kind === 'queue' && o.lane === li && (o.st === 'line' || o.st === 'pay')).length;
+      s.st = 'line';
+      const [qx] = this.qPos(li, 0), [wx, wz] = this.toWorld(qx + (r() - 0.5) * 0.4, -12.5);
+      s.p.x = wx; s.p.z = wz;
+      return;
+    }
+    if (s.st === 'leave') {
+      const tgt = s.path[s.i], dx = tgt[0] - lx, dz = tgt[1] - lz, d = Math.hypot(dx, dz);
+      if (d < 0.2) { if (++s.i >= s.path.length) { s.st = 'away'; s.wait = 4 + r() * 8; s.p.speed = 0; } return; }
+      this.walk(s, lx, lz, dx, dz, d, dt, 1.1, px, pz);
+      return;
+    }
+    const [tx, tz] = this.qPos(li, s.slot!);
+    const dx = tx - lx, dz = tz - lz, d = Math.hypot(dx, dz);
+    if (d > 0.12) { this.walk(s, lx, lz, dx, dz, d, dt, 0.9, px, pz); return; }
+    this.face(s.p, 0, 1); s.p.speed = 0; s.p.pose = 'stand';
+    if (s.slot !== 0) return;
+    if (s.st !== 'pay') { s.st = 'pay'; s.wait = 6 + r() * 8; return; }
+    s.wait -= dt; if (s.wait > 0) return;
+    // Paid: out through the end of the lane to the nearer door, and everyone behind moves up one.
+    const door = tx > 34 ? 18 : 5;
+    s.st = 'leave'; s.i = 0; s.slot = -1;
+    s.path = [[tx, -1.6, 0], [door + (r() - 0.5), -1.0, 0], [door, 3.2, 0]];
+    for (const o of this.shoppers) if (o.kind === 'queue' && o.lane === li && o.st === 'line' && o.slot! > 0) o.slot!--;
+  }
+
+  /** Put this shopper's cart in front of them, handle at their hands (hidden with them). */
+  private cartAt(s: Shopper): void {
+    const cm = this.carts[s.cart];
+    if (s.cart < 0 || !cm) return;
+    cm.visible = s.p.visible;
+    if (!s.p.visible) return;
+    const lx = PD.XE - s.p.x, lz = PD.ZF - s.p.z;
+    const fx = -Math.sin(s.p.h), fz = -Math.cos(s.p.h);
+    cm.matrix.makeRotationY(Math.atan2(fz, -fx)).setPosition(lx + fx * 0.8, 0, lz + fz * 0.8);
+    cm.matrixWorldNeedsUpdate = true;
   }
 }

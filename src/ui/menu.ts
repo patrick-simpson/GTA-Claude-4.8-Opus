@@ -26,6 +26,7 @@ import { clock } from '../game/script';
 import { save, type QualityPick } from '../game/save';
 import { autoPresetIfKnown } from '../core/governor';
 import { PEER_COLOR } from '../net/names';
+import { PARDONS_AT, PARDONS_RED } from './hud';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
 type VolKey = 'volMaster' | 'volMusic' | 'volSfx' | 'volAmbience';
@@ -446,6 +447,14 @@ export class Menu {
     for (const rc of todo.jobs.races) badge(rc.start.x, rc.start.z, TEAL, 'R', false, BONE);
     for (const y of todo.jobs.yards) badge(y.at.x, y.at.z, BONE, 'Y');
     for (const s of todo.shops.list) badge(s.at.x, s.at.z, BONE, s.letter);
+    if (progress.complete) {
+      // Pardon's Surplus & Salvage: a red badge at the entrance, its name beside it.
+      badge(PARDONS_AT.x, PARDONS_AT.z, PARDONS_RED, 'P', false, BONE);
+      const px = Math.max(10, Math.min(14, 11 + k * 3));
+      c.font = `700 ${px}px "IBM Plex Mono", monospace`;
+      const tw = c.measureText("PARDON'S SURPLUS & SALVAGE").width;
+      text("PARDON'S SURPLUS & SALVAGE", X(PARDONS_AT.x) + r + 6 + tw / 2, Z(PARDONS_AT.z), px, PARDONS_RED, true, '"IBM Plex Mono", monospace', 700);
+    }
     if (!todo.busy) for (const o of todo.missions.offers()) { const gv = todo.missions.givers[o.giver]; badge(gv.at.x, gv.at.z, VERMILION, gv.letter, false, BONE); }
     if (goal) badge(goal.x, goal.z, MUSTARD, '', true);
     if (way) badge(way.x, way.z, MUSTARD, '', true);

@@ -18,6 +18,8 @@ import { COAST, DAM_Z, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MZS, RAIL, RIVER_HW
 import { progress } from '../world/progress';
 
 import { PEER_COLOR } from '../net/names';
+/** Pardon's entrance (world) and the store's red: the radar badge, and the map's in menu.ts. */
+export const PARDONS_AT = { x: -612, z: -1160 }, PARDONS_RED = '#cc2229';
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f', SAGE = '#8a9a6b';
 // Chart tints. Land is the buff of a paper chart and the sea is left as bare
 // paper, which is how the real ones do it and keeps the vermilion arrow loud.
@@ -497,6 +499,16 @@ class Radar {
         c.textAlign = 'center'; c.textBaseline = 'middle';
         c.fillText(b.label, px, py + br * 0.1);
       }
+    }
+    // Pardon's Surplus & Salvage (src/world/pardonsStore.ts): a red badge at its entrance once the bridge is open.
+    if (progress.complete) {
+      const dx = PARDONS_AT.x - x, dz = PARDONS_AT.z - z, d = Math.hypot(dx, dz) || 1;
+      const lim = (rf - br * 1.25) / kf, q = d > lim ? lim / d : 1;
+      const px = (dx * ca - dz * sa) * q * kf, py = (dx * sa + dz * ca) * q * kf;
+      c.fillStyle = PARDONS_RED; c.strokeStyle = INK; c.lineWidth = Math.max(1.5, br * 0.28);
+      c.beginPath(); c.rect(px - br, py - br, br * 2, br * 2); c.fill(); c.stroke();
+      c.fillStyle = BONE; c.font = `900 ${Math.round(br * 1.5)}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
+      c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('P', px, py + br * 0.1);
     }
 
     // Other players (multiplayer): small violet dots with a bone rim, on the face only, no names.

@@ -603,7 +603,7 @@ class Build:
 
 # ── Occlusion ────────────────────────────────────────────────────────────────
 
-def vertex_ao(ob, rays=12, reach=2.5):
+def vertex_ao(ob, rays=12, reach=2.5, big=0.0):
     """Per-face occlusion by ray casting (the mesh and the street), multiplied into the corner colours (not the alpha)."""
     me = ob.data
     bm = bmesh.new(); bm.from_mesh(me)
@@ -626,6 +626,7 @@ def vertex_ao(ob, rays=12, reach=2.5):
             loc, nn, idx, dist = tree.ray_cast(o, d, reach)
             if loc is not None: hit += 1 - dist / reach
         k = max(0.35, 1 - 0.85 * hit / rays)
+        if big and p.area > 0.3: k = max(k, big)      # broad panels (pegboard, shelves): no blotches from a few rays
         for li in p.loop_indices:
             c = att.data[li].color
             att.data[li].color = (c[0] * k, c[1] * k, c[2] * k, c[3])
@@ -1062,7 +1063,8 @@ def store_main():
 #                      (each run of gondolas is one collision box in the game); the game stocks the shelves from it
 #   pardons_lm.webp    the floor's light, baked in Cycles (GPU) from the troffers and soffit lights with the fixtures,
 #                      counters and columns in place: R = the floor (contact shadows under the runs), G = the same
-#                      room with no fixtures (what lights the goods and fixtures); 0.5 = the median of G.
+#                      room with no fixtures (what lights the goods and fixtures); 0.5 = the median of G; B = the
+#                      ceiling's light (the underside, lit from below by the floor and goods; 0.5 = its median).
 #                      u = x / SW, v = (z + SD) / (SD + SBZ), 20 px a meter.
 PK_DEPTS = [('grocery', 1.5, 21, -40, -11, 'gondola'), ('hba', 1.5, 21, -57, -42, 'gondola'),
             ('house', 24, 45, -34, -11, 'gondola'), ('hardware', 24, 45, -57, -36, 'gondola'),
@@ -1327,7 +1329,8 @@ def stock_bake(fx, runs, coll, samples):
     try: w.node_tree.nodes['Background'].inputs[1].default_value = 0.0
     except Exception: pass
     i0, i1, d0, Z = 0.3, SW - 0.3, -SD + 0.3, SBZ
-    fl, room, blk, li = Mesh(), Mesh(), Mesh(), Mesh()
+    fl, room, blk, li, ce = Mesh(), Mesh(), Mesh(), Mesh(), Mesh()
+    ce.face([(i0, SCH - 0.01, -0.3), (i1, SCH - 0.01, -0.3), (i1, SCH - 0.01, d0), (i0, SCH - 0.01, d0)], 0xffffff, 0, (0, -1, 0))
     fl.face([(i0, 0, d0), (i1, 0, d0), (i1, 0, -0.3), (i0, 0, -0.3)], 0xffffff, 0, (0, 1, 0))
     fl.face([(i0, 0, -0.3), (SEW - 0.3, 0, -0.3), (SEW - 0.3, 0, Z - 0.12), (i0, 0, Z - 0.12)], 0xffffff, 0, (0, 1, 0))
     room.box(i0, i1, 0, SCH, d0, Z - 0.12, 0xffffff, skip='')
@@ -1375,25 +1378,31 @@ def stock_bake(fx, runs, coll, samples):
         b.inputs['Base Color'].default_value = (col, col, col, 1); b.inputs['Roughness'].default_value = 0.9
         if emit:
             b.inputs['Emission Color'].default_value = (1, 1, 1, 1); b.inputs['Emission Strength'].default_value = emit
+            # The troffers light only downward (a mesh light is two-sided): strength times (1 - backfacing).
+            nt_ = m.node_tree; gm = nt_.nodes.new('ShaderNodeNewGeometry'); mm = nt_.nodes.new('ShaderNodeMath')
+            mm.operation = 'MULTIPLY_ADD'; mm.inputs[1].default_value = -emit; mm.inputs[2].default_value = emit
+            nt_.links.new(gm.outputs['Backfacing'], mm.inputs[0]); nt_.links.new(mm.outputs[0], b.inputs['Emission Strength'])
         return m
     obs = {}
-    for name, m, mt in (('bk_floor', fl, mat('bkf', 0.62)), ('bk_room', room, mat('bkr', 0.78)), ('bk_blk', blk, mat('bkb', 0.55)), ('bk_li', li, mat('bkl', 0.8, 40.0))):
+    for name, m, mt in (('bk_floor', fl, mat('bkf', 0.62)), ('bk_room', room, mat('bkr', 0.78)), ('bk_blk', blk, mat('bkb', 0.55)), ('bk_li', li, mat('bkl', 0.8, 40.0)), ('bk_ceil', ce, mat('bkc', 0.8))):
         o = m.to_object(name, coll); o.data.materials.append(mt); obs[name] = o
     W_, H_ = int(SW * 20), int((SD + SBZ) * 20)
-    me = obs['bk_floor'].data; uvl = me.uv_layers.new(name='LM')
-    for lp in me.loops:
-        co = me.vertices[lp.vertex_index].co
-        uvl.data[lp.index].uv = (co.x / SW, (-co.y + SD) / (SD + SBZ))
+    for nm in ('bk_floor', 'bk_ceil'):
+        me = obs[nm].data; uvl = me.uv_layers.new(name='LM')
+        for lp in me.loops:
+            co = me.vertices[lp.vertex_index].co
+            uvl.data[lp.index].uv = (co.x / SW, (-co.y + SD) / (SD + SBZ))
     out = {'device': dev, 'px': [W_, H_], 'samples': samples}
     res = []
-    for tag, hide in (('R', False), ('G', True)):
+    for tag, hide in (('R', False), ('G', True), ('B', False)):
+        tgt = obs['bk_ceil' if tag == 'B' else 'bk_floor']
         img = bpy.data.images.new('lm' + tag, W_, H_, alpha=False, float_buffer=True); img.colorspace_settings.name = 'Non-Color'
-        nt = obs['bk_floor'].data.materials[0].node_tree
+        nt = tgt.data.materials[0].node_tree
         nd = nt.nodes.new('ShaderNodeTexImage'); nd.image = img
         for x in nt.nodes: x.select = False
         nd.select = True; nt.nodes.active = nd
         obs['bk_blk'].hide_render = hide
-        bpy.ops.object.select_all(action='DESELECT'); obs['bk_floor'].select_set(True); bpy.context.view_layer.objects.active = obs['bk_floor']
+        bpy.ops.object.select_all(action='DESELECT'); tgt.select_set(True); bpy.context.view_layer.objects.active = tgt
         try: bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
         except Exception: pass
         t0 = time.time()
@@ -1403,16 +1412,19 @@ def stock_bake(fx, runs, coll, samples):
         a = np.empty(W_ * H_ * 4, dtype=np.float32); img.pixels.foreach_get(a)
         a = a.reshape(H_, W_, 4)[:, :, :3].mean(axis=2)
         r = 2 if tag == 'R' else 4
+        if tag == 'B': out['B_raw_median'] = float(np.median(a[a > 1e-4]))
         acc = np.zeros_like(a); n = 0
         for dy in range(-r, r + 1):
             for dx in range(-r, r + 1): acc += np.roll(np.roll(a, dy, 0), dx, 1); n += 1
         res.append(acc / n)
         nt.nodes.remove(nd)
-    R, G = res
+    R, G, C = res
     ref = float(np.median(G[G > 1e-4]))
     out['ref'] = ref
+    refc = float(np.median(C[C > 1e-4])); out['refc'] = refc
     rgb = np.zeros((H_, W_, 4), dtype=np.float32)
-    rgb[:, :, 0] = np.clip(R / ref * 0.5, 0, 1); rgb[:, :, 1] = np.clip(G / ref * 0.5, 0, 1); rgb[:, :, 3] = 1
+    rgb[:, :, 0] = np.clip(R / ref * 0.5, 0, 1); rgb[:, :, 1] = np.clip(G / ref * 0.5, 0, 1); rgb[:, :, 2] = np.clip(C / refc * 0.5, 0, 1); rgb[:, :, 3] = 1
+    out['B_p5_p50_p95'] = [round(float(np.percentile(rgb[:, :, 2], q)), 3) for q in (5, 50, 95)]
     out['R_p5_p50_p95'] = [round(float(np.percentile(rgb[:, :, 0], q)), 3) for q in (5, 50, 95)]
     im = bpy.data.images.new('pardons_lm', W_, H_, alpha=False); im.colorspace_settings.name = 'Non-Color'
     im.pixels.foreach_set(rgb.ravel())
@@ -1436,7 +1448,7 @@ def stock_main():
     for i, (name, m) in enumerate(kit.items()):
         obs[name] = m.to_object(name, coll); stats[name] = len(m.f)
         obs[name].location = ((i % 6) * 4.0, -(i // 6) * 5.0 - 80, 0)
-        vertex_ao(obs[name], rays=10, reach=0.8)
+        vertex_ao(obs[name], rays=24, reach=0.8, big=0.86)
         try: bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
         except Exception: pass
     for o in obs.values(): o.location = (0, 0, 0)

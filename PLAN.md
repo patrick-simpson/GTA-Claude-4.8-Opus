@@ -88,6 +88,24 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Pardon's, unit 3 (store finished), the map marker, and forced updates: pushed Nov 23, about 3:40 PM ET
+
+- Inside 87 fps standing / 85 moving (was 64), lot 62 (was 65, cause not found). Goods in 10 m chunks,
+  small goods drawn within 9 m and as tray cards beyond; draped garments; real rolls; quieter colours;
+  ceiling baked too (third Cycles map); floor wear paths and scuffs; shoppers with carts, moving
+  checkout lines, stepping around the player; outside: dock annex, flag, trees, weathering, night
+  lot light. About 82% of the real store.
+- GLOBAL, deep inside the store: `pardonsStore.cullOutside()` sets camera.far 260 and freezes
+  shadow updates; both restored on leaving (checked by a Haiku worker: 4000 / true again downtown).
+  Moving instances re-uploaded every frame cost about 4 ms on the Iris Xe: use separate meshes or flip.
+- Red "P" store marker on the radar and pause map once the bridge is finished.
+- Forced updates (`src/core/update.ts`, `vite.config.ts` writes `version.json`): every 60 s and on
+  tab return or reconnect; a new build saves, shows a notice and reloads; backoff against CDN lag;
+  off on localhost and with `?noupdate=1`.
+  Owed: pegboard holes, strip fixtures as in the real store, flag hard to see from the lot, the map
+  label overlaps a nearby badge, the radar P hides under the player arrow, shoppers ignore fixtures
+  when stepping aside, the lot's 3 fps.
+
 ### Pardon's, unit 2: stocked, lit, peopled: pushed Nov 23, about 2:15 PM ET
 
 `buildings.py -- --stock` writes `pardons_kit.glb` (17 fixtures), `pardons_stock.json` (587 fixtures,
