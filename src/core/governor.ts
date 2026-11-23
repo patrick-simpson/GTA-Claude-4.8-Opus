@@ -67,6 +67,9 @@ export interface Hints {
   dpr: number;
 }
 
+/** A touch screen narrower than this (CSS px, short side) is a phone; at or above it, a tablet or a touch laptop. */
+const PHONE_SCREEN = 700;
+
 function readHints(): Hints {
   const mm = (q: string): boolean => { try { return matchMedia(q).matches; } catch { return false; } };
   const nav = navigator as Navigator & { deviceMemory?: number };
@@ -275,7 +278,9 @@ function decide(h: Hints, gpu: string, score: number | null, cap: Name | undefin
   if (cls === 'software') return { name: 'low', notch: 0, why: `no graphics hardware (${gpu})` };
   if ((h.mem !== null && h.mem <= 2) || (h.cores !== null && h.cores <= 2)) return { name: 'low', notch: 0, why: `${h.mem ?? '?'} GB of memory, ${h.cores ?? '?'} cores` };
   let top: Name = 'high', limit = '';
-  if ((h.mem !== null && h.mem <= 4) || (h.cores !== null && h.cores <= 4 && cls !== 'discrete') || h.touch) { top = 'medium'; limit = `; ${h.mem ?? '?'} GB, ${h.cores ?? '?'} cores${h.touch ? ', touch' : ''} keep it off high`; }
+  // (Touch alone keeps an integrated GPU off high, not a graphics card: a touch laptop such as a Surface with an RTX 4050 says
+  // pointer: coarse and no fine pointer at all, QA Nov 23.)
+  if ((h.mem !== null && h.mem <= 4) || (h.cores !== null && h.cores <= 4 && cls !== 'discrete') || (h.touch && cls !== 'discrete')) { top = 'medium'; limit = `; ${h.mem ?? '?'} GB, ${h.cores ?? '?'} cores${h.touch ? ', touch' : ''} keep it off high`; }
   if (cap && ORDER.indexOf(cap) < ORDER.indexOf(top)) { top = cap; limit = `; it could not hold ${ORDER[ORDER.indexOf(cap) + 1]} last time`; }
   if (score === null) {
     // No measurement: a named graphics card gets the benefit of the doubt, anything else the middle.
@@ -305,7 +310,7 @@ function decide(h: Hints, gpu: string, score: number | null, cap: Name | undefin
 /** What Auto would run on this machine, if that is already known without measuring: for the menu. */
 export function autoPresetIfKnown(): Name | null {
   const note = readGfx(), h = readHints();
-  if (!note) { const d = decide(h, '', null, undefined); return h.touch && d.name === 'low' ? 'low' : null; }
+  if (!note) { const d = decide(h, '', null, undefined); return h.touch && h.minScreen < PHONE_SCREEN && d.name === 'low' ? 'low' : null; }
   return decide(h, note.gpu, note.score, note.cap).name;
 }
 
@@ -330,9 +335,11 @@ export function pickQuality(): QualityChoice {
     writeGfx(n);
     return n;
   };
-  // A phone needs no measuring, and a measurement there would only delay it.
+  // A phone needs no measuring, and a measurement there would only delay it. A touch screen 700 px or more on its short side
+  // may be a tablet or a touch laptop (this laptop: a Surface whose Chrome reports no fine pointer, RTX 4050 inside, QA
+  // Nov 23): it is measured, and decide() then knows its GPU.
   const quick = decide(hints, note?.gpu ?? '', null, undefined);
-  const phone = hints.touch && quick.name === 'low';
+  const phone = hints.touch && hints.minScreen < PHONE_SCREEN && quick.name === 'low';
   if (!note && !phone) note = measure(null);
   let d = decide(hints, note?.gpu ?? '', note?.score ?? null, note?.cap);
   // A first measurement that kept the machine off `high` is taken once more on the next visit and the better of

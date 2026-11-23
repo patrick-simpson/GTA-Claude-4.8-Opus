@@ -88,6 +88,27 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Quality check on the laptop's GPU after multiplayer: pushed Nov 23, about 9:30 AM ET
+
+- **Multiplayer costs no frame rate.** Real loop, 1920x1080 high, against 9f3c5de (before
+  multiplayer): within 3% everywhere (Iris Xe downtown 65 / 64 fps standing / moving; RTX 4050 at
+  the 120 Hz cap, about 390 uncapped). Host and guest match a no-network control with the same
+  number of browsers; Net costs 0.05-0.11 ms a frame, the host's Ambient 0.2 ms. flipcheck clean;
+  no unregistered per-frame buffers on host or guest.
+- **Fault fixed, `src/core/governor.ts`:** this Surface's Chrome reports a coarse pointer only, so
+  Auto took the laptop for a phone and gave even the RTX 4050 the low preset. The phone shortcut now
+  needs a touch screen under 700 CSS px on its short side (`PHONE_SCREEN`); bigger touch screens are
+  benchmarked; touch keeps an integrated GPU off high but not a graphics card. In headed Chrome:
+  RTX picks high (120 fps), Iris picks medium (66-73 fps; forced high drops to 60 with long frames).
+- `tools/pw.mjs` `PW_GPU=high|low` and `rafprobe.mjs --gpu` choose the GPU.
+- The two flaky tests passed every run at real speed (story 8 of 8, cars 4 of 4): test timing on
+  the slow machine, not game faults. Kept town cars level off at 43. A 30-minute four-player soak on
+  the RTX passed; heap flat (about 72 MB), GPU memory flat.
+  Owed: message rates at real speed are about 2.5x the Nov 23 estimate (host about 800 B/s, 10.5
+  messages a second; driving guest 160 B/s, 5 a second): redo the backup's daily-hours figures. The
+  touch SAY button covers name tags. Another player DRIVING was not judged smooth (the test fought
+  the car physics); walking and running are smooth.
+
 ### Multiplayer stage 5, hardening part 2 (two faults fixed, the soak, the cost count): pushed Nov 23, about 6:20 AM ET. ALL FIVE STAGES DONE.
 
 **Fault 1 fixed (game, `src/net/crew.ts`).** A crew starter who drops while a helper drives the lent van no longer

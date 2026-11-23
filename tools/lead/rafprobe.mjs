@@ -28,7 +28,7 @@ async function boot60() {
     cacheDir: path.join(os.tmpdir(), 'pc-vite-' + process.pid), server: { port: 0, host: '127.0.0.1', hmr: false, watch: null } });
   await server.listen();
   const port = server.httpServer.address().port;
-  const browser = await chromium.launch({ channel: 'chromium', headless: true, args: ['--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu'] });
+  const browser = await chromium.launch({ channel: 'chromium', headless: true, args: ['--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', ...(opt.gpu === 'high' ? ['--force_high_performance_gpu'] : opt.gpu === 'low' ? ['--force_low_power_gpu'] : [])] });
   const page = await (await browser.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 })).newPage();
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -143,7 +143,8 @@ try {
     for (const k of names) out[k] = { stand: stat(acc[k].stand), move: stat(acc[k].move) };
     return out;
   }, [SC.path, SC.at, Number(opt.secs ?? 2.5), Number(opt.rounds ?? 2), typeof opt.cfg === 'string' ? opt.cfg.split(',') : null, Number(opt.speed ?? 22), typeof opt.modes === 'string' ? opt.modes.split(',') : ['stand', 'move']]);
-  console.log(JSON.stringify({ q, scene: name, 'fps avg/p95/max ms': 1 }));
+  const gpu = await t.page.evaluate(() => { const gl = window.__game.game.renderer.getContext(), e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : '?'; });
+  console.log(JSON.stringify({ q, scene: name, gpu, 'fps avg/p95/max ms': 1 }));
   for (const k in res) console.log(`  ${k.padEnd(12)} stand ${res[k].stand ?? '-'}   move ${res[k].move ?? '-'}`);
 } finally {
   console.log(JSON.stringify({ errors: t.errors }));
