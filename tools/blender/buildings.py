@@ -3,6 +3,7 @@
 #
 #   blender --factory-startup --python tools/blender/buildings.py --python-expr "import bpy; bpy.ops.wm.quit_blender()" -- [names...] [--no-bake] [--no-export]
 #   blender --factory-startup --python tools/blender/buildings.py -- --store     (Pardon's, the surplus store: see store_build)
+#   blender --factory-startup --python tools/blender/buildings.py -- --river     (Lackwool Mill, the footbridge, the lot's kit: see river_main)
 #   (with its window showing, never --background: the owner watches the screen)
 #
 # Writes, in public/models (BLD_OUT overrides the folder for a trial):
@@ -233,17 +234,17 @@ class Build:
             bh = (y1 - y0) * (0.15 + 0.5 * r.random())
             m.quad_z(x0 + 0.02, x1 - 0.02, y1 - bh, y1, z + 0.02, r.choice([0xd9cfb4, 0xe8e2d0, 0xbfb6a0, 0x8a7a62]), a)
         fw, fz = 0.07, z + 0.06
-        m.box(x0, x1, y0, y0 + 0.1, z, fz, FRAME)
-        m.box(x0, x0 + fw, y0, y1, z, fz, FRAME); m.box(x1 - fw, x1, y0, y1, z, fz, FRAME)
-        if rise <= 0.01: m.box(x0, x1, y1 - fw, y1, z, fz, FRAME)
+        m.box(x0, x1, y0, y0 + 0.1, z, fz, FRAME, skip='kb')
+        m.box(x0, x0 + fw, y0, y1, z, fz, FRAME, skip='kbtl'); m.box(x1 - fw, x1, y0, y1, z, fz, FRAME, skip='kbtr')
+        if rise <= 0.01: m.box(x0, x1, y1 - fw, y1, z, fz, FRAME, skip='kt')
         ym = (y0 + y1) / 2
-        m.box(x0, x1, ym - 0.04, ym + 0.04, z, fz + 0.03, FRAME)
+        m.box(x0, x1, ym - 0.04, ym + 0.04, z, fz + 0.03, FRAME, skip='klr')
         if self.lod == 0 and panes != '1/1':
             nx, ny = {'2/2': (2, 1), '6/6': (3, 2), '12/12': (4, 3)}.get(panes, (1, 1))
             for half in (0, 1):
                 h0, h1 = (y0, ym) if half == 0 else (ym, y1)
-                for i in range(1, nx): xx = x0 + (x1 - x0) * i / nx; m.box(xx - 0.018, xx + 0.018, h0, h1, z, fz - 0.01, FRAME)
-                for j in range(1, ny): yy = h0 + (h1 - h0) * j / ny; m.box(x0, x1, yy - 0.018, yy + 0.018, z, fz - 0.01, FRAME)
+                for i in range(1, nx): xx = x0 + (x1 - x0) * i / nx; m.box(xx - 0.018, xx + 0.018, h0, h1, z, fz - 0.01, FRAME, skip='ktb')
+                for j in range(1, ny): yy = h0 + (h1 - h0) * j / ny; m.box(x0, x1, yy - 0.018, yy + 0.018, z, fz - 0.01, FRAME, skip='klr')
 
     def window(self, x0, x1, y0, y1, w):
         """A whole window in the wall: hole, reveal, sash, sill and the head the style asks for."""
@@ -585,6 +586,70 @@ class Build:
                     xc = (i + 0.5) * w / max(1, int(w / 3.2))
                     m.quad_z(xc + 0.5, xc - 0.5, y + 0.8, y + 0.8 + min(1.8, h - 1.2), -D - 0.02, GLASS_DARK, 0.02 + 0.96 * self.r.random(), -1)
                 y += h
+            self.back(w, D)
+        self.body_roof(w, D, top)
+
+    def back(self, w, D):
+        """The working back (The Holding Pattern sees these): steel rear doors under hoods and lamps, a service step, meters,
+        and on three floors and up a fire escape of grated landings, railings, zig-zag stairs and a drop ladder."""
+        m, S, lod, r = self.m, self.S, self.lod, self.r
+        fl, z0 = S['floors'], -D
+        IRONK, STEEL = 0x24262a, 0x56606a
+        doors = [w * 0.22] + ([w * 0.74] if w > 14 else [])
+        for xc in doors:
+            m.box(xc - 0.6, xc + 0.6, 0, 2.25, z0 - 0.03, z0, r.choice([STEEL, 0x3d4a44, 0x6a2e26]), 0.0)
+            m.box(xc - 0.72, xc + 0.72, 2.25, 2.4, z0 - 0.06, z0, 0x9d998d)           # stone lintel
+            m.box(xc - 0.75, xc + 0.75, 0, 0.18, z0 - 0.9, z0, 0xa9a69c)              # concrete step
+            if lod == 0:
+                m.box(xc - 0.85, xc + 0.85, 2.55, 2.62, z0 - 0.75, z0, 0x3a3d40)       # hood
+                m.box(xc - 0.12, xc + 0.12, 2.42, 2.55, z0 - 0.3, z0 - 0.1, 0xfff1cc, 0.97)  # lamp, lit at night
+                m.box(xc + 0.85, xc + 1.15, 1.3, 1.75, z0 - 0.2, z0, 0x8a8c88)         # meter box
+                m.box(xc + 0.95, xc + 1.05, 0.3, 1.3, z0 - 0.08, z0, 0x5a5c58)         # conduit
+        if len(fl) < 3: return
+        # Fire escape: x0..x1 across two bays, landings 1.1 m deep at every upper floor.
+        fw = min(5.6, w * 0.5); x0 = w * 0.62 - fw / 2; x1 = x0 + fw; dz = 1.15
+        y = fl[0]; lands = []
+        for h in fl[1:]:
+            lands.append(y + 0.45); y += h
+        for i, ly in enumerate(lands):
+            m.box(x0, x1, ly - 0.06, ly, z0 - dz, z0, IRONK)                          # grating
+            for (a, b) in ((x0, x0 + 0.05), (x1 - 0.05, x1)):
+                m.box(a, b, ly, ly + 1.0, z0 - dz, z0, IRONK, skip='b')              # end rails
+            m.box(x0, x1, ly + 0.95, ly + 1.0, z0 - dz, z0 - dz + 0.05, IRONK)        # top rail
+            if lod == 0:
+                m.box(x0, x1, ly + 0.45, ly + 0.48, z0 - dz, z0 - dz + 0.03, IRONK)
+                for k in range(int(fw / 0.32)):
+                    xx = x0 + 0.16 + k * 0.32
+                    m.box(xx - 0.012, xx + 0.012, ly, ly + 0.95, z0 - dz, z0 - dz + 0.024, IRONK, skip='tb')
+                for k in range(3):                                                     # brackets
+                    xx = x0 + 0.2 + k * (fw - 0.4) / 2
+                    m.face([(xx, ly - 0.06, z0), (xx, ly - 0.06, z0 - dz + 0.05), (xx, ly - 0.9, z0)], IRONK, 0.0, (1, 0, 0))
+            # Stairs from this landing down to the one below (the lowest ends in a counterweighted ladder).
+            yb = lands[i - 1] if i else None
+            if yb is not None:
+                xa, xb = (x0 + 0.3, x1 - 0.5) if i % 2 else (x1 - 0.3, x0 + 0.5)
+                sw = 0.62
+                zs0, zs1 = z0 - dz + 0.06, z0 - dz + 0.06 + sw
+                for (zz0, zz1) in ((zs0, zs0 + 0.05), (zs1 - 0.05, zs1)):
+                    m.face([(xa, ly, zz0), (xb, yb, zz0), (xb, yb + 0.12, zz0), (xa, ly + 0.12, zz0)], IRONK, 0.0, (0, 0, -1))
+                    m.face([(xa, ly, zz1), (xb, yb, zz1), (xb, yb + 0.12, zz1), (xa, ly + 0.12, zz1)], IRONK, 0.0, (0, 0, 1))
+                if lod == 0:
+                    n = int(abs(ly - yb) / 0.2)
+                    for k in range(1, n):
+                        t = k / n; xx = xa + (xb - xa) * t; yy = ly + (yb - ly) * t
+                        m.box(xx - 0.12, xx + 0.12, yy - 0.02, yy + 0.02, zs0, zs1, IRONK)
+                    m.face([(xa, ly + 0.95, zs0), (xb, yb + 0.95, zs0), (xb, yb + 1.0, zs0), (xa, ly + 1.0, zs0)], IRONK, 0.0, (0, 0, -1))
+        if lod == 0:
+            ly = lands[0]; xl = x0 + 0.25
+            for xx in (xl, xl + 0.45):
+                m.box(xx - 0.025, xx + 0.025, ly - 2.6, ly + 0.9, z0 - dz + 0.05, z0 - dz + 0.1, IRONK)
+            for k in range(11):
+                yy = ly - 2.5 + k * 0.3
+                m.box(xl, xl + 0.45, yy - 0.015, yy + 0.015, z0 - dz + 0.06, z0 - dz + 0.09, IRONK)
+
+    def body_roof(self, w, D, top):
+        m, S = self.m, self.S
+        brick = S['brick']
         ry = top - 0.6
         m.face([(0.05, ry, -0.3), (w - 0.05, ry, -0.3), (w - 0.05, ry, -D + 0.05), (0.05, ry, -D + 0.05)], 0x4a4b4d, 0.0, (0, 1, 0))
         m.face([(0.05, ry, -0.3), (0.05, top, -0.3), (w - 0.05, top, -0.3), (w - 0.05, ry, -0.3)], shade(brick, 0.85), 1.0, (0, 0, -1))
@@ -603,11 +668,11 @@ class Build:
 
 # ── Occlusion ────────────────────────────────────────────────────────────────
 
-def vertex_ao(ob, rays=12, reach=2.5, big=0.0):
+def vertex_ao(ob, rays=12, reach=2.5, big=0.0, ground=True):
     """Per-face occlusion by ray casting (the mesh and the street), multiplied into the corner colours (not the alpha)."""
     me = ob.data
     bm = bmesh.new(); bm.from_mesh(me)
-    bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=80, matrix=__import__('mathutils').Matrix.Translation((0, 0, -0.005)))
+    if ground: bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=80, matrix=__import__('mathutils').Matrix.Translation((0, 0, -0.005)))
     tree = BVHTree.FromBMesh(bm); bm.free()
     rnd = random.Random(5)
     dirs = []
@@ -632,16 +697,18 @@ def vertex_ao(ob, rays=12, reach=2.5, big=0.0):
             att.data[li].color = (c[0] * k, c[1] * k, c[2] * k, c[3])
 
 
-def bake_ao(obs):
-    """Cycles ambient occlusion of every near mesh into one atlas, mainst_o.webp; the atlas becomes their only UV."""
+def bake_ao(obs, name='mainst_o', ground_at=None, gpu=False):
+    """Cycles ambient occlusion of every near mesh into one atlas, <name>.webp; the atlas becomes their only UV.
+    ground_at: {object name: height of the street under it, or None for no street} (default 0 for all)."""
     sc = bpy.context.scene
     sc.render.engine = 'CYCLES'
     try: sc.cycles.device = 'CPU'; sc.cycles.use_denoising = False
     except Exception: pass
+    if gpu: cycles_gpu(sc)
     w = bpy.data.worlds.new('bakeworld'); sc.world = w
     try: w.light_settings.distance = 2.0
     except Exception: pass
-    img = bpy.data.images.new('mainst_o', AO_N, AO_N, alpha=False); img.generated_color = (1, 1, 1, 1)
+    img = bpy.data.images.new(name, AO_N, AO_N, alpha=False); img.generated_color = (1, 1, 1, 1)
     img.colorspace_settings.name = 'Non-Color'
     mat = bpy.data.materials.new('bld'); mat.use_nodes = True
     nt = mat.node_tree; nd = nt.nodes.new('ShaderNodeTexImage'); nd.name = 'bake_target'; nd.image = img
@@ -673,13 +740,15 @@ def bake_ao(obs):
     sc.cycles.samples = 48
     # Every other mesh (the other designs, the street and far levels, the glass) stands on the same spot: hide them all.
     for ob in obs:
+        gz = (ground_at or {}).get(ob.name, 0.0)
+        ground.location = (0, 0, (gz if gz is not None else -500.0) - 0.01)
         for o2 in bpy.data.objects: o2.hide_render = o2 is not ob and o2 is not ground
         bpy.ops.object.select_all(action='DESELECT'); ob.select_set(True); bpy.context.view_layer.objects.active = ob
         bpy.ops.object.bake(type='AO', margin=3, use_clear=False)
     for o2 in bpy.data.objects: o2.hide_render = False
     bpy.data.objects.remove(ground)
-    img.filepath_raw = os.path.join(OUT, 'mainst_o.webp'); img.file_format = 'WEBP'; img.save(quality=82)
-    return round(os.path.getsize(os.path.join(OUT, 'mainst_o.webp')) / 1000)
+    img.filepath_raw = os.path.join(OUT, name + '.webp'); img.file_format = 'WEBP'; img.save(quality=82)
+    return round(os.path.getsize(os.path.join(OUT, name + '.webp')) / 1000)
 
 
 def brick_maps(N=512):
@@ -1465,7 +1534,355 @@ def stock_main():
     print('BLD_STATS ' + json.dumps(out))
 
 
-if '--stock' in FLAGS: stock_main()
+
+# ── The riverfront (`-- --river`): Lackwool Mill, the Exact Change Footbridge, The Holding Pattern's kit ───────────
+# After the Lockwood mill and the Two Cent Bridge (tools/briefs/tepid-reference.md; the bridge from a CC BY-SA photograph
+# kept in scratch/river/ref, never in the repo). Writes, in public/models:
+#   riverfront.glb      <piece>_0 / _1 / _2 for: lw_sec (a 31.5 m, ten-bay section of the five-storey main wing, open at
+#                       both ends, placed six times), lw_end (its gable end wall, placed at both ends), lw_ell (the four-storey wing toward Water St), lw_boiler, lw_tower
+#                       (the stair tower with its belfry and pyramid roof), lw_stack (the round chimney), fb (the
+#                       footbridge's lattice towers on their piers, main cables, stays, hangers and lattice stiffening
+#                       trusses; the plank deck stays ground.ts's); hp_lamp and hp_dump (The Holding Pattern's lamp standard
+#                       and dumpster, one level).
+#   riverfront_far.glb  the _2 levels and the kit: all the phone preset fetches.
+#   riverfront_o.webp   Cycles occlusion of the _0 levels (their only UV), as mainst_o.webp.
+# Frames: mill pieces as the Main St designs (x along the front, y up, z out of the front, the wall plane z = 0); fb in
+# the world's own axes from the deck's west end at deck level. src/world/riverfrontAssets.ts places them. The colour and
+# alpha contract is mainst.glb's (alpha 1 brick, 0 other, between: windows that light at night).
+
+LW = dict(brick=0x8a4433, stone=0x9a958a, trim=0x3b3730, D=25.0, fh=4.2, b0=0.9, pitch=3.15, bays=10)
+
+
+class Piece(Build):
+    def __init__(self, lod, seed):
+        self.lod, self.S = lod, dict(brick=LW['brick'], stone=LW['stone'], trim=LW['trim'])
+        self.m, self.g, self.r, self.holes = Mesh(), Mesh(), random.Random(seed), []
+
+
+def merge(dst, src, fn):
+    for f, c in zip(src.f, src.c):
+        i = len(dst.v)
+        dst.v.extend(fn(*src.v[k]) for k in f)
+        dst.f.append(list(range(i, i + len(f)))); dst.c.append(c)
+
+
+def mill_face(lod, seed, width, floors, fh, b0, pitch, shape='seg', panes='12/12', ww=1.45, top_extra=1.1, door=False, cornice=True):
+    """A mill wall at z = 0 over x 0..width: granite base, floors of tall windows between brick piers, a corbelled cornice."""
+    p = Piece(lod, seed); m, brick = p.m, LW['brick']
+    H = b0 + floors * fh
+    n = max(1, int(round(width / pitch))); step = width / n
+    for f in range(floors):
+        yb = b0 + f * fh + 0.85
+        wh = fh - 1.45 if f < floors - 1 else fh - 1.75
+        for i in range(n):
+            if door and f == 0 and i == n // 2: continue
+            cx = step * (i + 0.5)
+            p.window(cx - ww / 2, cx + ww / 2, yb, yb + wh, dict(shape=shape, panes=panes))
+    p.wall_with_holes(0, width, b0, H + top_extra, brick)
+    if b0 > 0.01: m.box(0, width, 0, b0, 0, 0.12, LW['stone'], skip='b')
+    if lod < 2 and n > 1:
+        for i in range(1, n):
+            x = step * i
+            m.box(x - 0.3, x + 0.3, b0, H, 0, 0.1, shade(brick, 0.94), 1.0, skip='b')
+    if lod < 2:
+        for f in range(1, floors):                       # a brick string course at each floor line
+            y = b0 + f * fh + 0.62
+            m.box(0, width, y, y + 0.16, 0, 0.05, shade(brick, 0.9), 1.0)
+    if cornice:
+        for k in range(3):
+            m.box(0, width, H + 0.25 + k * 0.17, H + 0.42 + k * 0.17, 0, 0.06 * (k + 1) + 0.06, shade(brick, 0.97), 1.0)
+        if lod == 0:
+            for i in range(int(width / 0.42)):
+                x = 0.12 + i * 0.42
+                m.box(x, x + 0.2, H + 0.02, H + 0.25, 0, 0.1, brick, 1.0, skip='k')
+        m.box(0, width, H + top_extra - 0.14, H + top_extra, 0, 0.4, LW['trim'])
+    if door:
+        cx = step * (n // 2 + 0.5)
+        m.box(cx - 1.75, cx + 1.75, 0, 4.4, 0, 0.32, LW['stone'], skip='b')
+        m.quad_z(cx - 1.15, cx + 1.15, 0, 3.4, 0.33, 0x2e2a24, 0.0)
+        m.quad_z(cx - 1.0, cx + 1.0, 2.6, 3.3, 0.34, GLASS_DARK, 0.9)
+        m.box(cx - 1.3, cx + 1.3, 3.65, 4.2, 0.32, 0.38, shade(LW['stone'], 1.1))     # name plaque, blank
+    return m, H
+
+
+def mill_block(lod, seed, L, D, floors, ends=(False, False), rise=1.6, shape='seg', panes='12/12', pitch=None, fh=None):
+    """A mill range L long and D deep: windowed front and back, gabled ends where asked, a low two-slope roof."""
+    fh, pitch, b0, te = fh or LW['fh'], pitch or LW['pitch'], LW['b0'], 1.1
+    m = Mesh()
+    a, H = mill_face(lod, seed, L, floors, fh, b0, pitch, shape, panes); merge(m, a, lambda x, y, z: (x, y, z))
+    a, _ = mill_face(lod, seed + 1, L, floors, fh, b0, pitch, shape, panes); merge(m, a, lambda x, y, z: (L - x, y, -D - z))
+    Ht = H + te
+    for e, closed in enumerate(ends):
+        if not closed: continue
+        a, _ = mill_face(lod, seed + 2 + e, D, floors, fh, b0, pitch, shape, panes)
+        merge(m, a, (lambda x, y, z: (-z, y, -D + x)) if e == 0 else (lambda x, y, z: (L + z, y, -x)))
+        xg, nx = (0, -1) if e == 0 else (L, 1)
+        m.face([(xg, Ht, 0), (xg, Ht, -D), (xg, Ht + rise, -D / 2)], LW['brick'], 1.0, (nx, 0, 0))
+    o = 0.5; x0 = -o if ends[0] else 0; x1 = L + o if ends[1] else L
+    ROOF = 0x46494c
+    m.face([(x0, Ht, o), (x1, Ht, o), (x1, Ht + rise, -D / 2), (x0, Ht + rise, -D / 2)], ROOF, 0.0, (0, 1, 0.1))
+    m.face([(x0, Ht, -D - o), (x0, Ht + rise, -D / 2), (x1, Ht + rise, -D / 2), (x1, Ht, -D - o)], ROOF, 0.0, (0, 1, -0.1))
+    if lod < 2:
+        for zz0, zz1 in ((0, o), (-D - o, -D)):
+            m.face([(x0, Ht - 0.03, zz0), (x1, Ht - 0.03, zz0), (x1, Ht - 0.03, zz1), (x0, Ht - 0.03, zz1)], 0x2f3133, 0.0, (0, -1, 0))
+        nv = max(1, int(L / 16))
+        for k in range(nv):                               # roof ventilators along the ridge
+            xc = (k + 0.5) * L / nv
+            m.box(xc - 0.5, xc + 0.5, Ht + rise - 0.2, Ht + rise + 0.9, -D / 2 - 0.5, -D / 2 + 0.5, 0x6d7072, 0.0, skip='b')
+            m.box(xc - 0.75, xc + 0.75, Ht + rise + 0.9, Ht + rise + 1.05, -D / 2 - 0.75, -D / 2 + 0.75, 0x55585a, 0.0)
+    return m
+
+
+def mill_end(lod):
+    """The gable end of the main wing, in its own front's frame (x across the wing's depth): wall, gable, verge."""
+    D, m, ROOF = LW['D'], Mesh(), 0x46494c
+    a, H = mill_face(lod, 21, D, 5, LW['fh'], LW['b0'], LW['pitch']); merge(m, a, lambda x, y, z: (x, y, z))
+    Ht, rise = H + 1.1, 1.6
+    m.face([(0, Ht, 0), (D, Ht, 0), (D / 2, Ht + rise, 0)], LW['brick'], 1.0, (0, 0, 1))
+    m.face([(-0.5, Ht, 0.5), (D / 2, Ht + rise, 0.5), (D / 2, Ht + rise, 0), (-0.5, Ht, 0)], ROOF, 0.0, (-0.1, 1, 0))
+    m.face([(D / 2, Ht + rise, 0.5), (D + 0.5, Ht, 0.5), (D + 0.5, Ht, 0), (D / 2, Ht + rise, 0)], ROOF, 0.0, (0.1, 1, 0))
+    return m
+
+
+def ring(m, n, r0, r1, y0, y1, hex_, a=0.0, cx=0.0, cz=0.0):
+    for i in range(n):
+        t0, t1 = 2 * pi * i / n, 2 * pi * (i + 1) / n
+        tm = (t0 + t1) / 2
+        m.face([(cx + r0 * cos(t0), y0, cz + r0 * sin(t0)), (cx + r0 * cos(t1), y0, cz + r0 * sin(t1)),
+                (cx + r1 * cos(t1), y1, cz + r1 * sin(t1)), (cx + r1 * cos(t0), y1, cz + r1 * sin(t0))], hex_, a,
+               (cos(tm), (r0 - r1) / (y1 - y0 if abs(y1 - y0) > 0.01 else 0.01), sin(tm)))
+
+
+def ball(m, cx, cy, cz, r, hex_, n=8):
+    rs = [0.001, 0.7, 1, 0.7, 0.001]
+    for k in range(4):
+        ring(m, n, r * rs[k], r * rs[k + 1], cy - r + 2 * r * k / 4, cy - r + 2 * r * (k + 1) / 4, hex_, 0.0, cx, cz)
+
+
+def tower(lod):
+    """Lackwool's stair tower: seven floors of single windows, a belfry with round arches, a slate pyramid and a finial."""
+    m, W, Dp, floors, fh, b0 = Mesh(), 8.4, 6.6, 7, LW['fh'], LW['b0']
+    faces = [(W, lambda x, y, z: (x, y, z), True), (Dp, lambda x, y, z: (-z, y, -Dp + x), False),
+             (Dp, lambda x, y, z: (W + z, y, -x), False), (W, lambda x, y, z: (W - x, y, -Dp - z), False)]
+    Hb = 0
+    for k, (wd, fn, door) in enumerate(faces):
+        a, H = mill_face(lod, 40 + k, wd, floors, fh, b0, wd, 'seg', '6/6', ww=1.3, door=door); merge(m, a, fn)
+        y0 = H + 1.1
+        a, Hs = mill_face(lod, 50 + k, wd, 1, 4.8, 0.0, wd, 'round', '1/1', ww=2.7)
+        merge(m, a, (lambda f, yo: (lambda x, y, z: f(x, y + yo, z)))(fn, y0))
+        Hb = y0 + Hs + 1.1
+    SL, o, top = 0x4f545a, 0.45, Hb + 6.5
+    c = [(-o, Hb, o), (W + o, Hb, o), (W + o, Hb, -Dp - o), (-o, Hb, -Dp - o)]
+    ap = (W / 2, top, -Dp / 2)
+    for i in range(4):
+        p0, p1 = c[i], c[(i + 1) % 4]
+        m.face([p0, p1, ap], SL, 0.0, ((p0[0] + p1[0]) / 2 - ap[0], 0.6, (p0[2] + p1[2]) / 2 - ap[2]))
+    m.face(c, 0x2a2b2c, 0.0, (0, -1, 0))
+    m.box(W / 2 - 0.05, W / 2 + 0.05, top, top + 2.6, -Dp / 2 - 0.05, -Dp / 2 + 0.05, 0x2a2d30)
+    if lod < 2: ball(m, W / 2, top + 0.2, -Dp / 2, 0.35, 0x2a2d30, 6)
+    return m
+
+
+def stack(lod):
+    """The round chimney: granite plinth, square brick pedestal, a tapering shaft, a corbelled cap blackened at the top."""
+    m, n, br = Mesh(), {0: 20, 1: 12, 2: 7}[lod], LW['brick']
+    m.box(-2.7, 2.7, 0, 1.2, -2.7, 2.7, LW['stone'], skip='b')
+    m.box(-2.45, 2.45, 1.2, 8.0, -2.45, 2.45, br, 1.0, skip='bt')
+    m.box(-2.6, 2.6, 8.0, 8.45, -2.6, 2.6, LW['stone'], skip='b')
+    ring(m, n, 2.15, 1.35, 8.45, 44.0, br, 1.0)
+    ring(m, n, 1.35, 1.62, 44.0, 44.7, shade(br, 0.9), 1.0)
+    ring(m, n, 1.62, 1.62, 44.7, 45.7, shade(br, 0.55), 0.0)
+    ring(m, n, 1.62, 1.48, 45.7, 46.1, 0x2a2624, 0.0)
+    ring(m, n, 1.2, 1.2, 46.1, 45.2, 0x111111, 0.0)
+    if lod < 2:
+        for y in (20.0, 32.0):                             # iron bands
+            r = 2.15 - (2.15 - 1.35) * (y - 8.45) / 35.55
+            ring(m, n, r + 0.04, r + 0.04, y, y + 0.25, 0x2a2b2c, 0.0)
+    return m
+
+
+def bar(m, p0, p1, w, hex_, a=0.0, flat=None):
+    """A square bar between two points (flat=(nx,ny,nz): a strip of width w facing that way, two faces)."""
+    p0, p1 = Vector(p0), Vector(p1); d = p1 - p0
+    if d.length < 1e-6: return
+    d.normalize()
+    if flat:
+        nrm = Vector(flat).normalized(); u = d.cross(nrm).normalized() * (w / 2)
+        q = [tuple(p0 + u), tuple(p1 + u), tuple(p1 - u), tuple(p0 - u)]
+        m.face(q, hex_, a, tuple(nrm)); m.face(q, hex_, a, tuple(-nrm))
+        return
+    u = d.cross(Vector((0, 1, 0)) if abs(d.y) < 0.9 else Vector((1, 0, 0))).normalized() * (w / 2)
+    v = d.cross(u).normalized() * (w / 2)
+    cs = [u + v, -u + v, -u - v, u - v]
+    for i in range(4):
+        c0, c1 = cs[i], cs[(i + 1) % 4]
+        m.face([tuple(p0 + c0), tuple(p1 + c0), tuple(p1 + c1), tuple(p0 + c1)], hex_, a, tuple(c0 + c1))
+
+
+FB_IRON, FB_PIER, FB_GOLD = 0x23272b, 0x8e8a80, 0xc9a24a
+FB_T, FB_TOP, FB_Z, FB_LEN = (7.0, 119.0), 9.5, 1.75, 126.0
+
+
+def lattice_col(m, x, z, s, y0, y1, lod):
+    h = s / 2
+    if lod == 2: m.box(x - h, x + h, y0, y1, z - h, z + h, FB_IRON); return
+    cs = [(x - h, z - h), (x + h, z - h), (x + h, z + h), (x - h, z + h)]
+    for cx, cz in cs: m.box(cx - 0.045, cx + 0.045, y0, y1, cz - 0.045, cz + 0.045, FB_IRON)
+    pitch = s if lod == 0 else 2 * s
+    k = int((y1 - y0) / pitch)
+    for i in range(4):
+        (ax, az), (bx, bz) = cs[i], cs[(i + 1) % 4]
+        nrm = ((ax + bx) / 2 - x, 0, (az + bz) / 2 - z)
+        for j in range(k):
+            ya, yb = y0 + j * pitch, y0 + (j + 1) * pitch
+            bar(m, (ax, ya, az), (bx, yb, bz), 0.035, FB_IRON, flat=nrm)
+            if lod == 0: bar(m, (bx, ya, bz), (ax, yb, az), 0.035, FB_IRON, flat=nrm)
+
+
+def lattice_girder(m, x, z0, z1, y0, y1, lod):
+    """A lattice strut in the plane x = const between z0 and z1, from y0 to y1."""
+    w = 0.09
+    m.box(x - w, x + w, y0, y0 + 0.1, z0, z1, FB_IRON); m.box(x - w, x + w, y1 - 0.1, y1, z0, z1, FB_IRON)
+    if lod == 2: return
+    n = max(1, int((z1 - z0) / (y1 - y0)))
+    for j in range(n):
+        za, zb = z0 + (z1 - z0) * j / n, z0 + (z1 - z0) * (j + 1) / n
+        for xx in (x - w, x + w):
+            bar(m, (xx, y0 + 0.1, za), (xx, y1 - 0.1, zb), 0.04, FB_IRON, flat=(1, 0, 0))
+            bar(m, (xx, y0 + 0.1, zb), (xx, y1 - 0.1, za), 0.04, FB_IRON, flat=(1, 0, 0))
+
+
+def fb_build(lod):
+    """The Exact Change Footbridge, after the Two Cent Bridge: lattice towers on stone piers, cables, lattice railings."""
+    m = Mesh(); Z = FB_Z
+
+    def cab(u): return FB_TOP - 0.1 - (FB_TOP - 1.7) * 4 * u * (1 - u)
+    for T in FB_T:
+        m.box(T - 1.35, T + 1.35, -11, -1.55, -2.9, 2.9, FB_PIER, 0.0, skip='b')                       # the pier
+        m.box(T - 1.5, T + 1.5, -1.55, -1.3, -3.05, 3.05, shade(FB_PIER, 1.08), 0.0)                 # its cap
+        for sg in (-1, 1):
+            lattice_col(m, T, sg * Z, 0.5, -1.3, FB_TOP, lod)
+            m.box(T - 0.32, T + 0.32, FB_TOP, FB_TOP + 0.12, sg * Z - 0.32, sg * Z + 0.32, FB_IRON)
+            if lod < 2: ball(m, T, FB_TOP + 0.42, sg * Z, 0.26, FB_GOLD)
+            else: m.box(T - 0.2, T + 0.2, FB_TOP + 0.12, FB_TOP + 0.6, sg * Z - 0.2, sg * Z + 0.2, FB_GOLD)
+        lattice_girder(m, T, -Z + 0.25, Z - 0.25, FB_TOP - 1.0, FB_TOP - 0.1, lod)                     # top strut
+        lattice_girder(m, T, -Z + 0.25, Z - 0.25, 3.3, 3.9, lod)                                     # lower strut
+        if lod < 2:
+            for za, zb in ((-Z + 0.25, Z - 0.25), (Z - 0.25, -Z + 0.25)):
+                bar(m, (T, FB_TOP - 1.0, za), (T, 3.9, zb), 0.16, FB_IRON, flat=(1, 0, 0))            # the X
+            m.box(T - 0.12, T + 0.12, -0.75, -0.3, -Z, Z, FB_IRON)                                   # deck beam
+    # Main cables over the towers, back-stays to the anchors, inclined stays and hangers.
+    seg = {0: 36, 1: 18, 2: 10}[lod]; cw = 0.09 if lod < 2 else 0.14
+    T0, T1 = FB_T
+    for sg in (-1, 1):
+        z = sg * Z
+        bar(m, (-9, -0.4, z), (T0, FB_TOP - 0.1, z), cw, FB_IRON)
+        bar(m, (T1, FB_TOP - 0.1, z), (FB_LEN + 9, -0.4, z), cw, FB_IRON)
+        for i in range(seg):
+            u0, u1 = i / seg, (i + 1) / seg
+            bar(m, (T0 + (T1 - T0) * u0, cab(u0), z), (T0 + (T1 - T0) * u1, cab(u1), z), cw, FB_IRON)
+        if lod == 2: continue
+        x = T0 + 3.5
+        while x < T1 - 1:
+            u = (x - T0) / (T1 - T0)
+            bar(m, (x, cab(u), z), (x, -0.15, sg * 1.48), 0.03, FB_IRON)
+            x += 3.5
+        for T, s in ((T0, 1), (T1, -1)):
+            for dx in (11.0, 19.0, 27.0):
+                bar(m, (T, FB_TOP - 0.4, z), (T + s * dx, 1.3, sg * 1.48), 0.045, FB_IRON)
+    # The lattice stiffening trusses that make the railings, and floor beams under the planks.
+    for sg in (-1, 1):
+        z = sg * 1.48
+        m.box(0, FB_LEN, -0.32, -0.14, z - 0.07, z + 0.07, FB_IRON)
+        m.box(0, FB_LEN, 1.24, 1.4, z - 0.07, z + 0.07, FB_IRON)
+        if lod == 2: continue
+        x = 0.0
+        while x <= FB_LEN + 0.01:
+            m.box(x - 0.06, x + 0.06, -0.14, 1.24, z - 0.06, z + 0.06, FB_IRON, skip='tb')
+            if sg < 0: m.box(x - 0.1, x + 0.1, -0.62, -0.32, -1.5, 1.5, FB_IRON)
+            x += 3.5
+        p = 0.7 if lod == 0 else 1.4
+        x = 0.0
+        while x < FB_LEN - 1.38:
+            bar(m, (x, -0.14, z), (x + 1.38, 1.24, z), 0.05, FB_IRON, flat=(0, 0, 1))
+            bar(m, (x + 1.38, -0.14, z), (x, 1.24, z), 0.05, FB_IRON, flat=(0, 0, 1))
+            x += p
+    # Anchor blocks for the back-stays.
+    for ax in (-9, FB_LEN + 9):
+        m.box(ax - 1.0, ax + 1.0, -3, -0.2, -2.4, 2.4, FB_PIER, 0.0, skip='b')
+    return m
+
+
+def hp_lamp():
+    """The Holding Pattern's lamp standard: concrete base, tapered steel pole, cross-arm, two shoebox heads."""
+    m, P = Mesh(), 0x2b2e2c
+    m.box(-0.32, 0.32, 0, 0.7, -0.32, 0.32, 0xa9a69c, skip='b')
+    ring(m, 8, 0.12, 0.065, 0.7, 9.0, P)
+    m.box(-1.0, 1.0, 8.82, 8.92, -0.05, 0.05, P)
+    for sx in (-1, 1):
+        x = sx * 1.0
+        m.box(x - 0.34, x + 0.34, 8.7, 8.9, -0.25, 0.25, P, skip='b')
+        m.face([(x - 0.3, 8.69, -0.21), (x + 0.3, 8.69, -0.21), (x + 0.3, 8.69, 0.21), (x - 0.3, 8.69, 0.21)], 0xfff2d8, 0.97, (0, -1, 0))
+    return m
+
+
+def hp_dump():
+    """A steel dumpster: body, two lids, lifting pockets, skids, a stencilled panel."""
+    m, G, K = Mesh(), 0x2f4a3a, 0x1e2a24
+    m.box(-0.95, 0.95, 0.14, 1.12, -0.5, 0.62, G)
+    for x0, x1 in ((-0.94, -0.01), (0.01, 0.94)):
+        m.box(x0, x1, 1.12, 1.19, -0.56, 0.68, 0x1b1d1e)
+    for sx in (-1, 1):
+        m.box(min(sx * 0.95, sx * 1.07), max(sx * 0.95, sx * 1.07), 0.75, 0.9, -0.3, 0.45, K)
+        m.box(sx * 0.7 - 0.08, sx * 0.7 + 0.08, 0, 0.14, -0.45, 0.6, K)
+    m.box(-0.6, 0.6, 0.55, 0.85, 0.62, 0.63, 0xd9d6c8)
+    return m
+
+
+def river_main():
+    for ob in list(bpy.data.objects): bpy.data.objects.remove(ob)
+    coll = bpy.context.scene.collection
+    os.makedirs(OUT, exist_ok=True); os.makedirs(SHOTS, exist_ok=True)
+    L, D = LW['pitch'] * LW['bays'], LW['D']
+    pieces = {
+        'lw_sec': lambda lod: mill_block(lod, 12, L, D, 5),
+        'lw_end': mill_end,
+        'lw_ell': lambda lod: mill_block(lod, 14, 6 * LW['pitch'], 20.0, 4, ends=(False, True)),
+        'lw_boiler': lambda lod: mill_block(lod, 15, 5 * LW['pitch'], 11.0, 1, ends=(True, True), shape='round', panes='6/6', fh=7.0),
+        'lw_tower': tower, 'lw_stack': stack, 'fb': fb_build,
+    }
+    near, all_obs, far, stats, ground = [], [], [], {}, {}
+    for name, fn in pieces.items():
+        for lod in (0, 1, 2):
+            mesh = fn(lod)
+            ob = mesh.to_object(f'{name}_{lod}', coll); all_obs.append(ob); stats[ob.name] = len(mesh.f)
+            if lod == 0: near.append(ob)
+            else: vertex_ao(ob, ground=name != 'fb')
+            if lod == 2: far.append(ob)
+        ground[f'{name}_0'] = None if name == 'fb' else 0.0
+        try: bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+        except Exception: pass
+    for name, fn in (('hp_lamp', hp_lamp), ('hp_dump', hp_dump)):
+        mesh = fn(); ob = mesh.to_object(name, coll); vertex_ao(ob); all_obs.append(ob); far.append(ob); stats[name] = len(mesh.f)
+    out = {'faces': stats}
+    if '--no-bake' not in FLAGS: out['ao_kB'] = bake_ao(near, 'riverfront_o', ground, gpu=True)
+    else:
+        for ob in near: vertex_ao(ob, ground=not ob.name.startswith('fb'))
+    if '--no-export' not in FLAGS:
+        out['river_kB'] = export(all_obs, os.path.join(OUT, 'riverfront.glb'))
+        out['far_kB'] = export(far, os.path.join(OUT, 'riverfront_far.glb'))
+    x = 0
+    for name in list(pieces) + ['hp_lamp', 'hp_dump']:
+        for lod in (0, 1, 2):
+            o = bpy.data.objects.get(f'{name}_{lod}') or (bpy.data.objects.get(name) if lod == 0 else None)
+            if o: o.location = (x, 60 * lod, 0)
+        x += 40 if name != 'fb' else 140
+    print('RIV_STATS ' + json.dumps(out))
+    with open(os.path.join(SHOTS, 'riverfront_meta.json'), 'w') as fh: json.dump(out, fh, indent=1)
+
+
+if '--river' in FLAGS: river_main()
+elif '--stock' in FLAGS: stock_main()
 elif '--store' in FLAGS: store_main()
 else: main()
 # Close the window once the files are written: wm.quit_blender can stop on an unsaved-changes prompt.

@@ -18,3 +18,20 @@ thing a player sees from the start.
 - It must not cost the downtown frame rate more than about 5% (tools/lead/rafprobe.mjs --vsync,
   scene downtown, Iris Xe) and must not break traffic, pedestrians, collision or the radar/map.
 - Multiplayer: it is static scenery, the same for everyone; nothing on the wire.
+
+## Interior (owner, Nov 23: "Lobby, offices and rooftop")
+The tower (src/world/speedscanHQ.ts, tools/blender/speedscan.py, PLAN.md entry) is solid today.
+- LOBBY, walk-in through the plaza doors: double-height, stone and glass, reception desk with the
+  SpeedScan logo, security turnstiles, seating, art, a logo wall, lift lobby; staff and visitors.
+- LIFTS that work: press a button (key/touch) and ride, with a short believable trip (doors close,
+  floor counter, doors open), to the office floors and the roof.
+- ONE OR TWO OFFICE FLOORS: open-plan desks with screens and chairs, meeting rooms with glass walls,
+  a kitchen, plants, and a SpeedScan card-printer room with rows of ID card printers (the owner's
+  HID Fargo DTC4500 model exists in C:/Users/User/speedscan: reuse its look, simplified), cards in
+  output hoppers; windows with the real city view outside.
+- OBSERVATION DECK on the roof: open air, railings, binoculars, beside the stink-line vents, with a
+  view over both towns; a dramatic place to take photos and to jump off (ragdoll, of course).
+- Same techniques as Pardon's: Blender-modelled kit, baked light on the RTX, interiors drawn only
+  when inside, camera.far and shadows handled as pardonsStore.ts does, collision, and 60 fps inside
+  on the Iris Xe. Nothing on the wire for multiplayer except the shared lift is not required (each
+  player rides their own lift).

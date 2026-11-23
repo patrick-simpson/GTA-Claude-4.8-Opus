@@ -35,3 +35,31 @@ Rules for every item: stay off files another running worker owns (the lead says 
 multiplayer items (10-16, and the shared parts of 1-9) touch src/net and server only once the host job
 is done; per-frame instance buffers registered with game.flip; measure frame rate (rafprobe --vsync);
 boots with no errors at high, low and the phone layout; nothing gory.
+
+17. CHRISTMAS UPDATE (owner, Nov 23: "Release a Christmas update", end of the queue): a festive
+    edition switched on by the date (late November to early January) and the season system
+    (src/world/season.ts): lights on houses, shops and Main St in both towns, wreaths and garland,
+    a big lit tree in Mercy Park and one on Tepid Falls' Quorum Square, light-up decorations at
+    Pardon's and SpeedScan HQ, a few inflatable lawn decorations, Santa hats on some pedestrians,
+    a sleigh flying over the island at night (and through the fireworks), carollers, Christmas
+    music on one generated radio station, presents hidden around both towns to collect (a counter
+    and a reward), snowball throwing if snow is down, and a "Christmas update" WHAT'S NEW message.
+    Cheap at night (lights as emissive instanced bulbs, not real lights), off outside the season
+    or with a menu switch. Nothing tied to a particular religion beyond the familiar holiday decor.
+
+18. A TRAIN ON THE TRACKS (owner, Nov 23: "put a train on the train tracks"). Find the existing rail
+    line(s) (src/world/mainland*.ts has the depot and Tepid Falls rail; check plan.ts, places.ts and
+    ground.ts for island track) and run real trains on them: a freight train (locomotive in a Maine
+    railroad style with invented markings, boxcars, tankers, flatcars with logs and lumber, a caboose)
+    and now and then a short passenger train stopping at the depot. Blender-modelled cars with levels
+    of detail (window showing, one Blender at a time). Proper rail motion (bogies follow the curve,
+    couplings, slack), headlight, ditch lights, bell and horn at crossings (the two-long-one-short-
+    one-long pattern), crossing gates and flashing lights that come down for the train, cars stopping
+    at crossings. Solid: it hits cars and people (ragdolls) and wins. The player can stand on a flatcar
+    or ride the caboose. Multiplayer: the train follows the shared clock (deterministic schedule from
+    the town time), so every screen sees it in the same place without new messages.
+    OWNER ADDITION: "It should drive": the player can drive the train. Climb into the locomotive's
+    cab (F) and take the throttle (forward/back), brake and horn; it stays on the rails, with real
+    weight (slow to start, long to stop), it can derail if taken through a curve far too fast
+    (spectacular, survivable), and the scheduled train resumes when the player leaves. In multiplayer
+    the train a player drives is sent like their car, so others see it move.

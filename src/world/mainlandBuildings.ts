@@ -23,6 +23,7 @@ import { CURB, groundAt, type Block, type Lot, type Rect } from './plan';
 import { FENCE_UV, MAIN_SHOPS, MWALL, makeMainlandTextures, mwallV, signKey, type MainlandTextures } from './textures';
 import { RNG } from '../core/util';
 import { FASCIA_OUT, MainStreet } from './mainStreetAssets';
+import { LACKWOOL, RIVER_ON, Riverfront } from './riverfrontAssets';
 import { PardonsStore } from './pardonsStore';
 
 const CELL = MWALL.cell, ROW = MWALL.rows, RED = MWALL.redBrick;
@@ -390,6 +391,9 @@ class Builder {
   private ghost = 0;
   /** Main St's Blender-modelled blocks (mainStreetAssets.ts); null builds every frontage here as before. */
   ms: MainStreet | null = null;
+  /** The riverfront's Blender models (riverfrontAssets.ts): Lackwool Mill, the footbridge, The Holding Pattern's kit. null: as before. */
+  rf: Riverfront | null = null;
+  private hpDone = new Set<number>();
   constructor(private k: MainKit, private game: Game) {
     const r = new RNG(7711);
     this.shopDeck = MAIN_SHOPS.map((_, i) => i);
@@ -912,42 +916,53 @@ class Builder {
     // The yards: setts from Water St to the river walk.
     for (const [z0, z1] of [[-1565, -1470], [-1470, -1356], [-1334, -1200]]) { k.at(214, (z0 + z1) / 2); k.F.floor(180, z0, 248, z1, y + 0.05, 0x8a8780, 1, 1, 0.95); }
 
-    // Mill No. 1 and No. 2 under one roof: five floors, sixty bays, 192 m beside the river.
-    const M: Rect = { x0: 212, z0: -1556, x1: 234, z1: -1364 }, fh = 4.2, b0 = y + 0.9, top = b0 + 5 * fh + 0.8;
-    k.at(223, -1460);
-    k.solid(M, top, y - 1);
-    for (const side of [1, 3]) {
-      const f = frameOf(M, side);
-      k.band(f, 0, f.len, y, b0, GRAN, ROW.granite, y);
-      k.facade(f, 0, f.len, b0, fh, 5, RED, 1, WIN.mill, 3.2, side * 7);
-      k.band(f, 0, f.len, b0 + 5 * fh, top, RED, ROW.brick, b0 + 5 * fh, 1);
-      k.cornice(f, 0, f.len, top, RED, 1, 0.62, 0.2);
-    }
-    for (const side of [0, 2]) {
-      const f = frameOf(M, side);
-      k.plainWall(f, 0, f.len, y, top, RED, 0.95, ROW.brick, { st: WIN.mill, yb: b0, fh, floors: 5, pitch: 3.2, seed: side + 3 });
-      k.cornice(f, 0, f.len, top, RED, 0.95, 0.62, 0.2);
-    }
-    k.F.floor(M.x0, M.z0, M.x1, M.z1, top - 0.25, TAR);
-    k.F.box(223, top - 0.25, -1460, 5, 1.5, 170, 0x7d7f80, 0, 5);
+    if (this.rf) {
+      // Lackwool Mill, modelled in Blender (riverfrontAssets.ts): here only what the physics feels.
+      const L = LACKWOOL, top = y + L.RIDGE - 0.8;
+      k.solid({ x0: L.X0, z0: L.Z0, x1: L.X0 + L.D, z1: L.Z0 + L.N * L.SEC }, top, y - 1);
+      k.solid({ x0: L.ell.x0, z0: L.ell.z0, x1: L.ell.x1, z1: L.ell.z1 }, y + L.ell.ridge - 0.8, y - 1);
+      k.solid({ x0: L.tower.x0, z0: L.tower.z0, x1: L.tower.x1, z1: L.tower.z1 }, y + L.tower.top, y - 1);
+      k.solid({ x0: L.boiler.x0, z0: L.boiler.z0, x1: L.boiler.x1, z1: L.boiler.z1 }, y + L.boiler.ridge - 0.8, y - 1);
+      k.solid({ x0: L.stack.x - 2.7, z0: L.stack.z - 2.7, x1: L.stack.x + 2.7, z1: L.stack.z + 2.7 }, y + L.stack.top, y - 1);
+      this.rf.mill(y);
+    } else {
+      // Mill No. 1 and No. 2 under one roof: five floors, sixty bays, 192 m beside the river.
+      const M: Rect = { x0: 212, z0: -1556, x1: 234, z1: -1364 }, fh = 4.2, b0 = y + 0.9, top = b0 + 5 * fh + 0.8;
+      k.at(223, -1460);
+      k.solid(M, top, y - 1);
+      for (const side of [1, 3]) {
+        const f = frameOf(M, side);
+        k.band(f, 0, f.len, y, b0, GRAN, ROW.granite, y);
+        k.facade(f, 0, f.len, b0, fh, 5, RED, 1, WIN.mill, 3.2, side * 7);
+        k.band(f, 0, f.len, b0 + 5 * fh, top, RED, ROW.brick, b0 + 5 * fh, 1);
+        k.cornice(f, 0, f.len, top, RED, 1, 0.62, 0.2);
+      }
+      for (const side of [0, 2]) {
+        const f = frameOf(M, side);
+        k.plainWall(f, 0, f.len, y, top, RED, 0.95, ROW.brick, { st: WIN.mill, yb: b0, fh, floors: 5, pitch: 3.2, seed: side + 3 });
+        k.cornice(f, 0, f.len, top, RED, 0.95, 0.62, 0.2);
+      }
+      k.F.floor(M.x0, M.z0, M.x1, M.z1, top - 0.25, TAR);
+      k.F.box(223, top - 0.25, -1460, 5, 1.5, 170, 0x7d7f80, 0, 5);
 
-    // The stair tower: two floors clear of the roof, a clock to each side, a slate mansard.
-    const T: Rect = { x0: 204, z0: -1464.5, x1: 212.5, z1: -1455.5 }, tt = top + 9;
-    k.solid(T, tt + 4, y - 1);
-    for (let s = 0; s < 4; s++) {
-      const f = frameOf(T, s);
-      k.band(f, 0, f.len, y, tt, RED, ROW.brick, y, s === 3 ? 1 : 0.96);
-      if (s !== 1) for (let fl = 0; fl < 6; fl++) k.piece(f, f.len / 2 - 0.6, 1.2, b0 + fl * fh + (fl ? 0.9 : 3), 2.4, 0.03, ROW.arch, fl * 3 + s, 0xffffff);
-      k.ledge(f, -0.1, f.len + 0.1, top - 0.1, top + 0.2, 0, 0.12, STONE);
-      k.signAt(f, f.len / 2, tt - 5.1, 3.7, 0.05, 'm-clock');
-      k.cornice(f, 0, f.len, tt, RED, 1, 0.62, 0.22);
+      // The stair tower: two floors clear of the roof, a clock to each side, a slate mansard.
+      const T: Rect = { x0: 204, z0: -1464.5, x1: 212.5, z1: -1455.5 }, tt = top + 9;
+      k.solid(T, tt + 4, y - 1);
+      for (let s = 0; s < 4; s++) {
+        const f = frameOf(T, s);
+        k.band(f, 0, f.len, y, tt, RED, ROW.brick, y, s === 3 ? 1 : 0.96);
+        if (s !== 1) for (let fl = 0; fl < 6; fl++) k.piece(f, f.len / 2 - 0.6, 1.2, b0 + fl * fh + (fl ? 0.9 : 3), 2.4, 0.03, ROW.arch, fl * 3 + s, 0xffffff);
+        k.ledge(f, -0.1, f.len + 0.1, top - 0.1, top + 0.2, 0, 0.12, STONE);
+        k.signAt(f, f.len / 2, tt - 5.1, 3.7, 0.05, 'm-clock');
+        k.cornice(f, 0, f.len, tt, RED, 1, 0.62, 0.22);
+      }
+      const tw = frameOf(T, 3);
+      k.piece(tw, tw.len / 2 - 1.1, 2.2, y, 3.1, 0.035, ROW.door, MWALL.doors.hall, 0x3a4a3a);
+      k.signAt(tw, tw.len / 2, y + 3.3, 6, 0.05, 'm-mill');
+      k.frustum({ x0: T.x0 - 0.25, z0: T.z0 - 0.25, x1: T.x1 + 0.25, z1: T.z1 + 0.25 }, tt, { x0: T.x0 + 2, z0: T.z0 + 2, x1: T.x1 - 2, z1: T.z1 - 2 }, tt + 4.2, 0x596068, ROW.shingle);
+      k.F.floor(T.x0 + 2, T.z0 + 2, T.x1 - 2, T.z1 - 2, tt + 4.2, 0x3a3d40);
+      k.F.cyl((T.x0 + T.x1) / 2, tt + 4.2, -1460, 0.07, 0.04, 5, 0x2e3338, 5, false);
     }
-    const tw = frameOf(T, 3);
-    k.piece(tw, tw.len / 2 - 1.1, 2.2, y, 3.1, 0.035, ROW.door, MWALL.doors.hall, 0x3a4a3a);
-    k.signAt(tw, tw.len / 2, y + 3.3, 6, 0.05, 'm-mill');
-    k.frustum({ x0: T.x0 - 0.25, z0: T.z0 - 0.25, x1: T.x1 + 0.25, z1: T.z1 + 0.25 }, tt, { x0: T.x0 + 2, z0: T.z0 + 2, x1: T.x1 - 2, z1: T.z1 - 2 }, tt + 4.2, 0x596068, ROW.shingle);
-    k.F.floor(T.x0 + 2, T.z0 + 2, T.x1 - 2, T.z1 - 2, tt + 4.2, 0x3a3d40);
-    k.F.cyl((T.x0 + T.x1) / 2, tt + 4.2, -1460, 0.07, 0.04, 5, 0x2e3338, 5, false);
 
     // The boiler house and the stack with the company's name down it.
     k.at(214, -1321);
@@ -1054,6 +1069,18 @@ class Builder {
       const r = lot.rect, rng = new RNG(77000 + first + i), ly = groundAt((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
       k.at((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
       let rr = r;
+      // The Holding Pattern: behind the east side of Main St from the square's cross street to Trestle St, every block is
+      // Main St's wall of shops and the lot behind it.
+      if (this.rf && r.x0 > 82 && r.x1 < 162 && r.z0 > -1500 && r.z1 < -1185) {
+        if (Math.abs(r.x0 - 83.5) < 1.5) this.row({ ...r, x1: r.x0 + 17 }, 3, ly, rng, lot.block, true, null);
+        if (!this.hpDone.has(lot.block)) {
+          this.hpDone.add(lot.block);
+          const same = lots.filter((l) => l.block === lot.block && l.district === 'mill');
+          const bz0 = Math.min(...same.map((l) => l.rect.z0)), bz1 = Math.max(...same.map((l) => l.rect.z1)), bx1 = Math.max(...same.map((l) => l.rect.x1));
+          this.holdingPattern({ x0: 83.5 + 17.5, z0: bz0, x1: bx1, z1: bz1 }, ly, new RNG(91000 + lot.block));
+        }
+        return;
+      }
       // A lot that touches Main St but faces a cross street gives its west 17 m to Main St's wall of shops.
       if (Math.abs(r.x0 - 83.5) < 1.5 && r.x1 - r.x0 > 44) { this.row({ ...r, x1: r.x0 + 17 }, 3, ly, rng, lot.block, true, null); rr = { ...r, x0: r.x0 + 19 }; }
       if (rng.chance(0.55)) this.tenement(rr, lot.face, ly, rng); else this.smallMill(rr, lot.face, ly, rng);
@@ -1082,6 +1109,59 @@ class Builder {
     if (!k.low) for (let s = 4; s < w - 2; s += 8.1) k.F.box(PX(f, s, -D / 2), top - 0.2, PZ(f, s, -D / 2), 0.9, 1.5, 0.9, dim(RED, 0.85), 0, 5, shade);
   }
 
+  /**
+   * The Holding Pattern, the big lot behind the east side of Main St (after the real downtown's): a service lane along the
+   * blocks' brick backs with their dumpsters, then rows of 60-degree stalls either side of three aisles, two curbed
+   * planted islands down the double rows with lamp standards on them, cross aisles at both ends. `r` starts at the backs.
+   */
+  private holdingPattern(r: Rect, y: number, rng: RNG): void {
+    const k = this.k, rf = this.rf!, col = k.game.col, PAINT = 0xe2ded0, z0 = r.z0 + 7.5, z1 = r.z1 - 7.5;
+    k.at((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
+    k.F.floor(r.x0, r.z0 + 0.4, r.x1 - 0.3, r.z1 - 0.4, y + 0.04, 0x47484b, 1, 1, rng.range(0.94, 1.04));
+    // Patched and sealed strips, as old lots are.
+    if (!k.low) for (let i = 0; i < 5; i++) {
+      const px = rng.range(r.x0 + 8, r.x1 - 10), pz = rng.range(r.z0 + 6, r.z1 - 16);
+      k.F.floor(px, pz, px + rng.range(3, 9), pz + rng.range(4, 14), y + 0.043, rng.pick([0x3b3c3f, 0x55565a, 0x404144]));
+    }
+    const x = (o: number): number => r.x0 + o;
+    // Stall rows (x0..x1 of the row, and which way the stalls lean), islands between the double rows.
+    const rows: [number, number, number][] = [[x(6), x(11.5), 1], [x(18.5), x(24), -1], [x(26), x(31.5), -1], [x(38.5), x(44), 1], [x(46), x(51.5), 1]];
+    const islands = [x(24), x(44)];
+    const run = z1 - z0, slant = 5.5 / Math.tan(Math.PI / 3), pitch = 2.75 / Math.sin(Math.PI / 3);
+    if (!k.low) for (const [a, b, lean] of rows) {
+      const n = Math.floor((run - slant) / pitch), ang = Math.atan2(lean * slant, b - a), len = Math.hypot(b - a, slant);
+      for (let i = 0; i <= n; i++) {
+        const zc = z0 + slant / 2 + i * pitch;
+        k.F.box((a + b) / 2, y + 0.045, zc, len, 0.008, 0.11, PAINT, -ang, 1);
+      }
+      k.F.floor(a, z0 - 0.06, b, z0 + 0.06, y + 0.046, PAINT); k.F.floor(a, z1 - 0.06, b, z1 + 0.06, y + 0.046, PAINT);
+    }
+    // Direction arrows in the aisles, alternating, as one-way aisles are marked.
+    if (!k.low) [x(15), x(35), x(55)].forEach((ax, i) => {
+      for (let zc = z0 + 10; zc < z1 - 6; zc += 26) {
+        const d = i % 2 ? -1 : 1;
+        k.F.box(ax, y + 0.045, zc, 0.22, 0.008, 3.0, PAINT, 0, 1);
+        k.F.box(ax - 0.45, y + 0.045, zc + d * 1.2, 0.18, 0.008, 1.2, PAINT, d * 0.7, 1); k.F.box(ax + 0.45, y + 0.045, zc + d * 1.2, 0.18, 0.008, 1.2, PAINT, -d * 0.7, 1);
+      }
+    });
+    for (const ix of islands) {
+      k.F.box(ix + 1, y, (z0 + z1) / 2, 2.0, 0.17, run + 1.5, 0xb9b3a4, 0, 5);
+      k.F.floor(ix + 0.15, z0 - 0.6, ix + 1.85, z1 + 0.6, y + 0.172, 0x5d6844, 1, 1, rng.range(0.9, 1.1));
+      const nl = Math.max(2, Math.round(run / 28));
+      for (let i = 0; i <= nl; i++) {
+        const lz = z0 + run * i / nl;
+        rf.lamp(ix + 1, y + 0.17, lz, 0);
+        col.addProp(ix + 1, lz, 0.35, y + 9, 'post', false);
+      }
+    }
+    // Along the backs: the service lane's dumpsters, by the rear doors.
+    for (let zc = r.z0 + 4 + rng.range(0, 6); zc < r.z1 - 3; zc += rng.range(9, 17)) {
+      const dx = r.x0 - 0.9;
+      rf.dumpster(dx, y + 0.04, zc, Math.PI / 2);
+      col.addBox(dx - 0.6, zc - 1.05, dx + 0.7, zc + 1.05, y + 1.25, y - 0.5);
+    }
+  }
+
   /** One of the lesser mills: two to four floors of the big one's windows, a loading door, a flat roof. */
   private smallMill(lot: Rect, face: number, y: number, rng: RNG): void {
     const k = this.k, L = frameOf(lot, face), w = Math.min(L.len - 3, 46), D = Math.min(L.depth - 5, 16), s0 = (L.len - w) / 2;
@@ -1106,12 +1186,14 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
   // `?mainst=0`: Main St built in code as before, for comparing.
   const ms = new MainStreet(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   if (new URLSearchParams(location.search).get('mainst') !== '0') b.ms = ms;
+  const rf = new Riverfront(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
+  if (RIVER_ON) { b.rf = rf; rf.footbridge(); }
   b.main(plan.mainlandLots, plan.blocks, plan.lots.length);
   b.stacks(plan.mainlandLots, plan.blocks, plan.lots.length);
   b.mill(plan.mainlandLots, plan.lots.length);
   // No kit.finish() here: mainlandPlaces.ts draws the landmarks into the same batches and builds the meshes.
   const pd = new PardonsStore(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
-  return { update: () => { kit.update(); ms.update(); pd.update(); }, setNight: (n: number) => { kit.setNight(); ms.setNight(n); pd.setNight(n); } };
+  return { update: () => { kit.update(); ms.update(); rf.update(); pd.update(); }, setNight: (n: number) => { kit.setNight(); ms.setNight(n); rf.setNight(n); pd.setNight(n); } };
 }
 
 void CURB; void IRON; void WHITE;

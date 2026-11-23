@@ -166,3 +166,15 @@ owner's ground rules for the takeover and the running state.
 - Nov 23, 4:45 PM ET: OWNER: show passengers through car windows; more Bolts at the start (they all get taken). Brief tools/briefs/riders-and-bolts.md, next after the ragdoll worker (same files).
 - Nov 23, 5:20 PM ET: ragdolls pushed. Next: riders-and-bolts.md (visible passengers, spare Bolts).
 - Nov 23, 6:30 PM ET: occupants + keepBolt pushed. Running: glitch diagnosis. Then: SpeedScan HQ, rest of Tepid Falls; mini PC as permanent host recommended.
+- Nov 23, 6:45 PM ET: OWNER: mini PC as permanent host is TOP PRIORITY. Brief tools/briefs/hostbot.md; starts when the glitch diagnosis reports (asked it to wrap up).
+- Nov 23, 7:00 PM ET: glitch diagnosis: no regression; leads (rate cap 40/s kicks busy hosts, performance.now smoothing, update.ts stale-id reload) folded into hostbot.md. Hostbot worker launched.
+- Nov 23, 7:10 PM ET: OWNER: work in parallel; and a big WHAT'S NEW note to players after each update (added to the hostbot worker: version.json carries the last commit's title and notes, so EVERY push's last commit message must be player-facing news). SpeedScan HQ worker launched in parallel.
+- Nov 23, 7:30 PM ET: OWNER: all 16 fun extras, one at a time in a parallel lane: tools/briefs/fun-queue.md. Item 1 (stunt replay) launched.
+- Nov 23, 8:05 PM ET: pushed 3b0dbf5 (rate cap, smoothing, update.ts, WHAT'S NEW card, host bot). LESSON: never git stash with workers running; it reverted their tracked files for ~2 min (restored from the stash, workers told to recheck; stash@{0} kept as backup). To push one worker's files, verify a git-archive copy instead. OWNER must run the install line on the mini PC for the bot. Fun lane: replay waits for snow (menu.ts shared); fireworks running.
+- Nov 23, 8:20 PM ET: OWNER: Christmas update, end of the fun queue (item 17 in fun-queue.md).
+- Nov 23, 8:40 PM ET: SpeedScan HQ pushed alone (verified in a git-archive copy). Snow+replay wait for boats (shared vehicle/player files). Next in the Blender lane: rest of Tepid Falls.
+- Nov 23, 9:05 PM ET: snow+seasons, boats, stunt replay pushed together (verified in a git-archive copy). Owed for boats in src/net: remote.ts boat ghosts (see boat worker report summary in PLAN.md). Running: fireworks (fun lane), Tepid Falls mills/river/lot (Blender lane).
+- Nov 23, 9:15 PM ET: OWNER: SpeedScan HQ interior: lobby, offices, rooftop deck (appended to speedscan-hq.md). Queued in the Blender lane after Tepid Falls mills (running).
+- Nov 23, 9:45 PM ET: photo mode pushed. Owner reported the game slow on the laptop: perf worker running (measure real Chrome both GPUs, A/B vs f2fd64b, fix). Fun lane PAUSED until the perf fix lands (clean measurements). Running: perf, Tepid Falls mills/river.
+- Nov 23, ~10:30 PM ET: OWNER: train on the tracks, fun queue item 18.
+- Nov 23, 11:30 PM ET: pushed warm-up (79daf83) and riverfront+Holding Pattern. Fun lane: moose running. Blender lane next: SpeedScan interior. Falls owed: POND_Y drop 3-5 m and steeper crest in ground.ts mainWater().

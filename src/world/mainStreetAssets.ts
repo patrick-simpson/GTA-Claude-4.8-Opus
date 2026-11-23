@@ -63,6 +63,72 @@ export interface MSPiece { name: string; s0: number; s1: number; depth: number; 
 
 const NIGHT = { value: 0 };
 
+export interface BrickMaps { bc: THREE.Texture | null; bn: THREE.Texture | null; ao: THREE.Texture | null }
+
+const TEX = new Map<string, Promise<THREE.Texture | null>>();
+/** An image from public/models as a texture (once per address and orientation; the brick maps are shared with the riverfront). */
+export function loadTexture(url: string, flip: boolean, srgb: boolean): Promise<THREE.Texture | null> {
+  const key = `${url}|${flip}|${srgb}`;
+  let p = TEX.get(key);
+  if (!p) {
+    p = (async () => {
+      try {
+        const blob = await assets.blob(url);
+        if (!blob || !blob.type.startsWith('image')) return null;
+        const bmp = await createImageBitmap(blob, { imageOrientation: flip ? 'flipY' : 'none' });
+        const t = new THREE.Texture(bmp);
+        t.flipY = false; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+        t.anisotropy = 4; t.needsUpdate = true;
+        return t;
+      } catch { return null; }
+    })();
+    TEX.set(key, p);
+  }
+  return p;
+}
+
+/**
+ * The material of every buildings.py model at one level of detail: vertex colour, the brick maps on levels 0 and 1, the
+ * baked occlusion (second UV) on level 0, and windows that light at night from the vertex alpha (the contract in
+ * buildings.py). `night.value` is 0 by day, 1 at night.
+ */
+export function buildingMaterial(level: number, maps: BrickMaps, night: { value: number }, key: string): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
+  if (level < 2 && maps.bc && maps.bn) { m.map = maps.bc; m.normalMap = maps.bn; m.normalScale.set(0.9, 0.9); }
+  if (level === 0 && maps.ao) { maps.ao.wrapS = maps.ao.wrapT = THREE.ClampToEdgeWrapping; maps.ao.channel = 1; m.aoMap = maps.ao; }
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uNight = night;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uNight;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      #ifdef USE_COLOR_ALPHA
+      {
+        float a = vColor.a;
+        float lit = ( a > 0.01 && a < 0.99 ) ? smoothstep( 0.42, 0.5, a ) : 0.0;
+        totalEmissiveRadiance += uNight * lit * vec3( 1.0, 0.72, 0.42 ) * ( 0.35 + diffuseColor.rgb * 2.5 );
+      }
+      #endif`);
+  };
+  m.customProgramCacheKey = () => key + level;
+  return m;
+}
+
+/** Brick coordinates in meters on brick faces (alpha 1); a still point inside a mortar joint everywhere else. */
+export function brickUV(g: THREE.BufferGeometry): void {
+  const p = g.getAttribute('position'), n = g.getAttribute('normal'), c = g.getAttribute('color');
+  const uv = new Float32Array(p.count * 2);
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i)), az = Math.abs(n.getZ(i));
+    let u: number, v: number;
+    if (ay > 0.7) { u = x / BRICK_W; v = z / BRICK_W; } else if (ax > az) { u = z / BRICK_W; v = y / BRICK_H; } else { u = x / BRICK_W; v = y / BRICK_H; }
+    if (!c || c.getW(i) < 0.995) { u = 0.06 + u * 1e-4; v = v * 1e-4; }
+    uv[i * 2] = u; uv[i * 2 + 1] = v;
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+
+
 export class MainStreet {
   readonly group = new THREE.Group();
   private placed: Placement[] = [];
@@ -143,62 +209,19 @@ export class MainStreet {
 
   setNight(n: number): void { NIGHT.value = n; }
 
-  private async texture(url: string, flip: boolean, srgb: boolean): Promise<THREE.Texture | null> {
-    try {
-      const blob = await assets.blob(url);
-      if (!blob || !blob.type.startsWith('image')) return null;
-      const bmp = await createImageBitmap(blob, { imageOrientation: flip ? 'flipY' : 'none' });
-      const t = new THREE.Texture(bmp);
-      t.flipY = false; t.wrapS = t.wrapT = THREE.RepeatWrapping;
-      t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-      t.anisotropy = 4; t.needsUpdate = true;
-      return t;
-    } catch { return null; }
-  }
-
-  private material(level: number, maps: { bc: THREE.Texture | null; bn: THREE.Texture | null; ao: THREE.Texture | null }): THREE.MeshStandardMaterial {
-    const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
-    if (level < 2 && maps.bc && maps.bn) { m.map = maps.bc; m.normalMap = maps.bn; m.normalScale.set(0.9, 0.9); }
-    if (level === 0 && maps.ao) { maps.ao.wrapS = maps.ao.wrapT = THREE.ClampToEdgeWrapping; maps.ao.channel = 1; m.aoMap = maps.ao; }
-    m.onBeforeCompile = (sh) => {
-      sh.uniforms.uNight = NIGHT;
-      sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform float uNight;')
-        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        #ifdef USE_COLOR_ALPHA
-        {
-          float a = vColor.a;
-          float lit = ( a > 0.01 && a < 0.99 ) ? smoothstep( 0.42, 0.5, a ) : 0.0;
-          totalEmissiveRadiance += uNight * lit * vec3( 1.0, 0.72, 0.42 ) * ( 0.35 + diffuseColor.rgb * 2.5 );
-        }
-        #endif`);
-    };
-    m.customProgramCacheKey = () => 'mainst' + level;
+  private material(level: number, maps: BrickMaps): THREE.MeshStandardMaterial {
+    const m = buildingMaterial(level, maps, NIGHT, 'mainst');
     this.mats.push(m);
     return m;
-  }
-
-  /** Brick coordinates in meters on brick faces (alpha 1); a still point inside a mortar joint everywhere else. */
-  private static brickUV(g: THREE.BufferGeometry): void {
-    const p = g.getAttribute('position'), n = g.getAttribute('normal'), c = g.getAttribute('color');
-    const uv = new Float32Array(p.count * 2);
-    for (let i = 0; i < p.count; i++) {
-      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i)), az = Math.abs(n.getZ(i));
-      let u: number, v: number;
-      if (ay > 0.7) { u = x / BRICK_W; v = z / BRICK_W; } else if (ax > az) { u = z / BRICK_W; v = y / BRICK_H; } else { u = x / BRICK_W; v = y / BRICK_H; }
-      if (!c || c.getW(i) < 0.995) { u = 0.06 + u * 1e-4; v = v * 1e-4; }
-      uv[i * 2] = u; uv[i * 2 + 1] = v;
-    }
-    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   }
 
   private async load(): Promise<void> {
     const file = this.low ? 'models/mainst_far.glb' : 'models/mainst.glb';
     const [buf, bc, bn, ao] = await Promise.all([
       assets.bytes(file),
-      this.low ? null : this.texture('models/mainst_bc.webp', true, false),
-      this.low ? null : this.texture('models/mainst_bn.webp', true, false),
-      this.low ? null : this.texture('models/mainst_o.webp', false, false),
+      this.low ? null : loadTexture('models/mainst_bc.webp', true, false),
+      this.low ? null : loadTexture('models/mainst_bn.webp', true, false),
+      this.low ? null : loadTexture('models/mainst_o.webp', false, false),
     ]);
     // "glTF". The dev server answers a missing file with the index page.
     if (!buf || buf.byteLength < 20 || new DataView(buf).getUint32(0, true) !== 0x46546c67) { this.state = 'done'; return; }
@@ -209,7 +232,7 @@ export class MainStreet {
       if (!mesh.isMesh) return;
       const g = mesh.geometry;
       if (o.name.endsWith('_0') && g.getAttribute('uv')) { g.setAttribute('uv1', g.getAttribute('uv')); g.deleteAttribute('uv'); }
-      if (!o.name.endsWith('g')) MainStreet.brickUV(g);
+      if (!o.name.endsWith('g')) brickUV(g);
       g.computeBoundingSphere();
       geo.set(o.name, g);
     });

@@ -33,6 +33,7 @@ import { sawhorses } from './progress';
 import { SWELL_GLSL, seaClock } from './sea';
 import { flip, sendRange } from '../core/flip';
 import { CUT_FAR, CUT_NEAR, CUT_VERTEX, PropField, loadProps } from './propAssets';
+import { RIVER_ON } from './riverfrontAssets';
 
 // Palette (see PLAN.md).
 const INK = 0x1e2b44, BONE = 0xf2e8cf, VERM = 0xe4572e, MUST = 0xf0a202, TEAL = 0x2a9d8f;
@@ -1817,28 +1818,33 @@ class Ground implements WorldPart {
     flat.box((fb.x0 + fb.x1) / 2, Y - 0.22, fz, fl, 0.22, 2.8, TIMB, 0, 7);
     for (let x = fb.x0 + 1; x < fb.x1; x += 2) flat.box(x, Y - 0.001, fz, 0.06, 0.012, 2.8, 0x4a3a2c, 0, 1);
     const sag = (x: number): number => { const u = (x - T0) / (T1 - T0); return TOP - (TOP - Y - 1.5) * 4 * u * (1 - u); };
+    // With the riverfront models (riverfrontAssets.ts) the towers, cables and railings are theirs: only the physics stays here.
     for (const sg of [-1, 1]) {
       const z = fz + sg * 1.75;
       for (const tx of [T0, T1]) {
-        flat.box(tx, Y - 6, z, 0.45, TOP - Y + 6.3, 0.45, IRON_C, 0, 5);
+        if (!RIVER_ON) flat.box(tx, Y - 6, z, 0.45, TOP - Y + 6.3, 0.45, IRON_C, 0, 5);
         col.addBoxC(tx, z, 0.45, 0.45, TOP, Y - 6);
       }
-      for (let x = T0; x < T1 - 0.01; x += (T1 - T0) / 16) bar(flat, x, sag(x), z, x + (T1 - T0) / 16, sag(x + (T1 - T0) / 16), z, 0.14, IRON_C);
-      bar(flat, T0, TOP, z, fb.x0 - 9, Y, z, 0.14, IRON_C);
-      bar(flat, T1, TOP, z, fb.x1 + 9, Y, z, 0.14, IRON_C);
-      for (let x = T0 + 7; x < T1 - 3; x += 7) bar(flat, x, sag(x), z, x, Y - 0.1, fz + sg * 1.42, 0.05, IRON_C);
-      // Railings, and the wall the physics feels for them.
-      bar(flat, fb.x0, Y + 1.05, fz + sg * 1.42, fb.x1, Y + 1.05, fz + sg * 1.42, 0.07, IRON_C);
-      bar(flat, fb.x0, Y + 0.55, fz + sg * 1.42, fb.x1, Y + 0.55, fz + sg * 1.42, 0.05, IRON_C);
-      for (let x = fb.x0; x <= fb.x1 + 0.01; x += 3) flat.box(x, Y, fz + sg * 1.42, 0.07, 1.05, 0.07, IRON_C, 0, 4);
+      if (!RIVER_ON) {
+        for (let x = T0; x < T1 - 0.01; x += (T1 - T0) / 16) bar(flat, x, sag(x), z, x + (T1 - T0) / 16, sag(x + (T1 - T0) / 16), z, 0.14, IRON_C);
+        bar(flat, T0, TOP, z, fb.x0 - 9, Y, z, 0.14, IRON_C);
+        bar(flat, T1, TOP, z, fb.x1 + 9, Y, z, 0.14, IRON_C);
+        for (let x = T0 + 7; x < T1 - 3; x += 7) bar(flat, x, sag(x), z, x, Y - 0.1, fz + sg * 1.42, 0.05, IRON_C);
+        // Railings, and the wall the physics feels for them.
+        bar(flat, fb.x0, Y + 1.05, fz + sg * 1.42, fb.x1, Y + 1.05, fz + sg * 1.42, 0.07, IRON_C);
+        bar(flat, fb.x0, Y + 0.55, fz + sg * 1.42, fb.x1, Y + 0.55, fz + sg * 1.42, 0.05, IRON_C);
+        for (let x = fb.x0; x <= fb.x1 + 0.01; x += 3) flat.box(x, Y, fz + sg * 1.42, 0.07, 1.05, 0.07, IRON_C, 0, 4);
+      }
       col.addBox(fb.x0, fz + sg * 1.42 - 0.06, fb.x1, fz + sg * 1.42 + 0.06, Y + 1.1, Y - 0.6);
       for (const bx of [fb.x0 - 0.6, fb.x1 + 0.6]) {
         flat.box(bx, Y, fz + sg * 0.75, 0.24, 0.9, 0.24, IRON_C, 0, 5);
         col.addProp(bx, fz + sg * 0.75, 0.15, Y + 0.9, 'post', false).hard = true;
       }
     }
-    flat.box(T0, TOP - 0.5, fz, 0.3, 0.3, 3.5, IRON_C);
-    flat.box(T1, TOP - 0.5, fz, 0.3, 0.3, 3.5, IRON_C);
+    if (!RIVER_ON) {
+      flat.box(T0, TOP - 0.5, fz, 0.3, 0.3, 3.5, IRON_C);
+      flat.box(T1, TOP - 0.5, fz, 0.3, 0.3, 3.5, IRON_C);
+    }
 
     // Threadbare Dam: a concrete weir from bank to bank, abutments either end. The water over it is mainWater()'s.
     const dx = riverX(DAM_Z);

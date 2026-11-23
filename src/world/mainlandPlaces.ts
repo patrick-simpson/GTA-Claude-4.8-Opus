@@ -20,6 +20,7 @@ import { DAM_Z, FOOTBRIDGE, FOOTBRIDGE_Z, LAKE, MAIN_Y, POND_Y, RAIL, riverX } f
 import { groundAt, type Lot, type Rect } from './plan';
 import { FENCE_UV, MWALL } from './textures';
 import { OPERA, PX, PZ, WIN, cut, dim, frameOf, frect, mainKit, type Frame, type MainKit, type WinStyle } from './mainlandBuildings';
+import { RIVER_ON } from './riverfrontAssets';
 
 const R = MWALL.rows, RED = MWALL.redBrick, TAU = Math.PI * 2;
 const STONE = 0xcfcac0, GRAN = 0xb5b1a6, TAR = 0x4a4b4d, IRON = 0x2e3338, WHITE = 0xf1ede2, SLATE = 0x596068, PATH = 0xc9c1ad, WOOD = 0x6a4a32, CONC = 0xa9a69c;
@@ -144,7 +145,8 @@ function opera(k: MainKit): void {
 function footbridge(k: MainKit): void {
   const fb = FOOTBRIDGE, fz = FOOTBRIDGE_Z, Y = MAIN_Y, T0 = fb.x0 + 7, T1 = fb.x1 - 7, TOP = Y + 9.5, IRONC = 0x4f5a63, col = k.game.col;
   const sag = (x: number): number => { const u = (x - T0) / (T1 - T0); return TOP - (TOP - Y - 1.5) * 4 * u * (1 - u); };
-  for (const tx of [T0, T1]) {
+  // The riverfront models (riverfrontAssets.ts) bring their own towers, piers, cables and anchors: keep only the toll hut here.
+  if (!RIVER_ON) for (const tx of [T0, T1]) {
     k.at(tx, fz);
     for (const sg of [-1, 1]) {
       const z = fz + sg * 1.75, g = groundAt(tx, z);
@@ -156,8 +158,8 @@ function footbridge(k: MainKit): void {
     k.F.box(tx, Y + 3.1, fz, 0.26, 0.26, 3.5, IRONC);
     for (const [ya, yb] of [[Y + 3.4, Y + 8.8], [Y + 8.8, Y + 3.4]]) k.pipe(k.F, tx, ya, fz - 1.75, tx, yb, fz + 1.75, 0.06, IRONC, 5);
   }
-  if (!k.low) for (let x = T0 + 3.5; x < T1 - 3; x += 7) { k.at(x, fz); for (const sg of [-1, 1]) k.pipe(k.F, x, sag(x), fz + sg * 1.75, x, Y - 0.1, fz + sg * 1.42, 0.03, IRONC, 4); }
-  for (const ax of [fb.x0 - 9, fb.x1 + 9]) {
+  if (!k.low && !RIVER_ON) for (let x = T0 + 3.5; x < T1 - 3; x += 7) { k.at(x, fz); for (const sg of [-1, 1]) k.pipe(k.F, x, sag(x), fz + sg * 1.75, x, Y - 0.1, fz + sg * 1.42, 0.03, IRONC, 4); }
+  if (!RIVER_ON) for (const ax of [fb.x0 - 9, fb.x1 + 9]) {
     k.at(ax, fz);
     for (const sg of [-1, 1]) { const z = fz + sg * 1.9, g = groundAt(ax, z); k.F.box(ax, g - 0.3, z, 1.5, 0.95, 0.8, CONC); col.addBox(ax - 0.75, z - 0.4, ax + 0.75, z + 0.4, g + 0.65, g - 1); }
   }
@@ -165,7 +167,7 @@ function footbridge(k: MainKit): void {
   const H: Rect = { x0: 248.7, z0: -1350.6, x1: 251.3, z1: -1347.7 }, y = groundAt(250, -1349), ht = y + 2.5;
   k.at(250, -1349);
   k.solid(H, ht + 0.8, y - 1);
-  for (let s = 0; s < 4; s++) { const f = frameOf(H, s); k.band(f, 0, f.len, y, ht, 0xc7a544, R.clap, y, s ? 0.95 : 1); }
+  for (let s = 0; s < 4; s++) { const f = frameOf(H, s); k.band(f, 0, f.len, y, ht, 0xb4503a, R.clap, y, s ? 0.95 : 1); }
   k.piece(frameOf(H, 2 + 2), 0.7, 1.2, y + 0.95, 1.2, 0.03, R.house, 3, WHITE);
   k.piece(frameOf(H, 3), 0.95, 0.95, y, 2.05, 0.03, R.door, MWALL.doors.panel, 0x2c4a3a);
   k.frustum(grow(H, 0.35), ht, sqr(250, -1349.15, 0.1), ht + 1.3, 0x3f4744);
