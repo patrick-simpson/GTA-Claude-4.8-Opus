@@ -49,6 +49,7 @@ import { TownHeld } from './held';
 import { TownCrew } from './crew';
 import { TownJobs } from './jobs';
 import { TownRide } from './ride';
+import { TownRace } from './race';
 import { SAYS, myName, nameText, rerollName } from './names';
 import { hostBotPass } from './hostbot';
 import { encodeLook, myLook, onMyLook } from '../game/looks';
@@ -86,6 +87,8 @@ export class Net {
   readonly crew: TownCrew;
   /** Jobs shown to the others where their runner has them: a fare, the parcels, the car on the hook (stage 4, step 5). */
   readonly jobs: TownJobs;
+  /** Races between players (fun queue item 11): the wire and the town's records. */
+  readonly race: TownRace;
   /** Riding together: this player in another's car, or others in this player's (ride.ts). */
   readonly ride: TownRide;
   /** This page is the mini PC's host bot (hostbot.ts): no player, nothing drawn, the town's host. */
@@ -148,6 +151,7 @@ export class Net {
     this.crew = new TownCrew(game, c, this.remotes, this.held, this.cars);
     this.shared.heldCars = () => this.held.list();
     this.jobs = new TownJobs(game, c, this.remotes, this.held);
+    this.race = new TownRace(game, c, this.remotes);
     this.ride = new TownRide(game, c, this.remotes);
     this.fight.crewHit = (v, dmg) => this.crew.hitHeld(v, dmg);
     this.fight.crewMate = (id) => this.crew.onTeam(id);
@@ -243,6 +247,7 @@ export class Net {
     this.held.refresh();
     this.jobs.refresh();
     this.ride.refresh();
+    this.race.refresh();
   }
 
   private drop(id: number): void {
@@ -254,6 +259,7 @@ export class Net {
     this.fight.dropped(id);
     this.crew.dropped(id);
     this.jobs.dropped(id);
+    this.race.dropped(id);
     this.held.dropped(id);
     r.dispose();
     this.remotes.delete(id);
@@ -266,6 +272,7 @@ export class Net {
     this.fight.clear();
     this.crew.clear();
     this.jobs.clear();
+    this.race.clear();
     this.held.clear();
     this.showCount();
   }
@@ -276,6 +283,7 @@ export class Net {
     const now = performance.now();
     this.shared.welcome(m.now, now);
     this.town.welcome(m, now);
+    this.race.welcome(m.facts);
     this.force = true;
     this.anyAt = now; this.perfAt = now - PERF_INTERVAL_MS + 1000;
     this.showCount();
@@ -285,7 +293,7 @@ export class Net {
     if (m.t === 'join') this.add([m.id, ...m.name]);
     else if (m.t === 'leave') this.drop(m.id);
     else if (m.t === 'name' && 'id' in m) this.remotes.get(m.id)?.rename(m.name.slice());
-    else if (m.t === 'fact' || m.t === 'host') this.town.msg(m);
+    else if (m.t === 'fact' || m.t === 'host') { this.town.msg(m); if (m.t === 'fact') this.race.fact(m.k, m.v); }
     this.showCount();
   }
 
@@ -310,6 +318,7 @@ export class Net {
       else if (e.code === PlayerEvent.Crew) this.crew.event(buf);
       else if (e.code === PlayerEvent.Job) this.jobs.event(buf);
       else if (e.code === PlayerEvent.Prop) this.props.event(buf);
+      else if (e.code === PlayerEvent.Race) this.race.event(buf);
       else if (e.code >= PlayerEvent.Fire) this.fight.event(e.code, buf, performance.now());
       else this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
       return;
@@ -559,6 +568,8 @@ export class Net {
       crew: this.crew.info(),
       // jobs: what this player's job shows the others, and theirs as shown here (jobs.ts). pause: this player's guard (index.ts).
       jobs: this.jobs.info(),
+      // race: frames, the town's records as this page knows them, and the race on this screen (game/race.ts).
+      race: this.race.info(),
       // ride: riding together: this player's seat in another's car, the riders in this player's car, the lists heard (ride.ts).
       ride: this.ride.info(),
       pause: { refused: this.game.pauseRefused, why: this.pauseRefusal(), state: this.game.state },

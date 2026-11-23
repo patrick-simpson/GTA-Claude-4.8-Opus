@@ -19,7 +19,7 @@ import type { Person, Vehicle } from '../core/api';
 import type { Blip } from '../ui/hud';
 import { BRIDGE_RAMP, PIER_HEAD, RAMPS, WATER_Y, XS, ZS, groundAt, isWater } from '../world/plan';
 import type { RoadNode } from '../world/plan';
-import { SITES } from '../world/mainland';
+import { MI0, MJ0, SITES } from '../world/mainland';
 import { BUILDING_SITES } from '../world/buildings';
 import { progress } from '../world/progress';
 import { commonKind } from '../ent/vehicleSpecs';
@@ -36,14 +36,24 @@ export function taper(n: number): { cash: number; points: number } {
   return { cash: Math.max(0.5, 1 / (1 + n * 0.08)), points: Math.max(0.25, 1 / (1 + n * 0.3)) };
 }
 
-export interface RaceDef { name: string; par: number; cps: Pt[]; start: Pt }
-const RACES: { name: string; par: number; via: [number, number][] }[] = [
+/**
+ * A race route. laps: how many times round (a loop ends where it starts); par is for the whole race. edges: the street
+ * pieces it runs on (a mainland route is offered only once they are open). Races are run by game/race.ts (fun queue
+ * item 11: called at the marker, others in town invited, a grid, a countdown, laps, a podium, town records).
+ */
+export interface RaceDef { name: string; par: number; cps: Pt[]; start: Pt; laps: number; loop: boolean; edges: number[]; idx: number }
+// (ml: on the mainland, nodes counted from MI0/MJ0. Append only: a route's index is its town record's fact key.)
+// The Tepid Falls Loop runs on the CURRENT mainland streets; re-trace it when the new street graph goes live.
+const RACES: { name: string; par: number; via: [number, number][]; laps?: number; ml?: boolean }[] = [
   { name: 'The Ledger Loop', par: 78, via: [[4, 4], [4, 3], [5, 3], [5, 2], [6, 2], [6, 4], [4, 4]] },
   { name: 'Strand Sprint', par: 64, via: [[0, 7], [3, 7], [6, 7], [9, 7]] },
   { name: 'The Cannery Crawl', par: 98, via: [[1, 5], [1, 7], [2, 7], [2, 8], [0, 8], [0, 5], [1, 5]] },
   { name: 'Gull Heights Hairpins', par: 112, via: [[0, 0], [3, 0], [3, 1], [1, 1], [1, 2], [4, 2], [4, 0]] },
   { name: 'Dock Seven Dash', par: 115, via: [[8, 4], [10, 4], [10, 6], [9, 6], [9, 8], [8, 8], [8, 4]] },
   { name: 'The Grand Tour', par: 300, via: [[0, 0], [5, 0], [10, 0], [10, 4], [10, 8], [5, 8], [0, 8], [0, 4], [0, 0]] },
+  { name: 'Downtown Circuit', par: 105, laps: 2, via: [[3, 3], [6, 3], [6, 5], [3, 5], [3, 3]] },
+  { name: 'The Coast Run', par: 100, via: [[0, 4], [0, 8], [5, 8], [10, 8], [10, 5]] },
+  { name: 'Tepid Falls Loop', par: 110, laps: 2, ml: true, via: [[5, 4], [7, 4], [7, 7], [5, 7], [5, 4]] },
 ];
 
 const RAMP_NAMES = ['Low Tide Beach', 'the container yard', 'the park pond', 'the arena lot', 'the cannery', 'Pelican Pier', 'the end of the bridge'];
@@ -128,11 +138,28 @@ export class Activities {
     private readonly setBusy: (id: string | null) => void,
   ) {
     const plan = game.plan;
-    for (const r of RACES) {
-      const cps: Pt[] = [];
-      for (const [i, j] of r.via) { const n = plan.nodeAt(i, j); if (n) cps.push({ x: n.x, z: n.z }); }
-      if (cps.length >= 3) this.races.push({ name: r.name, par: r.par, start: cps[0], cps: cps.slice(1) });
-    }
+    RACES.forEach((r, idx) => {
+      const cps: Pt[] = [], edges: number[] = [];
+      let ok = true;
+      const at = (i: number, j: number): RoadNode | null => plan.nodeAt(r.ml ? i + MI0 : i, r.ml ? j + MJ0 : j);
+      for (let k = 0; k < r.via.length; k++) {
+        const [i, j] = r.via[k], n = at(i, j);
+        if (!n) { ok = false; break; }
+        cps.push({ x: n.x, z: n.z });
+        // The street pieces between this corner and the next, one block at a time.
+        const nx = r.via[k + 1];
+        if (!nx) continue;
+        for (let a = i, b = j; a !== nx[0] || b !== nx[1];) {
+          const a2 = a + Math.sign(nx[0] - a), b2 = b + Math.sign(nx[1] - b), A = at(a, b), B = at(a2, b2);
+          const e = A && B ? A.edges.find((id) => { const ed = plan.edges[id]; return (ed.a === A.id && ed.b === B.id) || (ed.a === B.id && ed.b === A.id); }) : undefined;
+          if (e === undefined) { ok = false; break; }
+          edges.push(e); a = a2; b = b2;
+        }
+      }
+      if (!ok || cps.length < 3) return;
+      const loop = Math.hypot(cps[0].x - cps[cps.length - 1].x, cps[0].z - cps[cps.length - 1].z) < 1;
+      this.races.push({ name: r.name, par: r.par, start: cps[0], cps: cps.slice(1), laps: loop ? r.laps ?? 1 : 1, loop, edges, idx });
+    });
     const m = BUILDING_SITES.marlowe, d = BUILDING_SITES.dockOffice;
     this.yards.push({ at: { x: m ? m.x : -396.7, z: (m ? m.z : 275.9) + 8 }, name: 'Marlowe Towing, Strand Blvd' });
     this.yards.push({ at: { x: (d ? d.x : 327) - 10, z: d ? d.z : 247.6 }, name: 'the Harbor Authority pound, Dock Seven' });
@@ -259,11 +286,7 @@ export class Activities {
       else if (this.target) out.push({ x: this.target.x, z: this.target.z, kind: 'goal' });
       return;
     }
-    if (!this.isFree()) return;
-    // The two nearest race starts; the map has all six.
-    const p = this.game.player;
-    const near = this.races.map((r) => ({ r, d: Math.hypot(r.start.x - p.x, r.start.z - p.z) })).sort((a, b) => a.d - b.d).slice(0, 2);
-    for (const n of near) out.push({ x: n.r.start.x, z: n.r.start.z, kind: 'job', label: 'R' });
+    // (Race starts are game/race.ts's.)
   }
 
   // ── Per frame ──────────────────────────────────────────────────────────────
@@ -296,17 +319,8 @@ export class Activities {
   /** Nothing is running: what could be started from where she is. */
   private offer(v: Vehicle | null): void {
     const g = this.game, p = g.player;
-    // Race starts: a ring at the first corner, for anyone in a vehicle.
-    for (const r of this.races) {
-      const d = Math.hypot(p.x - r.start.x, p.z - r.start.z);
-      if (d > 260) continue;
-      this.markers.put(r.start.x, r.start.z, 'job', 7, 22);
-      if (!v || d > 9 || p.speed > 4) continue;
-      const best = save.data.best['race:' + r.name];
-      this.prompt = `[G] Race "${r.name}": par ${clock(r.par)}${best !== undefined ? `, your best ${clock(best)}` : ''}`;
-      if (g.input.eat('interact')) this.startRace(r);
-      return;
-    }
+    // (Race starts: game/race.ts, which runs before this and has the key at a race marker.)
+    void p;
     if (!v || p.speed > 3 || p.heat > 0) return;
     const k = v.spec.kind;
     if (k === 'taxi') { this.prompt = '[G] Take fares in the cab'; if (g.input.eat('interact')) this.startJob('taxi'); }

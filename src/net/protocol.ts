@@ -380,7 +380,7 @@ export function readRagTail(buf: ArrayBuffer, s: PlayerState, out: Float32Array)
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16 } as const;
 // Emote (4 bytes): [kind, id, 15, emote id] (game/emotes.ts EMOTES; 0 = stopped). Sent when a player starts or stops one,
 // and again every few seconds while a looping one runs, for anybody who arrives. Relayed unread by the service; a page
 // that does not know code 15 hands it to the weapons code, which ignores codes it does not know: no new version.
@@ -1789,4 +1789,55 @@ export function isAllowedOrigin(origin: string | null | undefined): boolean {
   if (!origin) return false;
   if (origin === 'https://gta.doofus.live') return true;
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?$/.test(origin);
+}
+
+// ---- Races between players (fun queue item 11; net/race.ts, game/race.ts) ----
+//
+// All Event frames (byte 2 PlayerEvent.Race), relayed unread by both services; a page from before races ignores code 16
+// (index.ts hands codes it does not know to fight.ts, which does nothing with them). Still protocol v5.
+//   3 kind (RaceKind)  4 caller u8 (whose race: the player who called it)  5 route u8 (index in Activities.races)
+//   Call, 9 + n:  6 laps u8  7 seconds left to join u8  8 n u8  9.. n ids u8 (the caller first, then who joined)
+//   Join, 7:      6 in u8 (1 joined, 0 left before the start)
+//   Go, 10 + n:   6 laps u8  7..8 ms until GO u16  9 n u8  10.. n ids u8 in grid order (slot 0 on pole)
+//   Cp, 11:       6 checkpoints passed u8  7..10 ms since GO u32
+//   Done, 15:     6 how u8 (1 finished, 2 out)  7..10 race ms u32  11..14 best lap ms u32
+//   Off, 6:       the caller called it off before the start
+// The record of a route is a durable fact, written by the host only: RACE_FACT_PREFIX + route =
+//   [lap tenths, lap holder's name 3 numbers (-1 = no third word), race tenths, race holder's name 3 numbers, laps].
+export const RaceKind = { Call: 1, Join: 2, Go: 3, Cp: 4, Done: 5, Off: 6 } as const;
+export const RACE_FACT_PREFIX = 'race.';
+export const RACE_MAX = 8;
+export interface RaceMsg { id: number; kind: number; caller: number; route: number; laps: number; secs: number; ms: number; lap: number; count: number; how: number; ids: number[] }
+export function blankRace(): RaceMsg { return { id: 0, kind: 0, caller: 0, route: 0, laps: 0, secs: 0, ms: 0, lap: 0, count: 0, how: 0, ids: [] }; }
+
+export function encodeRace(m: RaceMsg): ArrayBuffer {
+  const ids = m.ids.slice(0, RACE_MAX);
+  const len = m.kind === RaceKind.Call ? 9 + ids.length : m.kind === RaceKind.Join ? 7 : m.kind === RaceKind.Go ? 10 + ids.length
+    : m.kind === RaceKind.Cp ? 11 : m.kind === RaceKind.Done ? 15 : 6;
+  const buf = makeFrame(Frame.Event, len - FRAME_HEADER_BYTES);
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  u[2] = PlayerEvent.Race; u[3] = m.kind & 0xff; u[4] = m.caller & 0xff; u[5] = m.route & 0xff;
+  const u32 = (v: number): number => Math.max(0, Math.min(0xffffffff, Math.round(v)));
+  if (m.kind === RaceKind.Call) { u[6] = m.laps & 0xff; u[7] = Math.max(0, Math.min(255, Math.round(m.secs))); u[8] = ids.length; ids.forEach((v, i) => { u[9 + i] = v & 0xff; }); }
+  else if (m.kind === RaceKind.Join) u[6] = m.how ? 1 : 0;
+  else if (m.kind === RaceKind.Go) { u[6] = m.laps & 0xff; d.setUint16(7, clampU16(m.ms), true); u[9] = ids.length; ids.forEach((v, i) => { u[10 + i] = v & 0xff; }); }
+  else if (m.kind === RaceKind.Cp) { u[6] = m.count & 0xff; d.setUint32(7, u32(m.ms), true); }
+  else if (m.kind === RaceKind.Done) { u[6] = m.how & 0xff; d.setUint32(7, u32(m.ms), true); d.setUint32(11, u32(m.lap), true); }
+  return buf;
+}
+
+export function decodeRace(buf: ArrayBuffer): RaceMsg | null {
+  if (buf.byteLength < 6) return null;
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Race) return null;
+  const m = blankRace();
+  m.id = u[1]; m.kind = u[3]; m.caller = u[4]; m.route = u[5];
+  const n = buf.byteLength;
+  if (m.kind === RaceKind.Call) { if (n < 9) return null; m.laps = u[6]; m.secs = u[7]; for (let i = 0; i < Math.min(u[8], RACE_MAX) && 9 + i < n; i++) m.ids.push(u[9 + i]); }
+  else if (m.kind === RaceKind.Join) { if (n < 7) return null; m.how = u[6]; }
+  else if (m.kind === RaceKind.Go) { if (n < 10) return null; m.laps = u[6]; m.ms = d.getUint16(7, true); for (let i = 0; i < Math.min(u[9], RACE_MAX) && 10 + i < n; i++) m.ids.push(u[10 + i]); }
+  else if (m.kind === RaceKind.Cp) { if (n < 11) return null; m.count = u[6]; m.ms = d.getUint32(7, true); }
+  else if (m.kind === RaceKind.Done) { if (n < 15) return null; m.how = u[6]; m.ms = d.getUint32(7, true); m.lap = d.getUint32(11, true); }
+  else if (m.kind !== RaceKind.Off) return null;
+  return m;
 }

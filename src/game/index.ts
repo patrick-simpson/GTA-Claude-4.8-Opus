@@ -12,6 +12,7 @@ import { Markers, Runner, type Pt } from './script';
 import { story } from './missions';
 import type { Blip } from '../ui/hud';
 import { Activities } from './activities';
+import { Racing } from './race';
 import { Shops } from './shops';
 import { Menu } from '../ui/menu';
 
@@ -28,6 +29,8 @@ export class ThingsToDo {
   readonly markers: Markers;
   readonly missions: Runner;
   readonly jobs: Activities;
+  /** Races, alone or with others in town (fun queue item 11). */
+  readonly racing: Racing;
   readonly shops: Shops;
   readonly menu: Menu;
   private wasDown = false;
@@ -50,6 +53,7 @@ export class ThingsToDo {
     const st = story(game);
     this.missions = new Runner(game, this.markers, st.givers, st.missions, (id) => this.setBusy(id), () => this.busy === null);
     this.jobs = new Activities(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
+    this.racing = new Racing(game, this.markers, () => this.jobs.races, () => this.busy === null, (id) => this.setBusy(id));
     this.shops = new Shops(game, this.markers);
     this.menu = new Menu(game, this);
 
@@ -131,12 +135,13 @@ export class ThingsToDo {
     this.tally(dt);
     this.markers.begin(dt);
     this.missions.update(dt);
+    this.racing.update(dt);
     this.jobs.update(dt);
     this.shops.update(dt);
     const w = this.waypoint;
     if (w) this.markers.put(w.x, w.z, 'goal', 5, 30);
     this.markers.end();
-    this.say(this.missions.prompt ?? this.jobs.prompt ?? this.shops.prompt);
+    this.say(this.missions.prompt ?? this.racing.prompt ?? this.jobs.prompt ?? this.shops.prompt);
     // M or Tab (Back on a pad): straight to the map.
     if (g.input.eat('map')) { this.menu.tab = 0; g.setPaused(true); }
     const down = !(g.player.health > 0);
@@ -163,6 +168,7 @@ export class ThingsToDo {
       out.length = 0;
       this.missions.blips(out);
       this.jobs.blips(out);
+      this.racing.blips(out);
       this.shops.blips(out);
       const w = this.waypoint;
       if (w) { if (Math.hypot(p.x - w.x, p.z - w.z) < 14) this.waypoint = null; else out.push({ x: w.x, z: w.z, kind: 'way' }); }
