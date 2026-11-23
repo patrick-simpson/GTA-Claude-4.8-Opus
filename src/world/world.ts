@@ -16,6 +16,7 @@ import { buildMainlandPlaces } from './mainlandPlaces';
 import { signalState } from './signals';
 import { Fireworks } from '../fx/fireworks';
 import { Launchers } from './launchers';
+import { Moose } from './moose';
 
 export class World implements WorldApi {
   readonly group = new THREE.Group();
@@ -57,6 +58,8 @@ export class World implements WorldApi {
     this.parts.push(new Fireworks(g, this.group));
     // Cannons and catapults (world/launchers.ts): five machines that put Dess into the sky.
     this.parts.push(new Launchers(g, this.group));
+    // Moose crossings (world/moose.ts): bulls, cows and calves on the country roads, from the shared clock.
+    this.parts.push(new Moose(g, this.group));
     await step(1, 'Sweeping up');
   }
 
