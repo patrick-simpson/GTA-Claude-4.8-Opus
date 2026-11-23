@@ -199,6 +199,16 @@ uniform float uDebug;
 uniform float uFxaa;
 uniform vec2 uEdge;
 uniform vec2 uTexel;
+#ifdef PHOTO
+uniform float uFocus;
+uniform float uDofK;
+uniform float uDofPx;
+uniform float uPhotoExp;
+uniform float uLook;
+uniform float uVig;
+uniform float uGrain;
+uniform float uPx;
+#endif
 varying vec2 vUv;
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 // Into 0..1 and back, so that averaging two pixels gives the average of how they will look.
@@ -258,9 +268,34 @@ vec3 sceneColour() {
   blend = max(blend, sub * sub * 0.25);
   return unfold(mix(m, tap(vUv + perp), blend));
 }
+#ifdef PHOTO
+// Photo mode's depth of field (fx/photo.ts), gathered, not scattered: a disc of taps whose radius is this pixel's
+// blur. A tap nearer than the pixel only counts as far as its own blur reaches, so a sharp thing in front never
+// smears a halo onto the soft background behind it. Averaged in the folded space, like the edge smoothing.
+float coc(float z) { return clamp(uDofK * abs(z - uFocus) / max(z, 0.1), 0.0, 1.0) * uDofPx; }
+vec3 dofColour(vec3 m, float z) {
+  float c = coc(z);
+  if (c < 0.6) return m;
+  vec3 sum = fold(m); float wsum = 1.0;
+  float ang = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  for (int i = 0; i < 20; i++) {
+    float t = (float(i) + 0.5) / 20.0;
+    float r = sqrt(t) * c, a = ang + float(i) * 2.3999632;
+    vec2 uv = vUv + vec2(cos(a), sin(a)) * r * uTexel;
+    float zt = viewDist(texture2D(tDepth, uv).x);
+    float w = zt < z ? smoothstep(r - 1.0, r + 1.0, coc(zt)) : 1.0;
+    sum += tap(uv) * w; wsum += w;
+  }
+  return unfold(sum / wsum);
+}
+#endif
 void main() {
   vec3 col = sceneColour();
   float d = texture2D(tDepth, vUv).x;
+  #ifdef PHOTO
+  if (uDofK > 0.0) col = dofColour(col, viewDist(d));
+  col *= uPhotoExp;
+  #endif
   float shown = 1.0;
   if (d < 0.99995 && uAO > 0.0) {
     // Half-size AO brought up to full size by the four nearest texels, each
@@ -305,6 +340,22 @@ void main() {
   g *= 1.0 - 0.17 * uGrade * smoothstep(0.1, 0.56, dot(q, q));
   float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
   g += n * 0.016 * uGrade * (1.0 - 0.6 * l);
+  #ifdef PHOTO
+  // The film looks: 1 warm, 2 cool, 3 black and white, 4 faded film, 5 high contrast, 6 the paperwork sepia
+  // (the HUD's own ink and bone).
+  g = clamp(g, 0.0, 1.0);
+  l = dot(g, LUMA);
+  if (uLook > 5.5) g = mix(vec3(0.078, 0.129, 0.239), vec3(0.949, 0.910, 0.812), smoothstep(0.0, 1.0, l * 1.08));
+  else if (uLook > 4.5) { g = g * g * (3.0 - 2.0 * g); g = clamp(mix(vec3(dot(g, LUMA)), g, 1.3), 0.0, 1.0); }
+  else if (uLook > 3.5) g = mix(vec3(0.10, 0.09, 0.12), vec3(0.93, 0.91, 0.84), mix(vec3(l), g, 0.65));
+  else if (uLook > 2.5) { l = l * l * (3.0 - 2.0 * l); g = vec3(mix(dot(g, LUMA), l, 0.5)); }
+  else if (uLook > 1.5) g *= vec3(0.9, 1.0, 1.12);
+  else if (uLook > 0.5) g = g * vec3(1.1, 1.0, 0.84) + vec3(0.02, 0.01, 0.0);
+  g *= 1.0 - uVig * smoothstep(0.04, 0.5, dot(q, q));
+  vec2 gp = floor(gl_FragCoord.xy / uPx);
+  float gn = fract(sin(dot(gp, vec2(91.3458, 47.9898))) * 23421.631) - 0.5;
+  g += gn * uGrain * 0.22 * (1.0 - 0.5 * dot(g, LUMA));
+  #endif
   gl_FragColor = vec4(clamp(g, 0.0, 1.0), 1.0);
 }`;
 
@@ -336,6 +387,13 @@ export class Post {
   nightStrength = 3.0;
   nightSpread = 1.7;
   nightPeak = 1.7;
+  /**
+   * Photo mode (fx/photo.ts): null while it is closed, and the composite is then exactly the shipped one (the photo
+   * version is a second material, compiled on first use). `focus` meters, `dof` 0..1 (0 off), `exposure` a
+   * multiplier, `look` 0..6, `vignette` and `grain` 0..1, `px` render pixels per window pixel (for a big save).
+   */
+  photo: { focus: number; dof: number; exposure: number; look: number; vignette: number; grain: number; px: number } | null = null;
+  private photoMat: THREE.ShaderMaterial | null = null;
   /** 1 shows the occlusion alone, 2 the bloom alone. */
   debug = 0;
   /** The occlusion passes, on or off (a lever for the quality governor of M6 section 3). Costs nothing while off. */
@@ -531,7 +589,27 @@ export class Post {
     cu.uPeak.value = night > 0.001 ? this.nightPeak * Math.pow(64 / this.nightPeak, 1 - night) : 1e6;
     cu.uGrade.value = this.grade;
     cu.uDebug.value = this.debug;
-    this.draw(this.compMat, null);
+    const ph = this.photo;
+    if (ph) {
+      if (!this.photoMat) {
+        const num = (v = 0): THREE.IUniform => ({ value: v });
+        // The same uniform objects as the shipped composite, plus the photo ones.
+        this.photoMat = pass(COMPOSITE_FRAG, {
+          ...this.compMat.uniforms, uFocus: num(10), uDofK: num(0), uDofPx: num(0), uPhotoExp: num(1), uLook: num(0), uVig: num(0), uGrain: num(0), uPx: num(1),
+        }, { toneMapped: true, defines: { PHOTO: 1 } });
+      }
+      const pu = this.photoMat.uniforms;
+      pu.uFocus.value = ph.focus;
+      pu.uDofK.value = ph.dof * 2.2;
+      // The widest blur is a share of the picture, not a count of pixels, so a 2x save looks like the screen.
+      pu.uDofPx.value = (6 + 10 * ph.dof) * this.h / 1080;
+      pu.uPhotoExp.value = ph.exposure;
+      pu.uLook.value = ph.look;
+      pu.uVig.value = ph.vignette;
+      pu.uGrain.value = ph.grain;
+      pu.uPx.value = ph.px;
+    }
+    this.draw(ph && this.photoMat ? this.photoMat : this.compMat, null);
 
     r.autoClear = auto;
   }
@@ -543,6 +621,7 @@ export class Post {
     this.aoB.dispose();
     for (const m of this.mips) m.dispose();
     for (const m of [this.aoMat, this.blurMat, this.brightMat, this.downMat, this.upMat, this.compMat]) m.dispose();
+    this.photoMat?.dispose();
     this.quad.geometry.dispose();
   }
 }

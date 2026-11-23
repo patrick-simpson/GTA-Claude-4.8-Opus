@@ -118,6 +118,9 @@ try {
       noReflect: () => off(V, 'reflect'),
       noShadowUpd: () => { g.renderer.shadowMap.autoUpdate = false; return () => { g.renderer.shadowMap.autoUpdate = true; }; },
       noPost: () => { if (!g.post) return () => {}; g.post.enabled = false; return () => { g.post.enabled = true; }; },
+      // Photo mode (src/fx/photo.ts) open, with and without depth of field: the difference is what the blur costs.
+      photo: () => { g.photo.enter(); Object.assign(g.photo.set, { dof: 0 }); g.photo.apply(); return () => g.photo.leave(); },
+      photoDof: () => { g.photo.enter(); Object.assign(g.photo.set, { dof: 0.9, focus: 6 }); g.photo.apply(); return () => g.photo.leave(); },
       noAO: () => { if (!g.post) return () => {}; g.post.aoOn = false; return () => { g.post.aoOn = true; }; },
     };
     const names = Object.keys(cfgs).filter((k) => !cfgOnly || cfgOnly.includes(k));

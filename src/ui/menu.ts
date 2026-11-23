@@ -49,6 +49,7 @@ const CONTROLS: [string, string, string, string][] = [
   ['Radio: next station', 'T', 'D-pad up', 'RADIO'],
   ['Camera / look back', 'V / C', 'D-pad left / R3', 'CAMERA'],
   ['Replay the last 10 s', 'J', '', 'REPLAY'],
+  ['Photo mode', 'O', '', 'PHOTO'],
   ['Map', 'M or Tab', 'Back', 'Pause, then MAP'],
   ['Pause', 'Esc or P', 'Start', 'Pause key'],
   ['Unstick', 'Hold Backspace', '', ''],

@@ -700,6 +700,8 @@ const KEYS: [string[], string][] = [
   [['C'], 'Look back'],
   [['T'], 'Radio (in a car)'],
   [['J'], 'Replay the last 10 s'],
+  [['O'], 'Photo mode'],
+  [['L'], 'Light a firework'],
   [['LMB', 'RMB'], 'Fire / aim'],
   [['Q', 'E', 'R'], 'Switch / reload'],
   [['Esc'], 'Pause'],

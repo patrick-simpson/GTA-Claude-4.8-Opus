@@ -31,6 +31,7 @@ import { ThingsToDo } from '../game/index';
 import { Governor, pickQuality } from './governor';
 import { GameAudio } from '../audio/index';
 import { Net } from '../net/index';
+import { Photo } from '../fx/photo';
 
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
@@ -60,6 +61,8 @@ export class Game {
   occupants!: Occupants;
   player!: Player;
   cam!: CameraRig;
+  /** Photo mode (fx/photo.ts): while open it has the frame instead of the simulation. */
+  photo!: Photo;
   hud!: Hud;
   touchUI!: TouchUI;
   private cheats!: Cheats;
@@ -188,6 +191,7 @@ export class Game {
     this.systems.push((this.todo = new ThingsToDo(this)));
     // Multiplayer (src/net/): inert, and no socket at all, unless a service URL is configured.
     this.systems.push((this.net = new Net(this)));
+    this.photo = new Photo(this);
     // Last: it listens to what everything above did this frame.
     this.systems.push((this.audio = new GameAudio(this)));
 
@@ -289,6 +293,7 @@ export class Game {
     this.dt = dt;
     this.frame++;
     this.input.poll();
+    if (this.photo?.open) { this.photo.update(dt); this.input.endFrame(); return; }
     // Cheat words get the keys first, so a letter in a word is not also a control (see Cheats.update).
     if (this.state === 'play') this.cheats.update();
     if (this.state === 'play' || this.state === 'paused') {
