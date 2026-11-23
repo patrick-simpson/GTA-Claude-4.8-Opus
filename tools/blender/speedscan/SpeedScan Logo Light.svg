@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+<title>SpeedScan logo on light</title>
+<defs><style>@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&amp;display=swap'); text{font-family:'Orbitron',sans-serif;font-weight:900}</style>
+<linearGradient id="txt" gradientUnits="userSpaceOnUse" x1="493.8176000000001" y1="0" x2="1158.1824000000001" y2="0"><stop offset="0" stop-color="#0891B2"/><stop offset="1" stop-color="#1D4ED8"/></linearGradient><linearGradient id="ba" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#0891B2" stop-opacity="0"/><stop offset="1" stop-color="#0891B2"/></linearGradient><linearGradient id="bb" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#1D4ED8" stop-opacity="0"/><stop offset="1" stop-color="#1D4ED8"/></linearGradient>
+</defs>
+<rect width="1280" height="640" fill="#F4F7FB"/>
+<g transform="translate(-186 0)">
+<polygon points="503.8,287.6 577.4,287.6 577.4,296.4 493.8,296.4" fill="url(#ba)"/>
+<polygon points="517.0,301.3 577.4,301.3 577.4,310.1 508.8,310.1" fill="url(#ba)"/>
+<polygon points="529.4,314.9 577.4,314.9 577.4,323.7 522.9,323.7" fill="url(#ba)"/>
+<polygon points="541.8,328.6 577.4,328.6 577.4,337.4 536.9,337.4" fill="url(#ba)"/>
+<polygon points="554.2,342.2 577.4,342.2 577.4,351.0 551.0,351.0" fill="url(#ba)"/>
+<text x="583.6" y="351.0" font-size="88" textLength="68.6" lengthAdjust="spacingAndGlyphs" fill="url(#txt)">S</text>
+<text x="654.9" y="351.0" font-size="65.1" font-weight="700" textLength="187.5" lengthAdjust="spacingAndGlyphs" fill="url(#txt)">peed</text>
+<polygon points="866.5,287.6 940.1,287.6 940.1,296.4 856.5,296.4" fill="url(#bb)"/>
+<polygon points="879.7,301.3 940.1,301.3 940.1,310.1 871.4,310.1" fill="url(#bb)"/>
+<polygon points="892.1,314.9 940.1,314.9 940.1,323.7 885.5,323.7" fill="url(#bb)"/>
+<polygon points="904.5,328.6 940.1,328.6 940.1,337.4 899.6,337.4" fill="url(#bb)"/>
+<polygon points="916.9,342.2 940.1,342.2 940.1,351.0 913.7,351.0" fill="url(#bb)"/>
+<text x="946.2" y="351.0" font-size="88" textLength="68.6" lengthAdjust="spacingAndGlyphs" fill="url(#txt)">S</text>
+<text x="1017.5" y="351.0" font-size="65.1" font-weight="700" textLength="140.7" lengthAdjust="spacingAndGlyphs" fill="url(#txt)">can</text>
+</g>
+</svg>

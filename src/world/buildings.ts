@@ -29,6 +29,7 @@ import { Batch } from './batch';
 import { CURB, RAMPS, SIDEWALK, type Block, type District, type Lot, type Rect } from './plan';
 import { CONTAINER_UV, FENCE_UV, KIT_M } from './textures';
 import { RNG, clamp, lerp } from '../core/util';
+import { HQ, HQ_SOLIDS, SpeedScanHQ } from './speedscanHQ';
 
 const INK = 0x14213d, BONE = 0xf2e8cf, VERM = 0xe4572e, MUST = 0xf0a202, TEAL = 0x2a9d8f;
 const STONE = 0xd8cfba, IRON = 0x2e3338, CONC = 0xb7b2a6, HEDGE = 0x5d7d4c, BRICK = 0xa8503a, VERDIGRIS = 0x4fa493;
@@ -114,6 +115,9 @@ class Builder {
   private reshuffles = 0;
   private clear: Rect[] = [];
   private special = new Map<number, string>();
+  /** The block SpeedScan headquarters stands on (speedscanHQ.ts): its lots are not built here. */
+  private hqBlock = -1;
+  private hqDone = false;
   private dens: number;
   readonly beacons = [new Batch(), new Batch()];
   private nBeacon = 0;
@@ -433,6 +437,7 @@ class Builder {
 
   run(): void {
     const plan = this.game.plan;
+    this.hqBlock = plan.blocks.findIndex((b) => b.district === 'downtown' && b.rect.x0 < HQ.x && b.rect.x1 > HQ.x && b.rect.z0 < HQ.z && b.rect.z1 > HQ.z);
     const pick = (name: string, d: District, x: number, z: number, pred?: (l: Lot) => boolean): void => {
       let best = -1, bd = Infinity;
       plan.lots.forEach((l, i) => {
@@ -486,6 +491,7 @@ class Builder {
 
   private downtown(L: LotCtx): void {
     const { rng, lot } = L;
+    if (lot.block === this.hqBlock) { if (!this.hqDone) { this.hqDone = true; this.speedscan(L); } return; }
     if (lot.interior) { this.court(L); return; }
     const r = inset(L.r, 1.2);
     switch (L.kind) {
@@ -650,6 +656,14 @@ class Builder {
       this.clutter(inset(q, 1), top + 4.2, rng, true);
       if (H > 84) this.mast(mx, top + 4.2, mz, rng.range(8, 14), true);
     }
+  }
+
+  /** SpeedScan headquarters takes the whole block: the model is speedscanHQ.ts's; here only what is solid, and the site. */
+  private speedscan(L: LotCtx): void {
+    for (const [x0, x1, z0, z1, top] of HQ_SOLIDS) this.box({ x0: HQ.x + x0, x1: HQ.x + x1, z0: HQ.z + z0, z1: HQ.z + z1 }, top);
+    const br = L.block.rect, r = { x0: br.x0 + SIDEWALK, x1: br.x1 - SIDEWALK, z0: br.z0 + SIDEWALK, z1: br.z1 - SIDEWALK };
+    this.site('speedscan', frameOf(r, 2), 2);
+    this.site('tallest', frameOf(r, 2), 2);
   }
 
   /** The summit of the skyline: four setbacks, a verdigris pyramid and a spire. */
@@ -1317,10 +1331,12 @@ export function buildBuildings(game: Game, mats: CityMaterials, parent: THREE.Gr
   const builder = new Builder(game, mats);
   builder.run();
   const lamps = builder.finish(group);
+  const hq = new SpeedScanHQ(game, group, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   let t = 0, night = 0;
   return {
     // Two sets of warning lights taking turns, the way a real skyline never quite blinks in step.
     update(dt: number): void {
+      hq.update(dt);
       if (night < 0.02) return;
       t = (t + dt) % 2.6;
       lamps[0].visible = t < 1.1;
@@ -1328,6 +1344,7 @@ export function buildBuildings(game: Game, mats: CityMaterials, parent: THREE.Gr
     },
     setNight(n: number): void {
       night = n;
+      hq.setNight(n);
       if (n < 0.02) { lamps[0].visible = false; lamps[1].visible = false; }
     },
   };
