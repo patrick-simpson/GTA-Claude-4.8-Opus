@@ -88,6 +88,36 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 4, step 5, targets, jobs, pause, kerbs and wording (stage 4 done): pushed Nov 23, about 2:10 AM ET
+
+**What.** On MAIN: (1) a crew member's rounds, rams and rocket blasts hurt the starter's held TARGET cars (crew kind
+`Hit`, 9 bytes, a claim the starter applies within 155 m, 16 m for a ram, and a budget of 75 health a second); a
+tail is judged on the nearest crew member. (2) Jobs are shown to others (new `src/net/jobs.ts`, Event `Job`, 14
+bytes, on change): a waiting taxi fare, "fare aboard" and "N of M parcels" on the runner's tag, a towed car placed
+behind the truck on every screen (0 bytes while towing, against about 55 B/s the old way). Pay stays the runner's.
+(3) A paused player is marked "PAUSED" on their tag (spare bit 7 of the state frame, so also on the backup) and they
+and their car take nothing while paused. (4) In town every browser parks the same mainland kerb cars (a fixed 50%
+share) and barriers follow the town's bridge. (5) The menu and fund box say the bridge is the town's and show the
+player's own separately; a notice names whose points finished a span. Still protocol v4, `server/src` untouched.
+
+**Pause rule (the lead accepts it; the owner may change it).** With anyone else in town, pause and the map key are
+refused while wanted at 2 pips or more or within 4 game seconds of being hurt, with a toast saying why. On resume
+the player is vulnerable at once. Alone, pause is as before.
+
+**Checked by the lead.** tsc, build, server tests, production boot with no errors; story.mjs (new, 35 checks),
+facts.mjs (45), police.mjs (46), the single player mission check (13), one clean run each; both pictures viewed.
+The worker ran crew, crew2, weapons and cars once each, all clean.
+
+**cars.mjs section 6.** Its failure line now prints asks, grants, refusals, hosts and the host's refusal reason for
+every try. It has not failed since, so the cause of the one bad run is still not proven.
+
+**Still wrong or untested.** The helper shot test calls the game's "round struck a car" path, not aimed fire.
+Untested: the backup with these changes, a host change mid mission or mid tow, police not busting a paused player,
+a paused host, the kerb change on a low quality page. The rider aboard a cab is drawn on nobody's screen. Mainland
+kerb cars are still each browser's own (taking or knocking one is seen only there). A host with further own
+progress gets a "Your points finished" toast on first hosting. Nothing was listened to.
+
+
 ### Multiplayer stage 4, step 4, missions together, second piece: pushed Nov 23, about 12:35 AM ET
 
 **What.** On MAIN a helper's own actions now count: a goto, collect, race checkpoint, survive ring or "get a

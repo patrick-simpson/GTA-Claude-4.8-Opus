@@ -38,8 +38,19 @@
 //  - A helper's own actions count. The starter's browser judges them from where it already shows each helper (their
 //    State frames): no frame is sent for it. A goto (no particular car), a collect item, a race checkpoint, a getVehicle
 //    of a kind (or of anything) and a survive ring are met by ANY crew member as the step asks (on foot, in a car, in
-//    a kind). Not covered: destroy (a helper's shots do nothing to a held car), loseHeat (heat is each player's own),
-//    tail (judged on the starter alone).
+//    a kind). Not covered: loseHeat (heat is each player's own).
+//
+// THIRD PIECE (stage 4, step 5):
+//  - A helper's rounds, fists and rams count against the starter's held cars (a destroy objective's targets), as a
+//    CLAIM, like weapons between players (fight.ts): the helper's browser says "my rounds took this much off your car
+//    in slot N" (Hit, 9 bytes, gathered for a tenth of a second, sent only while hitting); the starter's browser, which
+//    owns the car, applies it if the helper is a crew member, shown within that weapon's reach of the car (a ram: within
+//    a car's length or two), and no faster than a helper could do it (HIT_RATE health a second, HIT_CAP at once). A
+//    helper's rocket is a Blast for everybody already: the starter's browser lets a crew member's blast hurt its held
+//    cars (Weapons.explode asks hurtsHeld). Nobody else's rounds or blasts touch a held car: still the runner's own.
+//    A car hurt that way burns and goes up by the single player rules on the starter's screen, named as the helper's.
+//  - A tail is judged on the nearest crew member, not the starter alone (script.ts): any of them too close is seen,
+//    and the car is lost only when all of them are too far.
 //  - The countdown follows the starter's mission clock: each Show carries the rate that clock runs at against the wall
 //    clock (measured here from game time), 0 while the starter is paused (told the moment they pause).
 //  - A failure hands a lent car back (the helper is put out of it and it stands as the starter's script's car); a
@@ -58,6 +69,7 @@ import { progress } from '../world/progress';
 import { FAILS, actorLook, type CrewLink, type CrewMember, type Guest, type Mission, type Runner, type ViewMark } from '../game/script';
 import { save } from '../game/save';
 import {
+  CREW_HIT_BYTES, CrewHitHow, decodeCrewHit, encodeCrewHit,
   CREW_BACK_BYTES, CREW_MARK_BYTES, CREW_MARKS_MAX, CREW_SHOW_BYTES, CREW_THING_BYTES, CREW_THINGS_MAX, CrewEnd, CrewKind, CrewLabel, SEND_HZ,
   crewKindOf, decodeCrewBack, decodeCrewLend, decodeCrewShow, decodeCrewSmall, decodeCrewTeam, decodeCrewThings,
   encodeCrewBack, encodeCrewLend, encodeCrewShow, encodeCrewSmall, encodeCrewTeam, encodeCrewThings, type CrewShowRec, type CrewThingRec,
@@ -78,6 +90,12 @@ const UNUSED_MS = 6000;
 const DRIFT = 5;
 /** A distance (the tail) is told at most this often, ms. */
 const METERS_MS = 500;
+/** A helper's claims on a target: no more health off it a second than a helper could take (a shotgun at full tilt), nor at once. */
+const HIT_RATE = 75, HIT_CAP = 60;
+/** A claim from a helper shown further from the car than this is refused, meters: rounds (a rifle's reach and slack), a ram. */
+const HIT_REACH = 155, RAM_REACH = 16;
+/** Health a bump takes, as Vehicles.collide works it out (HARD_HIT, DAMAGE in ent/vehicle.ts). */
+const RAM_HARD = 3, RAM_DAMAGE = 1.5;
 
 interface Lent { id: number; kind: string; color: number }
 /** A mission person drawn on a helper's screen. */
@@ -109,7 +127,11 @@ interface Borrowed { boss: number; sat: boolean; at: number }
 
 export class TownCrew implements CrewLink {
   /** Frames sent and heard, by what they were, and bytes; drafts, pays, cars lent and handed back. */
-  readonly stats = { sent: 0, bytesSent: 0, got: 0, bytesGot: 0, shows: 0, showBytes: 0, teams: 0, drafted: 0, declined: 0, paid: 0, lent: 0, back: 0, reclaimed: 0, things: 0, thingBytes: 0, handedBack: 0 };
+  readonly stats = {
+    sent: 0, bytesSent: 0, got: 0, bytesGot: 0, shows: 0, showBytes: 0, teams: 0, drafted: 0, declined: 0, paid: 0, lent: 0, back: 0, reclaimed: 0, things: 0, thingBytes: 0, handedBack: 0,
+    /** Stage 4, step 5. A helper's claims on the starter's targets: sent (and the damage in them); heard, applied, refused (the last reason). */
+    hitsSent: 0, hitBytes: 0, hitDamageSent: 0, ramsSent: 0, hitsGot: 0, hitsDone: 0, ramsDone: 0, hitsRefused: 0, hitDamageDone: 0, lastHitRefusal: '',
+  };
 
   // ── As the starter ──
   private team: number[] = [];
@@ -142,6 +164,12 @@ export class TownCrew implements CrewLink {
   /** The mission's people as drawn here, by the step that made them. */
   private readonly extras = new Map<number, Extra>();
 
+  /** A helper's rounds and rams on the starter's cars not told yet, by slot: [rounds, ram]. */
+  private readonly hitOwed = new Map<number, [number, number]>();
+  private hitAt = 0;
+  /** The starter's: what each helper may still take off its cars now (HIT_RATE, HIT_CAP). */
+  private readonly hitBudgets = new Map<number, { left: number; at: number }>();
+
   // ── Everybody ──
   /** Other starters and their crews: nobody in these is drafted. */
   private readonly others = new Map<number, number[]>();
@@ -159,6 +187,13 @@ export class TownCrew implements CrewLink {
     game.takeShared = (v) => this.ask(v) ?? (prev ? prev(v) : 'no');
     // The starter pauses: the game (and this system) stops at once, so the helpers are told now that the clock is
     // standing; the next frame after the pause says it runs again.
+    // A helper's car striking one of the starter's: what the knock would have taken off it, as alone, is claimed.
+    game.on('impact', (e) => {
+      const p = this.game.player, o = e.other;
+      if (!o || e.vehicle !== p.vehicle || e.vehicle.driver !== 'player' || !(e.speed > RAM_HARD)) return;
+      const share = e.vehicle.spec.mass / (e.vehicle.spec.mass + o.spec.mass);
+      this.owe(o, (e.speed - RAM_HARD) * RAM_DAMAGE * share, 1);
+    });
     game.on('pause', ({ on }) => {
       this.paused = on;
       this.rateAt = 0;
@@ -223,6 +258,70 @@ export class TownCrew implements CrewLink {
     this.lentOut.delete(v);
     this.lentTo.delete(l.id);
     if (this.inTown && this.send(encodeCrewSmall(CrewKind.Reclaim, l.id, keep ? 1 : 0))) this.stats.reclaimed++;
+  }
+
+  // ── A helper's hits on the starter's cars (stage 4, step 5) ─────────────────
+
+  /** Is this player on this browser's crew (the starter's)? Their blasts may hurt its held cars (fight.ts). */
+  onTeam(id: number): boolean { return this.inTown && this.team.includes(id); }
+
+  /**
+   * fight.ts: a round of this player's struck a car. One of the starter's (this player is on their crew): owed to them
+   * as a claim, and true. Anything else: false.
+   */
+  hitHeld(v: Vehicle, dmg: number): boolean { return this.owe(v, dmg, 0); }
+
+  private owe(v: Vehicle, dmg: number, k: 0 | 1): boolean {
+    if (!this.boss || !this.inTown || !(dmg > 0)) return false;
+    const at = this.held.shownSlot(v);
+    if (!at || at.id !== this.boss || v.wreck) return false;
+    let o = this.hitOwed.get(at.slot);
+    if (!o) this.hitOwed.set(at.slot, o = [0, 0]);
+    o[k] += dmg;
+    return true;
+  }
+
+  /** What has been owed this tenth of a second goes, one frame a car and a kind of blow. */
+  private sendHits(now: number): void {
+    if (!this.hitOwed.size || now - this.hitAt < SEND_MS - 4) return;
+    for (const [slot, o] of this.hitOwed) {
+      for (let k = 0; k < 2; k++) {
+        const dmg = o[k];
+        if (!(dmg > 0.01)) continue;
+        if (this.boss && this.send(encodeCrewHit(this.boss, slot, k ? CrewHitHow.Ram : CrewHitHow.Rounds, dmg))) {
+          this.stats.hitsSent++; this.stats.hitBytes += CREW_HIT_BYTES; this.stats.hitDamageSent += dmg; if (k) this.stats.ramsSent++;
+        }
+      }
+    }
+    // (Sent or not: a blow nobody could be told of is not worth telling late.)
+    this.hitOwed.clear();
+    this.hitAt = now;
+  }
+
+  private refuseHit(why: string): void { this.stats.hitsRefused++; this.stats.lastHitRefusal = why; }
+
+  /** The starter: a helper says their rounds or their car took this much off one of this browser's held cars. */
+  private hitBy(id: number, slot: number, how: number, damage: number, now: number): void {
+    this.stats.hitsGot++;
+    if (!this.team.includes(id)) return this.refuseHit('not on the crew');
+    const v = this.held.mineAt(slot), r = this.remotes.get(id);
+    if (!v || this.lentOut.has(v) || v.removed || v.sunk) return this.refuseHit(`no car of the script's in slot ${slot}`);
+    if (v.wreck) return this.refuseHit('already a wreck');
+    if (!r || !r.seen) return this.refuseHit('the helper is not shown here');
+    const d = Math.hypot(r.x - v.x, r.z - v.z), reach = how === CrewHitHow.Ram ? RAM_REACH : HIT_REACH;
+    if (d > reach) return this.refuseHit(`out of reach: ${d.toFixed(0)} m for ${how === CrewHitHow.Ram ? 'a ram' : 'rounds'}`);
+    let b = this.hitBudgets.get(id);
+    if (!b) this.hitBudgets.set(id, b = { left: HIT_CAP, at: now });
+    b.left = Math.min(HIT_CAP, b.left + HIT_RATE * Math.max(0, now - b.at) / 1000);
+    b.at = now;
+    const dmg = Math.min(damage, b.left);
+    if (!(dmg > 0.01)) return this.refuseHit('faster than a helper could do it');
+    b.left -= dmg;
+    v.health = Math.max(0, v.health - dmg);
+    this.game.vehicles.wake(v);
+    // (If it burns for this, the blast is the helper's, as alone it would have been this player's.)
+    this.game.player.weapons.blameCar(v, id);
+    this.stats.hitsDone++; this.stats.hitDamageDone += dmg; if (how === CrewHitHow.Ram) this.stats.ramsDone++;
   }
 
   private sendTeam(mIdx: number, ids: number[]): void {
@@ -297,6 +396,11 @@ export class TownCrew implements CrewLink {
         const b = decodeCrewBack(buf);
         if (b) this.lentTo.delete(k.id);
         if (b && b.starter === me) this.back(k.id, b);
+        return;
+      }
+      case CrewKind.Hit: {
+        const h = decodeCrewHit(buf);
+        if (h && h.starter === me) this.hitBy(k.id, h.slot, h.how, h.damage, performance.now());
         return;
       }
       case CrewKind.Reclaim: {
@@ -644,6 +748,7 @@ export class TownCrew implements CrewLink {
       if (c) { v.health = c.health; if (c.wreck) v.wreck = true; }
     }
     if (this.team.length) { this.measure(now); this.sendShow(now); this.sendThings(now); }
+    if (this.boss) this.sendHits(now); else if (this.hitOwed.size) this.hitOwed.clear();
     // A helper: a lent car they are out of goes back.
     const p = this.game.player;
     for (const [v, b] of this.borrowed) {

@@ -18,7 +18,7 @@ import type { ThingsToDo } from '../game/index';
 import { DISTRICT_NAME, EW_NAMES, NS_NAMES, RAMPS, XS, ZS, BRIDGE } from '../world/plan';
 import type { District } from '../world/plan';
 import { BRIDGE_SPANS } from '../world/plan';
-import { STAGES, progress } from '../world/progress';
+import { STAGES, goalOf, progress } from '../world/progress';
 import { STAGE_NAMES } from '../world/mainland';
 import { money } from '../core/util';
 import { DUCKS } from '../game/activities';
@@ -487,6 +487,12 @@ export class Menu {
 
   private progressHtml(): string {
     const todo = this.todo, d = save.data, goal = progress.goal();
+    // In a shared town (net/town.ts) the bridge on the screen is the town's; the player's own is kept apart and saved.
+    const town = progress.mine !== null, own = progress.own();
+    const ownLine = (): string => {
+      const g = goalOf(own);
+      return `${own.spans} of ${BRIDGE_SPANS} spans${own.stage ? `, ${esc(STAGE_NAMES[own.stage] ?? `stage ${own.stage}`)} open` : ''}${g ? ` · ${g.kind === 'bridge' ? `span ${g.n}` : esc(STAGE_NAMES[g.n] ?? `stage ${g.n}`)}: ${Math.floor(own.bank)} of ${g.cost} points` : ''}`;
+    };
     const row = (label: string, value: string): string => `<div class="mn-row"><span class="mn-lbl">${label}</span><span>${value}</span></div>`;
     const ms = todo.missions.missions.map((m, i) => {
       const done = d.missions.includes(m.id), open = todo.missions.open(m);
@@ -499,10 +505,11 @@ export class Menu {
     return `
 <div class="mn-form">
   <div class="mn-sec">
-    <h3>Section A · The Perpetual Bridge</h3>
-    ${row('Spans bolted down', `${boxes(progress.spans, BRIDGE_SPANS)} ${progress.spans} of ${BRIDGE_SPANS}`)}
-    ${goal ? row('In hand', `${esc(goal.label)}: ${Math.floor(goal.have)} of ${goal.cost} points<span class="mn-bar"><i style="transform:scaleX(${Math.min(1, goal.have / goal.cost).toFixed(3)})"></i></span>`) : row('In hand', 'Nothing. Everything is open.')}
-    ${row('Points to date', Math.floor(progress.total).toLocaleString('en-US'))}
+    <h3>Section A · ${town ? 'The Perpetual Bridge (the town\'s)' : 'The Perpetual Bridge'}</h3>
+    ${row(town ? 'The town\'s spans' : 'Spans bolted down', `${boxes(progress.spans, BRIDGE_SPANS)} ${progress.spans} of ${BRIDGE_SPANS}`)}
+    ${goal ? row(town ? 'The town\'s fund' : 'In hand', `${esc(goal.label)}: ${Math.floor(goal.have)} of ${goal.cost} points<span class="mn-bar"><i style="transform:scaleX(${Math.min(1, goal.have / goal.cost).toFixed(3)})"></i></span>`) : row(town ? 'The town\'s fund' : 'In hand', 'Nothing. Everything is open.')}
+    ${town ? row('Your own', ownLine()) : ''}
+    ${row(town ? 'Your points to date' : 'Points to date', Math.floor(progress.total).toLocaleString('en-US'))}
     <h3>Section B · Tepid Falls</h3>
     ${stages}
   </div>

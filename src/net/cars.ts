@@ -33,7 +33,10 @@
 // Stage 4, step 2 (held.ts). A car a mission or a job is holding (Vehicle.held) is NOT left to the town when its
 // player gets out: it stays that player's own, in that player's browser, until the script lets go of it.
 //
-// The mainland's kerbs (world/progress.ts) are not part of this yet: they stay each browser's own.
+// The mainland's kerbs (world/progress.ts) are not part of this: they stay each browser's own cars. Stage 4, step 5: in
+// a town every browser parks the same places there (one share, whatever the quality) and only on the streets the
+// TOWN has open, so nobody parks a car behind a barrier the town still has up, or misses one on a street it opened.
+// Taking one, or knocking it out of its place, is still seen by that browser alone.
 
 import type { Game } from '../core/game';
 import type { ParkedSpot, Vehicle } from '../core/api';
@@ -84,6 +87,8 @@ export class TownCars {
     /** Cars handed to the host on getting out, and numbers received for them; host: cars stood for a leaver, and for somebody who dropped out. */
     leaves: 0, lefts: 0, leaveBytes: 0, stood: 0, strays: 0,
     parkHitsSent: 0, parkHitsDone: 0,
+    /** Host: why the last ask was refused (for the tests' failure lines). */
+    lastRefused: '',
   };
 
   private readonly spots: ParkedSpot[];
@@ -297,12 +302,13 @@ export class TownCars {
       if (!a) return;
       this.stats.asked++;
       const r = this.remotes.get(a.id);
-      let ok = false, health = 100;
+      let ok = false, health = 100, why = !r ? 'nobody by that number' : !r.seen ? 'the asker is not shown here' : r.vehicle ? 'the asker is in a car' : '';
       // Somebody known, on foot, and near enough to have a hand on the door.
       if (r && r.seen && !r.vehicle) {
         if (a.cls === CarClass.Traffic) {
           // (One of the traffic's, or a cruiser of the Patrol's: its crew is on foot from here on.)
           const v = this.shared.findCar(a.car);
+          why = !v ? `no traffic car ${a.car} here` : v.wreck ? 'a wreck' : Math.hypot(v.x - r.x, v.z - r.z) >= TAKE_REACH ? `the asker is ${Math.hypot(v.x - r.x, v.z - r.z).toFixed(1)} m from it` : '';
           // (Nobody drives away in a burnt out one, which is in the frames only to be seen.)
           if (v && !v.wreck && Math.hypot(v.x - r.x, v.z - r.z) < TAKE_REACH) {
             health = v.health;
@@ -323,7 +329,7 @@ export class TownCars {
       // The answer goes before anything else is said about the car: the asker's copy must be its own by then.
       this.conn.send(encodeGrant(a.id, a.cls, a.car, ok, health));
       this.stats.answerBytes += GRANT_BYTES;
-      if (ok) this.stats.given++; else this.stats.refused++;
+      if (ok) this.stats.given++; else { this.stats.refused++; this.stats.lastRefused = why || 'taken, or not at its place'; }
       return;
     }
     if (what === ToHostKind.Leave) {

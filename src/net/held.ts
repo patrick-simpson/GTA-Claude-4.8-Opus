@@ -20,8 +20,10 @@
 // What this costs: nothing while the cars stand still. The whole list (4 + 15 bytes a car) goes when a car joins or
 // leaves it or one in it moves, at most SEND_HZ times a second, and once when somebody arrives.
 //
-// Not here yet (later steps): the mission's people, a cab's rider, another player's shots at a held car (they do
-// nothing to it), and the backup service, where cars are private to each browser as before.
+// Since: the mission's people (crew.ts Things), a cab's fare (jobs.ts), a crew member's rounds, rams and blasts on a
+// held car (crew.ts Hit: claims the runner's browser judges), and a car on the tow hook (jobs.ts: placed behind the
+// truck by every screen, its moves not sent). Anybody else's shots still do nothing to a held car. On the backup
+// cars stay private to each browser as before.
 
 import type { Game } from '../core/game';
 import type { Vehicle } from '../core/api';
@@ -85,6 +87,18 @@ export class TownHeld {
   }
   /** This player's held car in a slot of its lists. */
   mineAt(slot: number): Vehicle | null { for (const [v, s] of this.slots) if (s === slot) return v; return null; }
+  /** The slot of one of this player's held cars in its lists, or 255. */
+  slotOf(v: Vehicle): number { return this.slots.get(v) ?? 255; }
+
+  /**
+   * Stage 4, step 5 (jobs.ts). This player's car on the tow hook: its moving is NOT sent (the others put it behind the
+   * truck themselves, from the Job frame), only a change of how bent it is or of the list. Null: none.
+   */
+  towing: Vehicle | null = null;
+  /** The others' cars on a tow hook: by player, the slot of their held car that rides behind the truck they drive. */
+  readonly hooks = new Map<number, number>();
+  /** Shown towed cars placed behind their truck this frame (for the tests). */
+  hookedShown = 0;
 
   /** A shown car with a door becomes this browser's own (a helper has been lent it): it is no longer shown from here. */
   adopt(v: Vehicle): boolean {
@@ -186,11 +200,22 @@ export class TownHeld {
 
   private draw(dt: number): void {
     const vs = this.game.vehicles;
-    for (const map of this.theirs.values()) for (const s of map.values()) {
+    this.hookedShown = 0;
+    for (const [id, map] of this.theirs) for (const [slot, s] of map) {
       const v = s.v, w = s.want;
       // As bent as its owner's browser says: that is what makes it steam, burn and stand as a wreck here.
       showDamage(v, w.damage);
       if (!v.wreck) v.color = w.color;
+      // On their tow hook: behind the truck they drive, as their own browser has it (a rigid bar, activities.ts).
+      const truck = this.hooks.get(id) === slot ? this.remotes.get(id)?.vehicle : null;
+      if (truck) {
+        const back = truck.hl + v.hl + 0.7, sh = Math.sin(truck.h), ch = Math.cos(truck.h);
+        vs.ghostPose(v, truck.x - sh * back, truck.y, truck.z - ch * back, truck.h, 0, 0, 0, 0, false, false, dt);
+        v.driver = null; v.lights = false;
+        s.placed = true; s.still = false;
+        this.hookedShown++;
+        continue;
+      }
       if (s.still) continue;
       let x = w.x, y = w.y, z = w.z, h = w.yaw, pitch = w.pitch, roll = w.roll;
       const d = Math.hypot(w.x - v.x, w.y - v.y, w.z - v.z), turn = angleDiff(v.h, w.yaw);
@@ -253,13 +278,15 @@ export class TownHeld {
     // (A slot whose car is no longer in the list is free again.)
     for (const [v] of slots) if (!cur.has(v)) slots.delete(v);
     const last = this.last;
+    // (The car on the hook moves with the truck: its place is not news, jobs.ts.)
+    const towSlot = this.towing ? slots.get(this.towing) ?? -1 : -1;
     let changed = n !== this.nLast;
     for (let i = 0; i < n && !changed; i++) {
       const a = recs[i], b = last[i];
       // (Small enough not to be tripped by a car settling on its springs, as for the State frames.)
       changed = a.slot !== b.slot || a.kind !== b.kind || a.damage !== b.damage || (a.color !== b.color && a.damage < DAMAGE_WRECK)
-        || Math.abs(a.x - b.x) > 0.04 || Math.abs(a.z - b.z) > 0.04 || Math.abs(a.y - b.y) > 0.04
-        || Math.abs(angleDiff(a.yaw, b.yaw)) > 0.008 || Math.abs(a.pitch - b.pitch) > 0.012 || Math.abs(a.roll - b.roll) > 0.012;
+        || (!(towSlot === a.slot) && (Math.abs(a.x - b.x) > 0.04 || Math.abs(a.z - b.z) > 0.04 || Math.abs(a.y - b.y) > 0.04
+        || Math.abs(angleDiff(a.yaw, b.yaw)) > 0.008 || Math.abs(a.pitch - b.pitch) > 0.012 || Math.abs(a.roll - b.roll) > 0.012));
     }
     if (!changed && !(this.force && n > 0)) { this.force = false; return; }
     if (!c.send(encodeHeld(recs, n))) return;

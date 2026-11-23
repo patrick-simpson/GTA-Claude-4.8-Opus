@@ -53,7 +53,8 @@ export interface TownSink {
 export function cmpStand(a: Stand, b: Stand): number { return a.spans - b.spans || a.stage - b.stage || Math.floor(a.bank) - Math.floor(b.bank); }
 
 /** What `s` is working toward: the goal's kind, number and price, or null when everything is open. */
-function goalOf(s: Stand): { kind: ProgressChange; n: number; cost: number } | null {
+/** The goal a stand's points go toward next, or null when everything is open. */
+export function goalOf(s: Stand): { kind: ProgressChange; n: number; cost: number } | null {
   if (s.spans < BRIDGE_SPANS) return { kind: 'bridge', n: s.spans + 1, cost: spanCost(s.spans + 1) };
   if (s.stage < STAGES) return { kind: 'stage', n: s.stage + 1, cost: stageCost(s.stage + 1) };
   return null;
@@ -377,7 +378,13 @@ export function sawhorses(b: Batch, x: number, y: number, z: number, h: number, 
 
 interface FundBox { x: number; z: number; group: THREE.Group; head: string }
 /** A curb-side spot on the mainland and the car that belongs in it: the same car every time the player comes back. */
-interface Parked { x: number; z: number; h: number; kind: VehicleKind; tint: number; edge: number; v: Vehicle | null }
+interface Parked { x: number; z: number; h: number; kind: VehicleKind; tint: number; edge: number; v: Vehicle | null; roll: number }
+/**
+ * The mainland's kerbs in a shared town (net/town.ts: the town's bridge and stages on the screen): every browser parks
+ * the same places, whatever its quality setting (as Game.placeStart does for the island's), and only on the streets
+ * the TOWN has open. Alone it is the quality's share, as before.
+ */
+const MAINLAND_TOWN_SHARE = 0.5;
 
 /** The collection boxes, the barriers across streets that are not open yet, and the trickle. A system: game.systems updates it. */
 export class ProgressWorks {
@@ -392,6 +399,17 @@ export class ProgressWorks {
   private lastPay = -9;
   private parked: Parked[] = [];
   private parkT = 0;
+  /** The stage of the street behind each barrier standing now (for the tests). */
+  private readonly barrierStages: number[] = [];
+
+  /** For the tests: the barriers up (by the stage each closes off) and the mainland's kerb cars put out here (with the stage of their street). */
+  info(): { barriers: number[]; kerbs: { x: number; z: number; stage: number; closed: boolean }[] } {
+    const edges = this.game.plan.edges;
+    return {
+      barriers: this.barrierStages.slice(),
+      kerbs: this.parked.filter((s) => s.v).map((s) => ({ x: +s.x.toFixed(1), z: +s.z.toFixed(1), stage: edges[s.edge].stage, closed: edges[s.edge].closed })),
+    };
+  }
 
   constructor(private readonly game: Game) {
     this.root.name = 'progress';
@@ -405,18 +423,23 @@ export class ProgressWorks {
     progress.onChange((what) => { if (what === 'stage') this.rebuildBarriers(); });
 
     // The island parks all its cars at the start. The mainland's are kept as a list and put out only around the player.
+    // (The same dice as before, in the same order: alone, the same cars at the same kerbs. Every place is kept with its
+    // roll, so that a shared town can choose its own share of them.)
     const rng = new RNG(4022), plan = game.plan;
     for (const s of plan.mainlandParking) {
-      const keep = rng.chance(0.5 * game.quality.density), kind = commonKind(rng.next()), tint = rng.next();
-      if (keep) this.parked.push({ x: s.x, z: s.z, h: s.h, kind, tint, edge: plan.nearestEdge(s.x, s.z).edge.id, v: null });
+      const roll = rng.next(), kind = commonKind(rng.next()), tint = rng.next();
+      this.parked.push({ x: s.x, z: s.z, h: s.h, kind, tint, edge: plan.nearestEdge(s.x, s.z).edge.id, v: null, roll });
     }
   }
 
   /** Park cars within sight of the player on streets that are open, and take away the untouched ones left far behind. */
   private parking(): void {
     const game = this.game, pl = game.player, edges = game.plan.edges;
+    // (`progress` is the town's while a town is on the screen: its streets, and the town's share of places.)
+    const share = progress.mine ? MAINLAND_TOWN_SHARE : 0.5 * game.quality.density;
     let budget = 8;
     for (const s of this.parked) {
+      if (!s.v && !(s.roll < share)) continue;
       const dx = s.x - pl.x, dz = s.z - pl.z, d2 = dx * dx + dz * dz;
       if (s.v) {
         const v = s.v;
@@ -466,6 +489,7 @@ export class ProgressWorks {
     }
     for (const m of this.notices) { (m as THREE.MeshStandardMaterial).map?.dispose(); m.dispose(); }
     this.notices = [];
+    this.barrierStages.length = 0;
     this.barrierWalls.set(false);
     this.barrierWalls = new Toggle();
     const g = (this.barriers = new THREE.Group());
@@ -484,6 +508,7 @@ export class ProgressWorks {
         const dx = Math.sin(away), dz = Math.cos(away), half = (e.horiz ? n.hx : n.hz) + 6;
         const x = n.x + dx * half, z = n.z + dz * half, y = roadY(x, z), face = away + Math.PI;
         sawhorses(flat, x, y, z, face, e.hw * 2 - 0.4);
+        this.barrierStages.push(e.stage);
         this.barrierWalls.add(e.horiz
           ? game.col.addBox(x - 0.3, z - e.hw, x + 0.3, z + e.hw, y + 1.15, y - 0.5)
           : game.col.addBox(x - e.hw, z - 0.3, x + e.hw, z + 0.3, y + 1.15, y - 0.5));
@@ -538,7 +563,11 @@ export class ProgressWorks {
     const near = goal !== null && !pl.vehicle && Math.abs(pl.x - box.x) < 2.6 && Math.abs(pl.z - box.z) < 2.6;
     if (near && goal) {
       const need = Math.ceil(goal.cost - goal.have);
-      game.hud.prompt(`[G] Pay into the fund: ${goal.label}, ${money(need)} to go`);
+      // (In a shared town the fund is the town's; the player's own progress is said beside it.)
+      if (progress.mine) {
+        const o = progress.mine, og = goalOf(o);
+        game.hud.prompt(`[G] Pay into the town's fund: ${goal.label}, ${money(need)} to go. Yours: ${o.spans} of ${BRIDGE_SPANS} spans${og ? `, ${Math.floor(o.bank)} of ${og.cost} points` : ''}`);
+      } else game.hud.prompt(`[G] Pay into the fund: ${goal.label}, ${money(need)} to go`);
       this.prompting = true;
       if (game.input.eat('interact') && game.time - this.lastPay > 0.4) {
         this.lastPay = game.time;
@@ -548,7 +577,7 @@ export class ProgressWorks {
           pl.money -= pay;
           const done = progress.add(pay);
           progress.save();
-          if (!done) game.hud.toast(`${money(pay)} received. ${goal.label}: ${money(need - pay)} still to find. A receipt will not be issued.`, 5);
+          if (!done) game.hud.toast(`${money(pay)} received${progress.mine ? ' for the town' : ''}. ${goal.label}: ${money(need - pay)} still to find. A receipt will not be issued.`, 5);
         }
       }
     } else if (this.prompting) { game.hud.prompt(null); this.prompting = false; }

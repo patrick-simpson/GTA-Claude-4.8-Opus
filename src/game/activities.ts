@@ -23,7 +23,8 @@ import { SITES } from '../world/mainland';
 import { BUILDING_SITES } from '../world/buildings';
 import { progress } from '../world/progress';
 import { commonKind } from '../ent/vehicleSpecs';
-import { money } from '../core/util';
+import { RNG, money } from '../core/util';
+import type { Look } from '../core/api';
 import { save } from './save';
 import { clearOf, clock, type Markers, type Pt } from './script';
 
@@ -65,7 +66,31 @@ const DUCK_ISLAND: [number, number][] = [
   [-18.5, 11], [66, -70],
 ];
 
+/**
+ * A fare's look from a small seed, the same in every browser (multiplayer, net/jobs.ts: the others are shown the fare
+ * waiting at the kerb as the same person).
+ */
+export function riderLook(game: Game, seed: number): Look {
+  return game.people.randomLook(new RNG(((seed & 0xff) + 1) * 2654435761 ^ 0x51f15eed), true);
+}
+
+/** What the others in a shared town are shown of a job (net/jobs.ts reads it; the runner's browser is the authority). */
+export interface JobView {
+  job: '' | 'taxi' | 'courier' | 'tow';
+  /** taxi: the fare waiting at the kerb (null once aboard or between fares), the seed of their look, and whether one rides in the cab. */
+  rider: Person | null; riderSeed: number; aboard: boolean;
+  /** courier: parcels still in the van, of how many. */
+  parcels: number; total: number;
+  /** tow: the car to be towed (a held car), and whether it is on the hook. */
+  towed: Vehicle | null; hooked: boolean;
+}
+
 export class Activities {
+  /** Multiplayer (net/jobs.ts): true in a shared town on the main service, where a fare's look is made from a seed. */
+  shared: (() => boolean) | null = null;
+  private riderSeed = 0;
+  private parcelsTotal = 0;
+  private readonly viewRec: JobView = { job: '', rider: null, riderSeed: 0, aboard: false, parcels: 0, total: 0, towed: null, hooked: false };
   prompt: string | null = null;
   target: Pt | null = null;
   readonly ducks: Pt[] = [];
@@ -218,6 +243,16 @@ export class Activities {
     this.setBusy(null);
   }
 
+  /** What the others are shown of the job running here (net/jobs.ts). The object is reused. */
+  view(): JobView {
+    const w = this.viewRec, j = this.job;
+    w.job = j === 'taxi' || j === 'courier' || j === 'tow' ? j : '';
+    w.rider = j === 'taxi' ? this.rider : null; w.riderSeed = this.riderSeed; w.aboard = j === 'taxi' && this.phase === 1;
+    w.parcels = j === 'courier' ? this.drops.length : 0; w.total = j === 'courier' ? this.parcelsTotal : 0;
+    w.towed = j === 'tow' ? this.towed : null; w.hooked = j === 'tow' && this.hooked;
+    return w;
+  }
+
   blips(out: Blip[]): void {
     if (this.job) {
       if (this.job === 'courier') for (const d of this.drops) out.push({ x: d.x, z: d.z, kind: 'goal' });
@@ -295,7 +330,7 @@ export class Activities {
       for (let k = 0; k < 4; k++) { const c = this.corner(from, 140, 420); if (!c) break; drops.push(c.at); len += c.len; from = c.at; }
       if (drops.length < 2) { g.hud.toast('No parcels today. The depot has lost the depot.', 4); return false; }
       this.begin('courier');
-      this.drops = drops; this.haul = len;
+      this.drops = drops; this.haul = len; this.parcelsTotal = drops.length;
       this.clockT = len / 8 + 18 * drops.length + 15;
       g.hud.toast(`${drops.length} parcels, any order. Stop at each ring.`, 5);
     } else {
@@ -325,7 +360,9 @@ export class Activities {
     const c = this.corner({ x: p.x, z: p.z }, 90, 360);
     if (!c) return false;
     this.phase = 0; this.dest = c.at;
-    this.rider = g.people.spawn(c.at.x, c.at.z, Math.atan2(p.x - c.at.x, p.z - c.at.z));
+    // (In a shared town the fare's look comes from a seed the others are told, so they draw the same person.)
+    this.riderSeed = Math.floor(Math.random() * 256);
+    this.rider = g.people.spawn(c.at.x, c.at.z, Math.atan2(p.x - c.at.x, p.z - c.at.z), this.shared?.() ? riderLook(g, this.riderSeed) : undefined);
     this.rider.pose = 'stand';
     return true;
   }

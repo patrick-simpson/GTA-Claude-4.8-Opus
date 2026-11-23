@@ -25,6 +25,12 @@
 //  - On the BACKUP the bridge stays each player's own and nothing is sent about it (every message there is rationed).
 //  - If the connection drops, the screen keeps the bridge it was showing until the page is reloaded.
 //
+// WHOSE POINTS (stage 4, step 5). FACT_BRIDGE carries a fourth number: the player whose points finished the last span or
+// stage (their number in town; 0 unknown). The host knows it: a guest's Give that finished a goal on its screen, a
+// guest's Mine that moved the town on, or else its own player's. Every screen in town is told once, when the fact
+// moves on a goal: "<name>'s points finished span 4 of 8." (the game's made up names only), "Your points ..." on the
+// finisher's own. An older page reads the first three numbers and never looks at the fourth.
+//
 // Sent: nothing while nothing changes. A fact when the host changes the hour or the weather; the bridge fact when a
 // span or a stage is finished (at once) or the bank has moved (at most every BANK_MS); a guest's Give at most every
 // GIVE_MS while it is earning; a Mine only when a guest is ahead of the town.
@@ -32,6 +38,8 @@
 import type { Game } from '../core/game';
 import type { Weather } from '../core/api';
 import { cmpStand, progress, type Stand } from '../world/progress';
+import { BRIDGE_SPANS } from '../world/plan';
+import { STAGE_NAMES } from '../world/mainland';
 import {
   FACT_BRIDGE, FACT_CLOCK, FACT_WEATHER_SEED, GIVE_BYTES, MINE_BYTES, TOWN_WEATHERS, ToHostKind,
   decodeGive, decodeMine, encodeGive, encodeMine, encodeMsg,
@@ -85,7 +93,7 @@ const mod24 = (h: number): number => ((h % 24) + 24) % 24;
 const DEFAULTS: Record<string, string> = { [FACT_CLOCK]: '0', [FACT_WEATHER_SEED]: '[0,0,0]' };
 
 export class Town {
-  readonly stats = { factsSent: 0, factBytes: 0, factsGot: 0, gives: 0, giveBytes: 0, givesGot: 0, claims: 0, claimBytes: 0, claimsGot: 0, lapses: 0 };
+  readonly stats = { factsSent: 0, factBytes: 0, factsGot: 0, gives: 0, giveBytes: 0, givesGot: 0, claims: 0, claimBytes: 0, claimsGot: 0, lapses: 0, finishes: 0 };
 
   /** The service's clock less this browser's (ms); NaN until a welcome. */
   private svcOff = NaN;
@@ -97,6 +105,10 @@ export class Town {
   private forcedUntil = 0;
   /** FACT_BRIDGE as the service holds it, or null when it holds none (or this is the backup). */
   private bridge: Stand | null = null;
+  /** Host: whose points finished the goal the town is about to write (0: this player's own, or nobody known). */
+  private finisher = 0;
+  /** The last "whose points" notice, for the tests. */
+  lastFinish = '';
   /** What the service holds, as JSON by key: a fact equal to it is not written again. */
   private readonly known = new Map<string, string>();
 
@@ -153,8 +165,23 @@ export class Town {
       this.forced = f >= 1 && f <= TOWN_WEATHERS.length ? f : 0;
       this.forcedUntil = Number(a[2]) || 0;
     } else if (k === FACT_BRIDGE && Array.isArray(v) && v.length >= 3 && this.conn.home === 'main') {
-      this.bridge = { spans: Number(v[0]) || 0, stage: Number(v[1]) || 0, bank: Number(v[2]) || 0 };
+      const was = this.bridge, to = { spans: Number(v[0]) || 0, stage: Number(v[1]) || 0, bank: Number(v[2]) || 0 };
+      this.bridge = to;
+      // (The first one heard on a visit is history, not news.)
+      if (was && this.live) this.finished(was, to, Math.floor(Number(v[3]) || 0));
     }
+  }
+
+  /** The town's bridge moved from `was` to `to` on somebody's points: say whose, if a span or a stage was finished. */
+  private finished(was: Stand, to: Stand, by: number): void {
+    const span = to.spans > was.spans, stage = to.stage > was.stage;
+    if (!span && !stage) return;
+    const what = stage ? `${STAGE_NAMES[to.stage] ?? `stage ${to.stage}`}` : `span ${to.spans} of ${BRIDGE_SPANS}`;
+    const mine = by !== 0 && by === this.conn.id, r = by ? this.remotes.get(by) : undefined;
+    const line = mine ? `Your points finished ${what} for the town.` : r ? `${r.text}'s points finished ${what}.` : `The town's points finished ${what}.`;
+    this.lastFinish = line;
+    this.stats.finishes++;
+    if (this.game.state === 'play' || this.game.state === 'paused') this.game.hud.toast(line, 6);
   }
 
   /** The connection has gone. The sky runs on by itself from where it is; the bridge on the screen stays (see the header). */
@@ -268,7 +295,14 @@ export class Town {
       const b = this.bridge, bank = Math.floor(shown.bank);
       const goal = !b || b.spans !== shown.spans || b.stage !== shown.stage;
       if (goal || (b && b.bank !== bank && now - this.bankAt >= BANK_MS)) {
-        if (this.put(FACT_BRIDGE, [shown.spans, shown.stage, bank])) { this.bridge = { spans: shown.spans, stage: shown.stage, bank }; this.bankAt = now; }
+        // (Whose points: the guest's whose Give or Mine finished it, else this player's own.)
+        const by = goal ? this.finisher || this.conn.id : 0;
+        const fact = by ? [shown.spans, shown.stage, bank, by] : [shown.spans, shown.stage, bank];
+        if (this.put(FACT_BRIDGE, fact)) {
+          const to = { spans: shown.spans, stage: shown.stage, bank };
+          if (b && goal && this.live) this.finished(b, to, by);
+          this.bridge = to; this.bankAt = now; this.finisher = 0;
+        }
       }
       return;
     }
@@ -300,12 +334,14 @@ export class Town {
       const g = decodeGive(buf);
       if (!g || !this.remotes.has(g.id)) return true;
       this.stats.givesGot++;
-      progress.addTown(g.points);
+      if (progress.addTown(g.points) > 0) this.finisher = g.id;
     } else {
       const m = decodeMine(buf);
       if (!m || !this.remotes.has(m.id)) return true;
       this.stats.claimsGot++;
+      const was = { spans: progress.spans, stage: progress.stage };
       progress.showTown({ spans: m.spans, stage: m.stage, bank: m.bank }, true);
+      if (progress.spans > was.spans || progress.stage > was.stage) this.finisher = m.id;
     }
     return true;
   }
@@ -329,6 +365,7 @@ export class Town {
       clock: this.clockOff, seed: this.seed, forced: this.forced > 0 && ok && a < this.forcedUntil ? TOWN_WEATHERS[this.forced - 1] : '',
       // bridge: the fact as the service holds it. shown: on this screen. own: this player's own, which is what is saved. Each [spans, stage, bank].
       inTown: this.inTown, bridge: st(this.bridge), shown: st(progress), own: st(o), apart: progress.mine !== null, owed: +this.owed.toFixed(2),
+      lastFinish: this.lastFinish,
       ...this.stats,
     };
   }

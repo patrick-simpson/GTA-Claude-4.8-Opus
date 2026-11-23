@@ -195,7 +195,9 @@ export const PlayerMode = { OnFoot: 0, Swimming: 1, Driving: 2, Passenger: 3, Do
  * Bits of PlayerState.flags. The three bits from HELD_SHIFT up are the weapon the player has raised (its slot, 0 =
  * nothing up; stage 3, step 3): a page that does not know them never looks at them.
  */
-export const PlayerFlag = { Braking: 1, Reversing: 2, Horn: 4, Bench: 8 } as const;
+export const PlayerFlag = { Braking: 1, Reversing: 2, Horn: 4, Bench: 8, Paused: 0x80 } as const;
+// (Stage 4, step 5: bit 7, Paused, is the player's own pause menu: the others draw a sign over them, and nobody can hurt
+// them while it is up. It rides the state frame already sent; an older page never looks at it.)
 export const HELD_SHIFT = 4;
 export const HELD_MASK = 0x70;
 /** PlayerState.pose is an index into this (the game's own Pose names, in a fixed order). */
@@ -303,7 +305,7 @@ export function decodePlayerState(buf: ArrayBuffer, out?: PlayerState): PlayerSt
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11 } as const;
 
 export function encodePlayerEvent(code: number, arg = 0): ArrayBuffer {
   const buf = makeFrame(Frame.Event, 2);
@@ -1306,7 +1308,23 @@ export function decodeHeld(buf: ArrayBuffer): { id: number; cars: HeldCar[] } | 
 // Things, 6 + 7 per person:  3 CrewKind.Things  4 mission u8  5 n u8  per person: step u8 (the `spawnActor` step that
 //   made them: every browser reads the look and the tag from its own copy of the story)  x u16  z u16 (5 cm steps from
 //   TRAFFIC_X0, TRAFFIC_Z0)  yaw u8 (256ths of a turn)  flags u8 (bit 0 down)   (the mission's people, on change)
-export const CrewKind = { Team: 1, Show: 2, End: 3, Reply: 4, Ask: 5, Lend: 6, Back: 7, Reclaim: 8, Things: 9 } as const;
+// (Stage 4, step 5.) Hit, 9:  3 CrewKind.Hit  4 starter u8  5 slot u8 (the starter's held car, as in its Held list)
+//   6 how u8 (CrewHitHow: 1 rounds or a fist, 2 a ram)  7 damage u16 (hundredths of health)   (a helper's claim on a
+//   target: the starter's browser, which owns the car, applies it within reach and the rate a helper could do it)
+export const CrewKind = { Team: 1, Show: 2, End: 3, Reply: 4, Ask: 5, Lend: 6, Back: 7, Reclaim: 8, Things: 9, Hit: 10 } as const;
+export const CrewHitHow = { Rounds: 1, Ram: 2 } as const;
+export const CREW_HIT_BYTES = 9;
+export function encodeCrewHit(starter: number, slot: number, how: number, damage: number): ArrayBuffer {
+  const [buf, d] = crewFrame(CrewKind.Hit, CREW_HIT_BYTES);
+  d.setUint8(4, starter & 0xff); d.setUint8(5, slot & 0xff); d.setUint8(6, how & 0xff);
+  d.setUint16(7, clampU16(damage * 100), true);
+  return buf;
+}
+export function decodeCrewHit(buf: ArrayBuffer): { id: number; starter: number; slot: number; how: number; damage: number } | null {
+  if (buf.byteLength < CREW_HIT_BYTES) return null;
+  const d = new DataView(buf);
+  return { id: d.getUint8(1), starter: d.getUint8(4), slot: d.getUint8(5), how: d.getUint8(6), damage: d.getUint16(7, true) / 100 };
+}
 export const CrewObj = { None: 0, Step: 1, GetBackIn: 2, Ring: 3 } as const;
 export const CrewTimer = { None: 0, Running: 1, Still: 2, Meters: 3 } as const;
 /** Timer labels that are not a step's own. A smaller number is the index of the `timer` step whose label it is. */
@@ -1456,6 +1474,39 @@ export function decodeCrewBack(buf: ArrayBuffer): (CrewBackRec & { id: number; s
     vx: d.getInt16(22, true) / 100, vz: d.getInt16(24, true) / 100,
   };
   return Number.isFinite(r.x) && Number.isFinite(r.y) && Number.isFinite(r.z) ? r : null;
+}
+
+// ---- Jobs shown to the others (stage 4, step 5; net/jobs.ts) ----
+//
+// Job, 14: an Event frame (byte 2 PlayerEvent.Job), sent by the player running a job, only when something the others
+// are shown changes (and once to somebody who arrives). The runner's browser is the authority; jobs stay personal.
+//   3 job u8 (JobKind: 0 none)  4 state u8 (taxi: JobRider; courier: parcels still in the van; tow: 1 on the hook)
+//   5 x u16  7 z u16 (5 cm steps from TRAFFIC_X0, TRAFFIC_Z0: the waiting rider)  9 yaw u8 (256ths of a turn)
+//   10 look u8 (the rider's look, a seed every browser turns into the same person)  11 slot u8 (tow: the towed car's
+//   slot in the runner's Held list; 255 none)  12 total u8 (courier: parcels the run began with)  13 spare
+export const JobKind = { None: 0, Taxi: 1, Courier: 2, Tow: 3 } as const;
+export const JobRider = { None: 0, Waiting: 1, Aboard: 2 } as const;
+export const JOB_BYTES = 14;
+export interface JobRec { job: number; state: number; x: number; z: number; yaw: number; look: number; slot: number; total: number }
+export function blankJob(): JobRec { return { job: 0, state: 0, x: 0, z: 0, yaw: 0, look: 0, slot: 255, total: 0 }; }
+export function encodeJob(r: JobRec): ArrayBuffer {
+  const buf = makeFrame(Frame.Event, JOB_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, PlayerEvent.Job); d.setUint8(3, r.job & 0xff); d.setUint8(4, r.state & 0xff);
+  d.setUint16(5, clampU16((r.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+  d.setUint16(7, clampU16((r.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+  d.setUint8(9, Math.round(((((r.yaw % TAU) + TAU) % TAU) / TAU) * 256) & 0xff);
+  d.setUint8(10, r.look & 0xff); d.setUint8(11, r.slot & 0xff); d.setUint8(12, r.total & 0xff);
+  return buf;
+}
+export function decodeJob(buf: ArrayBuffer): (JobRec & { id: number }) | null {
+  if (buf.byteLength < JOB_BYTES) return null;
+  const d = new DataView(buf);
+  return {
+    id: d.getUint8(1), job: d.getUint8(3), state: d.getUint8(4),
+    x: d.getUint16(5, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(7, true) * TRAFFIC_STEP + TRAFFIC_Z0,
+    yaw: (d.getUint8(9) / 256) * TAU, look: d.getUint8(10), slot: d.getUint8(11), total: d.getUint8(12),
+  };
 }
 
 // ---- JSON control messages ----

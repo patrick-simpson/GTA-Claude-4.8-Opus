@@ -256,8 +256,20 @@ export class Game {
     this.emit('start', {});
   }
 
+  /**
+   * Multiplayer (net/index.ts): why the player may not pause now, or null. In a town with others a pause makes them
+   * untouchable, so it is refused while they are wanted or have just been hurt. Alone it is always null.
+   */
+  pauseGuard: (() => string | null) | null = null;
+  /** The last refusal, for the tests. */
+  pauseRefused = '';
+
   setPaused(on: boolean): void {
     if (this.state !== (on ? 'play' : 'paused')) return;
+    if (on) {
+      const why = this.pauseGuard ? this.pauseGuard() : null;
+      if (why) { this.pauseRefused = why; this.hud.toast(why, 3); return; }
+    }
     this.state = on ? 'paused' : 'play';
     if (on) this.input.unlock();
     this.emit('pause', { on });

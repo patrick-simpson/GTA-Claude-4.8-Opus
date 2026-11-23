@@ -300,15 +300,16 @@ try {
   // ── 6. A guest takes a traffic car from its driver ──
   {
     let done = false, detail = 'no standing traffic car found';
+    const tries = [];
     for (let attempt = 0; attempt < 10 && !done; attempt++) {
       const rr = await settled([A, B, C]);
-      if (!rr) continue;
+      if (!rr) { tries.push(`try ${attempt + 1}: the roles did not settle`); detail = tries.join(' || '); continue; }
       const T = rr.guests[attempt % rr.guests.length], Hn = rr.host;
       const x0 = await T.until((x) => x.traffic.mode === 'guest' && x.traffic.cars.some((c) => c.driver === 'ai' && c.speed === 0), 30000);
-      if (!x0) continue;
+      if (!x0) { tries.push(`try ${attempt + 1}: ${T.tag} saw no standing traffic car (host ${Hn.tag})`); continue; }
       const ti = await T.info();
       const c = x0.traffic.cars.filter((k) => k.driver === 'ai' && k.speed === 0 && k.kind !== 'bus').sort((p, q) => dist(p, ti) - dist(q, ti))[attempt % 2];
-      if (!c) continue;
+      if (!c) { tries.push(`try ${attempt + 1}: no car to pick`); continue; }
       // (Counted over every page: the host's job can move between slow pages in the middle.)
       const given = async () => (await Promise.all([A, B, C].map((t) => t.net()))).reduce((a, x) => a + x.cars.given, 0);
       const h0 = await given(), t0 = (await T.net()).cars;
@@ -316,7 +317,17 @@ try {
       await sleep(500);
       await T.door();
       const ok = await wait(async () => { const v = await T.car(); return v && v.kind === c.kind && v.color === c.color; }, 15000);
-      if (!ok) { detail = `car ${c.id} drove off, or was not granted`; continue; }
+      if (!ok) {
+        // The facts of this try: what the taker asked and heard, what each page as host was asked, gave and refused
+        // (and why), who was host before and after, and where the car was by then on the taker's screen.
+        const ns = await Promise.all([A, B, C].map((t) => t.net()));
+        const tn = ns[[A, B, C].indexOf(T)], t1 = tn.cars, me = await T.info();
+        const now = tn.traffic.cars.find((k) => k.id === c.id);
+        const hosts = [A, B, C].map((t, k) => `${t.tag}:${ns[k].traffic.mode}${ns[k].cars.asked ? ` asked ${ns[k].cars.asked} gave ${ns[k].cars.given} refused ${ns[k].cars.refused}${ns[k].cars.lastRefused ? ` (last: ${ns[k].cars.lastRefused})` : ''}` : ''}`).join(', ');
+        tries.push(`try ${attempt + 1}: ${T.tag} at car ${c.id} (${c.kind}, ${dist(c, me).toFixed(1)} m off when it pressed F): ${t1.asks - t0.asks} ask(s), ${t1.grants - t0.grants} grant(s), ${t1.refusals - t0.refusals} refusal(s); host before ${Hn.tag}; now ${hosts}; the car on ${T.tag} now: ${now ? `${now.driver ?? 'nobody'} at the wheel, speed ${now.speed}, ${Math.hypot(now.x - c.x, now.z - c.z).toFixed(1)} m from where it stood` : 'not in the frames'}; ${T.tag} in ${(await T.car())?.kind ?? 'nothing'}`);
+        detail = tries.join(' || ');
+        continue;
+      }
       done = true;
       const t1 = (await T.net()).cars, h1 = await given();
       check(t1.grants - t0.grants === 1 && h1 - h0 === 1, 'a guest takes a traffic car that had a driver in it', `${T.tag} took car ${c.id}, a ${c.kind}, from its driver: ${t1.asks - t0.asks} ask(s), ${t1.grants - t0.grants} grant(s), ${t1.refusals - t0.refusals} refusal(s); given by a host: ${h1 - h0}`);

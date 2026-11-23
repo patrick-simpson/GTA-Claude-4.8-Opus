@@ -47,11 +47,16 @@ import { TownProps } from './props';
 import { Town } from './town';
 import { TownHeld } from './held';
 import { TownCrew } from './crew';
+import { TownJobs } from './jobs';
 import { SAYS, myName, nameText, rerollName } from './names';
 
 const SEND_MS = 1000 / SEND_HZ;
 /** The fewest ms between two things said by this player. */
 export const SAY_GAP_MS = 2000;
+/** Stage 4, step 5: with others in town, no pausing while wanted at this level or more... */
+export const PAUSE_HEAT = 2;
+/** ...or within this long (game seconds) of being hurt. */
+export const PAUSE_HIT_S = 4;
 
 export class Net {
   readonly conn: Connection;
@@ -75,6 +80,8 @@ export class Net {
   readonly held: TownHeld;
   /** Missions done together: who is on whose crew, what they are shown, the pay, and the mission car lent (stage 4, step 3). */
   readonly crew: TownCrew;
+  /** Jobs shown to the others where their runner has them: a fare, the parcels, the car on the hook (stage 4, step 5). */
+  readonly jobs: TownJobs;
   /** State frames sent, apart from the totals in conn.sent. */
   statesSent = 0;
 
@@ -120,8 +127,15 @@ export class Net {
     this.fight.held = this.held;
     this.crew = new TownCrew(game, c, this.remotes, this.held, this.cars);
     this.shared.heldCars = () => this.held.list();
+    this.jobs = new TownJobs(game, c, this.remotes, this.held);
+    this.fight.crewHit = (v, dmg) => this.crew.hitHeld(v, dmg);
+    this.fight.crewMate = (id) => this.crew.onTeam(id);
     // A paused game simulates nothing, so it says at once that it cannot host (and, on resuming, that it can again).
-    game.on('pause', () => { this.perfAt = 0; });
+    // The others are told at once too (the Paused flag in the next state frame).
+    game.on('pause', () => { this.perfAt = 0; this.stateAt = 0; });
+    // Pause is no shield: refused while wanted at PAUSE_HEAT or more, or within PAUSE_HIT_S of being hurt, when
+    // anybody else is in town (alone it is the menu it always was).
+    game.pauseGuard = () => this.pauseRefusal();
     c.start();
     this.showNote();
     // The game's own loop stops while paused and in a hidden tab; the keepalive must not.
@@ -160,6 +174,15 @@ export class Net {
     }
   }
 
+  /** Why this player may not pause now (null: they may). Only with somebody else in town: pause must not be a shield. */
+  pauseRefusal(): string | null {
+    if (this.conn.status !== 'online' || this.remotes.size === 0) return null;
+    const g = this.game, p = g.player;
+    if (p.heat >= PAUSE_HEAT) return 'No pausing with the Harbor Patrol this keen. Lose them first.';
+    if (g.time - p.hurtT < PAUSE_HIT_S) return 'No pausing in the middle of a fight. Get clear first.';
+    return null;
+  }
+
   /** Everybody in town, this player included; 0 when not connected. */
   get count(): number { return this.conn.status === 'online' ? this.remotes.size + 1 : 0; }
 
@@ -182,6 +205,7 @@ export class Net {
     this.people.refresh();
     this.props.refresh();
     this.held.refresh();
+    this.jobs.refresh();
   }
 
   private drop(id: number): void {
@@ -191,6 +215,7 @@ export class Net {
     if (!this.crew.borrowing(id)) this.cars.dropped(r, performance.now());
     this.fight.dropped(id);
     this.crew.dropped(id);
+    this.jobs.dropped(id);
     this.held.dropped(id);
     r.dispose();
     this.remotes.delete(id);
@@ -201,6 +226,7 @@ export class Net {
     this.remotes.clear();
     this.fight.clear();
     this.crew.clear();
+    this.jobs.clear();
     this.held.clear();
     this.showCount();
   }
@@ -232,6 +258,7 @@ export class Net {
       // The horn is heard from the flag in the state frames; waves and shouts come this way, and so does gunfire.
       if (e.code === PlayerEvent.Held) this.held.event(buf, performance.now());
       else if (e.code === PlayerEvent.Crew) this.crew.event(buf);
+      else if (e.code === PlayerEvent.Job) this.jobs.event(buf);
       else if (e.code === PlayerEvent.Prop) this.props.event(buf);
       else if (e.code >= PlayerEvent.Fire) this.fight.event(e.code, buf, performance.now());
       else this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
@@ -266,7 +293,8 @@ export class Net {
   private gather(now: number): void {
     const p = this.game.player, o = this.out, v = p.vehicle, per = p.person;
     o.t = Math.floor(now) & 0xffff;
-    o.flags = 0;
+    // (In the pause menu: the others draw a sign over this player and leave them be. Stage 4, step 5.)
+    o.flags = this.game.state === 'paused' ? PlayerFlag.Paused : 0;
     if (v) {
       o.mode = PlayerMode.Driving;
       o.x = v.x; o.y = v.y; o.z = v.z; o.yaw = v.h;
@@ -340,6 +368,7 @@ export class Net {
     // (Before this player's own state goes: a car they have this moment got out of is in the list by then.)
     this.held.update(now, dt);
     this.crew.update(now);
+    this.jobs.update(now);
     this.pump(now);
     if (g.state === 'play' && g.input.hit('say')) this.sayCycle();
     if (this.remotes.size > 0) {
@@ -446,6 +475,9 @@ export class Net {
       held: this.held.info(),
       // crew: missions done together: the crew this player drafted, whose crew they are on and what they are shown (crew.ts).
       crew: this.crew.info(),
+      // jobs: what this player's job shows the others, and theirs as shown here (jobs.ts). pause: this player's guard (index.ts).
+      jobs: this.jobs.info(),
+      pause: { refused: this.game.pauseRefused, why: this.pauseRefusal(), state: this.game.state },
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({

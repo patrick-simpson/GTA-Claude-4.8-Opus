@@ -864,7 +864,11 @@ export class Runner {
         const v = this.car(s.tag), r = this.rail;
         if (!v || this.gone(v)) { this.fail('THE TRAIL WENT COLD', 'There is nothing left of them to follow.'); return false; }
         if (!r || r.done) return true;
-        const d = Math.hypot(p.x - v.x, p.z - v.z), near = s.near ?? 14, far = s.far ?? 110;
+        // (In a shared town the crew follow together: the one of them nearest the car is the distance that counts,
+        // too close or too far. Alone it is this player, as before.)
+        let d = Math.hypot(p.x - v.x, p.z - v.z);
+        if (this.crew) for (const c of this.crew.members()) d = Math.min(d, Math.hypot(c.x - v.x, c.z - v.z));
+        const near = s.near ?? 14, far = s.far ?? 110;
         this.target = { x: v.x, z: v.z };
         this.nearT = d < near ? this.nearT + dt : Math.max(0, this.nearT - dt * 0.5);
         this.farT = d > far ? this.farT + dt : 0;

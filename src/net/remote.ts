@@ -67,7 +67,7 @@ export const SAY_MS = 4000;
 const SAY_FADE_MS = 600;
 
 /** A bone slip with ink type and a vermilion rule, like the rest of the paperwork. Returns its width over its height. */
-function drawTag(cv: HTMLCanvasElement, text: string, say = false): number {
+function drawTag(cv: HTMLCanvasElement, text: string, say = false, paused = false): number {
   let g = cv.getContext('2d') as CanvasRenderingContext2D;
   g.font = TAG_FONT;
   const w = Math.ceil(g.measureText(text).width) + 44;
@@ -75,9 +75,10 @@ function drawTag(cv: HTMLCanvasElement, text: string, say = false): number {
   g = cv.getContext('2d') as CanvasRenderingContext2D;
   g.fillStyle = '#14213d';
   g.fillRect(0, 0, w, TAG_H);
-  g.fillStyle = say ? '#ffffff' : '#f2e8cf';
+  // (Paused: grey paper and a slate rule, "PAUSED" after the name: they are away from the keys and cannot be hurt.)
+  g.fillStyle = say ? '#ffffff' : paused ? '#c9ccd1' : '#f2e8cf';
   g.fillRect(4, 4, w - 8, TAG_H - 8);
-  g.fillStyle = say ? '#8e3fb8' : '#e4572e';
+  g.fillStyle = say ? '#8e3fb8' : paused ? '#5b6573' : '#e4572e';
   g.fillRect(4, 4, w - 8, 7);
   g.font = TAG_FONT;
   g.fillStyle = '#14213d';
@@ -115,6 +116,13 @@ export class Remote {
   sayShown = false;
   /** The flags of the state frame being shown (PlayerFlag, and the weapon they have raised). */
   flags = 0;
+  /**
+   * Stage 4, step 5: in their pause menu, as their newest state frame says (not delayed: nobody may hurt them from the
+   * moment it says so, and the moment it stops saying so they are fair game again). Their tag says PAUSED meanwhile.
+   */
+  paused = false;
+  /** Stage 4, step 5 (jobs.ts): a word about their job on the tag ('' none): "fare aboard", "2 of 4 parcels", "towing". */
+  job = '';
   /** How bent the car they are driving is, in the 16 steps of the wire (0 on foot). */
   damage = 0;
   /** Stage 3, step 3 (fight.ts): the health they last told of, whether they are dead until they say otherwise, and the counts. */
@@ -128,7 +136,8 @@ export class Remote {
   private car: Vehicle | null = null;
   private readonly label: THREE.Sprite;
   private readonly tagCv = document.createElement('canvas');
-  private readonly tagTex: THREE.CanvasTexture;
+  private tagTex: THREE.CanvasTexture;
+  private tagW = 0;
   private tagAspect = 3;
   private hornFlag = false;
   private readonly sayLabel: THREE.Sprite;
@@ -168,8 +177,22 @@ export class Remote {
     try { void document.fonts.load(TAG_FONT).then(() => this.paintTag(), () => {}); } catch { /* no font loading API */ }
   }
 
+  /** Their job's word on the tag changes (jobs.ts). */
+  setJob(word: string): void { if (word !== this.job) { this.job = word; this.paintTag(); } }
+
   private paintTag(): void {
-    this.tagAspect = drawTag(this.tagCv, this.text);
+    const t = this.job ? `${this.text} · ${this.job}` : this.text;
+    this.tagAspect = drawTag(this.tagCv, this.paused ? `${t} · PAUSED` : t, false, this.paused);
+    // (A texture keeps the size it was first uploaded at: a wider or narrower tag, PAUSED or a job's word, needs a new one.)
+    if (this.tagW && this.tagW !== this.tagCv.width && this.label) {
+      const old = this.tagTex, tex = new THREE.CanvasTexture(this.tagCv);
+      tex.colorSpace = THREE.SRGBColorSpace; tex.generateMipmaps = true; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.anisotropy = 4;
+      const mat = this.label.material as THREE.SpriteMaterial;
+      mat.map = tex; mat.needsUpdate = true;
+      this.tagTex = tex;
+      old.dispose();
+    }
+    this.tagW = this.tagCv.width;
     this.tagTex.needsUpdate = true;
   }
 
@@ -247,6 +270,8 @@ export class Remote {
     a.pitch = s.pitch; a.roll = s.roll; a.steer = s.steer;
     a.mode = s.mode; a.pose = s.pose; a.flags = s.flags; a.vehicle = s.vehicle; a.color = s.color; a.damage = s.damage;
     buf.push(a);
+    const paused = (s.flags & PlayerFlag.Paused) !== 0;
+    if (paused !== this.paused) { this.paused = paused; this.paintTag(); }
     // The horn is a flag in the state frame; each time it goes on is one to be heard.
     const hornOn = (s.flags & PlayerFlag.Horn) !== 0;
     if (hornOn && !this.hornFlag) this.horns++;

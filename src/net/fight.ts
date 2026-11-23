@@ -88,6 +88,8 @@ export class TownFight implements WeaponsNet {
     blamesSent: 0, blamesGot: 0,
     /** Bullets on the town's cars: told to the host (guest), and heard and applied (host). */
     carShotsSent: 0, carShotsGot: 0, carShotsDone: 0,
+    /** Stage 4, step 5. Rounds that met a paused player here (not claimed); blasts that went off while this player was paused. */
+    pausedSpared: 0, pausedBlasts: 0,
     /** Every byte this file has sent. */
     bytesSent: 0,
   };
@@ -124,6 +126,10 @@ export class TownFight implements WeaponsNet {
 
   /** The other players' held cars as drawn here (held.ts), set by index.ts. */
   held: { list(): readonly Vehicle[]; has(v: Vehicle): boolean } | null = null;
+  /** Stage 4, step 5 (crew.ts): a round of this player's on a starter's car, claimed if this player is on their crew. */
+  crewHit: ((v: Vehicle, dmg: number) => boolean) | null = null;
+  /** Stage 4, step 5 (crew.ts): is this player on this browser's crew? Their blasts then hurt its held cars. */
+  crewMate: ((id: number) => boolean) | null = null;
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>, private readonly shared: SharedTraffic, private readonly parked: TownCars) {}
 
@@ -140,6 +146,8 @@ export class TownFight implements WeaponsNet {
   cars(): readonly Vehicle[] { return this.carList; }
 
   isPlayer(p: Person): boolean { return this.bodies.has(p); }
+
+  hurtsHeld(from: number): boolean { return from !== 0 && !!this.crewMate?.(from); }
 
   hostsTown(): boolean { return this.shared.mode === 'host'; }
 
@@ -160,15 +168,18 @@ export class TownFight implements WeaponsNet {
     const r = this.bodies.get(p);
     if (!r) return false;
     if (fist) this.slot = 0;
+    // (In their pause menu: the round stops at them and nothing is claimed. Their own browser would refuse it anyway.)
+    if (r.paused) { this.stats.pausedSpared++; return true; }
     this.claim(r.id, dmg, dx, dz, fist ? HitFlag.Fist : 0);
     return true;
   }
 
   hitCar(v: Vehicle, dmg: number): boolean {
     const r = this.carOf.get(v);
-    if (r) { this.claim(r.id, dmg, 0, 1, HitFlag.Car); return true; }
-    // A car a script is holding for another player: theirs to count, and nothing tells them of a shot at it yet.
-    if (this.held?.has(v)) return true;
+    if (r) { if (r.paused) { this.stats.pausedSpared++; return true; } this.claim(r.id, dmg, 0, 1, HitFlag.Car); return true; }
+    // A car a script is holding for another player: theirs to count. On their crew (crew.ts) the round is a claim on it,
+    // which their browser judges; anybody else's rounds do nothing to it.
+    if (this.held?.has(v)) { this.crewHit?.(v, dmg); return true; }
     if (!v.shared) return false;
     // One of the town's, shown here: the host counts its health. By its number in the traffic frames, or by its place at the kerb.
     const wid = this.shared.widOf(v), place = wid ? -1 : this.parked.placeOf(v);
@@ -313,6 +324,8 @@ export class TownFight implements WeaponsNet {
     // (A rocket has no rounds that find people: it goes off, and that is a Blast.)
     if (w.id === 'launcher' || fist !== (slot === 0) || (fist && car)) return this.refuse('no such blow');
     if (p.health <= 0) return this.refuse('already down');
+    // In the pause menu nobody can touch her (stage 4, step 5); the moment she is back, they can.
+    if (this.game.state === 'paused') return this.refuse('paused');
     // Where it came from is where their own frames put them: within that weapon's reach of here?
     const d = Math.hypot(r.x - p.x, r.z - p.z);
     if (d > w.range + (fist ? FIST_SLACK : GUN_SLACK)) return this.refuse(`out of reach: ${d.toFixed(0)} m for the ${w.id}`);
@@ -397,6 +410,7 @@ export class TownFight implements WeaponsNet {
     l.from = m.id; l.x = m.x; l.y = m.y; l.z = m.z;
     // Drawn here; this browser's own player and car take their share; the town's cars and people, only if this is the host.
     const hp = this.game.player.health;
+    if (this.game.state === 'paused') st.pausedBlasts++;
     this.game.player.weapons.explode(m.x, m.y, m.z, m.radius, m.damage, false, m.id);
     if (this.game.player.health < hp) { this.hurtBy = m.id; this.hurtAt = now; this.vitalDue = true; }
     // The car that went up there was set alight by this player's rounds: their crime, as alone, if anybody saw.

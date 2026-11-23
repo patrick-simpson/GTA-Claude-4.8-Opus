@@ -140,6 +140,11 @@ export interface WeaponsNet {
   rocket(x: number, y: number, z: number, vx: number, vy: number, vz: number): void;
   /** Something has gone off on this browser. by: the player whose doing it was, when not this one (their number; 0 = nobody else's). */
   blast(x: number, y: number, z: number, radius: number, damage: number, by: number): void;
+  /**
+   * Multiplayer, stage 4, step 5: may a blast that went off on another player's browser (from: their number) hurt the
+   * cars this browser's scripts hold? Only a crew member's (net/crew.ts). Optional: absent, no.
+   */
+  hurtsHeld?(from: number): boolean;
   /** Is this browser the one that counts what happens to the town's cars and people? */
   hostsTown(): boolean;
   /** Is no other player within r meters of here who is shown this browser's cars? (A wreck is not tidied away under somebody's nose.) */
@@ -764,10 +769,14 @@ export class Weapons {
     // Somebody else's blast, and this browser is not the town's host: only its own player and car are its business.
     const world = from === 0 || (!!net && net.hostsTown());
     this.blame = from || culprit;
+    // (Paused, in a town: another player's blast is drawn but does nothing to her or to her car. Alone nothing goes
+    // off while paused, so this changes nothing there.)
+    const shielded = g.state === 'paused';
 
     for (const v of g.vehicles.list) {
       // (A car shown here for the host is the host's to count.)
-      if (v.sunk || v.shared || (!world && v !== p.vehicle)) continue;
+      // (A car a script here holds is this browser's to count: a crew member's blast reaches it too, net/crew.ts.)
+      if (v.sunk || v.shared || (!world && v !== p.vehicle && !(v.held && !!net?.hurtsHeld?.(from))) || (shielded && v === p.vehicle)) continue;
       let nx = v.x - x, nz = v.z - z;
       const c = Math.hypot(nx, nz), d = Math.max(0, c - v.hw);
       if (d >= radius || Math.abs(v.y - y) > radius) continue;
@@ -794,7 +803,7 @@ export class Weapons {
       if (byPlayer) this.crime(down ? 'personDown' : 'shotPerson', o.x, o.z, down ? 1.5 : 1);
     }
     this.blame = 0;
-    if (far < radius && Math.abs(p.y - y) < radius) {
+    if (far < radius && Math.abs(p.y - y) < radius && !shielded) {
       const f = 1 - far / radius;
       const nx = far > 0.1 ? (p.x - x) / far : 0, nz = far > 0.1 ? (p.z - z) / far : 1;
       this.from.x = x; this.from.y = y; this.from.z = z;

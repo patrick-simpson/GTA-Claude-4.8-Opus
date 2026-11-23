@@ -68,7 +68,7 @@ export class TownPolice {
   readonly stats = {
     beatsSent: 0, beatBytesSent: 0, beatsGot: 0, shotsSent: 0, shotsGot: 0,
     heatsSent: 0, heatBytesSent: 0, heatsGot: 0,
-    hurtsSent: 0, bustsSent: 0, crimesSent: 0, toPlayerBytes: 0, hurtsGot: 0, bustsGot: 0, crimesGot: 0,
+    hurtsSent: 0, bustsSent: 0, crimesSent: 0, toPlayerBytes: 0, hurtsGot: 0, bustsGot: 0, crimesGot: 0, pausedRefused: 0,
     adopted: 0, adoptedOfficers: 0, handed: 0, takeovers: 0,
     heliSent: 0, heliBytesSent: 0, heliGot: 0,
   };
@@ -239,7 +239,8 @@ export class TownPolice {
       s.x = r.x + r.vx * LEAD_S; s.y = r.y; s.z = r.z + r.vz * LEAD_S;
       s.speed = Math.hypot(r.vx, r.vz);
       s.vehicle = r.vehicle;
-      s.out = r.mode === PlayerMode.Down;
+      // (Down, or in their pause menu: not to be shot at or held. Stage 4, step 5.)
+      s.out = r.mode === PlayerMode.Down || r.paused;
       if (s.level > 0 && (!h || now - h.at > HEAT_STALE_MS)) s.level = 0;
       if (h && s.level > 0) {
         // Their browser is the judge of whether they are in sight; while they are, where they are is where they were last seen.
@@ -331,6 +332,8 @@ export class TownPolice {
     if (what !== ToPlayerKind.Hurt && what !== ToPlayerKind.Bust && what !== ToPlayerKind.Crime) return false;
     const police = this.police;
     if (!police || this.mode !== 'guest' || frameSender(buf) !== this.conn.host) return true;
+    // (In the pause menu the Patrol cannot touch her: stage 4, step 5. The host leaves a paused player be anyway.)
+    if (this.game.state === 'paused' && what !== ToPlayerKind.Crime) { this.stats.pausedRefused++; return true; }
     if (what === ToPlayerKind.Hurt) {
       const m = decodePoliceHurt(buf);
       if (m) { this.stats.hurtsGot++; police.hurtMe(m.dmg, m.carDmg); }
