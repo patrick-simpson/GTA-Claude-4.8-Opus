@@ -22,6 +22,7 @@ import { Batch } from './batch';
 import { CURB, groundAt, type Block, type Lot, type Rect } from './plan';
 import { FENCE_UV, MAIN_SHOPS, MWALL, makeMainlandTextures, mwallV, signKey, type MainlandTextures } from './textures';
 import { RNG } from '../core/util';
+import { FASCIA_OUT, MainStreet } from './mainStreetAssets';
 
 const CELL = MWALL.cell, ROW = MWALL.rows, RED = MWALL.redBrick;
 /** Edge of a chunk of town. Small enough that the shadow pass and the distance cull below drop most of the town most of the time. */
@@ -386,6 +387,8 @@ class Builder {
   private deckAt = 0;
   private usedOnBlock = new Map<number, Set<number>>();
   private ghost = 0;
+  /** Main St's Blender-modelled blocks (mainStreetAssets.ts); null builds every frontage here as before. */
+  ms: MainStreet | null = null;
   constructor(private k: MainKit, private game: Game) {
     const r = new RNG(7711);
     this.shopDeck = MAIN_SHOPS.map((_, i) => i);
@@ -430,6 +433,8 @@ class Builder {
   /** One lot's frontage on `face`, cut into buildings wall to wall. Loom Row calls this too, for its side of Main St. */
   row(r: Rect, face: number, y: number, rng: RNG, blockId: number, ave: boolean, special: 'bank' | 'movie' | null): void {
     const f = frameOf(r, face);
+    const side = special ? null : this.ms?.side(f) ?? null;
+    if (side) { this.modelled(r, face, f, side, y, blockId); return; }
     // Cut the frontage into buildings 7 to 13 m wide, wall to wall.
     const segs: Seg[] = [];
     let s = 0;
@@ -448,6 +453,18 @@ class Builder {
       else if (g.kind === 'movie') this.movie(r, face, g, y, rng);
       else this.block(r, face, g, y, rng, blockId, openL, openR, ave);
     });
+  }
+
+  /** A Main St frontage filled with the Blender models: here only their collision and the signs on their fascias. */
+  private modelled(r: Rect, face: number, f: Frame, side: 'w' | 'e', y: number, blockId: number): void {
+    const k = this.k;
+    for (const p of this.ms!.row(f, side, y)) {
+      k.solid(cut(r, face, p.s0, p.s1, 0, p.depth), y + p.d.top, y - 1);
+      for (const [x0, x1, y0, y1] of p.d.signs) {
+        const uw = (x1 - x0) * p.sx, sh = Math.min(0.78, y1 - y0 - 0.08), sw = Math.min(uw - 0.5, sh * 4.4);
+        k.signAt(f, (MainStreet.sOf(p, x0) + MainStreet.sOf(p, x1)) / 2, y + (y0 + y1) / 2 - sh / 2, sw, FASCIA_OUT * p.depth / p.d.D + 0.015, this.shopName(blockId), sh);
+      }
+    }
   }
 
   private parking(r: Rect, y: number, rng: RNG): void {
@@ -1085,11 +1102,14 @@ class Builder {
 export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: THREE.Object3D): WorldPart {
   const kit = KIT = new MainKit(game, mats, parent), plan = game.plan;
   const b = new Builder(kit, game);
+  // `?mainst=0`: Main St built in code as before, for comparing.
+  const ms = new MainStreet(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
+  if (new URLSearchParams(location.search).get('mainst') !== '0') b.ms = ms;
   b.main(plan.mainlandLots, plan.blocks, plan.lots.length);
   b.stacks(plan.mainlandLots, plan.blocks, plan.lots.length);
   b.mill(plan.mainlandLots, plan.lots.length);
   // No kit.finish() here: mainlandPlaces.ts draws the landmarks into the same batches and builds the meshes.
-  return { update: () => kit.update(), setNight: () => kit.setNight() };
+  return { update: () => { kit.update(); ms.update(); }, setNight: (n: number) => { kit.setNight(); ms.setNight(n); } };
 }
 
 void CURB; void IRON; void WHITE;

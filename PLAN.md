@@ -88,6 +88,20 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Tepid Falls in Waterville's likeness, unit 1: Main St: pushed Nov 23, about 11:15 AM ET
+
+Owner request and decisions: `tools/briefs/tepid-waterville.md`; reference with invented names and
+measurements per real building: `tools/briefs/tepid-reference.md` (from the National Register
+nomination and Wikimedia Commons; no photo in the repo). New pipeline `tools/blender/buildings.py`
+(window showing): 12 brick-block designs from a table, three levels of detail, real window depth,
+cornices, gables, shopfronts with rooms behind, Cycles-baked occlusion atlas, procedural brick maps,
+night window mask. `src/world/mainStreetAssets.ts` loads `mainst.glb` (7.0 MB, 1.24 gzipped) only near
+the mainland; phones get `mainst_far.glb` (54 kB gzipped). 21 blocks on Lower Main St; `?mainst=0`
+shows the old street. Main St 81 fps standing (unchanged), 71 moving (was 75), Iris Xe.
+Owed: not yet near photoreal: flat brick past 30 m, no colour variation or wear, dark uniform glass,
+generic signs, designs stretched up to 20% to fit lots; lodge block, globe lamps and baskets not built;
+shrink the glb and merge far levels to win back the moving 6%.
+
 ### Claude FM is the default car radio: pushed Nov 23, about 10:05 AM ET
 
 Owner request: the default radio is Anthropic's live YouTube stream Claude FM, with the player HIDDEN

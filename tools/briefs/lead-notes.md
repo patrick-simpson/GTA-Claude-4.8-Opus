@@ -153,3 +153,8 @@ owner's ground rules for the takeover and the running state.
 - Nov 23, 7:40 AM ET: OWNER: Claude FM (YouTube live) is the DEFAULT car radio, player HIDDEN for the demo (told it is against YouTube's terms; chose it). Brief tools/briefs/claude-fm.md, queued after the QA worker.
 - Nov 23, 9:30 AM ET: QA pushed (governor touch-laptop fix; MP costs no frames). Next: Claude FM radio.
 - Nov 23, 10:05 AM ET: Claude FM pushed. Next: Tepid Falls Waterville (tools/briefs/tepid-waterville.md), reference gathering first.
+- Nov 23, 10:20 AM ET: OWNER: add SpeedScan HQ, massive, green stink lines, downtown on the island. Brief tools/briefs/speedscan-hq.md. Queued after the Tepid Falls unit 1 (running).
+- Nov 23, 10:35 AM ET: OWNER: Marden's (as a pun name), hyper-real, full walk-in interior, real location on the strip, TOP PRIORITY. Brief tools/briefs/mardens.md. Runs next after Tepid Falls unit 1, before SpeedScan HQ.
+- Nov 23, 10:45 AM ET: OWNER: ragdoll physics when hit by a car, funny. Brief tools/briefs/ragdoll.md. Queue: Tepid Falls unit 1 (running), Marden's (top priority), ragdoll, SpeedScan HQ, then the rest of Tepid Falls.
+- Nov 23, 10:55 AM ET: OWNER: use Haiku wherever it can do the job. Plan per step: builder on the top model only for modelling/physics/design; every independent check, screenshot set, benchmark run, boot test and data count on Haiku (Sonnet only if Haiku fails it twice).
+- Nov 23, 11:15 AM ET: Tepid Falls unit 1 (Main St) pushed. Next: Marden's unit 1 (top model builder, Haiku checker).
