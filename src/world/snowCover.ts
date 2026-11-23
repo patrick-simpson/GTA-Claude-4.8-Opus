@@ -24,15 +24,18 @@ const SNOW_FRAG = /* glsl */ `
 if ( uSnow.x > 0.003 ) {
   vec3 sN = inverseTransformDirection( normal, viewMatrix );
   vec3 sW = ( - vViewPosition - viewMatrix[ 3 ].xyz ) * mat3( viewMatrix );
-  vec2 sp = sW.xz * 0.37;
-  vec2 si = floor( sp ), sf = fract( sp );
-  sf = sf * sf * ( 3.0 - 2.0 * sf );
-  float sn = mix( mix( snowHash( si ), snowHash( si + vec2( 1.0, 0.0 ) ), sf.x ), mix( snowHash( si + vec2( 0.0, 1.0 ) ), snowHash( si + vec2( 1.0, 1.0 ) ), sf.x ), sf.y );
-  {
+  // The noise only where the preset affords it (uSnow.y): without it the cover is even, and the eight hashes are skipped
+  // (they used to run and then be mixed away).
+  float sn = 0.5;
+  if ( uSnow.y > 0.5 ) {
+    vec2 sp = sW.xz * 0.37;
+    vec2 si = floor( sp ), sf = fract( sp );
+    sf = sf * sf * ( 3.0 - 2.0 * sf );
+    sn = mix( mix( snowHash( si ), snowHash( si + vec2( 1.0, 0.0 ) ), sf.x ), mix( snowHash( si + vec2( 0.0, 1.0 ) ), snowHash( si + vec2( 1.0, 1.0 ) ), sf.x ), sf.y );
     vec2 sq = sW.xz * 1.9 + 7.3, sqi = floor( sq ), sqf = fract( sq );
     sqf = sqf * sqf * ( 3.0 - 2.0 * sqf );
     float sn2 = mix( mix( snowHash( sqi ), snowHash( sqi + vec2( 1.0, 0.0 ) ), sqf.x ), mix( snowHash( sqi + vec2( 0.0, 1.0 ) ), snowHash( sqi + vec2( 1.0, 1.0 ) ), sqf.x ), sqf.y );
-    sn = mix( 0.5, sn * 0.7 + 0.3 * sn2, uSnow.y );
+    sn = sn * 0.7 + 0.3 * sn2;
   }
   float c = uSnow.x;
   #ifdef SNOW_ROAD

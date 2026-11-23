@@ -24,6 +24,7 @@ import { Ambient } from '../sim/ambient';
 import { Police } from '../sim/police';
 import { Post } from './post';
 import { flip } from './flip';
+import { ShaderWarmup } from './warmup';
 import { Fx } from '../fx/particles';
 import { Skids } from '../fx/skids';
 import { ProgressWorks, progress } from '../world/progress';
@@ -50,6 +51,8 @@ export class Game {
   readonly gov: Governor;
   /** Ambient occlusion, bloom, the tone map and the grade. Null on the `low` preset and with `?post=0`: a plain render straight to the canvas. */
   readonly post: Post | null;
+  /** Background shader compiles (core/warmup.ts). */
+  warmup!: ShaderWarmup;
   /** The two-copy instance buffers (core/flip.ts), here so tools can switch them off and measure. */
   readonly flip = flip;
 
@@ -192,6 +195,8 @@ export class Game {
     // Multiplayer (src/net/): inert, and no socket at all, unless a service URL is configured.
     this.systems.push((this.net = new Net(this)));
     this.photo = new Photo(this);
+    // Shader programs compiled in the background before they are first drawn (core/warmup.ts).
+    this.systems.push((this.warmup = new ShaderWarmup(this)));
     // Last: it listens to what everything above did this frame.
     this.systems.push((this.audio = new GameAudio(this)));
 
