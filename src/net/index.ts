@@ -187,7 +187,8 @@ export class Net {
   private drop(id: number): void {
     const r = this.remotes.get(id);
     if (!r) return;
-    this.cars.dropped(r, performance.now());
+    // (A car another player lent them for a mission goes back to that player, who stands it again: crew.ts. Not a stray.)
+    if (!this.crew.borrowing(id)) this.cars.dropped(r, performance.now());
     this.fight.dropped(id);
     this.crew.dropped(id);
     this.held.dropped(id);

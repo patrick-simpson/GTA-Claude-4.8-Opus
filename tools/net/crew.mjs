@@ -15,6 +15,9 @@
 //     into the new van and the test PUTS it at Gus's (nobody drives across town at these speeds); the mission passes
 //     on B's screen, judged on the van A is driving; both are paid 250; A's story (which had only m01) has m03 filed,
 //     and A's next offers are worked out from that. C is paid nothing.
+//     (Second piece: in round 1 A's countdown is compared with B's mission clock for 12 s and through a pause of B's;
+//     the failure hands the van back to B with A on foot and reads "<name>'s job failed: ..."; the retry puts B at
+//     the wheel of the van at the checkpoint, B gets out, and A gets in.)
 //  2. The same with A (the host) as the starter and B as the helper, C again 60 m off.
 //  Then nothing is sent about crews for 10 s with no mission running, and no errors.
 // Every line carries the facts it was judged on. Prints PASS or FAIL per check, ALL PASS at the end; exits 1 on a FAIL.
@@ -203,6 +206,35 @@ async function round(S, H, F, host, opts) {
     const one = ss.ghosts.length + ss.list.length === 1 && hss.list.length === 1 && hss.ghosts.length === 0;
     check(one, `${who}: one van on each screen: ${H.tag}'s own on its screen, drawn as ${H.tag} driving it on ${S.tag}'s`, `${S.tag}: ${JSON.stringify(ss)} | ${H.tag}: ${JSON.stringify(hss)}`);
   }
+  if (opts.clock) {
+    // ── The countdown follows the starter's mission clock (game time, at the test's slow speed), not the wall clock ──
+    const timerOf = () => S.page.evaluate(() => window.__game.game.todo.missions.timer);
+    const shows0 = (await S.crew()).shows;
+    const diffs = [];
+    for (let k = 0; k < 8; k++) {
+      const [st, hc] = await Promise.all([timerOf(), H.crew()]);
+      if (hc.guest) diffs.push(+(hc.guest.left - st).toFixed(2));
+      await sleep(1500);
+    }
+    const sc1 = await S.crew(), hc1 = await H.crew();
+    const worst = Math.max(...diffs.map(Math.abs));
+    check(diffs.length === 8 && worst < 1.2 && sc1.shows - shows0 <= 3,
+      `${who}: ${H.tag}'s countdown keeps with ${S.tag}'s mission clock for 12 s, with few corrections`,
+      `helper minus starter, seconds: ${diffs.join(' ')}; Show frames meanwhile ${sc1.shows - shows0}; rate measured on ${S.tag} ${sc1.rate}, told ${hc1.guest ? hc1.guest.rate.toFixed(3) : '?'}`);
+    // ── The starter pauses: the helper's clock stands; resumes: it runs again ──
+    await S.page.evaluate(() => window.__game.game.setPaused(true));
+    await sleep(1500);
+    const p1 = await H.crew();
+    await sleep(3000);
+    const p2 = await H.crew();
+    await S.page.evaluate(() => window.__game.game.setPaused(false));
+    await sleep(3000);
+    const p3 = await H.crew();
+    check(!!p1.guest && !!p2.guest && p1.guest.rate === 0 && Math.abs(p1.guest.left - p2.guest.left) < 0.05 && !!p3.guest && p3.guest.rate > 0 && p3.guest.left < p2.guest.left,
+      `${who}: ${S.tag} pauses: ${H.tag}'s countdown stands still; unpaused, it runs again`,
+      `paused: rate ${p1.guest?.rate}, left ${p1.guest?.left} then ${p2.guest?.left} 3 s later; running: rate ${p3.guest?.rate?.toFixed(3)}, left ${p3.guest?.left}`);
+  }
+
   if (opts.shots) {
     const at = await H.car();
     const view = [at.x + 10, 6, at.z - 14, at.x, 0.8, at.z];
@@ -239,20 +271,43 @@ async function round(S, H, F, host, opts) {
     s = await wait(async () => { const x = await S.todo(); return x.failed ? x : null; }, 15000) ?? await S.todo();
     const hf = await wait(async () => { const c = await H.crew(); return c.boss === 0 ? c : null; }, 15000) ?? await H.crew();
     ht = await H.todo();
+    const failLine = `${sn.name}'s job failed: the clock ran out.`;
     check(s.failed === 'PAST DUE' && hf.boss === 0 && !hf.guest && hf.lastEnd === 'failed: PAST DUE' && ht.busy === null,
       `${who}: the clock runs out: ${H.tag} sees the failure and is let go`, `${S.tag} failed ${s.failed}; ${H.tag}: ${hf.lastEnd}, boss ${hf.boss}, busy ${ht.busy}`);
-    // ── Tried again: the helper near the checkpoint is drafted again; the van they were in is taken away ──
+    check(hf.lastLine === failLine, `${who}: ${H.tag}'s words read "<name>'s job failed: ..."`, `"${hf.lastLine}", wanted "${failLine}"`);
+    // ── The lent van is handed back at the failure: the helper is out of it, it stands on the starter's screen ──
+    await sleep(3000);
+    hcar = await H.car();
+    const fv = await S.mine('van'), fsc = await S.crew();
+    check(!hcar && !!fv && fv.listed && fv.held && fsc.lentOut.length === 0 && (await H.crew()).handedBack >= 1,
+      `${who}: at the failure ${H.tag} hands the van back: ${H.tag} on foot, the van standing as ${S.tag}'s script's car`,
+      `${H.tag} ${hcar ? 'still in a ' + hcar.kind : 'on foot'}; van on ${S.tag}: ${fv ? JSON.stringify(fv) : 'none'}; lent to [${fsc.lentOut}]`);
+    {
+      // Still standing there, a few seconds on, on both screens (nothing takes it from under anybody).
+      await sleep(4000);
+      const fv2 = await S.mine('van'), hs4 = fv ? await H.seen('van', fv.x, fv.z, 8) : null;
+      check(!!fv2 && fv2.listed && !!hs4 && hs4.list.length + hs4.ghosts.length === 1, `${who}: and it is still there 4 s on, on both screens`, `${S.tag}: ${fv2 ? JSON.stringify(fv2) : 'none'}; ${H.tag}: ${hs4 ? JSON.stringify(hs4) : 'nothing'}`);
+    }
+    // ── Tried again: the checkpoint was passed with the helper at the wheel, so the starter is put at the wheel there ──
+    const cpAt = await S.page.evaluate(() => { const c = window.__game.game.todo.missions.cp; return c ? { x: +c.x.toFixed(1), z: +c.z.toFixed(1), tag: c.tag, kind: c.kind } : null; });
     await S.key('KeyG');
     s = await wait(async () => { const x = await S.todo(); return x.cur === 'm03' && !x.failed ? x : null; }, 15000) ?? await S.todo();
     const hr = await wait(async () => { const c = await H.crew(); return c.boss === sid ? c : null; }, 15000) ?? await H.crew();
     await sleep(3000);
     hcar = await H.car();
+    let scar = await S.car();
     const nv = await S.mine('van');
-    check(s.cur === 'm03' && !s.failed && hr.boss === sid && !hcar && !!nv && nv.listed,
-      `${who}: tried again: ${H.tag} (near the checkpoint) is on the crew again, out of the old van, and the script has a new one`, `${S.tag}: ${s.cur} ${s.failed ?? ''}; ${H.tag}: boss ${hr.boss}, ${hcar ? 'still in a ' + hcar.kind : 'on foot'}; new van ${nv ? `at ${nv.x},${nv.z}` : 'none'}`);
+    check(!!cpAt && cpAt.tag === 'van' && s.cur === 'm03' && !s.failed && !!scar && scar.kind === 'van' && !!nv && Math.hypot(nv.x - cpAt.x, nv.z - cpAt.z) < 3,
+      `${who}: tried again: the checkpoint was the van where ${H.tag} drove it; ${S.tag} is put at its wheel there`, `checkpoint ${JSON.stringify(cpAt)}; ${S.tag} in ${scar ? scar.kind : 'nothing'}; van ${nv ? `at ${nv.x},${nv.z}` : 'none'}`);
+    check(hr.boss === sid && !hcar, `${who}: ${H.tag} (near the checkpoint) is on the crew again, on foot`, `${H.tag}: boss ${hr.boss}, ${hcar ? 'in a ' + hcar.kind : 'on foot'}`);
     const hs2 = nv ? await H.seen('van', nv.x, nv.z, 30) : null;
-    check(!!hs2 && hs2.list.length + hs2.ghosts.length === 1, `${who}: and there is one van on ${H.tag}'s screen`, hs2 ? JSON.stringify(hs2) : 'no van');
-    ok = !!nv && await getIn(H, nv, 'van');
+    check(!!hs2 && hs2.list.length + hs2.ghosts.length <= 1, `${who}: and there is at most one van on ${H.tag}'s screen (drawn as ${S.tag} driving it)`, hs2 ? JSON.stringify(hs2) : 'no van');
+    // The starter gets out and leaves the driving to the helper.
+    await S.key('KeyF');
+    await wait(async () => !(await S.car()), 15000);
+    await sleep(3000);
+    const nv2 = await S.mine('van');
+    ok = !!nv2 && await getIn(H, nv2, 'van');
     await sleep(3000);
     s = await read(S);
     check(ok && s.want && s.want.t === 'deliver', `${who}: ${H.tag} gets into the new van`, `wants ${s.want ? s.want.t : 'nothing'}`);
@@ -303,7 +358,7 @@ try {
     check(wire(A, '3.10') + wire(B, '3.10') + wire(C, '3.10') === n0 && n0 === 0, 'no mission running: no crew frames at all', `${n0} before, ${wire(A, '3.10') + wire(B, '3.10') + wire(C, '3.10') - n0} in 8 s`);
   }
 
-  await round(B, A, C, A, { shots: SHOTS, failFirst: true, helperFresh: true });
+  await round(B, A, C, A, { shots: SHOTS, failFirst: true, helperFresh: true, clock: true });
   await sleep(3000);
   await round(A, B, C, A, { shots: false, failFirst: false, helperFresh: true, getOut: true });
 

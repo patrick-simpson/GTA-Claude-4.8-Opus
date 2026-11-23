@@ -88,6 +88,40 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 4, step 4, missions together, second piece: pushed Nov 23, about 12:35 AM ET
+
+**What.** On MAIN a helper's own actions now count: a goto, collect, race checkpoint, survive ring or "get a
+vehicle" objective is met when ANY crew member meets it, judged by the starter from where it already shows them (no
+extra bytes). Mission people (spawnActor) are shown to the crew (crew kind `Things`, 6 + 7 bytes a person, on change).
+The helper's countdown follows the starter's mission clock and pause (a rate in a spare byte of Show). A lent car is
+handed back at a failure. A helper's fail line reads "<name>'s job failed: ...". A starter leaving town no longer
+takes the helper's car with it. Still protocol v4, `server/src` untouched.
+
+**Rules.** Only cars a step wants driven can be lent (destroy and tail targets cannot). A checkpoint passed while a
+helper drives is that car where it stands; a retry puts the starter at its wheel there. In a shared town a mission
+person's look is fixed by mission and step so every screen draws the same person; alone it is random as before.
+Not counted for helpers: destroy (shots do nothing to a held car), losing heat (each player's own), tail, wait.
+
+**Cost (worker's measure).** m05 with two helpers, about a minute: starter 36 crew frames, 650 bytes; each helper
+1 frame. Zero clock corrections in a 12 s check. Nothing with no mission running.
+
+**Checked by the lead.** tsc, build, server tests, production boot with no errors; crew.mjs (51), crew2.mjs (new,
+23: two helpers, m05, set aside, a helper and the starter leaving town), mission.mjs (58), the single player mission
+check (13), one clean run each; helper picture viewed.
+
+**A cars.mjs failure, cause not proven.** In 1 of 3 lead runs "a guest takes a traffic car that had a driver in it"
+failed all 10 of its tries ("drove off, or was not granted"); the other two runs were 48 of 48. No mission runs in
+that test and this step's code is idle without one, so it was judged not caused by this step, but that is a
+judgement, not a proof. Watch it; the failure line should print whether an ask was sent and what the host answered.
+
+**Still wrong or untested.** Helper actions other than goto are written but untested (get a vehicle, race, collect,
+survive). The checkpoint rule is only tested with the van at its spawn spot. Untested: a lent car burnt or sunk, a
+host change mid mission, a dead actor, the backup. A starter who leaves town while driving a held car still leaves
+it as a town car. A lost "paused" frame lets the helper's clock run until the next correction. Not built: a helper's
+shots or rams counting against a target, a tail judged on the crew, taxi riders and job things, pause for players
+not on the crew, kerb cars, menu wording. Nothing was listened to.
+
+
 ### Multiplayer stage 4, step 3, missions together, first piece (the crew): pushed Nov 22, about 11:05 PM ET
 
 **What.** On MAIN a mission is now shared with whoever stands within 30 m of the starter when it begins (and at a

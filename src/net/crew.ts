@@ -34,21 +34,33 @@
 // away (a despawn, a retry, the mission set aside) the helper's copy goes (Reclaim); when the mission is passed with
 // the helper at the wheel it is the helper's from then on, an ordinary car, as the starter's own would be.
 //
-// Not here yet (later steps): the mission's people, targets, pickups and riders shown to the crew; crew actions other
-// than driving the car counting (a helper reaching a marker, wrecking a target); pause.
+// SECOND PIECE (stage 4, step 3, continued):
+//  - A helper's own actions count. The starter's browser judges them from where it already shows each helper (their
+//    State frames): no frame is sent for it. A goto (no particular car), a collect item, a race checkpoint, a getVehicle
+//    of a kind (or of anything) and a survive ring are met by ANY crew member as the step asks (on foot, in a car, in
+//    a kind). Not covered: destroy (a helper's shots do nothing to a held car), loseHeat (heat is each player's own),
+//    tail (judged on the starter alone).
+//  - The countdown follows the starter's mission clock: each Show carries the rate that clock runs at against the wall
+//    clock (measured here from game time), 0 while the starter is paused (told the moment they pause).
+//  - A failure hands a lent car back (the helper is put out of it and it stands as the starter's script's car); a
+//    checkpoint passed while a helper drives the script's car is that car, where it is (script.ts snap).
+//  - The mission's people (spawnActor) are shown to the crew (Things: the step that made each, where, which way), in
+//    the same look; targets are the starter's held cars (held.ts) with their markers and blips from Show.
+//  - A helper who leaves town at the wheel of a lent car leaves it to its starter, never to the town (borrowing()).
+// Not here yet: taxi riders, job things, pause in town for those not on the crew.
 
 import type { Game } from '../core/game';
-import type { Vehicle } from '../core/api';
+import type { Person, Vehicle } from '../core/api';
 import { money } from '../core/util';
 import { KINDS, SPECS } from '../ent/vehicleSpecs';
 import { charCar } from '../ent/weapons';
 import { progress } from '../world/progress';
-import { FAILS, type CrewLink, type Guest, type Mission, type Runner, type ViewMark } from '../game/script';
+import { FAILS, actorLook, type CrewLink, type CrewMember, type Guest, type Mission, type Runner, type ViewMark } from '../game/script';
 import { save } from '../game/save';
 import {
-  CREW_BACK_BYTES, CREW_MARK_BYTES, CREW_MARKS_MAX, CREW_SHOW_BYTES, CrewEnd, CrewKind, CrewLabel, SEND_HZ,
-  crewKindOf, decodeCrewBack, decodeCrewLend, decodeCrewShow, decodeCrewSmall, decodeCrewTeam,
-  encodeCrewBack, encodeCrewLend, encodeCrewShow, encodeCrewSmall, encodeCrewTeam, type CrewShowRec,
+  CREW_BACK_BYTES, CREW_MARK_BYTES, CREW_MARKS_MAX, CREW_SHOW_BYTES, CREW_THING_BYTES, CREW_THINGS_MAX, CrewEnd, CrewKind, CrewLabel, SEND_HZ,
+  crewKindOf, decodeCrewBack, decodeCrewLend, decodeCrewShow, decodeCrewSmall, decodeCrewTeam, decodeCrewThings,
+  encodeCrewBack, encodeCrewLend, encodeCrewShow, encodeCrewSmall, encodeCrewTeam, encodeCrewThings, type CrewShowRec, type CrewThingRec,
 } from './protocol';
 import type { Connection } from './conn';
 import type { Remote } from './remote';
@@ -68,11 +80,36 @@ const DRIFT = 5;
 const METERS_MS = 500;
 
 interface Lent { id: number; kind: string; color: number }
+/** A mission person drawn on a helper's screen. */
+interface Extra { p: Person; want: CrewThingRec }
+
+/**
+ * A helper's own words for each way a starter's mission fails (FAILS, by the same index): "<name>'s job failed: ...".
+ * The starter's own lines say "you", which on a helper's screen is the wrong person.
+ */
+const CREW_FAILS: readonly ((who: string) => string)[] = [
+  (w) => `${w} was booked by the Harbor Patrol.`,
+  (w) => `${w} did not live to invoice for it.`,
+  () => 'the clock ran out.',
+  () => 'that vehicle was the whole job.',
+  () => 'there is nothing left of them to follow.',
+  () => 'they looked in the mirror and saw the whole crew.',
+  () => 'they went one way and the crew went another.',
+];
+/** The words a helper is shown when the job they were on fails (for the tests too). */
+export function crewFailLine(who: string, why: number): string {
+  const f = CREW_FAILS[why];
+  return `${who}'s job failed: ${f ? f(who) : 'it did not work out.'}`;
+}
+/** How quickly the measured rate of the starter's mission clock follows a change (per second). */
+const RATE_EASE = 1.5;
+/** A mission person further than this from where the starter's browser has them is told again, meters. */
+const THING_MOVE = 0.3;
 interface Borrowed { boss: number; sat: boolean; at: number }
 
 export class TownCrew implements CrewLink {
   /** Frames sent and heard, by what they were, and bytes; drafts, pays, cars lent and handed back. */
-  readonly stats = { sent: 0, bytesSent: 0, got: 0, bytesGot: 0, shows: 0, showBytes: 0, teams: 0, drafted: 0, declined: 0, paid: 0, lent: 0, back: 0, reclaimed: 0 };
+  readonly stats = { sent: 0, bytesSent: 0, got: 0, bytesGot: 0, shows: 0, showBytes: 0, teams: 0, drafted: 0, declined: 0, paid: 0, lent: 0, back: 0, reclaimed: 0, things: 0, thingBytes: 0, handedBack: 0 };
 
   // ── As the starter ──
   private team: number[] = [];
@@ -81,6 +118,17 @@ export class TownCrew implements CrewLink {
   private last: CrewShowRec | null = null;
   private lastAt = 0;
   private force = false;
+  /** The rate the mission clock (game time) runs at against the wall clock, as measured here; paused: 0. */
+  private rate = 1;
+  private rateAt = 0;
+  private rateGame = 0;
+  private rateN = 0;
+  private paused = false;
+  private readonly crewOut: CrewMember[] = [];
+  private readonly thingRecs: CrewThingRec[] = [];
+  private lastThings: CrewThingRec[] = [];
+  private thingsAt = 0;
+  private thingsForce = false;
 
   // ── As a helper ──
   /** The starter whose crew this player is on (0: none). */
@@ -88,18 +136,34 @@ export class TownCrew implements CrewLink {
   private bossM: Mission | null = null;
   private readonly borrowed = new Map<Vehicle, Borrowed>();
   private asking: { v: Vehicle; at: number; refused: boolean } | null = null;
-  /** The last outcome this player was told, for the tests. */
+  /** The last outcome this player was told, and the words, for the tests. */
   lastEnd = '';
+  lastLine = '';
+  /** The mission's people as drawn here, by the step that made them. */
+  private readonly extras = new Map<number, Extra>();
 
   // ── Everybody ──
   /** Other starters and their crews: nobody in these is drafted. */
   private readonly others = new Map<number, number[]>();
+  /**
+   * Who is at the wheel of a starter's car lent to them (helper id to starter id), as heard by every browser from the
+   * Lend frames. A helper who leaves town in one leaves it to its starter (who stands it again), never to the town as
+   * a stray (index.ts asks borrowing()).
+   */
+  private readonly lentTo = new Map<number, number>();
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>, private readonly held: TownHeld, private readonly cars: TownCars) {
     this.runner.crew = this;
     held.crewOf = (id) => id !== 0 && id === this.boss;
     const prev = game.takeShared;
     game.takeShared = (v) => this.ask(v) ?? (prev ? prev(v) : 'no');
+    // The starter pauses: the game (and this system) stops at once, so the helpers are told now that the clock is
+    // standing; the next frame after the pause says it runs again.
+    game.on('pause', ({ on }) => {
+      this.paused = on;
+      this.rateAt = 0;
+      if (on && this.team.length && this.inTown) { this.force = true; this.sendShow(performance.now(), true); }
+    });
   }
 
   private get runner(): Runner { return this.game.todo.missions; }
@@ -115,7 +179,8 @@ export class TownCrew implements CrewLink {
 
   began(m: Mission): void {
     if (this.team.length) this.sendTeam(0, []);
-    this.team = []; this.mIdx = 0; this.last = null;
+    this.team = []; this.mIdx = 0; this.last = null; this.lastThings = [];
+    this.rateN = 0; this.rateAt = 0;
     if (!this.inTown || this.boss) return;
     const p = this.game.player;
     for (const r of this.remotes.values()) {
@@ -138,16 +203,31 @@ export class TownCrew implements CrewLink {
 
   lent(v: Vehicle): boolean { return this.lentOut.has(v); }
 
+  shared(): boolean { return this.inTown; }
+
+  members(): readonly CrewMember[] {
+    const out = this.crewOut;
+    out.length = 0;
+    if (!this.inTown) return out;
+    for (const id of this.team) {
+      const r = this.remotes.get(id);
+      if (!r || !r.seen || r.dead) continue;
+      out.push({ x: r.x, z: r.z, kind: r.kind, speed: r.speed });
+    }
+    return out;
+  }
+
   drop(v: Vehicle, keep: boolean): void {
     const l = this.lentOut.get(v);
     if (!l) return;
     this.lentOut.delete(v);
+    this.lentTo.delete(l.id);
     if (this.inTown && this.send(encodeCrewSmall(CrewKind.Reclaim, l.id, keep ? 1 : 0))) this.stats.reclaimed++;
   }
 
   private sendTeam(mIdx: number, ids: number[]): void {
     if (!this.inTown) return;
-    if (this.send(encodeCrewTeam(mIdx, ids))) { this.stats.teams++; this.force = true; }
+    if (this.send(encodeCrewTeam(mIdx, ids))) { this.stats.teams++; this.force = true; this.thingsForce = true; }
   }
 
   /** On somebody else's mission (as its starter or on its crew), as far as this browser has been told. */
@@ -179,6 +259,11 @@ export class TownCrew implements CrewLink {
         if (s && s.id === this.boss) this.shown(s);
         return;
       }
+      case CrewKind.Things: {
+        const t = decodeCrewThings(buf);
+        if (t && t.id === this.boss && this.bossM && this.runner.missions.indexOf(this.bossM) + 1 === t.mission) this.things(t.things);
+        return;
+      }
       case CrewKind.End: {
         const e = decodeCrewSmall(buf);
         this.others.delete(k.id);
@@ -204,16 +289,19 @@ export class TownCrew implements CrewLink {
       }
       case CrewKind.Lend: {
         const l = decodeCrewLend(buf);
+        if (l && l.yes) this.lentTo.set(l.to, k.id);
         if (l && l.to === me) this.answered(l.id, l.slot, l.yes, l.health);
         return;
       }
       case CrewKind.Back: {
         const b = decodeCrewBack(buf);
+        if (b) this.lentTo.delete(k.id);
         if (b && b.starter === me) this.back(k.id, b);
         return;
       }
       case CrewKind.Reclaim: {
         const r = decodeCrewSmall(buf);
+        if (r && this.lentTo.get(r.a) === k.id) this.lentTo.delete(r.a);
         if (r && r.a === me) this.reclaimed(k.id, r.b === 1);
         return;
       }
@@ -231,7 +319,7 @@ export class TownCrew implements CrewLink {
     this.boss = by; this.bossM = m;
     td.setBusy(`crew:${m.id}`);
     const line = `You are on ${who}'s job: ${m.title}.`;
-    const gu: Guest = { who, m, line, objective: null, timerLabel: null, timerMode: 0, timerValue: 0, timerUrgent: false, timerAt: 0, marks: [] };
+    const gu: Guest = { who, m, line, objective: null, timerLabel: null, timerMode: 0, timerValue: 0, timerUrgent: false, timerRate: 1, timerAt: 0, marks: [] };
     this.runner.guest = gu;
     this.game.hud.stamp(m.title, `On ${who}'s job. ${m.intro}`);
     this.held.restyle(by);
@@ -256,6 +344,7 @@ export class TownCrew implements CrewLink {
     gu.timerLabel = s.mode ? this.label(m, s.label) : null;
     gu.timerValue = s.mode === 3 ? s.value : s.value / 10;
     gu.timerUrgent = s.urgent;
+    gu.timerRate = s.rate;
     gu.timerAt = performance.now();
     gu.marks = s.marks as ViewMark[];
   }
@@ -272,6 +361,7 @@ export class TownCrew implements CrewLink {
       progress.addOwn(m.points);
       this.stats.paid++;
       this.lastEnd = 'passed';
+      this.lastLine = `${m.title}: filed, on ${who}'s job.`;
       this.release('', true);
       g.hud.stamp('FILED', `${m.title} · ${money(m.reward)} · ${m.points} toward the bridge · on ${who}'s job`);
       if (m.unlocks) g.hud.toast(m.unlocks, 8);
@@ -279,9 +369,12 @@ export class TownCrew implements CrewLink {
     }
     const f = FAILS[why];
     this.lastEnd = how === CrewEnd.Failed ? `failed: ${f ? f[0] : '?'}` : 'set aside';
+    // A car of the starter's this player has: handed back now, where it is (the starter's script still has it, for a
+    // retry), so it never goes from under them later.
+    if (how === CrewEnd.Failed) this.handBack(this.boss);
     this.release('', true);
-    if (how === CrewEnd.Failed) g.hud.stamp(f ? f[0] : 'CALLED OFF', `${who}'s job: ${f ? f[1] : 'it did not work out.'}`);
-    else g.hud.toast(`${who} set the job aside. Your time is your own again.`, 6);
+    if (how === CrewEnd.Failed) { this.lastLine = crewFailLine(who, why); g.hud.stamp(f ? f[0] : 'CALLED OFF', this.lastLine); }
+    else { this.lastLine = `${who} set the job aside. Your time is your own again.`; g.hud.toast(this.lastLine, 6); }
   }
 
   /** Off the crew. `why`: a toast, or nothing. */
@@ -290,9 +383,44 @@ export class TownCrew implements CrewLink {
     if (!by) return;
     this.boss = 0; this.bossM = null;
     this.runner.unguest();
+    this.things([]);
     if (this.game.todo.busy?.startsWith('crew:')) this.game.todo.setBusy(null);
     this.held.restyle(by);
-    if (!quiet && why) this.game.hud.toast(why, 6);
+    if (!quiet && why) { this.lastLine = why; this.game.hud.toast(why, 6); }
+  }
+
+  /** The job failed: every car of that starter's this player has goes back to them (out of it first). */
+  private handBack(boss: number): void {
+    const p = this.game.player;
+    for (const [v, b] of this.borrowed) {
+      if (b.boss !== boss) continue;
+      if (p.vehicle === v) p.exit();
+      if (p.vehicle === v) p.teleport(v.x + Math.cos(v.h) * 2.6, v.z - Math.sin(v.h) * 2.6, v.h);
+      this.giveBack(v, b);
+      this.stats.handedBack++;
+    }
+  }
+
+  /** The mission's people as the starter's browser has them: drawn here, the same look from the same story. */
+  private things(list: readonly CrewThingRec[]): void {
+    const m = this.bossM, g = this.game;
+    for (const [step, e] of this.extras) if (!m || !list.some((t) => t.step === step)) { g.people.remove(e.p); this.extras.delete(step); }
+    if (!m) return;
+    const mi = this.runner.missions.indexOf(m);
+    for (const t of list) {
+      const s = m.steps[t.step];
+      if (!s || s.t !== 'spawnActor') continue;
+      let e = this.extras.get(t.step);
+      if (!e) {
+        const p = g.people.spawn(t.x, t.z, t.yaw, actorLook(g, mi, t.step, s));
+        p.pose = 'stand';
+        this.extras.set(t.step, e = { p, want: t });
+      }
+      e.want = t;
+      const p = e.p;
+      p.x = t.x; p.z = t.z; p.h = t.yaw;
+      p.pose = t.down ? 'down' : 'stand';
+    }
   }
 
   /** The player is at the door of a car (Game.takeShared). Null: not one of the starter's cars; the town's own rules apply. */
@@ -344,10 +472,10 @@ export class TownCrew implements CrewLink {
   }
 
   /** The player is out of a lent car (or it has sunk): it goes back to the starter. */
-  private giveBack(v: Vehicle, b: Borrowed): void {
+  private giveBack(v: Vehicle, b: Borrowed, gone = false): void {
     this.borrowed.delete(v);
     v.lent = false;
-    if (!this.remotes.has(b.boss) || !this.inTown) {
+    if (gone || !this.remotes.has(b.boss) || !this.inTown) {
       // Nobody to give it to: an ordinary car of this player's.
       v.held = false;
       if (!v.removed && !v.sunk && this.game.player.vehicle !== v) this.cars.release(v);
@@ -363,12 +491,13 @@ export class TownCrew implements CrewLink {
 
   private lend(to: number, slot: number): void {
     const v = this.held.mineAt(slot), vs = this.game.vehicles;
-    const ok = !!v && this.team.includes(to) && this.runner.owns(v) && v.driver === null && !v.wreck && !v.sunk && !v.removed && vs.list.includes(v) && !this.lentOut.has(v);
+    const ok = !!v && this.team.includes(to) && this.runner.drivable(v) && v.driver === null && !v.wreck && !v.sunk && !v.removed && vs.list.includes(v) && !this.lentOut.has(v);
     if (!ok || !v) { this.send(encodeCrewLend(to, slot, false, 0)); return; }
     if (!this.send(encodeCrewLend(to, slot, true, v.health))) return;
     // Off this browser's streets: the helper's browser simulates it now. The script keeps its record (`v`), which
     // follows the helper's car from here on (update()).
     this.lentOut.set(v, { id: to, kind: v.spec.kind, color: v.color });
+    this.lentTo.set(to, this.conn.id);
     vs.remove(v);
     this.stats.lent++;
   }
@@ -377,6 +506,7 @@ export class TownCrew implements CrewLink {
     for (const [v, l] of this.lentOut) {
       if (l.id !== from) continue;
       this.lentOut.delete(v);
+      this.lentTo.delete(from);
       this.stats.back++;
       if (b.flags & 2) { v.sunk = true; return; }
       this.standAgain(v, b.x, b.z, b.yaw, b.vx, b.vz, b.health, !!(b.flags & 1));
@@ -395,12 +525,27 @@ export class TownCrew implements CrewLink {
     this.runner.swap(old, nv);
   }
 
-  private sendShow(now: number): void {
+  /** How fast the mission clock (game time) is running against the wall clock, eased; 0 while paused. */
+  private measure(now: number): void {
+    const t = this.game.time;
+    // (Paused, this system does not run; a pause in the middle of a sample would spoil it, so the next one starts fresh.)
+    if (this.paused) { this.rateAt = 0; return; }
+    if (!this.rateAt) { this.rateAt = now; this.rateGame = t; return; }
+    const dw = (now - this.rateAt) / 1000;
+    if (dw < 0.2) return;
+    const r = Math.max(0, Math.min(1, (t - this.rateGame) / dw));
+    // (The first sample of a mission is taken as it is: a slow page would otherwise be told the wall clock for a while.)
+    this.rate = this.rateN++ === 0 ? r : this.rate + (r - this.rate) * Math.min(1, dw * RATE_EASE);
+    this.rateAt = now; this.rateGame = t;
+  }
+
+  private sendShow(now: number, pausing = false): void {
     const run = this.runner, m = run.cur;
     if (!m || !this.team.length || run.failed) return;
+    const rate = pausing || this.paused ? 0 : this.rate;
     const v = run.view, rec: CrewShowRec = {
       mission: this.mIdx, step: Math.min(255, (run.want()?.i ?? 0)), what: v.what, arg: v.arg, label: v.label, mode: v.mode,
-      urgent: v.urgent, value: v.value, marks: v.marks.slice(0, CREW_MARKS_MAX),
+      urgent: v.urgent, value: v.value, marks: v.marks.slice(0, CREW_MARKS_MAX), rate,
     };
     const l = this.last;
     let changed = this.force || !l || l.mission !== rec.mission || l.step !== rec.step || l.what !== rec.what || l.arg !== rec.arg
@@ -411,12 +556,15 @@ export class TownCrew implements CrewLink {
         changed = a.kind !== b.kind || a.blip !== b.blip || a.target !== b.target || Math.abs(a.r - b.r) > 0.3 || Math.abs(a.x - b.x) > 0.5 || Math.abs(a.z - b.z) > 0.5;
       }
       if (!changed && rec.mode) {
-        const gone = (now - this.lastAt) / 100;
+        // (What the helper's screen shows now: the last value told, counted down at the rate told with it.)
+        const gone = ((now - this.lastAt) / 100) * l.rate;
         const guess = l.mode === 1 ? l.value - gone : l.value;
         changed = rec.mode === 3 ? rec.value !== l.value && now - this.lastAt >= METERS_MS : Math.abs(guess - rec.value) > DRIFT;
       }
+      // (Paused or running again: told at once.)
+      if (!changed) changed = (rec.rate === 0) !== (l.rate === 0);
     }
-    if (!changed || now - this.lastAt < SEND_MS - 4) return;
+    if (!changed || (!pausing && now - this.lastAt < SEND_MS - 4)) return;
     const buf = encodeCrewShow(rec);
     if (!this.send(buf)) return;
     this.stats.shows++; this.stats.showBytes += CREW_SHOW_BYTES + rec.marks.length * CREW_MARK_BYTES;
@@ -426,14 +574,47 @@ export class TownCrew implements CrewLink {
     this.force = false;
   }
 
+  /** The mission's people, to the crew: when one comes, goes or moves (at most SEND_HZ times a second). */
+  private sendThings(now: number): void {
+    const run = this.runner;
+    if (!run.cur || !this.team.length || !this.mIdx) return;
+    const recs = this.thingRecs;
+    let n = 0;
+    for (const a of run.actors()) {
+      if (n >= CREW_THINGS_MAX) break;
+      const r = recs[n] ?? (recs[n] = { step: 0, x: 0, z: 0, yaw: 0, down: false });
+      n++;
+      r.step = a.step; r.x = a.p.x; r.z = a.p.z; r.yaw = a.p.h; r.down = !(a.p.health > 0);
+    }
+    const l = this.lastThings;
+    let changed = this.thingsForce || n !== l.length;
+    for (let i = 0; i < n && !changed; i++) {
+      const a = recs[i], b = l[i];
+      changed = a.step !== b.step || a.down !== b.down || Math.hypot(a.x - b.x, a.z - b.z) > THING_MOVE || Math.abs(a.yaw - b.yaw) > 0.1;
+    }
+    // (Nobody now and nobody told: nothing to say.)
+    if (!changed || (n === 0 && l.length === 0) || now - this.thingsAt < SEND_MS - 4) { if (n === 0 && l.length === 0) this.thingsForce = false; return; }
+    if (!this.send(encodeCrewThings(this.mIdx, recs, n))) return;
+    this.stats.things++; this.stats.thingBytes += 6 + n * CREW_THING_BYTES;
+    this.lastThings = recs.slice(0, n).map((r) => ({ ...r }));
+    this.thingsAt = now;
+    this.thingsForce = false;
+  }
+
   // ── Comings and goings ──────────────────────────────────────────────────────
+
+  /** Was this player at the wheel of a car another player lent them (as far as this browser heard)? */
+  borrowing(id: number): boolean { const s = this.lentTo.get(id); return s !== undefined && (s === this.conn.id || this.remotes.has(s)); }
 
   /** Somebody has left town (index.ts). */
   dropped(id: number): void {
     this.others.delete(id);
+    this.lentTo.delete(id);
+    for (const [h, s] of this.lentTo) if (s === id) this.lentTo.delete(h);
     for (const ids of this.others.values()) { const i = ids.indexOf(id); if (i > 0) ids.splice(i, 1); }
     if (this.boss === id) this.release(`${this.runner.guest?.who ?? 'The starter'} has left town. The job went with them.`);
-    for (const [v, b] of this.borrowed) if (b.boss === id) this.giveBack(v, b);
+    // (Their remote is still in the list while this runs: `gone` says there is nobody to give it back to.)
+    for (const [v, b] of this.borrowed) if (b.boss === id) this.giveBack(v, b, true);
     const i = this.team.indexOf(id);
     if (i >= 0) { this.team.splice(i, 1); this.sendTeam(this.team.length ? this.mIdx : 0, this.team); if (!this.team.length) this.mIdx = 0; }
     // A car they had: it comes back where they were last seen with it.
@@ -443,6 +624,7 @@ export class TownCrew implements CrewLink {
   /** Out of town altogether. */
   clear(): void {
     this.others.clear();
+    this.lentTo.clear();
     this.release('Out of town: the job you were helping with goes on without you.');
     for (const [v, b] of this.borrowed) this.giveBack(v, b);
     this.team = []; this.mIdx = 0; this.last = null;
@@ -461,7 +643,7 @@ export class TownCrew implements CrewLink {
       const c = r.vehicle;
       if (c) { v.health = c.health; if (c.wreck) v.wreck = true; }
     }
-    this.sendShow(now);
+    if (this.team.length) { this.measure(now); this.sendShow(now); this.sendThings(now); }
     // A helper: a lent car they are out of goes back.
     const p = this.game.player;
     for (const [v, b] of this.borrowed) {
@@ -475,10 +657,11 @@ export class TownCrew implements CrewLink {
   info(): Record<string, unknown> {
     const gu = this.runner.guest;
     return {
-      ...this.stats, range: CREW_RANGE, team: this.team.slice(), mission: this.mIdx, boss: this.boss, lastEnd: this.lastEnd,
+      ...this.stats, range: CREW_RANGE, team: this.team.slice(), mission: this.mIdx, boss: this.boss, lastEnd: this.lastEnd, lastLine: this.lastLine,
+      rate: +this.rate.toFixed(3), extras: [...this.extras.entries()].map(([step, e]) => ({ step, x: +e.p.x.toFixed(1), z: +e.p.z.toFixed(1), top: e.p.look.top, hair: e.p.look.hair, skin: e.p.look.skin })),
       lentOut: [...this.lentOut.values()].map((l) => l.id), borrowed: this.borrowed.size,
       others: [...this.others.entries()].map(([k, v]) => [k, ...v.slice(1)]),
-      guest: gu ? { who: gu.who, mission: gu.m.id, line: gu.line, objective: gu.objective, timer: gu.timerLabel, mode: gu.timerMode, value: gu.timerValue, marks: gu.marks.length, blips: gu.marks.filter((k) => k.blip).length } : null,
+      guest: gu ? { who: gu.who, mission: gu.m.id, line: gu.line, objective: gu.objective, timer: gu.timerLabel, mode: gu.timerMode, value: gu.timerValue, rate: gu.timerRate, left: +this.runner.guestLeft().toFixed(2), marks: gu.marks.length, blips: gu.marks.filter((k) => k.blip).length, targets: gu.marks.filter((k) => k.target).length } : null,
       backBytes: CREW_BACK_BYTES,
     };
   }

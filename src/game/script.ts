@@ -20,7 +20,7 @@ import type { Blip } from '../ui/hud';
 import { groundAt } from '../world/plan';
 import type { CityPlan } from '../world/plan';
 import { progress } from '../world/progress';
-import { money } from '../core/util';
+import { RNG, money } from '../core/util';
 import { save } from './save';
 
 export interface Pt { x: number; z: number }
@@ -132,6 +132,12 @@ export function clearOf(game: Game, at: Pt, h: number): Pt {
     if (!taken(x, z) && !vs.nearest(x, z, 5)) return { x, z };
   }
   return at;
+}
+
+/** A mission person's look in a shared town: the step's own, the rest fixed by the mission and the step, the same in every browser. */
+export function actorLook(game: Game, mission: number, step: number, s: Step): Look {
+  const own = s.t === 'spawnActor' ? s.look : undefined;
+  return { ...game.people.randomLook(new RNG(((mission + 1) * 7919 + step * 104729) ^ 0x2c1b3c6d), true), ...own };
 }
 
 // ── World markers ────────────────────────────────────────────────────────────
@@ -247,6 +253,8 @@ export interface Guest {
   timerMode: number;
   timerValue: number;
   timerUrgent: boolean;
+  /** How fast the starter's mission clock runs against the wall clock (0: paused), as told with the value. */
+  timerRate: number;
   /** performance.now() when the timer value was told. */
   timerAt: number;
   marks: ViewMark[];
@@ -262,6 +270,23 @@ export interface CrewLink {
   lent(v: Vehicle): boolean;
   /** The script is done with a car a helper has: theirs to keep as an ordinary car (the mission is over), or taken away. */
   drop(v: Vehicle, keep: boolean): void;
+  /**
+   * The crew's players where this browser shows them (alive, in town). A goto, a collect, a race's checkpoint, a
+   * getVehicle of a kind and a survive ring are met by any of them as by the starter (stage 4, step 3, second piece).
+   */
+  members(): readonly CrewMember[];
+  /** In a town on the main service (where missions are shared): only then do a mission's people get a fixed look. */
+  shared(): boolean;
+}
+
+/** A helper as the starter's browser shows them: where, and the kind of car they are at the wheel of (null on foot). */
+export interface CrewMember { x: number; z: number; kind: VehicleKind | null; speed: number }
+
+function memberSeated(c: CrewMember, mode: Mode | undefined, kind: VehicleKind | undefined): boolean {
+  if (kind) return c.kind === kind;
+  if (mode === 'foot') return !c.kind;
+  if (mode === 'car') return !!c.kind;
+  return true;
 }
 
 export interface Want { id: string; i: number; t: string; at: Pt | null; r: number; mode: Mode; tag: string | null; kind: VehicleKind | null; stop: boolean; tags: string[]; items: Pt[]; failed: string | null }
@@ -361,6 +386,25 @@ export class Runner {
   }
   /** Is this one of the script's cars? */
   owns(v: Vehicle): boolean { for (const e of this.ents.values()) if (e === v) return true; return false; }
+  /** One of the script's cars that a step wants driven (a getVehicle, deliver or goto names its tag): a helper may borrow it. A target may not. */
+  drivable(v: Vehicle): boolean {
+    const m = this.cur;
+    if (!m) return false;
+    for (const [k, e] of this.ents) {
+      if (e !== v) continue;
+      return m.steps.some((s) => (s.t === 'getVehicle' || s.t === 'deliver' || s.t === 'goto') && s.tag === k);
+    }
+    return false;
+  }
+  /** The script's people, with the `spawnActor` step that made each (crew.ts shows them to the helpers). The list is reused. */
+  actors(): readonly { p: Person; step: number }[] {
+    const out = this.actorOut;
+    out.length = 0;
+    for (const [p, step] of this.actorStep) out.push({ p, step });
+    return out;
+  }
+  private readonly actorStep = new Map<Person, number>();
+  private readonly actorOut: { p: Person; step: number }[] = [];
 
   // ── What is shown, for the helpers ─────────────────────────────────────────
 
@@ -416,7 +460,14 @@ export class Runner {
     const p = this.game.player, v = p.vehicle;
     let tag: string | null = null;
     if (v) for (const [k, e] of this.ents) if (e === v) tag = k;
-    return { i, x: p.x, z: p.z, h: p.h, tag, kind: v ? v.spec.kind : null, timer: this.timer, timerLabel: this.timerLabel, code: this.labelCode };
+    const base = { i, timer: this.timer, timerLabel: this.timerLabel, code: this.labelCode };
+    if (!v && this.crew) {
+      // In a shared town a helper may be at the wheel of the script's car when the checkpoint is passed (crew.ts). The
+      // checkpoint is then that car, where it is: a retry puts the starter at its wheel there, as if they had been
+      // driving it (the helpers are drafted again around that spot).
+      for (const [k, e] of this.ents) if ('spec' in e && this.crew.lent(e)) return { ...base, x: e.x, z: e.z, h: e.h, tag: k, kind: e.spec.kind };
+    }
+    return { ...base, x: p.x, z: p.z, h: p.h, tag, kind: v ? v.spec.kind : null };
   }
 
   private clearEnts(keep = false): void {
@@ -429,7 +480,7 @@ export class Runner {
         e.held = false;
         if (g.player.vehicle === e) continue;
         if (g.vehicles.list.includes(e)) { if (e.driver === 'ai') e.driver = null; g.vehicles.remove(e); }
-      } else g.people.remove(e);
+      } else { g.people.remove(e); this.actorStep.delete(e); }
     }
     this.ents.clear();
     this.rail = null;
@@ -489,7 +540,8 @@ export class Runner {
     this.clearEnts();
     for (let k = 0; k < cp.i; k++) {
       const s = m.steps[k];
-      if (s.t === 'spawnVehicle' || s.t === 'spawnActor' || s.t === 'despawn') this.instant(s);
+      // (this.i is the step being made, for an actor's look and its number on the wire.)
+      if (s.t === 'spawnVehicle' || s.t === 'spawnActor' || s.t === 'despawn') { this.i = k; this.instant(s); }
     }
     p.heat = 0;
     p.health = Math.max(p.health, 70);
@@ -579,13 +631,20 @@ export class Runner {
     if (gu.timerMode === 0 || gu.timerLabel === null) h.timer(null);
     else if (gu.timerMode === 3) h.timer(gu.timerLabel, `${gu.timerValue} m`, gu.timerUrgent);
     else {
-      const left = gu.timerMode === 1 ? gu.timerValue - (performance.now() - gu.timerAt) / 1000 : gu.timerValue;
+      const left = this.guestLeft();
       h.timer(gu.timerLabel, clock(left), gu.timerUrgent || (gu.timerMode === 1 && left < 15));
     }
     for (const k of gu.marks) {
       if (k.kind !== 2) this.markers.put(k.x, k.z, k.kind === 0 ? 'goal' : 'item', k.r, k.tall);
       if (k.target) this.target = { x: k.x, z: k.z };
     }
+  }
+
+  /** A helper's countdown as shown now: the value told, run down at the starter's rate since. */
+  guestLeft(): number {
+    const gu = this.guest;
+    if (!gu) return 0;
+    return gu.timerMode === 1 ? gu.timerValue - ((performance.now() - gu.timerAt) / 1000) * gu.timerRate : gu.timerValue;
   }
 
   /** The helper is let go of: the strip and the timer are cleared. */
@@ -662,16 +721,20 @@ export class Runner {
         break;
       }
       case 'spawnActor': {
-        const p = g.people.spawn(s.at.x, s.at.z, s.h, { ...g.people.randomLook(), ...s.look });
+        // In a shared town the rest of the look comes from the mission and the step, so a helper's browser makes the
+        // same person (crew.ts, actorLook). Alone it is random, as it always was.
+        const look = this.crew?.shared() && this.cur ? actorLook(g, this.missions.indexOf(this.cur), this.i, s) : { ...g.people.randomLook(), ...s.look };
+        const p = g.people.spawn(s.at.x, s.at.z, s.h, look);
         p.pose = 'stand';
         this.ents.set(s.tag, p);
+        this.actorStep.set(p, this.i);
         break;
       }
       case 'despawn': {
         const e = this.ents.get(s.tag);
         if (!e) break;
         if ('spec' in e && this.crew?.lent(e)) { this.crew.drop(e, false); e.held = false; }
-        else if ('spec' in e) { e.held = false; if (g.player.vehicle !== e && g.vehicles.list.includes(e)) { e.driver = null; g.vehicles.remove(e); } } else g.people.remove(e);
+        else if ('spec' in e) { e.held = false; if (g.player.vehicle !== e && g.vehicles.list.includes(e)) { e.driver = null; g.vehicles.remove(e); } } else { g.people.remove(e); this.actorStep.delete(e); }
         if (this.rail && this.rail.v === e) this.rail = null;
         this.ents.delete(s.tag);
         break;
@@ -713,6 +776,22 @@ export class Runner {
     this.target = null;
   }
 
+  /**
+   * Is anybody of the crew (this player, or a helper where this browser shows them) within r of `at`, travelling as
+   * `mode`/`kind` asks, and (with `stop`) at rest? Alone only this player is asked, as before.
+   */
+  private anyAt(at: Pt, r: number, mode: Mode | undefined, kind: VehicleKind | undefined, stop: boolean, carSlack = 0): boolean {
+    const p = this.game.player;
+    if (this.seated(mode, kind) && Math.hypot(p.x - at.x, p.z - at.z) < r + (p.vehicle ? carSlack : 0) && (!stop || Math.abs(p.speed) < 2.5)) return true;
+    const crew = this.crew;
+    if (!crew) return false;
+    for (const c of crew.members()) {
+      if (!memberSeated(c, mode, kind)) continue;
+      if (Math.hypot(c.x - at.x, c.z - at.z) < r + (c.kind ? carSlack : 0) && (!stop || Math.abs(c.speed) < 2.5)) return true;
+    }
+    return false;
+  }
+
   /** The player is at the wheel of what the step wants (or the step wants nothing in particular). */
   private seated(mode: Mode | undefined, kind?: VehicleKind, tag?: string): boolean {
     const v = this.game.player.vehicle;
@@ -743,8 +822,10 @@ export class Runner {
         this.target = s.at;
         this.mark(s.at.x, s.at.z, 'goal', r, 34);
         const mode = s.t === 'goto' ? s.mode : undefined, kind = s.t === 'goto' ? s.kind : undefined;
-        if (!this.seated(mode, kind, tag)) return false;
         const stop = s.t === 'deliver' || !!s.stop;
+        // (No particular car: any of the crew getting there will do.)
+        if (!tag) return this.anyAt(s.at, r, mode, kind, stop);
+        if (!this.seated(mode, kind, tag)) return false;
         // (A car out with a helper is where it is and goes as fast as it goes: this player may be anywhere.)
         const who = v && p.vehicle !== v ? v : p;
         return Math.hypot(who.x - s.at.x, who.z - s.at.z) < r && (!stop || Math.abs(who.speed) < 2.5);
@@ -754,14 +835,16 @@ export class Runner {
         if (s.tag && (!v || this.gone(v))) { this.fail('WRITTEN OFF', 'That vehicle was the whole job.'); return false; }
         if (!v && s.kind) { const k = s.kind; v = g.vehicles.nearest(p.x, p.z, 900, (c) => c.spec.kind === k && !c.wreck && c.driver !== 'ai'); }
         if (s.tag || s.kind ? this.seated(undefined, s.kind, s.tag) : !!p.vehicle) return true;
+        // A kind, or anything: a helper at the wheel of one will do. (A tagged car a helper drives is lent: seated says so.)
+        if (!s.tag && this.crew) for (const c of this.crew.members()) if (c.kind && (!s.kind || c.kind === s.kind)) return true;
         if (v) { this.target = { x: v.x, z: v.z }; this.mark(v.x, v.z, 'goal', 3, 18); }
         return false;
       }
       case 'collect': {
-        const r = s.r ?? 3, ok = this.seated(s.mode);
+        const r = s.r ?? 3;
         for (let k = this.left.length - 1; k >= 0; k--) {
           const it = this.left[k];
-          if (ok && Math.hypot(p.x - it.x, p.z - it.z) < r + (p.vehicle ? 1.5 : 0)) {
+          if (this.anyAt(it, r, s.mode, undefined, false, 1.5)) {
             this.left.splice(k, 1);
             g.hud.toast(`${this.count - this.left.length} of ${this.count}.`, 2.5);
           } else this.mark(it.x, it.z, 'item', 1.6, 12, true);
@@ -796,14 +879,14 @@ export class Runner {
         this.mark(c.x, c.z, 'goal', r, 40);
         const n = s.cps[this.cpI + 1];
         if (n) this.mark(n.x, n.z, 'item', r * 0.6, 14);
-        if (this.seated(s.mode) && Math.hypot(p.x - c.x, p.z - c.z) < r) {
+        if (this.anyAt(c, r, s.mode, undefined, false)) {
           this.cpI++;
           if (this.cpI < s.cps.length) g.hud.toast(`Checkpoint ${this.cpI} of ${s.cps.length}.`, 2);
         }
         return this.cpI >= s.cps.length;
       }
       case 'survive': {
-        const inside = !s.at || Math.hypot(p.x - s.at.x, p.z - s.at.z) < (s.r ?? 40);
+        const inside = !s.at || this.anyAt(s.at, s.r ?? 40, undefined, undefined, false);
         if (s.at) { this.mark(s.at.x, s.at.z, 'goal', s.r ?? 40, 10); this.target = inside ? null : s.at; }
         if (inside) this.count -= dt;
         if (inside) this.obj(1, this.i, s.text); else this.obj(3, 0, 'Get back inside the ring. The clock is not running out here.');

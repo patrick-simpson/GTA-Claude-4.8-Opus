@@ -1300,7 +1300,13 @@ export function decodeHeld(buf: ArrayBuffer): { id: number; cars: HeldCar[] } | 
 //   8 x f32  12 y f32  16 z f32  20 yaw u16  22 vx i16  24 vz i16 (cm/s)   (a helper out of the car: it goes back)
 // Reclaim, 6:  3 CrewKind.Reclaim  4 to u8  5 keep u8   (1: the mission is over and the car is theirs, an ordinary
 //   car; 0: the script has taken it away)
-export const CrewKind = { Team: 1, Show: 2, End: 3, Reply: 4, Ask: 5, Lend: 6, Back: 7, Reclaim: 8 } as const;
+// (Stage 4, step 3, second piece.) In Show, byte 10 is now: bit 0 urgent; bit 1 "the clock's rate follows"; bits 2-7
+//   the rate the starter's mission clock runs at against the wall clock, q / 62 (63: exactly 1; 0 with bit 1: paused).
+//   A Show without bit 1 (an older page) is read as the wall clock, as before.
+// Things, 6 + 7 per person:  3 CrewKind.Things  4 mission u8  5 n u8  per person: step u8 (the `spawnActor` step that
+//   made them: every browser reads the look and the tag from its own copy of the story)  x u16  z u16 (5 cm steps from
+//   TRAFFIC_X0, TRAFFIC_Z0)  yaw u8 (256ths of a turn)  flags u8 (bit 0 down)   (the mission's people, on change)
+export const CrewKind = { Team: 1, Show: 2, End: 3, Reply: 4, Ask: 5, Lend: 6, Back: 7, Reclaim: 8, Things: 9 } as const;
 export const CrewObj = { None: 0, Step: 1, GetBackIn: 2, Ring: 3 } as const;
 export const CrewTimer = { None: 0, Running: 1, Still: 2, Meters: 3 } as const;
 /** Timer labels that are not a step's own. A smaller number is the index of the `timer` step whose label it is. */
@@ -1314,7 +1320,38 @@ export const CREW_MARK_BYTES = 6;
 export const CREW_MARKS_MAX = 13;
 export const CREW_BACK_BYTES = 26;
 export interface CrewMarkRec { x: number; z: number; r: number; kind: number; blip: boolean; target: boolean; tall: number }
-export interface CrewShowRec { mission: number; step: number; what: number; arg: number; label: number; mode: number; urgent: boolean; value: number; marks: CrewMarkRec[] }
+export interface CrewShowRec { mission: number; step: number; what: number; arg: number; label: number; mode: number; urgent: boolean; value: number; marks: CrewMarkRec[]; rate: number }
+export const CREW_THING_BYTES = 7;
+/** Mission people in one Things frame (the stories have one at a time; (96 - 6) / 7 would be 12). */
+export const CREW_THINGS_MAX = 8;
+export interface CrewThingRec { step: number; x: number; z: number; yaw: number; down: boolean }
+export function encodeCrewThings(mission: number, things: readonly CrewThingRec[], n: number): ArrayBuffer {
+  n = Math.min(n, things.length, CREW_THINGS_MAX);
+  const [buf, d] = crewFrame(CrewKind.Things, 6 + n * CREW_THING_BYTES);
+  d.setUint8(4, mission & 0xff); d.setUint8(5, n);
+  for (let i = 0, o = 6; i < n; i++, o += CREW_THING_BYTES) {
+    const t = things[i];
+    d.setUint8(o, t.step & 0xff);
+    d.setUint16(o + 1, clampU16((t.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+    d.setUint16(o + 3, clampU16((t.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+    d.setUint8(o + 5, Math.round(((((t.yaw % TAU) + TAU) % TAU) / TAU) * 256) & 0xff);
+    d.setUint8(o + 6, t.down ? 1 : 0);
+  }
+  return buf;
+}
+export function decodeCrewThings(buf: ArrayBuffer): { id: number; mission: number; things: CrewThingRec[] } | null {
+  if (buf.byteLength < 6) return null;
+  const d = new DataView(buf), n = d.getUint8(5);
+  if (n > CREW_THINGS_MAX || 6 + n * CREW_THING_BYTES > buf.byteLength) return null;
+  const things: CrewThingRec[] = [];
+  for (let i = 0, o = 6; i < n; i++, o += CREW_THING_BYTES) {
+    things.push({
+      step: d.getUint8(o), x: d.getUint16(o + 1, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(o + 3, true) * TRAFFIC_STEP + TRAFFIC_Z0,
+      yaw: (d.getUint8(o + 5) / 256) * TAU, down: (d.getUint8(o + 6) & 1) === 1,
+    });
+  }
+  return { id: d.getUint8(1), mission: d.getUint8(4), things };
+}
 export interface CrewBackRec { flags: number; health: number; kind: number; x: number; y: number; z: number; yaw: number; vx: number; vz: number }
 
 function crewFrame(kind: number, bytes: number): [ArrayBuffer, DataView] {
@@ -1348,7 +1385,9 @@ export function encodeCrewShow(s: CrewShowRec): ArrayBuffer {
   const n = Math.min(s.marks.length, CREW_MARKS_MAX);
   const [buf, d] = crewFrame(CrewKind.Show, CREW_SHOW_BYTES + n * CREW_MARK_BYTES);
   d.setUint8(4, s.mission & 0xff); d.setUint8(5, s.step & 0xff); d.setUint8(6, s.what & 0xff); d.setUint8(7, s.arg & 0xff);
-  d.setUint8(8, s.label & 0xff); d.setUint8(9, s.mode & 0xff); d.setUint8(10, s.urgent ? 1 : 0);
+  d.setUint8(8, s.label & 0xff); d.setUint8(9, s.mode & 0xff);
+  const q = s.rate >= 0.995 ? 63 : Math.max(0, Math.min(62, Math.round(s.rate * 62)));
+  d.setUint8(10, (s.urgent ? 1 : 0) | 2 | (q << 2));
   d.setUint16(11, clampU16(s.value), true); d.setUint8(13, n);
   for (let i = 0, o = CREW_SHOW_BYTES; i < n; i++, o += CREW_MARK_BYTES) {
     const m = s.marks[i];
@@ -1373,9 +1412,11 @@ export function decodeCrewShow(buf: ArrayBuffer): (CrewShowRec & { id: number })
   }
   return {
     id: d.getUint8(1), mission: d.getUint8(4), step: d.getUint8(5), what: d.getUint8(6), arg: d.getUint8(7),
-    label: d.getUint8(8), mode: d.getUint8(9), urgent: d.getUint8(10) === 1, value: d.getUint16(11, true), marks,
+    label: d.getUint8(8), mode: d.getUint8(9), urgent: (d.getUint8(10) & 1) === 1, value: d.getUint16(11, true), marks,
+    rate: rateOf(d.getUint8(10)),
   };
 }
+function rateOf(b: number): number { if (!(b & 2)) return 1; const q = b >> 2; return q === 63 ? 1 : q / 62; }
 /** End, Reply, Ask and Reclaim: three small numbers after the kind. */
 export function encodeCrewSmall(kind: number, a: number, b = 0, c = 0): ArrayBuffer {
   const [buf, d] = crewFrame(kind, kind === CrewKind.End ? 7 : 6);
