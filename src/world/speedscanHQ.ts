@@ -10,19 +10,24 @@
 // The tower is a THREE.LOD; the logo (the owner's artwork as geometry) is one merged mesh over the six spots in
 // LOGO_SPOTS; the stink lines are one mesh of camera-facing ribbons bent by the vertex shader (a clock uniform, no
 // per-frame buffers), plus nothing else: three or four draw calls in all.
+// Inside (the lobby, two lifts, the office floor 42 with the card-printer room, the roof deck): speedscanInterior.ts,
+// made here and fed hq_lobby (the stand-in lobby glass) and the logo once this file's model is in.
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Game } from '../core/game';
 import { assets } from '../core/assets';
+import { SpeedScanInterior } from './speedscanInterior';
 
 /** The model's origin in the world: the middle of block 44's lots (x -16.5..70.5, z -6.5..70.5), at street level. */
 export const HQ = { x: 27, z: 32 };
 /** Model-frame boxes the player cannot walk into: x0, x1, z0, z1, top (in step with speedscan.py). */
+// The lobby (x -31..31, z -14..10) is a room: speedscanInterior.ts adds its walls, the tower above the podium (boxes with
+// a bottom) and, on phones, a box filling it.
 export const HQ_SOLIDS: number[][] = [
-  [-42, 42, -37, 10, 20],          // podium (the lobby glass is its south face)
-  [-33, 33, -36, 6, 322],          // the shafts and the crown, for anything that flies
+  [-42, 42, -37, -14, 20],         // podium behind the lobby
+  [-42, -31, -14, 10, 20], [31, 42, -14, 10, 20],   // and either side of it
   [-32, -14, 18, 30, 0.8],         // fountain
   [13, 31, 32.6, 34.8, 3.4],       // monument sign
   [-12.45, -11.55, 16.05, 16.95, 7.2], [11.55, 12.45, 16.05, 16.95, 7.2],   // canopy columns
@@ -190,12 +195,15 @@ export class SpeedScanHQ {
   readonly group = new THREE.Group();
   private low: boolean;
   private glassMats: THREE.MeshStandardMaterial[] = [];
+  /** The lobby, the lifts, the office floor and the roof deck (speedscanInterior.ts). */
+  readonly interior: SpeedScanInterior;
 
   /** `env`: the reflection map the city's own materials use (the glass is mostly reflection). */
   constructor(private game: Game, parent: THREE.Object3D, private env: () => THREE.Texture | null) {
     this.low = game.quality.name === 'low';
     this.group.name = 'speedscan-hq';
     parent.add(this.group);
+    this.interior = new SpeedScanInterior(game, this.group, HQ, env);
     // ?hq=0 leaves the tower out (the block stays empty): for timing what it costs.
     if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('hq') === '0') return;
     this.group.add(stinkLines());
@@ -204,6 +212,7 @@ export class SpeedScanHQ {
 
   update(dt: number): void {
     U.uTime.value = (U.uTime.value + dt) % 3600;
+    this.interior.update(dt);
     const env = this.env();
     for (const m of this.glassMats) if (m.envMap !== env) { m.envMap = env; m.envMapIntensity = 1; m.needsUpdate = true; }
   }
@@ -231,6 +240,16 @@ export class SpeedScanHQ {
       lod.addLevel(mesh, this.low ? 0 : level === 0 ? 0 : level === 1 ? NEAR1 : NEAR2);
     }
     this.group.add(lod);
+    // The lobby's warm glass as one panel: drawn while the real lobby is not (hq_0 and hq_1 have a hole there).
+    let standIn: THREE.Mesh | null = null;
+    const sg = !this.low ? geo.get('hq_lobby') : undefined;
+    if (sg && this.glassMats[0]) {
+      sg.computeBoundingSphere();
+      standIn = new THREE.Mesh(sg, this.glassMats[0]);
+      standIn.position.set(HQ.x, 0, HQ.z); standIn.name = 'speedscan-lobby-standin';
+      this.group.add(standIn);
+    }
+    this.interior.attach(standIn, geo.get('logo_0') ?? null);
     const lg = geo.get(this.low ? 'logo_2' : 'logo_0') ?? geo.get('logo_2');
     if (lg) {
       const copies = LOGO_SPOTS.map(([x, y, z, ry, w]) => {

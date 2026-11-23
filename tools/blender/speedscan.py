@@ -7,7 +7,9 @@
 #   speedscan.glb      hq_0 (near: fins, spandrel ledges, corner piers, lobby, canopy, plaza furniture), hq_1 (street: the
 #                      same outline with fins every other bay and no plaza furniture), hq_2 (far: boxes, crown and mast);
 #                      logo_0 (the owner's logo as geometry: extruded Orbitron letters and the speed lines, on its light
-#                      panel) and logo_2 (the same, flat and coarse).
+#                      panel) and logo_2 (the same, flat and coarse); hq_lobby (the lobby's warm glass as one panel: a
+#                      stand-in the game draws while the real lobby, speedscan_int.py, is not drawn; hq_0 and hq_1
+#                      have a hole there, and two door holes in the lantern's south glass onto the roof deck).
 #   speedscan_far.glb  hq_2 and logo_2 alone: the whole file the phone preset fetches.
 #
 # The logo comes from the owner's own artwork, tools/blender/speedscan/SpeedScan Logo Light.svg (polygons and Orbitron
@@ -166,7 +168,13 @@ def shaft(m, s, lod):
 
 def podium(m, lod):
     x0, x1, z0, z1, y0, y1 = PODIUM
-    m.box(x0, x1, y0, y1, z0, z1, STONE, 0, skip='b')
+    if lod == 2: m.box(x0, x1, y0, y1, z0, z1, STONE, 0, skip='b')
+    else:
+        # The lobby is a real room (tools/blender/speedscan_int.py): the stone front has a hole x -31..31, y 0..15 for
+        # its glass; the warm stand-in panel is its own object (hq_lobby), drawn while the interior is not.
+        m.box(x0, x1, y0, y1, z0, z1, STONE, 0, skip='bf')
+        for (fx0, fx1, fy0, fy1) in ((x0, -31, y0, y1), (31, x1, y0, y1), (-31, 31, 15, y1)):
+            m.face([(fx0, fy0, z1), (fx1, fy0, z1), (fx1, fy1, z1), (fx0, fy1, z1)], STONE, 0, (0, 0, 1))
     # Tall strip windows on the stone, office glass.
     for side in range(4):
         horiz = side in (0, 2)
@@ -182,16 +190,18 @@ def podium(m, lod):
                     m.face([(xx, 5.5, k), (xx, 5.5, k + 2), (xx, 18.5, k + 2), (xx, 18.5, k)], GLASS, 0.5, (1 if side == 1 else -1, 0, 0))
             k += 4
     # The lobby: a 14 m wall of glass facing the plaza, set back 1.5 m under the stone.
-    m.box(-31, 31, 0.2, 15, z1 - 1.5, z1 + 0.05, WARM, 0.85, skip='kb')
+    if lod == 2: m.box(-31, 31, 0.2, 15, z1 - 1.5, z1 + 0.05, WARM, 0.85, skip='kb')
+    elif lod == 0: LOBBY.face([(-31, 0.2, z1 + 0.05), (31, 0.2, z1 + 0.05), (31, 15, z1 + 0.05), (-31, 15, z1 + 0.05)], WARM, 0.85, (0, 0, 1))
     m.box(-31.6, 31.6, 15, 16.2, z1 - 1.6, z1 + 0.3, STEEL, 0, skip='k')
     if lod < 2:
         for k in range(-30, 31, 3 if lod == 0 else 6):
+            if k == 0: continue          # the doors
             m.box(k - 0.12, k + 0.12, 0.2, 15, z1 - 0.1, z1 + 0.3, DARK, 0, skip='kb')
     # Entrance: canopy on two columns, its tall fascia carries the logo (z 18.05, y 8.5, 16 m wide).
     m.box(-14, 14, 7.2, 9.8, 10, 18, DARK, 0)
     m.box(-14, 14, 7.0, 7.2, 10, 18, CYAN, 1.0, skip='t')
     for cx in (-12, 12): m.cyl(cx, 16.5, 0.45, 0.2, 7.2, STEEL, 0, n=10 if lod == 0 else 6)
-    m.box(-5, 5, 0.2, 5.5, z1 - 1.4, z1 - 1.3, DARK, 0, skip='kb')
+    if lod == 2: m.box(-5, 5, 0.2, 5.5, z1 - 1.4, z1 - 1.3, DARK, 0, skip='kb')
     # Aviation-style setback lights at the podium corners.
     for cx in (x0, x1): m.box(cx - 0.4, cx + 0.4, y1 + 0.3, y1 + 1.1, z0 + 0.2, z0 + 1, RED, 1.0, skip='b')
 
@@ -232,7 +242,15 @@ def crown(m, lod):
         m.box(x0 - 0.3, x1 + 0.3, y, y + 0.5, z0 - 0.3, z1 + 0.3, CYAN, 1.0)
     for i, L in enumerate(LANTERN):
         lx0, lx1, lz0, lz1, ly0, ly1 = L
-        m.box(lx0, lx1, ly0, ly1, lz0, lz1, GLASS, 0.5, skip='b')
+        if i == 0 and lod < 2:
+            # Two lift doors open onto the roof deck (speedscan_int.py): holes in the south glass at x +-4.125.
+            m.box(lx0, lx1, ly0, ly1, lz0, lz1, GLASS, 0.5, skip='bf')
+            xs = [lx0, -4.775, -3.475, 3.475, 4.775, lx1]
+            for k in range(0, 6, 2):
+                m.face([(xs[k], ly0, lz1), (xs[k + 1], ly0, lz1), (xs[k + 1], ly1, lz1), (xs[k], ly1, lz1)], GLASS, 0.5, (0, 0, 1))
+            for k in (1, 3):
+                m.face([(xs[k], ly0 + 2.4, lz1), (xs[k + 1], ly0 + 2.4, lz1), (xs[k + 1], ly1, lz1), (xs[k], ly1, lz1)], GLASS, 0.5, (0, 0, 1))
+        else: m.box(lx0, lx1, ly0, ly1, lz0, lz1, GLASS, 0.5, skip='b')
         n = 8 if lod == 2 else 16
         for k in range(n + 1):
             t = lx0 + (lx1 - lx0) * k / n
@@ -254,6 +272,9 @@ def crown(m, lod):
     m.cyl(0, -15, 0.9, SPIRE_TOP - 4, MAST_TOP, STEEL, 0, n=8)
     m.box(-1.0, 1.0, MAST_TOP, MAST_TOP + 1.6, -16, -14, RED, 1.0)
     m.box(-0.8, 0.8, 352, 353.2, -15.8, -14.2, RED, 1.0)
+
+
+LOBBY = Mesh()
 
 
 def build(lod):
@@ -384,9 +405,10 @@ def main():
         obs[name] = m.to_object(name, coll)
         stats[name] = len(m.f)
     show()
+    obs['hq_lobby'] = LOBBY.to_object('hq_lobby', coll)
     for ob in obs.values(): ob.location = (0, 0, 0)
     out = {'faces': stats}
-    out['speedscan_kB'] = export([obs[k] for k in ('hq_0', 'hq_1', 'hq_2', 'logo_0', 'logo_2')], os.path.join(OUT, 'speedscan.glb'))
+    out['speedscan_kB'] = export([obs[k] for k in ('hq_0', 'hq_1', 'hq_2', 'logo_0', 'logo_2', 'hq_lobby')], os.path.join(OUT, 'speedscan.glb'))
     out['speedscan_far_kB'] = export([obs['hq_2'], obs['logo_2']], os.path.join(OUT, 'speedscan_far.glb'))
     print('SS_META ' + json.dumps(out))
     # Close the window once the files are written (as buildings.py does): wm.quit_blender can stop on an
