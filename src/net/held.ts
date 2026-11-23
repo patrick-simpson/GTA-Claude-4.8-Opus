@@ -40,7 +40,7 @@ const SNAP = 8;
 const EASE = 10;
 
 /** One of another player's held cars, as drawn here. */
-interface Shown { v: Vehicle; kind: VehicleKind; want: HeldCar; placed: boolean; still: boolean }
+interface Shown { v: Vehicle; kind: VehicleKind; want: HeldCar; placed: boolean; still: boolean; door: boolean }
 
 export class TownHeld {
   /** Lists sent and bytes of them; lists heard; cars let go of by a script and left to the town. */
@@ -61,6 +61,12 @@ export class TownHeld {
   private readonly shown: Vehicle[] = [];
   private readonly shownSet = new Set<Vehicle>();
 
+  /**
+   * Stage 4, step 3 (crew.ts): is this player on that player's mission? Their held cars are then drawn here as cars
+   * WITH a door (one of the town's kind: in the list, placed from here, asked for at the door) instead of as a ghost.
+   */
+  crewOf: ((id: number) => boolean) | null = null;
+
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>, private readonly shared: SharedTraffic, private readonly cars: TownCars) {}
 
   /** Somebody has just arrived and knows nothing: the list goes once more (if there is anything in it). */
@@ -70,6 +76,51 @@ export class TownHeld {
   list(): readonly Vehicle[] { return this.shown; }
   /** Is this one of them? */
   has(v: Vehicle): boolean { return this.shownSet.has(v); }
+
+  /** Whose, and in which slot, a car shown here is. */
+  shownSlot(v: Vehicle): { id: number; slot: number } | null {
+    if (!this.shownSet.has(v)) return null;
+    for (const [id, map] of this.theirs) for (const [slot, s] of map) if (s.v === v) return { id, slot };
+    return null;
+  }
+  /** This player's held car in a slot of its lists. */
+  mineAt(slot: number): Vehicle | null { for (const [v, s] of this.slots) if (s === slot) return v; return null; }
+
+  /** A shown car with a door becomes this browser's own (a helper has been lent it): it is no longer shown from here. */
+  adopt(v: Vehicle): boolean {
+    for (const [id, map] of this.theirs) for (const [slot, s] of map) {
+      if (s.v !== v || !s.door) continue;
+      map.delete(slot);
+      // (A list sent before the starter let go of it, still waiting to be shown, must not stand it here again.)
+      for (const q of this.queue) if (q.id === id) q.cars = q.cars.filter((c) => c.slot !== slot);
+      this.relist();
+      return true;
+    }
+    return false;
+  }
+
+  /** Being on somebody's crew or not has changed: their cars are drawn again in the other way. */
+  restyle(id: number): void {
+    const map = this.theirs.get(id);
+    if (!map) return;
+    const door = !!this.crewOf?.(id);
+    for (const s of map.values()) {
+      if (s.door === door) continue;
+      this.unshow(s);
+      s.v = this.make(s.kind, s.want.color, door); s.door = door; s.placed = false; s.still = false;
+    }
+    this.relist();
+  }
+
+  private make(kind: VehicleKind, color: number, door: boolean): Vehicle {
+    const vs = this.game.vehicles;
+    if (!door) { const v = vs.ghost(kind, color); v.driver = null; return v; }
+    const v = vs.spawn(kind, 0, -5000, 0, color);
+    vs.setShared(v, true);
+    v.driver = null;
+    return v;
+  }
+  private unshow(s: Shown): void { if (s.door) this.game.vehicles.remove(s.v); else this.game.vehicles.unghost(s.v); }
 
   // ── The others' ─────────────────────────────────────────────────────────────
 
@@ -88,18 +139,18 @@ export class TownHeld {
     const vs = this.game.vehicles;
     let map = this.theirs.get(id);
     if (!map) this.theirs.set(id, map = new Map());
-    for (const [slot, s] of map) if (!cars.some((c) => c.slot === slot)) { vs.unghost(s.v); map.delete(slot); }
+    const door = !!this.crewOf?.(id);
+    for (const [slot, s] of map) if (!cars.some((c) => c.slot === slot)) { this.unshow(s); map.delete(slot); }
     for (const c of cars) {
       const kind = KINDS[c.kind];
       let s = map.get(c.slot);
       // (Another kind in the slot, or a whole car where a burnt out one stood: another car.)
-      if (s && (!kind || s.kind !== kind || (s.v.wreck && c.damage < DAMAGE_WRECK))) { vs.unghost(s.v); map.delete(c.slot); s = undefined; }
+      if (s && (!kind || s.kind !== kind || s.door !== door || (s.v.wreck && c.damage < DAMAGE_WRECK))) { this.unshow(s); map.delete(c.slot); s = undefined; }
       if (!kind) continue;
       if (!s) {
-        const v = vs.ghost(kind, c.color);
         // Nobody is in it: no lamps, no daytime strip.
-        v.driver = null;
-        map.set(c.slot, s = { v, kind, want: c, placed: false, still: false });
+        const v = this.make(kind, c.color, door);
+        map.set(c.slot, s = { v, kind, want: c, placed: false, still: false, door });
       }
       s.want = c; s.still = false;
     }
@@ -118,14 +169,14 @@ export class TownHeld {
     const map = this.theirs.get(id);
     for (let k = this.queue.length - 1; k >= 0; k--) if (this.queue[k].id === id) this.queue.splice(k, 1);
     if (!map) return;
-    for (const s of map.values()) this.game.vehicles.unghost(s.v);
+    for (const s of map.values()) this.unshow(s);
     this.theirs.delete(id);
     this.relist();
   }
 
   /** Out of town altogether. */
   clear(): void {
-    for (const map of this.theirs.values()) for (const s of map.values()) this.game.vehicles.unghost(s.v);
+    for (const map of this.theirs.values()) for (const s of map.values()) this.unshow(s);
     this.theirs.clear();
     this.queue.length = 0;
     this.relist();
@@ -161,12 +212,13 @@ export class TownHeld {
     const g = this.game, cur = this.was, was = this.cur;
     // (The two sets swap each frame: no garbage.)
     cur.clear();
-    for (const v of g.vehicles.list) if (v.held && !v.removed) cur.add(v);
+    // (A mission car a helper has borrowed from another player is that player's to list: crew.ts.)
+    for (const v of g.vehicles.list) if (v.held && !v.removed && !v.lent) cur.add(v);
     for (const v of was) {
       if (cur.has(v)) continue;
       this.slots.delete(v);
       // Let go of with nobody in it, and still on the street: from here it is a car its player has just got out of.
-      if (!v.held && !v.removed && !v.sunk && v.driver === null && this.shared.town) { this.cars.release(v); this.stats.released++; }
+      if (!v.held && !v.removed && !v.sunk && !v.lent && v.driver === null && this.shared.town) { this.cars.release(v); this.stats.released++; }
     }
     this.was = was; this.cur = cur;
   }
@@ -233,7 +285,7 @@ export class TownHeld {
     const r1 = (v: number): number => +v.toFixed(1);
     const mine: Record<string, unknown>[] = [], theirs: Record<string, unknown>[] = [];
     for (const v of this.cur) mine.push({ slot: this.slots.get(v) ?? -1, kind: v.spec.kind, x: r1(v.x), z: r1(v.z), driver: v.driver });
-    for (const [id, map] of this.theirs) for (const [slot, s] of map) theirs.push({ id, slot, kind: s.kind, color: s.v.color, x: r1(s.v.x), z: r1(s.v.z), h: +s.v.h.toFixed(2), wreck: !!s.v.wreck });
+    for (const [id, map] of this.theirs) for (const [slot, s] of map) theirs.push({ id, slot, door: s.door, kind: s.kind, color: s.v.color, x: r1(s.v.x), z: r1(s.v.z), h: +s.v.h.toFixed(2), wreck: !!s.v.wreck });
     return { ...this.stats, mine, theirs };
   }
 }

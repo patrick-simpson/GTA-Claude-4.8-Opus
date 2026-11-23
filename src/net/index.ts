@@ -46,6 +46,7 @@ import { TownFight } from './fight';
 import { TownProps } from './props';
 import { Town } from './town';
 import { TownHeld } from './held';
+import { TownCrew } from './crew';
 import { SAYS, myName, nameText, rerollName } from './names';
 
 const SEND_MS = 1000 / SEND_HZ;
@@ -72,6 +73,8 @@ export class Net {
   readonly town: Town;
   /** The cars missions and jobs are holding: their runner's own, and shown to the others as that (stage 4, step 2). */
   readonly held: TownHeld;
+  /** Missions done together: who is on whose crew, what they are shown, the pay, and the mission car lent (stage 4, step 3). */
+  readonly crew: TownCrew;
   /** State frames sent, apart from the totals in conn.sent. */
   statesSent = 0;
 
@@ -115,6 +118,7 @@ export class Net {
     this.town = new Town(game, c, this.remotes);
     this.held = new TownHeld(game, c, this.remotes, this.shared, this.cars);
     this.fight.held = this.held;
+    this.crew = new TownCrew(game, c, this.remotes, this.held, this.cars);
     this.shared.heldCars = () => this.held.list();
     // A paused game simulates nothing, so it says at once that it cannot host (and, on resuming, that it can again).
     game.on('pause', () => { this.perfAt = 0; });
@@ -185,6 +189,7 @@ export class Net {
     if (!r) return;
     this.cars.dropped(r, performance.now());
     this.fight.dropped(id);
+    this.crew.dropped(id);
     this.held.dropped(id);
     r.dispose();
     this.remotes.delete(id);
@@ -194,6 +199,7 @@ export class Net {
     for (const r of this.remotes.values()) r.dispose();
     this.remotes.clear();
     this.fight.clear();
+    this.crew.clear();
     this.held.clear();
     this.showCount();
   }
@@ -224,6 +230,7 @@ export class Net {
       if (!e) return;
       // The horn is heard from the flag in the state frames; waves and shouts come this way, and so does gunfire.
       if (e.code === PlayerEvent.Held) this.held.event(buf, performance.now());
+      else if (e.code === PlayerEvent.Crew) this.crew.event(buf);
       else if (e.code === PlayerEvent.Prop) this.props.event(buf);
       else if (e.code >= PlayerEvent.Fire) this.fight.event(e.code, buf, performance.now());
       else this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
@@ -331,6 +338,7 @@ export class Net {
     if (this.noteKind && !this.told[this.noteKind] && g.state === 'play') this.tellOnce(this.noteKind);
     // (Before this player's own state goes: a car they have this moment got out of is in the list by then.)
     this.held.update(now, dt);
+    this.crew.update(now);
     this.pump(now);
     if (g.state === 'play' && g.input.hit('say')) this.sayCycle();
     if (this.remotes.size > 0) {
@@ -435,6 +443,8 @@ export class Net {
       town: this.town.info(),
       // held: the cars scripts hold for this player (`mine`) and the other players' as drawn here (`theirs`), and the lists sent and heard (held.ts).
       held: this.held.info(),
+      // crew: missions done together: the crew this player drafted, whose crew they are on and what they are shown (crew.ts).
+      crew: this.crew.info(),
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({

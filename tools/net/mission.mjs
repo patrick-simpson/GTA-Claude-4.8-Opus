@@ -216,7 +216,9 @@ async function story(R, O, H, shots) {
   const rid = (await R.net()).id;
   const spot = { x: 313.5, z: 262 };
   const kerb = await R.page.evaluate(([x, z]) => { const n = window.__game.game.plan.nearestNode(x, z); return n.x + n.hx + 2.2; }, [spot.x, spot.z]);
-  await R.go(kerb, spot.z - 3, 0); await O.go(kerb, spot.z - 11, 0);
+  // (The other player stands more than 30 m off while the mission begins: within that it would be on the runner's crew
+  // (stage 4, step 3, crew.mjs). This test is about a mission that is the runner's alone.)
+  await R.go(kerb, spot.z - 3, 0); await O.go(kerb, spot.z - 45, 0);
   await calm(R); await calm(O);
   await sleep(2500);
   await R.mark(); await O.mark();
@@ -234,6 +236,7 @@ async function story(R, O, H, shots) {
     td.missions.start(td.missions.missions.find((m) => m.id === 'm03'));
   });
   let s = await read(R);
+  await O.go(kerb, spot.z - 11, 0);
   let van = await R.mine('van');
   check(s.cur === 'm03' && !!s.want && s.want.t === 'getVehicle' && !!van && van.listed, `${who}: the lines are read and the script has made the white van`, `wants ${s.want ? s.want.t : 'nothing'}; van ${van ? car1(van) : 'none'}; standing on the spot before: ${R.tag} had ${inWay[0].join(', ') || 'nothing'}, ${O.tag} had ${inWay[1].join(', ') || 'nothing'} (vans: ${before.text})`);
   if (!van) throw new Error('no mission van: the rest cannot run');
@@ -290,7 +293,8 @@ async function story(R, O, H, shots) {
   check((!oc || oc.kind !== 'van') && s.cur === 'm03' && !s.failed && v.rs.list.length === 1 && v.theirs.length === 1,
     `${who}: the other player tries the door: it is not theirs to take, and the mission goes on`, `${O.tag} is ${oc ? 'at the wheel of a ' + oc.kind : 'on foot'}, asked the host ${wire(O, '4.3') - take0} times; ${R.tag}'s mission: ${s.cur ?? 'none'}${s.failed ? ', failed: ' + s.failed : ''}; ${v.text}`);
   if (oc) { await getOut(O); await sleep(6000); }
-  await O.go(kerb, at.z - 11, 0);
+  // (Out of the 30 m the retry below drafts from: see the top of this function.)
+  await O.go(kerb, at.z - 45, 0);
 
   // ── The clock runs out, and the runner tries again ──
   s = await R.todo();
@@ -334,8 +338,11 @@ async function story(R, O, H, shots) {
   // ── Again, to the end ──
   const cash0 = s.money;
   await R.go(kerb, spot.z - 3, 0);
+  await O.go(kerb, spot.z - 45, 0);
+  await sleep(1500);
   await R.page.evaluate(() => { const td = window.__game.game.todo; td.missions.start(td.missions.missions.find((m) => m.id === 'm03')); });
   s = await read(R);
+  await O.go(kerb, spot.z - 11, 0);
   van = await R.mine('van');
   ok = !!van && await getIn(R, van, 'van');
   s = await read(R);

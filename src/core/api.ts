@@ -117,6 +117,11 @@ export interface Vehicle {
    * to the town when they get out, and the others are shown it as this player's (net/held.ts).
    */
   held?: boolean;
+  /**
+   * Multiplayer (net/crew.ts): another player's mission car this player's browser has been lent, as a helper on that
+   * mission. It is driven and simulated here, and goes back to its starter (not to the town) when they get out.
+   */
+  lent?: boolean;
   /** Half length and half width of the collision box, meters. */
   readonly hl: number; readonly hw: number;
   /** Where a person stands to use a door. side: -1 = left (driver), +1 = right. */

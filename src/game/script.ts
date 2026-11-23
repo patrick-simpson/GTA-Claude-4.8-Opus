@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { Look, Person, Vehicle } from '../core/api';
-import type { VehicleKind } from '../ent/vehicleSpecs';
+import { KINDS, type VehicleKind } from '../ent/vehicleSpecs';
 import type { WeaponId } from '../ent/weapons';
 import type { Blip } from '../ui/hud';
 import { groundAt } from '../world/plan';
@@ -208,10 +208,62 @@ export class Markers {
 // ── The runner ───────────────────────────────────────────────────────────────
 
 interface Rail { v: Vehicle; pts: Pt[]; seg: number; s: number; speed: number; done: boolean }
-interface Snap { i: number; x: number; z: number; h: number; tag: string | null; kind: VehicleKind | null; timer: number; timerLabel: string }
+interface Snap { i: number; x: number; z: number; h: number; tag: string | null; kind: VehicleKind | null; timer: number; timerLabel: string; code: number }
 interface Line { who: string; text: string; left: number }
 
 /** What the runner is asking for right now, for the scripted player in the tests. */
+/**
+ * Every way a mission can fail, title and line. The runner fails only with these, so a starter can tell its helpers
+ * which by number (net/crew.ts) and their own browser says the words.
+ */
+export const FAILS: readonly (readonly [string, string])[] = [
+  ['BOOKED', 'The Harbor Patrol has filed you under "pending".'],
+  ['CLOCKED OUT', 'You did not live to invoice for it.'],
+  ['PAST DUE', 'The clock ran out. It always had more time than you.'],
+  ['WRITTEN OFF', 'That vehicle was the whole job.'],
+  ['THE TRAIL WENT COLD', 'There is nothing left of them to follow.'],
+  ['MADE', 'They looked in the mirror and you were all of it.'],
+  ['THE TRAIL WENT COLD', 'They went one way. You went into speculation.'],
+];
+
+/** One marker as the runner put it this frame: what a helper is shown (net/crew.ts). kind: 0 goal, 1 item, 2 none (only a blip or the route's end). */
+export interface ViewMark { x: number; z: number; r: number; kind: number; blip: boolean; target: boolean; tall: number }
+/**
+ * What the runner showed this frame, as numbers: the objective (0 none, 1 step `arg`'s text, 2 "get back in" the kind
+ * `arg`, 3 back inside the ring), the timer (label: a step's index, or one of crew.ts's fixed labels; mode 0 none,
+ * 1 counting down, 2 standing, 3 meters), and the markers.
+ */
+export interface View { what: number; arg: number; label: number; mode: number; value: number; urgent: boolean; marks: ViewMark[] }
+
+/** What a helper on another player's mission is shown (net/crew.ts fills it; the runner draws it). */
+export interface Guest {
+  /** The starter's made-up name. */
+  who: string;
+  m: Mission;
+  /** "You are on X's job: Title." */
+  line: string;
+  objective: string | null;
+  timerLabel: string | null;
+  timerMode: number;
+  timerValue: number;
+  timerUrgent: boolean;
+  /** performance.now() when the timer value was told. */
+  timerAt: number;
+  marks: ViewMark[];
+}
+
+/** The runner's line to a shared town (net/crew.ts). Alone it is null and nothing changes. */
+export interface CrewLink {
+  /** A mission has begun here (a retry is a beginning). */
+  began(m: Mission): void;
+  /** It is over: passed, failed (with the index of its line in FAILS) or set aside. */
+  ended(m: Mission, how: 'pass' | 'fail' | 'aside', why: number): void;
+  /** Is this car of the script's out with a helper, being driven in their browser? */
+  lent(v: Vehicle): boolean;
+  /** The script is done with a car a helper has: theirs to keep as an ordinary car (the mission is over), or taken away. */
+  drop(v: Vehicle, keep: boolean): void;
+}
+
 export interface Want { id: string; i: number; t: string; at: Pt | null; r: number; mode: Mode; tag: string | null; kind: VehicleKind | null; stop: boolean; tags: string[]; items: Pt[]; failed: string | null }
 
 export class Runner {
@@ -223,11 +275,22 @@ export class Runner {
   /** Where the business in hand is, for the route line. */
   target: Pt | null = null;
   readonly ents = new Map<string, Vehicle | Person>();
+  /** Multiplayer: set by net/crew.ts in a shared town on the main service. */
+  crew: CrewLink | null = null;
+  /** Multiplayer: this player is on another player's mission, and this is what they are shown of it. */
+  guest: Guest | null = null;
+  /** What was shown this frame, for the helpers (see View). */
+  readonly view: View = { what: 0, arg: 0, label: 0, mode: 0, value: 0, urgent: false, marks: [] };
+  private nMarks = 0;
+  private readonly markPool: ViewMark[] = [];
 
   private i = 0;
   private stepT = 0;
   private entered = false;
   private timer = 0; private timerLabel = '';
+  /** The countdown's label as crew.ts sends it: the `timer` step that named it, or one of the fixed ones. */
+  private labelCode = 249;
+  private lastObj = '';
   private cp: Snap | null = null;
   private lines: Line[] = [];
   private rail: Rail | null = null;
@@ -272,6 +335,8 @@ export class Runner {
   }
 
   blips(out: Blip[]): void {
+    const gu = this.guest;
+    if (gu && !this.cur) { for (const k of gu.marks) if (k.blip) out.push({ x: k.x, z: k.z, kind: 'goal' }); return; }
     const s = this.step();
     if (!this.cur || this.failed) {
       if (!this.cur) for (const o of this.offers()) { const g = this.givers[o.giver]; out.push({ x: g.at.x, z: g.at.z, kind: 'giver', label: g.letter }); }
@@ -285,7 +350,52 @@ export class Runner {
 
   private step(): Step | null { return this.cur ? this.cur.steps[this.i] ?? null : null; }
   private car(tag: string): Vehicle | null { const e = this.ents.get(tag); return e && 'spec' in e ? e : null; }
-  private gone(v: Vehicle): boolean { return !!v.wreck || v.sunk || !this.game.vehicles.list.includes(v); }
+  private gone(v: Vehicle): boolean { return !!v.wreck || v.sunk || (!this.crew?.lent(v) && !this.game.vehicles.list.includes(v)); }
+  /** At the wheel of it: this player, or (in a shared town) a helper this player's browser lent it to. */
+  private driving(v: Vehicle): boolean { return this.game.player.vehicle === v || !!this.crew?.lent(v); }
+
+  /** A helper has handed back a car of the script's: the new one stands in for the old under the same tag. */
+  swap(old: Vehicle, now: Vehicle): void {
+    for (const [k, e] of this.ents) if (e === old) this.ents.set(k, now);
+    if (this.rail && this.rail.v === old) this.rail.v = now;
+  }
+  /** Is this one of the script's cars? */
+  owns(v: Vehicle): boolean { for (const e of this.ents.values()) if (e === v) return true; return false; }
+
+  // ── What is shown, for the helpers ─────────────────────────────────────────
+
+  private obj(what: number, arg: number, text: string | null): void {
+    this.view.what = what; this.view.arg = arg;
+    this.game.hud.objective(text);
+  }
+  private time(label: number, mode: number, value: number, urgent: boolean, text: string, shown: string): void {
+    const v = this.view;
+    v.label = label; v.mode = mode; v.value = value; v.urgent = urgent;
+    this.game.hud.timer(text, shown, urgent);
+  }
+  private noTime(): void { this.view.mode = 0; this.game.hud.timer(null); }
+  private mark(x: number, z: number, kind: 'goal' | 'item', r: number, tall: number, blip = false): void {
+    this.markers.put(x, z, kind, r, tall);
+    const m = this.markPool[this.nMarks] ?? (this.markPool[this.nMarks] = { x: 0, z: 0, r: 0, kind: 0, blip: false, target: false, tall: 0 });
+    this.nMarks++;
+    m.x = x; m.z = z; m.r = r; m.kind = kind === 'goal' ? 0 : 1; m.blip = blip; m.target = false; m.tall = tall;
+  }
+  /** The frame's markers into the view, with the route's end marked (and added when it is not one of them). */
+  private closeView(): void {
+    const v = this.view, t = this.target;
+    v.marks.length = 0;
+    for (let i = 0; i < this.nMarks; i++) v.marks.push(this.markPool[i]);
+    if (!this.cur || this.failed) { v.marks.length = 0; return; }
+    if (t) {
+      let hit = false;
+      for (const m of v.marks) if (Math.abs(m.x - t.x) < 0.3 && Math.abs(m.z - t.z) < 0.3) { m.target = m.blip = true; hit = true; break; }
+      if (!hit) {
+        const m = this.markPool[this.nMarks] ?? (this.markPool[this.nMarks] = { x: 0, z: 0, r: 0, kind: 0, blip: false, target: false, tall: 0 });
+        m.x = t.x; m.z = t.z; m.r = 0; m.kind = 2; m.blip = true; m.target = true; m.tall = 0;
+        v.marks.push(m);
+      }
+    }
+  }
 
   // ── Starting, finishing, failing ───────────────────────────────────────────
 
@@ -297,21 +407,24 @@ export class Runner {
     this.onBusy(m.id);
     this.cp = this.snap(0);
     // Whatever the strip was saying (the newcomer's tour, usually) gives way to the mission.
-    g.hud.objective(null);
+    this.obj(0, 0, null);
     g.hud.stamp(m.title, m.intro);
+    this.crew?.began(m);
   }
 
   private snap(i: number): Snap {
     const p = this.game.player, v = p.vehicle;
     let tag: string | null = null;
     if (v) for (const [k, e] of this.ents) if (e === v) tag = k;
-    return { i, x: p.x, z: p.z, h: p.h, tag, kind: v ? v.spec.kind : null, timer: this.timer, timerLabel: this.timerLabel };
+    return { i, x: p.x, z: p.z, h: p.h, tag, kind: v ? v.spec.kind : null, timer: this.timer, timerLabel: this.timerLabel, code: this.labelCode };
   }
 
-  private clearEnts(): void {
+  private clearEnts(keep = false): void {
     const g = this.game;
     for (const e of this.ents.values()) {
       if ('spec' in e) {
+        // Out with a helper: theirs to keep if the mission is over with them at the wheel, else taken away.
+        if (this.crew?.lent(e)) { this.crew.drop(e, keep); e.held = false; continue; }
         // Let go of (the mark is for a shared town: net/held.ts). The one she is sitting in is hers to keep, as an ordinary car.
         e.held = false;
         if (g.player.vehicle === e) continue;
@@ -324,13 +437,13 @@ export class Runner {
 
   private tidy(): void {
     const h = this.game.hud;
-    h.objective(null); h.timer(null); h.subtitle(null);
+    this.obj(0, 0, null); this.noTime(); h.subtitle(null);
     this.lines.length = 0; this.timer = 0; this.target = null;
   }
 
   private finish(): void {
     const g = this.game, m = this.cur as Mission;
-    this.clearEnts(); this.tidy();
+    this.clearEnts(true); this.tidy();
     save.data.missions.push(m.id);
     save.data.stats.passed++; save.data.stats.earned += m.reward;
     g.player.money += m.reward;
@@ -339,6 +452,7 @@ export class Runner {
     this.onBusy(null);
     g.hud.stamp('FILED', `${m.title} · ${money(m.reward)} · ${m.points} toward the bridge`);
     if (m.unlocks) g.hud.toast(m.unlocks, 8);
+    this.crew?.ended(m, 'pass', -1);
   }
 
   fail(title: string, why: string): void {
@@ -351,14 +465,18 @@ export class Runner {
     // Death and arrest strike their own stamps; the rest get theirs here.
     if (title !== 'CLOCKED OUT' && title !== 'BOOKED') g.hud.stamp(title, why);
     else g.hud.toast(`${this.cur.title}: ${why}`, 6);
+    this.crew?.ended(this.cur, 'fail', FAILS.findIndex((f) => f[0] === title && f[1] === why));
   }
 
   /** Give the mission up: everything it made is cleared away and the giver has it again. */
   abandon(): void {
     if (!this.cur) return;
+    const m = this.cur, failed = this.failed;
     this.clearEnts(); this.tidy();
     this.cur = null; this.failed = null;
     this.onBusy(null);
+    // (A failed one has told its helpers already.)
+    if (!failed) this.crew?.ended(m, 'aside', -1);
   }
 
   /** Back to the last checkpoint with everything as it was there. */
@@ -381,9 +499,10 @@ export class Runner {
     g.cam.snap();
     this.failed = null;
     this.i = cp.i; this.entered = false; this.stepT = 0;
-    this.timer = cp.timer; this.timerLabel = cp.timerLabel;
+    this.timer = cp.timer; this.timerLabel = cp.timerLabel; this.labelCode = cp.code;
     this.lines.length = 0;
     g.hud.toast('From the last checkpoint. The file has been amended.', 4);
+    this.crew?.began(m);
   }
 
   private spawnCar(kind: VehicleKind, at: Pt, h: number, color?: number): Vehicle {
@@ -400,6 +519,13 @@ export class Runner {
 
   update(dt: number): void {
     this.prompt = null;
+    this.nMarks = 0;
+    this.run(dt);
+    this.closeView();
+  }
+
+  private run(dt: number): void {
+    if (!this.cur && this.guest) { this.helping(); return; }
     if (!this.cur) { this.idle(); return; }
     const g = this.game, p = g.player;
     if (this.failed) {
@@ -417,7 +543,7 @@ export class Runner {
     if (this.timer > 0) {
       this.timer -= dt;
       if (this.timer <= 0) { this.fail('PAST DUE', 'The clock ran out. It always had more time than you.'); return; }
-      g.hud.timer(this.timerLabel, clock(this.timer), this.timer < 15);
+      this.time(this.labelCode, 1, Math.round(this.timer * 10), this.timer < 15, this.timerLabel, clock(this.timer));
     }
     this.tickRail(dt);
     this.tickLines(dt);
@@ -443,6 +569,32 @@ export class Runner {
   }
 
   private advance(): void { this.i++; this.entered = false; }
+
+  /** On another player's mission: their objective, timer and markers, as their browser says (net/crew.ts). */
+  private helping(): void {
+    const gu = this.guest as Guest, h = this.game.hud;
+    this.target = null;
+    const text = gu.objective ?? gu.line;
+    if (text !== this.lastObj) { this.lastObj = text; h.objective(text); }
+    if (gu.timerMode === 0 || gu.timerLabel === null) h.timer(null);
+    else if (gu.timerMode === 3) h.timer(gu.timerLabel, `${gu.timerValue} m`, gu.timerUrgent);
+    else {
+      const left = gu.timerMode === 1 ? gu.timerValue - (performance.now() - gu.timerAt) / 1000 : gu.timerValue;
+      h.timer(gu.timerLabel, clock(left), gu.timerUrgent || (gu.timerMode === 1 && left < 15));
+    }
+    for (const k of gu.marks) {
+      if (k.kind !== 2) this.markers.put(k.x, k.z, k.kind === 0 ? 'goal' : 'item', k.r, k.tall);
+      if (k.target) this.target = { x: k.x, z: k.z };
+    }
+  }
+
+  /** The helper is let go of: the strip and the timer are cleared. */
+  unguest(): void {
+    if (!this.guest) return;
+    this.guest = null; this.lastObj = '';
+    this.target = null;
+    this.game.hud.objective(null); this.game.hud.timer(null);
+  }
 
   private idle(): void {
     const g = this.game, p = g.player;
@@ -518,7 +670,8 @@ export class Runner {
       case 'despawn': {
         const e = this.ents.get(s.tag);
         if (!e) break;
-        if ('spec' in e) { e.held = false; if (g.player.vehicle !== e && g.vehicles.list.includes(e)) { e.driver = null; g.vehicles.remove(e); } } else g.people.remove(e);
+        if ('spec' in e && this.crew?.lent(e)) { this.crew.drop(e, false); e.held = false; }
+        else if ('spec' in e) { e.held = false; if (g.player.vehicle !== e && g.vehicles.list.includes(e)) { e.driver = null; g.vehicles.remove(e); } } else g.people.remove(e);
         if (this.rail && this.rail.v === e) this.rail = null;
         this.ents.delete(s.tag);
         break;
@@ -526,7 +679,7 @@ export class Runner {
       case 'money': g.player.money += s.amount; if (s.note) g.hud.toast(s.note, 5); break;
       case 'heat': g.player.heat = s.level; break;
       case 'give': g.player.weapons.give(s.weapon, s.ammo); break;
-      case 'timer': this.timer = s.secs; this.timerLabel = s.label ?? 'Past due in'; if (s.secs <= 0) g.hud.timer(null); break;
+      case 'timer': this.timer = s.secs; this.timerLabel = s.label ?? 'Past due in'; this.labelCode = s.label ? Math.min(this.i, 239) : 249; if (s.secs <= 0) this.noTime(); break;
       case 'checkpoint': this.cp = this.snap(this.i + 1); break;
       default: break;
     }
@@ -534,10 +687,10 @@ export class Runner {
 
   private enter(s: Step): void {
     const g = this.game;
-    if ('text' in s && s.t !== 'say') g.hud.objective(s.text);
+    if ('text' in s && s.t !== 'say') this.obj(1, this.i, s.text);
     switch (s.t) {
       case 'collect': this.left = s.items.slice(); this.count = s.items.length; break;
-      case 'race': this.cpI = 0; this.timer = s.par; this.timerLabel = 'Par'; break;
+      case 'race': this.cpI = 0; this.timer = s.par; this.timerLabel = 'Par'; this.labelCode = 254; break;
       case 'survive': this.count = s.secs; break;
       case 'tail': {
         const v = this.car(s.tag);
@@ -555,16 +708,15 @@ export class Runner {
   }
 
   private leave(s: Step): void {
-    const h = this.game.hud;
-    if (s.t === 'race') { this.timer = 0; h.timer(null); }
-    if (s.t === 'survive' || s.t === 'tail') h.timer(null);
+    if (s.t === 'race') { this.timer = 0; this.noTime(); }
+    if (s.t === 'survive' || s.t === 'tail') this.noTime();
     this.target = null;
   }
 
   /** The player is at the wheel of what the step wants (or the step wants nothing in particular). */
   private seated(mode: Mode | undefined, kind?: VehicleKind, tag?: string): boolean {
     const v = this.game.player.vehicle;
-    if (tag) return !!v && v === this.car(tag);
+    if (tag) { const c = this.car(tag); return !!c && (v === c || !!this.crew?.lent(c)); }
     if (kind) return !!v && v.spec.kind === kind;
     if (mode === 'foot') return !v;
     if (mode === 'car') return !!v;
@@ -573,34 +725,36 @@ export class Runner {
 
   /** True when the step is done. */
   private hold(s: Step, dt: number): boolean {
-    const g = this.game, p = g.player, hud = g.hud, mk = this.markers;
+    const g = this.game, p = g.player;
     switch (s.t) {
       case 'wait': return this.stepT >= s.secs;
       case 'goto': case 'deliver': {
         const tag = s.tag, v = tag ? this.car(tag) : null;
         if (tag && (!v || this.gone(v))) { this.fail('WRITTEN OFF', 'That vehicle was the whole job.'); return false; }
         const r = s.r ?? 7;
-        if (v && p.vehicle !== v) {
+        if (v && !this.driving(v)) {
           // Out of the one she needs: the business is getting back into it.
           this.target = { x: v.x, z: v.z };
-          mk.put(v.x, v.z, 'goal', 3, 16);
-          hud.objective(`Get back in the ${v.spec.name}.`);
+          this.mark(v.x, v.z, 'goal', 3, 16);
+          this.obj(2, KINDS.indexOf(v.spec.kind), `Get back in the ${v.spec.name}.`);
           return false;
         }
-        hud.objective(s.text);
+        this.obj(1, this.i, s.text);
         this.target = s.at;
-        mk.put(s.at.x, s.at.z, 'goal', r, 34);
+        this.mark(s.at.x, s.at.z, 'goal', r, 34);
         const mode = s.t === 'goto' ? s.mode : undefined, kind = s.t === 'goto' ? s.kind : undefined;
         if (!this.seated(mode, kind, tag)) return false;
         const stop = s.t === 'deliver' || !!s.stop;
-        return Math.hypot(p.x - s.at.x, p.z - s.at.z) < r && (!stop || p.speed < 2.5);
+        // (A car out with a helper is where it is and goes as fast as it goes: this player may be anywhere.)
+        const who = v && p.vehicle !== v ? v : p;
+        return Math.hypot(who.x - s.at.x, who.z - s.at.z) < r && (!stop || Math.abs(who.speed) < 2.5);
       }
       case 'getVehicle': {
         let v: Vehicle | null = s.tag ? this.car(s.tag) : null;
         if (s.tag && (!v || this.gone(v))) { this.fail('WRITTEN OFF', 'That vehicle was the whole job.'); return false; }
         if (!v && s.kind) { const k = s.kind; v = g.vehicles.nearest(p.x, p.z, 900, (c) => c.spec.kind === k && !c.wreck && c.driver !== 'ai'); }
         if (s.tag || s.kind ? this.seated(undefined, s.kind, s.tag) : !!p.vehicle) return true;
-        if (v) { this.target = { x: v.x, z: v.z }; mk.put(v.x, v.z, 'goal', 3, 18); }
+        if (v) { this.target = { x: v.x, z: v.z }; this.mark(v.x, v.z, 'goal', 3, 18); }
         return false;
       }
       case 'collect': {
@@ -609,8 +763,8 @@ export class Runner {
           const it = this.left[k];
           if (ok && Math.hypot(p.x - it.x, p.z - it.z) < r + (p.vehicle ? 1.5 : 0)) {
             this.left.splice(k, 1);
-            hud.toast(`${this.count - this.left.length} of ${this.count}.`, 2.5);
-          } else mk.put(it.x, it.z, 'item', 1.6, 12);
+            g.hud.toast(`${this.count - this.left.length} of ${this.count}.`, 2.5);
+          } else this.mark(it.x, it.z, 'item', 1.6, 12, true);
         }
         let best: Pt | null = null, bd = Infinity;
         for (const it of this.left) { const d = Math.hypot(p.x - it.x, p.z - it.z); if (d < bd) { bd = d; best = it; } }
@@ -619,7 +773,7 @@ export class Runner {
       }
       case 'destroy': {
         let alive = 0;
-        for (const tag of s.tags) { const v = this.car(tag); if (v && !this.gone(v)) { alive++; mk.put(v.x, v.z, 'goal', 3.5, 20); if (alive === 1) this.target = { x: v.x, z: v.z }; } }
+        for (const tag of s.tags) { const v = this.car(tag); if (v && !this.gone(v)) { alive++; this.mark(v.x, v.z, 'goal', 3.5, 20, true); if (alive === 1) this.target = { x: v.x, z: v.z }; } }
         return alive === 0;
       }
       case 'loseHeat': return p.heat <= 0 && this.stepT > 0.5;
@@ -631,7 +785,7 @@ export class Runner {
         this.target = { x: v.x, z: v.z };
         this.nearT = d < near ? this.nearT + dt : Math.max(0, this.nearT - dt * 0.5);
         this.farT = d > far ? this.farT + dt : 0;
-        hud.timer(d < near ? 'Too close' : d > far ? 'Losing them' : 'Following at', `${Math.round(d)} m`, d < near || d > far);
+        this.time(d < near ? 252 : d > far ? 251 : 250, 3, Math.round(d), d < near || d > far, d < near ? 'Too close' : d > far ? 'Losing them' : 'Following at', `${Math.round(d)} m`);
         if (this.nearT > 2.5) { this.fail('MADE', 'They looked in the mirror and you were all of it.'); return false; }
         if (this.farT > 7) { this.fail('THE TRAIL WENT COLD', 'They went one way. You went into speculation.'); return false; }
         return false;
@@ -639,21 +793,21 @@ export class Runner {
       case 'race': {
         const r = s.r ?? 10, c = s.cps[this.cpI];
         this.target = c;
-        mk.put(c.x, c.z, 'goal', r, 40);
+        this.mark(c.x, c.z, 'goal', r, 40);
         const n = s.cps[this.cpI + 1];
-        if (n) mk.put(n.x, n.z, 'item', r * 0.6, 14);
+        if (n) this.mark(n.x, n.z, 'item', r * 0.6, 14);
         if (this.seated(s.mode) && Math.hypot(p.x - c.x, p.z - c.z) < r) {
           this.cpI++;
-          if (this.cpI < s.cps.length) hud.toast(`Checkpoint ${this.cpI} of ${s.cps.length}.`, 2);
+          if (this.cpI < s.cps.length) g.hud.toast(`Checkpoint ${this.cpI} of ${s.cps.length}.`, 2);
         }
         return this.cpI >= s.cps.length;
       }
       case 'survive': {
         const inside = !s.at || Math.hypot(p.x - s.at.x, p.z - s.at.z) < (s.r ?? 40);
-        if (s.at) { mk.put(s.at.x, s.at.z, 'goal', s.r ?? 40, 10); this.target = inside ? null : s.at; }
+        if (s.at) { this.mark(s.at.x, s.at.z, 'goal', s.r ?? 40, 10); this.target = inside ? null : s.at; }
         if (inside) this.count -= dt;
-        hud.objective(inside ? s.text : 'Get back inside the ring. The clock is not running out here.');
-        hud.timer('Hold out', clock(this.count), false);
+        if (inside) this.obj(1, this.i, s.text); else this.obj(3, 0, 'Get back inside the ring. The clock is not running out here.');
+        this.time(253, inside ? 1 : 2, Math.round(this.count * 10), false, 'Hold out', clock(this.count));
         return this.count <= 0;
       }
       default: return true;

@@ -303,7 +303,7 @@ export function decodePlayerState(buf: ArrayBuffer, out?: PlayerState): PlayerSt
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10 } as const;
 
 export function encodePlayerEvent(code: number, arg = 0): ArrayBuffer {
   const buf = makeFrame(Frame.Event, 2);
@@ -1276,6 +1276,145 @@ export function decodeHeld(buf: ArrayBuffer): { id: number; cars: HeldCar[] } | 
     });
   }
   return { id: d.getUint8(1), cars };
+}
+
+// ---- Missions done together (stage 4, step 3; net/crew.ts) ----
+//
+// All Event frames (byte 2 PlayerEvent.Crew), so a guest who starts a mission can speak to the others: only the host
+// may send a ToPlayer. Byte 3 says which. Nothing in them is text: an objective is the mission's number and a step's,
+// and every browser reads the words from its own copy of the story. Still version 4: the service relays an Event
+// unread (up to MAX_PLAYER_FRAME_BYTES), and a page that does not know the code ignores it.
+//
+// Team, 6 + n:  3 CrewKind.Team  4 mission u8 (1 + its index in the story; 0 = none any more)  5 n u8  6.. n ids u8
+//   The starter's crew. Sent when the mission begins (a retry is a beginning) and when the crew changes.
+// Show, 14 + 6 per mark:  3 CrewKind.Show  4 mission u8  5 step u8  6 what u8 (CrewObj)  7 arg u8
+//   8 timer label u8 (CrewLabel, or below CrewLabel.Step the step whose label it is)  9 timer mode u8 (CrewTimer)
+//   10 urgent u8  11 value u16 (tenths of a second, or whole meters)  13 n u8
+//   per mark: x u16  z u16 (5 cm steps from TRAFFIC_X0, TRAFFIC_Z0)  r u8 (half meters)  look u8 (bits 0-1 CrewMark,
+//   bit 2 a radar blip, bit 3 the place the route goes to, bits 4-7 the column's height in 4 m)
+// End, 6:  3 CrewKind.End  4 mission u8  5 how u8 (CrewEnd: 1 passed, 2 failed, 3 set aside)  6 why u8 (1 + index in FAILS, 0 none)
+// Reply, 6:  3 CrewKind.Reply  4 starter u8  5 yes u8   (a drafted player: in, or busy with something of their own)
+// Ask, 6:  3 CrewKind.Ask  4 starter u8  5 slot u8   (a helper at the door of the starter's held car in that slot)
+// Lend, 8:  3 CrewKind.Lend  4 to u8  5 slot u8  6 yes u8  7 health u8
+// Back, 26:  3 CrewKind.Back  4 starter u8  5 flags u8 (1 burnt out, 2 sunk)  6 health u8  7 kind u8
+//   8 x f32  12 y f32  16 z f32  20 yaw u16  22 vx i16  24 vz i16 (cm/s)   (a helper out of the car: it goes back)
+// Reclaim, 6:  3 CrewKind.Reclaim  4 to u8  5 keep u8   (1: the mission is over and the car is theirs, an ordinary
+//   car; 0: the script has taken it away)
+export const CrewKind = { Team: 1, Show: 2, End: 3, Reply: 4, Ask: 5, Lend: 6, Back: 7, Reclaim: 8 } as const;
+export const CrewObj = { None: 0, Step: 1, GetBackIn: 2, Ring: 3 } as const;
+export const CrewTimer = { None: 0, Running: 1, Still: 2, Meters: 3 } as const;
+/** Timer labels that are not a step's own. A smaller number is the index of the `timer` step whose label it is. */
+export const CrewLabel = { Step: 240, PastDue: 249, Following: 250, Losing: 251, TooClose: 252, HoldOut: 253, Par: 254 } as const;
+export const CrewMark = { Goal: 0, Item: 1, None: 2 } as const;
+export const CrewEnd = { Passed: 1, Failed: 2, Aside: 3 } as const;
+export const CREW_HEADER_BYTES = 4;
+export const CREW_SHOW_BYTES = 14;
+export const CREW_MARK_BYTES = 6;
+/** (96 - 14) / 6: as many marks as one frame holds. */
+export const CREW_MARKS_MAX = 13;
+export const CREW_BACK_BYTES = 26;
+export interface CrewMarkRec { x: number; z: number; r: number; kind: number; blip: boolean; target: boolean; tall: number }
+export interface CrewShowRec { mission: number; step: number; what: number; arg: number; label: number; mode: number; urgent: boolean; value: number; marks: CrewMarkRec[] }
+export interface CrewBackRec { flags: number; health: number; kind: number; x: number; y: number; z: number; yaw: number; vx: number; vz: number }
+
+function crewFrame(kind: number, bytes: number): [ArrayBuffer, DataView] {
+  const buf = makeFrame(Frame.Event, bytes - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, PlayerEvent.Crew); d.setUint8(3, kind);
+  return [buf, d];
+}
+/** The sender's id and which crew frame it is; null when it is not one. */
+export function crewKindOf(buf: ArrayBuffer): { id: number; kind: number } | null {
+  if (buf.byteLength < CREW_HEADER_BYTES) return null;
+  const u = new Uint8Array(buf, 0, 4);
+  return u[0] === Frame.Event && u[2] === PlayerEvent.Crew ? { id: u[1], kind: u[3] } : null;
+}
+export function encodeCrewTeam(mission: number, ids: readonly number[]): ArrayBuffer {
+  const n = Math.min(ids.length, MAX_PLAYER_FRAME_BYTES - 6);
+  const [buf, d] = crewFrame(CrewKind.Team, 6 + n);
+  d.setUint8(4, mission & 0xff); d.setUint8(5, n);
+  for (let i = 0; i < n; i++) d.setUint8(6 + i, ids[i] & 0xff);
+  return buf;
+}
+export function decodeCrewTeam(buf: ArrayBuffer): { id: number; mission: number; ids: number[] } | null {
+  if (buf.byteLength < 6) return null;
+  const d = new DataView(buf), n = d.getUint8(5);
+  if (6 + n > buf.byteLength) return null;
+  const ids: number[] = [];
+  for (let i = 0; i < n; i++) ids.push(d.getUint8(6 + i));
+  return { id: d.getUint8(1), mission: d.getUint8(4), ids };
+}
+export function encodeCrewShow(s: CrewShowRec): ArrayBuffer {
+  const n = Math.min(s.marks.length, CREW_MARKS_MAX);
+  const [buf, d] = crewFrame(CrewKind.Show, CREW_SHOW_BYTES + n * CREW_MARK_BYTES);
+  d.setUint8(4, s.mission & 0xff); d.setUint8(5, s.step & 0xff); d.setUint8(6, s.what & 0xff); d.setUint8(7, s.arg & 0xff);
+  d.setUint8(8, s.label & 0xff); d.setUint8(9, s.mode & 0xff); d.setUint8(10, s.urgent ? 1 : 0);
+  d.setUint16(11, clampU16(s.value), true); d.setUint8(13, n);
+  for (let i = 0, o = CREW_SHOW_BYTES; i < n; i++, o += CREW_MARK_BYTES) {
+    const m = s.marks[i];
+    d.setUint16(o, clampU16((m.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+    d.setUint16(o + 2, clampU16((m.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+    d.setUint8(o + 4, Math.max(0, Math.min(255, Math.round(m.r * 2))));
+    d.setUint8(o + 5, (m.kind & 3) | (m.blip ? 4 : 0) | (m.target ? 8 : 0) | (Math.max(0, Math.min(15, Math.round(m.tall / 4))) << 4));
+  }
+  return buf;
+}
+export function decodeCrewShow(buf: ArrayBuffer): (CrewShowRec & { id: number }) | null {
+  if (buf.byteLength < CREW_SHOW_BYTES) return null;
+  const d = new DataView(buf), n = d.getUint8(13);
+  if (n > CREW_MARKS_MAX || CREW_SHOW_BYTES + n * CREW_MARK_BYTES > buf.byteLength) return null;
+  const marks: CrewMarkRec[] = [];
+  for (let i = 0, o = CREW_SHOW_BYTES; i < n; i++, o += CREW_MARK_BYTES) {
+    const l = d.getUint8(o + 5);
+    marks.push({
+      x: d.getUint16(o, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(o + 2, true) * TRAFFIC_STEP + TRAFFIC_Z0,
+      r: d.getUint8(o + 4) / 2, kind: l & 3, blip: !!(l & 4), target: !!(l & 8), tall: (l >> 4) * 4,
+    });
+  }
+  return {
+    id: d.getUint8(1), mission: d.getUint8(4), step: d.getUint8(5), what: d.getUint8(6), arg: d.getUint8(7),
+    label: d.getUint8(8), mode: d.getUint8(9), urgent: d.getUint8(10) === 1, value: d.getUint16(11, true), marks,
+  };
+}
+/** End, Reply, Ask and Reclaim: three small numbers after the kind. */
+export function encodeCrewSmall(kind: number, a: number, b = 0, c = 0): ArrayBuffer {
+  const [buf, d] = crewFrame(kind, kind === CrewKind.End ? 7 : 6);
+  d.setUint8(4, a & 0xff); d.setUint8(5, b & 0xff);
+  if (kind === CrewKind.End) d.setUint8(6, c & 0xff);
+  return buf;
+}
+export function decodeCrewSmall(buf: ArrayBuffer): { id: number; kind: number; a: number; b: number; c: number } | null {
+  if (buf.byteLength < 6) return null;
+  const u = new Uint8Array(buf);
+  return { id: u[1], kind: u[3], a: u[4], b: u[5], c: buf.byteLength > 6 ? u[6] : 0 };
+}
+export function encodeCrewLend(to: number, slot: number, yes: boolean, health: number): ArrayBuffer {
+  const [buf, d] = crewFrame(CrewKind.Lend, 8);
+  d.setUint8(4, to & 0xff); d.setUint8(5, slot & 0xff); d.setUint8(6, yes ? 1 : 0); d.setUint8(7, Math.max(0, Math.min(255, Math.round(health))));
+  return buf;
+}
+export function decodeCrewLend(buf: ArrayBuffer): { id: number; to: number; slot: number; yes: boolean; health: number } | null {
+  if (buf.byteLength < 8) return null;
+  const u = new Uint8Array(buf);
+  return { id: u[1], to: u[4], slot: u[5], yes: u[6] === 1, health: u[7] };
+}
+export function encodeCrewBack(starter: number, r: CrewBackRec): ArrayBuffer {
+  const [buf, d] = crewFrame(CrewKind.Back, CREW_BACK_BYTES);
+  d.setUint8(4, starter & 0xff); d.setUint8(5, r.flags & 0xff); d.setUint8(6, Math.max(0, Math.min(255, Math.round(r.health)))); d.setUint8(7, r.kind & 0xff);
+  d.setFloat32(8, r.x, true); d.setFloat32(12, r.y, true); d.setFloat32(16, r.z, true);
+  d.setUint16(20, Math.round(((((r.yaw % TAU) + TAU) % TAU) / TAU) * 65535) & 0xffff, true);
+  d.setInt16(22, clampI16(r.vx * 100), true); d.setInt16(24, clampI16(r.vz * 100), true);
+  return buf;
+}
+export function decodeCrewBack(buf: ArrayBuffer): (CrewBackRec & { id: number; starter: number }) | null {
+  if (buf.byteLength < CREW_BACK_BYTES) return null;
+  const d = new DataView(buf);
+  const r = {
+    id: d.getUint8(1), starter: d.getUint8(4), flags: d.getUint8(5), health: d.getUint8(6), kind: d.getUint8(7),
+    x: d.getFloat32(8, true), y: d.getFloat32(12, true), z: d.getFloat32(16, true), yaw: (d.getUint16(20, true) / 65535) * TAU,
+    vx: d.getInt16(22, true) / 100, vz: d.getInt16(24, true) / 100,
+  };
+  return Number.isFinite(r.x) && Number.isFinite(r.y) && Number.isFinite(r.z) ? r : null;
 }
 
 // ---- JSON control messages ----

@@ -88,6 +88,37 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 4, step 3, missions together, first piece (the crew): pushed Nov 22, about 11:05 PM ET
+
+**What.** On MAIN a mission is now shared with whoever stands within 30 m of the starter when it begins (and at a
+retry). The crew sees whose job it is, the same objective, timer, markers, blip and route; may get into and drive
+the mission car; and on a pass each member is paid the full reward and has the mission filed in their own story,
+reached or not. New `src/net/crew.ts`, Event `Crew` = 10 with eight sub kinds, no text on the wire (objectives go as
+mission and step numbers). Still protocol v4, `server/src` untouched. On the BACKUP missions stay private.
+
+**Rules.** The starter's browser runs the script and is the authority. A busy player (own mission, job, another
+crew) says no when drafted; a crew member cannot start a mission or a job. A helper asks at the door (Ask), the
+starter lends the car (Lend), the helper's browser then simulates it and the starter's script follows it about 100 ms
+behind; getting out hands it back (Back). A helper's "next mission" is still the first open one per giver, so a
+helped mission never comes back and earlier ones are still offered. A helper's points go to their own bridge
+progress only, so the town counts them once. Failure or set aside releases the crew; the starter dying is the
+ordinary fail; a helper dying changes nothing. Money and story marks are trusted from the starter.
+
+**Cost (worker's measure).** Nothing sent with no mission running. One mission with a fail and retry: starter about
+55 frames and 1 kB, helper 4 frames. Most frames are countdown corrections caused by the slow test speed.
+
+**Checked by the lead.** tsc, build, server tests, production boot with no errors; crew.mjs (new, 45 checks),
+mission.mjs (58), facts.mjs (45), the single player mission check (13), one clean run each; both pictures viewed
+(same objective and countdown, the helper at the wheel). The worker ran on the second model, per the owner's rule.
+
+**Still wrong or untested.** A lent car stays with the helper after a failure and vanishes from under them at the
+retry. The helper's countdown runs on the wall clock and is corrected about twice a second on a slow game. A
+checkpoint taken while a helper drives records the starter on foot. The fail line is worded for the starter.
+Untested: set aside reaching a helper, a helper or the starter leaving town mid mission, a host change, two helpers,
+any mission but m03, a lent car burnt or sunk, a helper's death. Not built yet: mission actors, targets, pickups and
+riders shown to the crew; a helper's own actions (reaching a marker, wrecking a target) counting; pause.
+
+
 ### Multiplayer stage 4, step 2, mission and job cars stay their runner's: pushed Nov 22, about 8:55 PM ET
 
 **What.** On MAIN a car a mission or a job is holding stays its runner's: it is not handed to the town, another

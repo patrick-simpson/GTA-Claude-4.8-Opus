@@ -186,6 +186,19 @@ class Progress {
     return this.count(points);
   }
 
+  /**
+   * Earn progress for this player alone: in a town, their own (saved) progress and not the town's. A helper's share of
+   * a mission done together (net/crew.ts): the starter's browser has already counted the mission for the town once.
+   * Alone, the same as add().
+   */
+  addOwn(points: number): number {
+    if (!(points > 0)) return 0;
+    if (!this.mine) return this.add(points);
+    this.total += points;
+    if (advance(this.mine, points) > 0) this.save();
+    return 0;
+  }
+
   private count(points: number): number {
     this.bank += points;
     let done = 0;
