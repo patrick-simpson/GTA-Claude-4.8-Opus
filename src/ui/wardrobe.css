@@ -1,0 +1,74 @@
+/* The Wardrobe page of the pause menu (ui/wardrobe.ts). While it is up the card moves left and the town shows through
+   on the right, where the camera turns round the player. */
+
+#menu.wd { background: linear-gradient(90deg, rgba(20, 33, 61, 0.55) 0%, rgba(20, 33, 61, 0.25) 46%, rgba(20, 33, 61, 0) 62%); justify-content: flex-start; }
+#menu.wd .mn-card { width: min(40em, 52%); margin-left: 1.2em; }
+#menu.wd .mn-hd .mn-lbl:last-child { display: none; }
+#menu.wd .mn-tabs { flex-wrap: wrap; }
+@media (max-aspect-ratio: 11/10) {
+  #menu.wd { align-items: flex-end; background: rgba(20, 33, 61, 0.2); }
+  #menu.wd .mn-card { width: calc(100% - 1.2em); height: 56%; margin: 0 0.6em 0.6em; }
+}
+#menu.touch.wd .mn-card { width: min(46em, 60%); height: calc(100% - 1.2em); }
+
+.wd-top { display: flex; align-items: center; justify-content: space-between; gap: 1em; margin: 0.2em 0 0.4em; }
+.wd-top .mn-seg { font-size: 0.95em; padding: 0.35em 1.1em; }
+.wd-top .mn-seg:first-child { margin-left: 0; }
+.wd-sec { margin-bottom: 0.4em; }
+.wd-row { align-items: flex-start; gap: 0.8em; padding: 0.32em 0; }
+.wd-row > .mn-lbl { padding-top: 0.45em; flex: 0 0 7.5em; }
+.wd-row > .mn-lbl em { font-style: normal; opacity: 0.7; }
+.wd-segs { flex-wrap: wrap; row-gap: 4px; justify-content: flex-end; }
+.wd-segs .mn-seg { font-size: 0.72em; padding: 0.32em 0.6em; }
+.wd-segs .mn-seg[disabled] { opacity: 0.35; cursor: default; }
+.wd-sws { display: inline-flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 23em; }
+.wd-sw {
+  appearance: none;
+  width: 1.55em; height: 1.55em;
+  margin: 0; padding: 0;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--c);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1.5px rgba(242, 232, 207, 0.55);
+}
+.wd-sw.on { outline: 3px solid var(--vermilion); outline-offset: 1px; }
+.wd-none { background: repeating-linear-gradient(135deg, var(--bone) 0 4px, rgba(20, 33, 61, 0.35) 4px 5px); }
+/* Paint chips: a lacquer highlight. Rims: a wheel. */
+.wd-paint { width: 2em; height: 1.4em; background: linear-gradient(160deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 38%), var(--c); }
+.wd-rim { width: 1.9em; height: 1.9em; border-radius: 50%; background: radial-gradient(circle, var(--c) 0 42%, #1b1b1f 46% 100%); }
+.wd-name { min-width: 4.5em; text-align: left; }
+#menu.touch .wd-sw { width: 1.95em; height: 1.95em; }
+#menu.touch .wd-sws { gap: 3px; max-width: 26em; }
+#menu.touch .wd-segs .mn-seg { min-height: 40px; font-size: 0.95em; }
+
+/* The first-visit offer. */
+.wd-slip {
+  position: fixed;
+  left: 50%; bottom: 14%;
+  transform: translateX(-50%);
+  z-index: 24;
+  max-width: min(30em, calc(100% - 2em));
+  padding: 0.8em 1.1em 0.9em;
+  background: var(--bone);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  font-family: var(--f-text);
+  font-size: clamp(12px, calc(0.9vh + 0.4vw), 18px);
+  display: flex; flex-direction: column; gap: 0.35em;
+  transition: opacity 0.8s;
+  pointer-events: auto;
+}
+.wd-slip b { font-family: var(--f-head); font-size: 1.35em; font-weight: 900; }
+.wd-slip div { display: flex; gap: 0.7em; margin-top: 0.4em; flex-wrap: wrap; }
+.wd-slip button {
+  appearance: none; margin: 0; padding: 0.35em 0.9em; min-height: 40px;
+  border: 2px solid var(--ink); border-radius: 0; font: inherit; font-weight: 700; cursor: pointer;
+  background: transparent; color: var(--ink);
+}
+.wd-slip .wd-go { background: var(--vermilion); color: var(--bone); box-shadow: 2px 2px 0 var(--ink); }
+.wd-slip.wd-fade { opacity: 0; }
+
+/* The HUD would show through on the open right side: put away while the page is up. */
+body:has(#menu.on.wd) #hud, body:has(#menu.on.wd) #touch { visibility: hidden; }

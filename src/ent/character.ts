@@ -60,6 +60,10 @@ export interface StyledLook extends Look {
   /** Cap worn brim-backwards. */
   capBack?: boolean;
   glasses?: boolean;
+  /** Frame colour of the glasses (default near-black). */
+  glassesColor?: number;
+  /** Under an open jacket: the tee's colour (default: pale, or dark under a pale jacket). */
+  under?: number;
   bag?: boolean;
   /** Which of FACES. */
   face?: number;
@@ -1205,7 +1209,7 @@ export class People implements PeopleApi {
         case 'iris': hex = IRIS[(L.seed ?? b.seed) % IRIS.length]; break;
         case 'brow': hex = L.hair; k = 0.6; break;
         // Under an open jacket: a pale tee, or a dark one if the jacket is pale.
-        case 'tee': on = top === 'tee' || top === 'jacket'; hex = top === 'tee' ? L.top : (L.top >> 16) > 0xb0 ? 0x2b2d33 : 0xe6e0d0; break;
+        case 'tee': on = top === 'tee' || top === 'jacket'; hex = top === 'tee' ? L.top : L.under ?? ((L.top >> 16) > 0xb0 ? 0x2b2d33 : 0xe6e0d0); break;
         case 'shirt': case 'hoodie': case 'jacket': case 'coverall': case 'dress': hex = L.top; on = top === p; break;
         case 'trousers': case 'jeans': case 'shorts': case 'skirt': hex = L.bottom; on = bottom === p && top !== 'dress'; break;
         case 'sneakers': case 'boots': hex = L.shoes; on = shoes === p; break;
@@ -1224,7 +1228,7 @@ export class People implements PeopleApi {
         case 'peak_b': hex = L.hat ?? 0; on = hat && hk === 'cap' && L.capBack === true; break;
         case 'beanie': hex = L.hat ?? 0; on = hat && hk === 'beanie'; break;
         case 'brimhat': hex = L.hat ?? 0; on = hat && hk === 'brim'; break;
-        case 'glasses': hex = 0x17171c; on = L.glasses === true; break;
+        case 'glasses': hex = L.glassesColor ?? 0x17171c; on = L.glasses === true; break;
         case 'bag': hex = [0x5a3a26, 0x2b2d33, 0x8a6a3a, 0x3d5a80][(L.seed ?? b.seed) % 4]; on = L.bag === true; break;
         // The belt is cut to go outside the coveralls; every other top hangs over where one would be.
         case 'belt': hex = 0x2a1c12; on = top === 'coverall'; break;

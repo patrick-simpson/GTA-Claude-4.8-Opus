@@ -380,7 +380,26 @@ export function readRagTail(buf: ArrayBuffer, s: PlayerState, out: Float32Array)
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14 } as const;
+
+// ---- Looks (fun queue item 10; game/looks.ts) ----
+// Look (3 + LOOK_BYTES = 27 bytes): [kind, id, 14, the player's look descriptor]. Sent on arriving, when somebody else
+// arrives, and when the player changes their look or car in the Wardrobe. The service relays it unread like any Event,
+// and a page that does not know code 14 ignores it (it keeps drawing its own made-up look), so no new version.
+export const LOOK_EVENT_BYTES = 3 + 24;
+export function encodeLookEvent(look: Uint8Array): ArrayBuffer {
+  const buf = makeFrame(Frame.Event, 1 + look.length);
+  const u8 = new Uint8Array(buf);
+  u8[2] = PlayerEvent.Look;
+  u8.set(look, 3);
+  return buf;
+}
+export function decodeLookEvent(buf: ArrayBuffer): { id: number; look: Uint8Array } | null {
+  if (buf.byteLength < LOOK_EVENT_BYTES) return null;
+  const u8 = new Uint8Array(buf);
+  if (u8[0] !== Frame.Event || u8[2] !== PlayerEvent.Look) return null;
+  return { id: u8[1], look: u8.slice(3, LOOK_EVENT_BYTES) };
+}
 
 // ---- Riding together (version 5; net/ride.ts) ----
 // Ride (5 bytes, from a passenger): [kind, id, 12, driver id, seat]. Seat RIDE_OUT: they got out (driver id then says

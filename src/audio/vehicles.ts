@@ -11,6 +11,7 @@
 // The 2017 Bolt has no engine to synthesize: a motor whine that follows speed
 // and torque, the low-speed pedestrian warning hum, and tyres doing the rest.
 
+import { HORN_CHOICES } from '../game/looks';
 import type { Vehicle } from '../core/api';
 import type { Game } from '../core/game';
 import { isBoatKind, type VehicleKind } from '../ent/vehicleSpecs';
@@ -466,7 +467,7 @@ export class VehicleSounds {
       // Landing: only a flight worth the name makes a noise.
       if (v.onGround && this.wasAir > 0.3 && core.claim('land', 2, 0.2)) sfx.landing(core, t, core.direct('sfx', 0.9, 0.1), clamp01(this.wasAir / 1.6), clamp01((v.spec.mass - 1000) / 5000), Math.random);
       this.wasAir = v.onGround ? 0 : v.airTime;
-      if (v.ctl.horn && !this.horn) this.horn = new HornVoice(core, v.spec.kind, core.direct('sfx', 0.75, 0.25), t);
+      if (v.ctl.horn && !this.horn) this.horn = new HornVoice(core, v.hornKind ?? v.spec.kind, core.direct('sfx', 0.75, 0.25), t);
       else if (!v.ctl.horn && this.horn) { this.horn.release(t); this.horn = null; }
       // Reversing in something long: beep, beep.
       const k = v.spec.kind;
@@ -517,7 +518,7 @@ export class VehicleSounds {
       const gn = core.gain(0), pan = core.ctx.createStereoPanner();
       gn.connect(pan); pan.connect(core.bus.sfx);
       const send = core.gain(0.3); gn.connect(send); send.connect(core.reverbFor('sfx'));
-      hs.push({ r, voice: new HornVoice(core, r.kind, gn, t, core.doppler(r.x, r.z, r.vx, r.vz)), g: gn, pan });
+      hs.push({ r, voice: new HornVoice(core, r.look && r.look.horn ? HORN_CHOICES[r.look.horn] ?? r.kind : r.kind, gn, t, core.doppler(r.x, r.z, r.vx, r.vz)), g: gn, pan });
     }
     for (let i = hs.length - 1; i >= 0; i--) {
       const h = hs[i], r = h.r;

@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { Look, Person, Pose, Vehicle } from '../core/api';
+import { HORN_CHOICES, decodeLook, toStyled, type PlayerLook } from '../game/looks';
 import { RNG, angleDiff, clamp } from '../core/util';
 import { KINDS, SPECS, isBoatKind, type VehicleKind } from '../ent/vehicleSpecs';
 import type { Boat, BoatKind } from '../ent/boat';
@@ -227,6 +228,15 @@ export class Remote {
     mat.needsUpdate = true;
   }
 
+  /** Their look as they chose it (game/looks.ts), or null: an older page that never sent one keeps the made-up look. */
+  look: PlayerLook | null = null;
+  setLook(bytes: Uint8Array): void {
+    const l = decodeLook(bytes);
+    if (!l) return;
+    this.look = l;
+    if (this.person) this.person.look = toStyled(l);
+  }
+
   rename(name: number[]): void {
     this.name = name;
     this.text = nameText(name);
@@ -335,7 +345,7 @@ export class Remote {
     this.vx = c.vx; this.vz = c.vz;
     this.horn = kind !== null && (c.flags & PlayerFlag.Horn) !== 0;
 
-    if (!this.person) this.person = g.people.spawn(c.x, c.z, c.yaw, lookFor(g, this.id, this.name));
+    if (!this.person) this.person = g.people.spawn(c.x, c.z, c.yaw, this.look ? toStyled(this.look) : lookFor(g, this.id, this.name));
     const per = this.person;
     let top: number;
     if (kind) {
@@ -362,6 +372,11 @@ export class Remote {
       this.damage = c.damage;
       if (!car.wreck) car.color = c.color;
       else car.driver = null;
+      // Their Garage (game/looks.ts): the finish goes with their own paint; rims and horn with any car they drive.
+      const lk = this.look;
+      car.finish = lk && lk.finish > 0 && c.color === lk.paint ? lk.finish : 0;
+      car.rims = lk ? lk.rims : 0;
+      car.hornKind = lk ? HORN_CHOICES[lk.horn] ?? null : null;
       g.vehicles.ghostPose(car, c.x, c.y, c.z, c.yaw, c.pitch, c.roll, c.steer, fwd,
         (c.flags & PlayerFlag.Braking) !== 0, (c.flags & PlayerFlag.Reversing) !== 0, dt);
       // As with the player's own car: hidden rather than sat inside (the roof of the lowest car is below a cap).

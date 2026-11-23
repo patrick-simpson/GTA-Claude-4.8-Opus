@@ -29,10 +29,11 @@ import { autoPresetIfKnown } from '../core/governor';
 import { kid } from '../core/kid';
 import { PEER_COLOR } from '../net/names';
 import { PARDONS_AT, PARDONS_RED } from './hud';
+import { Wardrobe } from './wardrobe';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
 type VolKey = 'volMaster' | 'volMusic' | 'volSfx' | 'volAmbience';
-const TABS = ['Map', 'Progress', 'Stats', 'Settings', 'Controls'] as const;
+const TABS = ['Map', 'Progress', 'Stats', 'Settings', 'Controls', 'Wardrobe'] as const;
 const RAMP_NAMES = ['Low Tide Beach', 'The container yard', 'The park pond', 'The arena lot', 'The cannery', 'Pelican Pier', 'The end of the bridge'];
 const MILE = 1609.344, MPH = 2.23694, FEET = 3.28084;
 
@@ -79,6 +80,8 @@ export class Menu {
   private padT = 0;
   private readonly labels: { text: string; x: number; z: number; vert: boolean }[] = [];
   private readonly districts: { text: string; x: number; z: number }[] = [];
+  /** The Wardrobe page (ui/wardrobe.ts): the player's own look and car. */
+  readonly wardrobe: Wardrobe;
 
   constructor(private readonly game: Game, private readonly todo: ThingsToDo) {
     const root = document.createElement('div');
@@ -95,6 +98,7 @@ export class Menu {
     <section class="mn-pane mn-scroll"></section>
     <section class="mn-pane mn-scroll"></section>
     <section class="mn-pane mn-scroll"></section>
+    <section class="mn-pane mn-scroll mn-wd"></section>
   </div>
   <div class="mn-ft"><button type="button" class="mn-btn mn-resume">Resume</button><span class="mn-or">or press Esc</span><button type="button" class="mn-btn mn-new">New game</button></div>
 </div>
@@ -113,6 +117,7 @@ export class Menu {
     this.canvas = root.querySelector('canvas') as HTMLCanvasElement;
     this.confirmEl = root.querySelector('.mn-confirm') as HTMLElement;
     this.buildLabels();
+    this.wardrobe = new Wardrobe(game, () => { this.tab = TABS.indexOf('Wardrobe'); game.setPaused(true); });
 
     root.addEventListener('click', (e) => {
       const t = e.target as HTMLElement, tab = t.closest<HTMLElement>('.mn-tab');
@@ -146,7 +151,8 @@ export class Menu {
 
   private hide(): void {
     this.open = false;
-    this.root.classList.remove('on');
+    this.root.classList.remove('on', 'wd');
+    this.wardrobe.hide();
     cancelAnimationFrame(this.raf);
   }
 
@@ -159,12 +165,16 @@ export class Menu {
     this.tab = (i + TABS.length) % TABS.length;
     this.tabBtns.forEach((b, k) => { b.classList.toggle('on', k === this.tab); b.setAttribute('aria-selected', String(k === this.tab)); });
     this.panes.forEach((p, k) => p.classList.toggle('on', k === this.tab));
+    const wd = this.tab === TABS.indexOf('Wardrobe');
+    this.root.classList.toggle('wd', wd && this.open);
     if (!this.open) return;
-    if (this.tab === 0) { if (!this.fitted) this.fit(); this.drawMap(); }
+    if (!wd) this.wardrobe.hide();
+    if (wd) this.wardrobe.show(this.panes[this.tab]);
+    else if (this.tab === 0) { if (!this.fitted) this.fit(); this.drawMap(); }
     else if (this.tab === 1) this.panes[1].innerHTML = this.progressHtml();
     else if (this.tab === 2) this.panes[2].innerHTML = this.statsHtml();
     else if (this.tab === 3) this.panes[3].innerHTML = this.settingsHtml();
-    else this.panes[4].innerHTML = this.controlsHtml();
+    else if (this.tab === 4) this.panes[4].innerHTML = this.controlsHtml();
   }
 
   // ── Keys and pad ───────────────────────────────────────────────────────────

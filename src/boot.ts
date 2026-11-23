@@ -12,6 +12,7 @@ import { PROPS_FILE } from './world/propAssets';
 import { MPH } from './core/util';
 import { progress } from './world/progress';
 import { watchForUpdates } from './core/update';
+import { encodeLook, myLook, setMyLook } from './game/looks';
 import { hostBotPass, runHostBot } from './net/hostbot';
 import { title, titleAt } from './ui/title';
 import type { Weather } from './core/api';
@@ -119,6 +120,12 @@ const hooks = {
   net(): Record<string, unknown> { return game.net.info(); },
   /** A new made-up name for this browser (for a later menu button). Returns it. */
   rerollName(): string { return game.net.reroll(); },
+  /** The player's look (game/looks.ts): change some fields (as the Wardrobe would), then the descriptor's bytes and the body as drawn. */
+  look(change?: Record<string, number>): { bytes: number[]; drawn: string; car: { color: number; finish: number; rims: number } | null } {
+    if (change) setMyLook({ ...myLook(), ...change, picked: true });
+    const v = game.player.vehicle;
+    return { bytes: Array.from(encodeLook(myLook())), drawn: JSON.stringify(game.player.person.look), car: v ? { color: v.color, finish: v.finish ?? 0, rims: v.rims ?? 0 } : null };
+  },
   info(): Record<string, unknown> {
     const p = game.player, r = game.renderer.info;
     return {

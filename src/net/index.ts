@@ -33,7 +33,7 @@ import { angleDiff } from '../core/util';
 import { KINDS } from '../ent/vehicleSpecs';
 import {
   HELD_SHIFT, KEEPALIVE_FRAME, KEEPALIVE_MS, PERF_CANNOT_HOST_MS, PERF_INTERVAL_MS, PLAYER_STATE_BYTES, POSES, PlayerFlag, PlayerMode, SEND_HZ,
-  Frame, PlayerEvent, RAG_FLOATS, RAG_TAIL_BYTES, readRagTail, writeRagTail, WorldKind, blankPlayerState, damageNibble, decodePlayerEvent, decodePlayerState, encodePlayerEvent, encodeMsg, encodePlayerState, frameKind,
+  Frame, PlayerEvent, RAG_FLOATS, RAG_TAIL_BYTES, readRagTail, writeRagTail, WorldKind, blankPlayerState, damageNibble, decodePlayerEvent, decodePlayerState, encodePlayerEvent, encodeLookEvent, decodeLookEvent, encodeMsg, encodePlayerState, frameKind,
   type PlayerEntry, type ServerMsg, type WelcomeMsg,
 } from './protocol';
 import { Connection, servicePlan, type NetStatus } from './conn';
@@ -51,6 +51,7 @@ import { TownJobs } from './jobs';
 import { TownRide } from './ride';
 import { SAYS, myName, nameText, rerollName } from './names';
 import { hostBotPass } from './hostbot';
+import { encodeLook, myLook, onMyLook } from '../game/looks';
 
 const SEND_MS = 1000 / SEND_HZ;
 /** The fewest ms between two things said by this player. */
@@ -101,6 +102,11 @@ export class Net {
   private readonly inState = blankPlayerState();
   /** Send the next state whether or not it changed: somebody has just arrived and knows nothing about us. */
   private force = true;
+  /** Send this player's look (game/looks.ts) at the next chance: on arriving, when somebody arrives, when it changes. */
+  private lookDue = true;
+  private lookAt = -1e9;
+  /** Look frames sent and received, for the tests. */
+  looksSent = 0; looksGot = 0;
   private stateAt = 0;
   private anyAt = 0;
   private perfAt = 0;
@@ -125,6 +131,7 @@ export class Net {
     this.isBot = c.bot !== '';
     c.onWelcome = (m) => this.welcome(m);
     c.onMsg = (m) => this.msg(m);
+    onMyLook(() => { this.lookDue = true; });
     c.onFrame = (b) => this.frame(b);
     c.onDown = () => { this.town.down(); this.clear(); };
     c.onChange = () => this.showNote();
@@ -213,6 +220,7 @@ export class Net {
     if (id === this.conn.id || this.remotes.has(id)) return;
     this.remotes.set(id, new Remote(this.game, id, e.slice(1)));
     this.force = true;
+    this.lookDue = true;
     this.shared.refresh();
     this.cars.refresh();
     this.people.refresh();
@@ -272,6 +280,11 @@ export class Net {
       const e = decodePlayerEvent(buf);
       if (!e) return;
       // The horn is heard from the flag in the state frames; waves and shouts come this way, and so does gunfire.
+      if (e.code === PlayerEvent.Look) {
+        const l = decodeLookEvent(buf);
+        if (l) { this.looksGot++; this.remotes.get(l.id)?.setLook(l.look); }
+        return;
+      }
       if (e.code === PlayerEvent.Ride || e.code === PlayerEvent.Seats) this.ride.event(buf);
       else if (e.code === PlayerEvent.Held) this.held.event(buf, performance.now());
       else if (e.code === PlayerEvent.Crew) this.crew.event(buf);
@@ -385,6 +398,10 @@ export class Net {
           this.statesSent++;
         }
       }
+    }
+    // The look: 27 bytes, now and then. A burst of arrivals is answered once (lookAt).
+    if (this.lookDue && !this.isBot && now - this.lookAt >= 400 && c.send(encodeLookEvent(encodeLook(myLook())))) {
+      this.lookDue = false; this.lookAt = this.anyAt = now; this.looksSent++;
     }
     if (now - this.perfAt >= PERF_INTERVAL_MS) {
       const g = this.game;
@@ -525,6 +542,8 @@ export class Net {
       // ride: riding together: this player's seat in another's car, the riders in this player's car, the lists heard (ride.ts).
       ride: this.ride.info(),
       pause: { refused: this.game.pauseRefused, why: this.pauseRefusal(), state: this.game.state },
+      // looks (game/looks.ts): this player's descriptor and their body as drawn here; frames sent and heard.
+      looks: { sent: this.looksSent, got: this.looksGot, mine: Array.from(encodeLook(myLook())), drawn: JSON.stringify(this.game.player.person.look) },
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({
@@ -535,6 +554,8 @@ export class Net {
         car: r.vehicle ? { x: r3(r.vehicle.x), y: r3(r.vehicle.y), z: r3(r.vehicle.z), h: r3(r.vehicle.h) } : null,
         // Their car as shown here: the 16 steps of damage their browser sends, and the health and wreck made of it.
         damage: r.damage, carHealth: r.vehicle ? +r.vehicle.health.toFixed(1) : null, carWreck: !!r.vehicle?.wreck,
+        look: r.look ? Array.from(encodeLook(r.look)) : null, drawn: r.body ? JSON.stringify(r.body.look) : '',
+        carFinish: r.vehicle?.finish ?? 0, carRims: r.vehicle?.rims ?? 0, carHorn: r.vehicle?.hornKind ?? null,
         horns: r.horns, hornOn: r.horn, said: r.said, lastSaid: r.lastSaid, sayShown: r.sayShown, saidCount: r.saidCount,
       })),
     };

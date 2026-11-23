@@ -141,7 +141,9 @@ function put4(a: Float32Array, k: number, x: number, y: number, z: number, w: nu
   a[k] = x; a[k + 1] = y; a[k + 2] = z; a[k + 3] = w;
   return a[k] !== o0 || a[k + 1] !== o1 || a[k + 2] !== o2 || a[k + 3] !== o3;
 }
-const D_MAT = 1, D_COL = 2, D_DIRT = 4, D_LAMP = 8, D_LAMP2 = 16, D_WHEEL = 32;
+const D_MAT = 1, D_COL = 2, D_DIRT = 4, D_LAMP = 8, D_LAMP2 = 16, D_WHEEL = 32, D_RIM = 64;
+/** Rim tints for a player's Garage (game/looks.ts RIM_COLORS index): multiplied into the wheel, so the dark tyre stays dark. */
+const RIM_TINT = [0xffffff, 0x1c1c20, 0xffc860, 0xc08050, 0xff5040, 0x5a8cff];
 
 /** One kind at one level of detail: the body meshes, which share a matrix buffer, and its wheels. */
 interface DrawSet {
@@ -155,6 +157,8 @@ interface DrawSet {
   dirt: Float32Array;
   dirtAttr: THREE.InstancedBufferAttribute | null;
   wmats: Float32Array;
+  /** Per wheel: rim tint (RIM_TINT). */
+  wcols: Float32Array;
   /** Per instance: head, tail, brake, reverse; then left indicator, right indicator, daytime strip. */
   lamps: Float32Array | null;
   lamps2: Float32Array | null;
@@ -193,6 +197,9 @@ class Car implements Vehicle {
   ctl: VehicleControls = { accel: 0, steer: 0, handbrake: false, horn: false };
   driver: 'player' | 'ai' | null = null;
   color = 0xffffff;
+  finish = 0; rims = 0; hornKind: VehicleKind | null = null;
+  /** The rim tint as drawn, linear. */
+  rimShown = -1; rr = 1; rg = 1; rb = 1;
   health = 100;
   onGround = true;
   airTime = 0;
@@ -502,7 +509,8 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
     if (grad > 0) vs = 'attribute float aSky;\nvarying float vSky;\n' + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\nvSky = aSky;');
     // Dust: a per-car amount (aDirt), thin over the whole body and thick along the sills where the road throws it.
     // It dulls the colour toward road dust, roughens the base and takes the lacquer's shine away with it.
-    if (dirt) vs = 'attribute float aDirt;\nvarying float vDirt;\n' + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\nvDirt = aDirt * (0.2 + 0.8 * (1.0 - smoothstep(0.25, 1.0, position.y)));');
+    // (aDirt also carries a player's paint finish, two per step: 0 as the colour says, 1 solid, 2 metallic. game/looks.ts.)
+    if (dirt) vs = 'attribute float aDirt;\nvarying float vDirt;\nvarying float vFin;\n' + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\nvFin = floor(aDirt * 0.5);\nvDirt = (aDirt - 2.0 * vFin) * (0.2 + 0.8 * (1.0 - smoothstep(0.25, 1.0, position.y)));');
     if (flake) vs = 'varying vec3 vObj;\n' + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\nvObj = position;');
     // Baked occlusion (the textured levels): it darkens the colour the way the vertex bake did, softened on paint,
     // and three.js takes it out of the ambient light and the reflections besides.
@@ -521,7 +529,8 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
       // one a rough metal whose normal is jittered flake by flake, so the sun breaks into sparks on it.
       colour += `
       float sLo = min( vColor.r, min( vColor.g, vColor.b ) );
-      float sMet = 1.0 - max( smoothstep( 0.6, 0.78, sLo ), step( 0.4, vColor.r ) * step( vColor.b, 0.07 ) * step( 0.1, vColor.g ) );`;
+      float sMet = 1.0 - max( smoothstep( 0.6, 0.78, sLo ), step( 0.4, vColor.r ) * step( vColor.b, 0.07 ) * step( 0.1, vColor.g ) );${dirt ? `
+      if ( vFin > 0.5 ) sMet = vFin > 1.5 ? 1.0 : 0.0;` : ''}`;
       fs = fs
         .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * mix( 1.5, 1.0, sMet );')
         .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = metalness * mix( 0.1, 1.0, sMet );')
@@ -554,7 +563,7 @@ function sheen(mat: THREE.MeshStandardMaterial, sky: { value: THREE.Color }, key
         #endif`);
     }
     sh.vertexShader = vs;
-    sh.fragmentShader = 'uniform vec3 uSky;\n' + (grad > 0 ? 'varying float vSky;\n' : '') + (dirt ? 'varying float vDirt;\n' : '') + (flake ? 'varying vec3 vObj;\n' : '') + fs.replace('#include <opaque_fragment>', `{
+    sh.fragmentShader = 'uniform vec3 uSky;\n' + (grad > 0 ? 'varying float vSky;\n' : '') + (dirt ? 'varying float vDirt;\nvarying float vFin;\n' : '') + (flake ? 'varying vec3 vObj;\n' : '') + fs.replace('#include <opaque_fragment>', `{
       float sF = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
       float sUp = max(inverseTransformDirection(normal, viewMatrix).y, 0.0);
       outgoingLight += uSky * (0.3 + 0.7 * sAo) * (${base.toFixed(3)} + ${fres.toFixed(3)} * sF * sF * sF + ${up.toFixed(3)} * sUp${grad > 0 ? ` + ${grad.toFixed(3)} * vSky * vSky` : ''});
@@ -1991,7 +2000,7 @@ export class Vehicles implements VehiclesApi {
     }
     b.sets = list.map((parts) => {
       const s: DrawSet = {
-        parts, body: [], wheels: null!, mats: null!, cols: null!, dirt: null!, dirtAttr: null, wmats: null!, lamps: null, lamps2: null, lampAttr: null, lampAttr2: null,
+        parts, body: [], wheels: null!, mats: null!, cols: null!, dirt: null!, dirtAttr: null, wmats: null!, wcols: null!, lamps: null, lamps2: null, lampAttr: null, lampAttr2: null,
         cap: b.cap, wcap: b.cap * p.wheels.length, n: 0, nw: 0, near: 0, nwNear: 0, dirty: 0, flips: [],
       };
       this.fillSet(s);
@@ -2002,7 +2011,7 @@ export class Vehicles implements VehiclesApi {
   private fillSet(s: DrawSet): void {
     const scene = this.game.scene, shadows = this.game.quality.shadows, q = s.parts;
     const dyn = (a: Float32Array, n: number): THREE.InstancedBufferAttribute => new THREE.InstancedBufferAttribute(a, n).setUsage(THREE.DynamicDrawUsage);
-    s.mats = new Float32Array(s.cap * 16); s.cols = new Float32Array(s.cap * 3); s.wmats = new Float32Array(s.wcap * 16);
+    s.mats = new Float32Array(s.cap * 16); s.cols = new Float32Array(s.cap * 3); s.wmats = new Float32Array(s.wcap * 16); s.wcols = new Float32Array(s.wcap * 3).fill(1);
     const bodyMats = dyn(s.mats, 16);
     const make = (part: Part, wheel: boolean): THREE.InstancedMesh => {
       const m = new THREE.InstancedMesh(part[0], part[1], 0);
@@ -2022,13 +2031,16 @@ export class Vehicles implements VehiclesApi {
     s.dirt = new Float32Array(s.cap); s.dirtAttr = dyn(s.dirt, 1);
     q.paint[0].setAttribute('aDirt', s.dirtAttr);
     s.wheels = make(q.wheel, true);
+    const wcols = dyn(s.wcols, 3);
+    s.wheels.instanceColor = wcols;
     // Every one of these is rewritten while cars move: each gets a second copy on the GPU (core/flip.ts).
     const body = s.body, wheels = s.wheels, wm = wheels.instanceMatrix;
     flip.add(bodyMats, (x) => { for (const m of body) m.instanceMatrix = x as THREE.InstancedBufferAttribute; });
     flip.add(cols, (x) => { paint.instanceColor = x as THREE.InstancedBufferAttribute; });
     flip.geo(q.paint[0], 'aDirt');
     flip.add(wm, (x) => { wheels.instanceMatrix = x as THREE.InstancedBufferAttribute; });
-    s.flips = [bodyMats, cols, s.dirtAttr, wm];
+    flip.add(wcols, (x) => { wheels.instanceColor = x as THREE.InstancedBufferAttribute; });
+    s.flips = [bodyMats, cols, s.dirtAttr, wm, wcols];
     if (q.lampGeo) {
       s.lamps = new Float32Array(s.cap * 4); s.lamps2 = new Float32Array(s.cap * 3);
       s.lampAttr = dyn(s.lamps, 4); s.lampAttr2 = dyn(s.lamps2, 3);
@@ -2046,11 +2058,11 @@ export class Vehicles implements VehiclesApi {
 
   /** Growing replaces the meshes and their buffers, so carry over what this frame has already written. */
   private growSet(s: DrawSet): void {
-    const { mats, cols, wmats, lamps, lamps2, dirt } = s;
+    const { mats, cols, wmats, wcols, lamps, lamps2, dirt } = s;
     this.dropSet(s);
     s.cap *= 2; s.wcap *= 2;
     this.fillSet(s);
-    s.mats.set(mats); s.cols.set(cols); s.wmats.set(wmats); s.dirt.set(dirt);
+    s.mats.set(mats); s.cols.set(cols); s.wmats.set(wmats); s.wcols.set(wcols); s.dirt.set(dirt);
     if (lamps && s.lamps) s.lamps.set(lamps);
     if (lamps2 && s.lamps2) s.lamps2.set(lamps2);
   }
@@ -2144,7 +2156,8 @@ export class Vehicles implements VehiclesApi {
       if (put(s.mats, i * 16, c.mat, 16)) dirty |= D_MAT;
       if (c.color !== c.shown) { _col.setHex(c.color); c.cr = _col.r; c.cg = _col.g; c.cb = _col.b; c.shown = c.color; }
       if (put3(s.cols, i * 3, c.cr, c.cg, c.cb)) dirty |= D_COL;
-      if (put1(s.dirt, i, c.wreck ? 0.7 : c.dirt)) dirty |= D_DIRT;
+      // (The paint finish rides on the dust number, two per step: the paint shader takes it apart again.)
+      if (put1(s.dirt, i, (c.wreck ? 0.7 : c.dirt) + 2 * (c.wreck ? 0 : c.finish))) dirty |= D_DIRT;
       // The lenses themselves light up; the glow sprites in lamps() are the halo round them.
       if (s.lamps && s.lamps2) {
         // One lens does both jobs on most cars: the brake section glows dimly with the tail lamps and flares when braking.
@@ -2159,7 +2172,13 @@ export class Vehicles implements VehiclesApi {
       }
 
       // Past a few hundred meters a wheel is a pixel in the shade of its arch. (wcap is cap times the wheels per car, so these always fit.)
-      if (d3 < WHEEL_R2) { if (put(s.wmats, s.nw * 16, c.wmat, c.wmat.length)) dirty |= D_WHEEL; s.nw += c.wmat.length / 16; }
+      if (d3 < WHEEL_R2) {
+        if (put(s.wmats, s.nw * 16, c.wmat, c.wmat.length)) dirty |= D_WHEEL;
+        if (c.rims !== c.rimShown) { _col.setHex(RIM_TINT[c.rims] ?? 0xffffff); c.rr = _col.r; c.rg = _col.g; c.rb = _col.b; c.rimShown = c.rims; }
+        const nw = c.wmat.length / 16;
+        for (let w = 0; w < nw; w++) if (put3(s.wcols, (s.nw + w) * 3, c.rr, c.rg, c.rb)) dirty |= D_RIM;
+        s.nw += nw;
+      }
       s.dirty = dirty;
 
       // The dark under the car. The sun's shadow does this at noon; at dusk, at night and with shadows off nothing
@@ -2189,6 +2208,7 @@ export class Vehicles implements VehiclesApi {
       if (d & D_LAMP && s.lampAttr) sendRange(s.lampAttr, s.n * 4);
       if (d & D_LAMP2 && s.lampAttr2) sendRange(s.lampAttr2, s.n * 3);
       if (d & D_WHEEL && s.nw) sendRange(s.wheels.instanceMatrix, s.nw * 16);
+      if (d & D_RIM && s.nw) sendRange(s.wheels.instanceColor!, s.nw * 3);
     }
     glow.flush(); pool.flush(); shadow.flush();
   }

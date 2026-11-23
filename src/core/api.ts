@@ -86,6 +86,8 @@ export interface VehicleControls {
 export interface Vehicle {
   readonly id: number;
   readonly spec: VehicleSpec;
+  /** A player's Garage (game/looks.ts): paint finish (0 as the colour says, 1 solid gloss, 2 metallic), rim colour (index into RIM_COLORS, 0 stock), horn (null: the kind's own). */
+  finish?: number; rims?: number; hornKind?: VehicleKind | null;
   /** Position of the middle of the car at road level (y = height under the wheels when grounded). */
   x: number; y: number; z: number;
   h: number; pitch: number; roll: number;

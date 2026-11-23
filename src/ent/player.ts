@@ -9,7 +9,8 @@
 
 import * as THREE from 'three';
 import type { Game } from '../core/game';
-import type { Look, Person, PlayerApi, Vehicle } from '../core/api';
+import type { Person, PlayerApi, Vehicle } from '../core/api';
+import { myLook, onMyLook, toStyled } from '../game/looks';
 import type { Box } from '../world/collide';
 import { clamp, clamp01, damp, dampAngle, headingOf, lerp, money, smooth } from '../core/util';
 import { groundAt } from '../world/plan';
@@ -50,11 +51,6 @@ const HOME = [5, 6, 2, 0.45] as const;
 const AIM_PACE = 2.6;
 const START_MONEY = 250;
 
-// Navy coveralls (one piece, so top and bottom match), work boots, vermilion cap.
-const DESS: Look = {
-  skin: 0x9c6b4a, hair: 0x2b1d17, top: 0x14213d, bottom: 0x14213d, shoes: 0x3b2a20,
-  hat: 0xe4572e, height: 1, build: 1.02,
-};
 
 const NAGS = [
   'The Harbor Authority has not approved swimming to the mainland.',
@@ -132,7 +128,9 @@ export class Player implements PlayerApi {
   readonly boats: Boats;
 
   constructor(private game: Game) {
-    this.person = game.people.spawn(0, 0, 0, DESS);
+    // The player's own look (game/looks.ts): the same descriptor every other screen draws them with.
+    this.person = game.people.spawn(0, 0, 0, toStyled(myLook()));
+    onMyLook((l) => { this.person.look = toStyled(l); });
     this.weapons = new Weapons(game);
     this.boats = new Boats(game);
     this.person.health = this.health;
