@@ -193,6 +193,7 @@ export class Player implements PlayerApi {
   }
 
   teleport(x: number, z: number, h?: number): void {
+    this.game.people.rag?.drop(this.person);
     if (this.car) this.release(this.car);
     if (this.rideCar) this.release(this.rideCar);
     this.goal = null;
@@ -300,7 +301,7 @@ export class Player implements PlayerApi {
   }
 
   /** Throw her to the ground with a velocity. She slides to a stop and gets up on her own. */
-  knockDown(vx: number, vz: number, vy = 2.2): void {
+  knockDown(vx: number, vz: number, vy = 2.2, car: { vx: number; vz: number } | null = null): void {
     if (this.car || this.rideCar || this.mode === 'dead') return;
     this.vx = vx; this.vz = vz;
     if (vy > 0 || !this.grounded) { this.vy = vy; this.grounded = false; }
@@ -308,7 +309,17 @@ export class Player implements PlayerApi {
     this.goal = null;
     this.restT = 0;
     this.nearVehicle = null;
+    // Anything bigger than a shove is a ragdoll (ent/ragdoll.ts): run down, thrown out of a car, blown over.
+    // It moves her until it lands; tumbling() just waits for it.
+    if (this.swimming || (Math.hypot(vx, vz) < 3 && vy < 2.5 && !car)) return;
+    const rag = this.game.people.rag;
+    const done = (): void => { this.vx = this.vz = this.vy = 0; this.grounded = true; this.restT = 0; };
+    if (car) rag.hitByCar(this.person, car.vx, car.vz, { always: true, silly: false, onDone: done });
+    else rag.throwOut(this.person, vx, vy, vz, { always: true, silly: false, onDone: done });
   }
+
+  /** In the air (or rolling) as a ragdoll: her position is its business until it lands. */
+  get ragdolled(): boolean { return this.game.people.rag.flying(this.person); }
 
   // ── Frame ──────────────────────────────────────────────────────────────────
 
@@ -394,7 +405,7 @@ export class Player implements PlayerApi {
       const closing = car.vx * nx + car.vz * nz;
       if (closing > 4) {
         this.damage((closing - 3) * 3.2);
-        this.knockDown(car.vx * 0.8 + nx * 2, car.vz * 0.8 + nz * 2, 2.6);
+        this.knockDown(car.vx * 0.8 + nx * 2, car.vz * 0.8 + nz * 2, 2.6, car);
         g.cam.shake(clamp(closing / 30, 0.15, 0.7));
       }
     }
@@ -763,6 +774,7 @@ export class Player implements PlayerApi {
 
   private tumbling(dt: number): void {
     const per = this.person;
+    if (this.ragdolled) { per.speed = 0; return; }
     const sp = this.slide(dt);
     this.fence();
     if (this.swimming) { this.mode = 'foot'; per.pose = 'swim'; return; }   // the water breaks the fall
@@ -788,10 +800,11 @@ export class Player implements PlayerApi {
   }
 
   private lying(dt: number): void {
-    this.slide(dt);
+    if (!this.ragdolled) this.slide(dt);
     this.person.pose = this.swimming ? 'swim' : 'down';
     this.t += dt;
     if (this.t < 3) return;
+    this.game.people.rag.drop(this.person);
 
     const g = this.game, home = g.plan.sidewalkPoint(...HOME);
     this.put(home.x, home.z, home.h);

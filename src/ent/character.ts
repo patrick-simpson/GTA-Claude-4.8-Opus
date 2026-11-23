@@ -36,6 +36,7 @@ import { flip, sendRange } from '../core/flip';
 import { assets } from '../core/assets';
 import { groundAt } from '../world/plan';
 import { waterLevelAt } from '../world/mainland';
+import type { Ragdolls } from './ragdoll';
 import { BONES, MORPHS, PARTS, loadPeople, type BodyKind, type PersonAsset } from './characterAssets';
 
 export type HairCut = 'crop' | 'part' | 'long' | 'bob' | 'tail' | 'bun' | 'curls' | 'afro' | 'bald';
@@ -115,6 +116,9 @@ const LSW = 19, LAB = 20, LKN = 21, LFT = 22; // left leg: swing, abduct, knee, 
 const BREATH = 27;
 const WATER = 28;                  // 0 = standing on p.y, 1 = floating at the sea surface
 const NCH = 29;
+/** The channel numbers, for ent/ragdoll.ts. */
+export const CH = { RX, RY, RZ, TIP, YAW, PITCH, ROLL, LEAN, TWIST, SROLL, HYAW, HPITCH, HROLL, ASW, AAB, AEL, LSW, LAB, LKN, LFT } as const;
+export { NCH, HIP };
 
 // Colour slots in Body.rgb.
 const C_SKIN = 0, C_HAIR = 3, C_TOP = 6, C_BOTTOM = 9, C_SHOES = 12, C_HAT = 15, C_EYE = 18;
@@ -159,6 +163,14 @@ class Body implements Person {
   palFor: Look | null = null;
   kind = 0;
   face = 0;
+  /** Ragdoll (ent/ragdoll.ts): the pelvis frame and the limb channels it drives, while it has the body. */
+  rag: Float64Array | null = null;
+  ragCh: Float32Array | null = null;
+  /** Which way the next 'down' lands: +1 face down, -1 face up, 0 = as the fall decides. */
+  downFace = 0;
+  /** Seconds of dusting off after getting up from a ragdoll, and whether one is owed. */
+  dustT = 0;
+  dustOwed = false;
 
   constructor(readonly id: number, public look: Look) {
     this.seed = (Math.imul(id, 2654435761) >>> 0) % 9973;
@@ -589,7 +601,7 @@ function down(b: Body, o: Float32Array): void {
   const e = f < 1 ? f * f : 1;
   const bounce = f > 1 ? Math.exp(-(f - 1) * 5) * Math.sin((f - 1) * 8) * 0.07 : 0;
   // Most land on their backs; some fall forward. It changes fall to fall.
-  const front = hash2(b.seed, b.falls) < 0.3;
+  const front = b.downFace ? b.downFace > 0 : hash2(b.seed, b.falls) < 0.3;
   const dir = front ? 1 : -1;
   const flip = hash2(b.seed + 1, b.falls) < 0.5 ? 1 : 0;
   const a = flip * 4, c = 4 - a, aa = flip * 3, ac = 3 - aa;
@@ -689,6 +701,45 @@ function aimOver(b: Body, c: Float32Array): void {
   c[HYAW] = lerp(c[HYAW], b.aimTwo ? 0.3 : -0.18, k);
   c[HPITCH] = lerp(c[HPITCH], 0, k);
   c[SROLL] = lerp(c[SROLL], 0, k);
+}
+
+/** After a ragdoll: wobble, pat the dust off the front, a shake of the head. Laid over standing or walking. */
+function dustOff(b: Body, c: Float32Array, dt: number): void {
+  b.dustT = Math.max(0, b.dustT - dt);
+  const u = b.dustT / 1.8, w = smooth(Math.min(1, (1 - u) * 6)) * smooth(Math.min(1, u * 4));
+  if (w <= 0) return;
+  const t = b.t, pat = Math.sin(t * 15);
+  c[ROLL] = lerp(c[ROLL], 0.07 * Math.sin(t * 4.5), w);
+  c[RX] = lerp(c[RX], 0.035 * Math.sin(t * 4.5 + 0.6), w);
+  c[LEAN] = lerp(c[LEAN], 0.32, w);
+  c[HPITCH] = lerp(c[HPITCH], 0.35, w);
+  c[HYAW] = lerp(c[HYAW], 0.3 * Math.sin(t * 9), w);
+  // Right hand brushes down the front; left one slaps a thigh.
+  c[ASW + 3] = lerp(c[ASW + 3], 0.75 + 0.25 * pat, w); c[AAB + 3] = lerp(c[AAB + 3], -0.15, w); c[AEL + 3] = lerp(c[AEL + 3], 1.35 + 0.25 * pat, w);
+  c[ASW] = lerp(c[ASW], 0.25 + 0.2 * Math.sin(t * 15 + 1.5), w); c[AAB] = lerp(c[AAB], 0.12, w); c[AEL] = lerp(c[AEL], 0.6, w);
+}
+
+/** A ragdoll takes over the body: its pelvis frame (column-major 4x4, scale included) and its channels replace the animation. */
+export function ragAttach(p: Person, m: Float64Array, ch: Float32Array): void {
+  const b = p as Body;
+  b.rag = m; b.ragCh = ch;
+}
+
+/** The current channels, for a ragdoll to start from. */
+export function ragPose(p: Person, out: Float32Array): void {
+  out.set((p as Body).cur);
+}
+
+/** The ragdoll lets go: blend from its limbs into the 'down' pose, already landed, facing `face`. */
+export function ragDetach(p: Person, face: number, ch: Float32Array): void {
+  const b = p as Body;
+  if (!b.rag) return;
+  b.rag = null; b.ragCh = null;
+  b.downFace = face;
+  b.from.set(ch);
+  b.blend = 0; b.blendDur = 0.35;
+  b.shown = 'down'; b.poseT = 10;
+  b.dustOwed = true;
 }
 
 function target(b: Body, o: Float32Array): void {
@@ -813,6 +864,9 @@ export class People implements PeopleApi {
   private readonly data = new Float32Array(TEX_W * MAX_PEOPLE * 4);
   private readonly tex = new THREE.DataTexture(this.data, TEX_W, MAX_PEOPLE, THREE.RGBAFormat, THREE.FloatType);
 
+  /** Ragdolls (ent/ragdoll.ts), stepped at the top of update() so the bodies they move are drawn where they are. Set by Game. */
+  rag!: Ragdolls;
+
   constructor(private readonly game: Game) {
     const max = MAX_PEOPLE * MAX_PARTS;
     const geo = partGeometry(0.16);
@@ -899,6 +953,7 @@ export class People implements PeopleApi {
   }
 
   remove(p: Person): void {
+    if (this.rag) this.rag.drop(p);
     const i = this.bodies.indexOf(p as Body);
     if (i < 0) return;
     const last = this.bodies.pop() as Body;
@@ -951,6 +1006,7 @@ export class People implements PeopleApi {
   }
 
   update(dt: number): void {
+    if (this.rag) this.rag.update(dt);
     const g = this.game, cam = g.camera;
     // A pinned screenshot view only reaches the camera at render time, after this
     // runs, so read it directly or the first frame of every pinned shot is culled
@@ -1040,6 +1096,9 @@ export class People implements PeopleApi {
       b.blend = 0;
       b.blendDur = blendTime(b.shown, b.pose);
       if (b.pose === 'down') b.falls++;
+      // Up from a ragdoll's landing: a stagger and a dusting-off, once.
+      if (b.shown === 'down' && b.dustOwed && (b.pose === 'stand' || b.pose === 'walk' || b.pose === 'run')) { b.dustT = 1.8; b.dustOwed = false; }
+      if (b.shown === 'down' && b.pose !== 'down') b.downFace = 0;
       if (b.pose === 'jump') b.lead = b.phase > 0.25 && b.phase < 0.75 ? 0 : 1;
       b.shown = b.pose;
       b.poseT = 0;
@@ -1075,13 +1134,15 @@ export class People implements PeopleApi {
       cur.set(TGT);
     }
     if (b.aim > 0.004 && b.shown !== 'down' && b.shown !== 'swim') aimOver(b, cur);
+    if (b.ragCh) cur.set(b.ragCh);
+    else if (b.dustT > 0) dustOff(b, cur, dt);
 
     // The face is this person's own; the eyes blink and wander; the hands close on whatever the body is doing.
     const m = b.mor, F = FACES[b.face] ?? FACES[0];
     for (let i = 0; i < 4; i++) m[i] = F[i] + 0.3 * (hash2((b.look as StyledLook).seed ?? b.seed, 40 + i) - 0.5);
     const bt = (b.t * 0.29 + b.seed * 0.137) % 1;
     const lying = b.shown === 'down';
-    m[4] = lying ? 0.9 : bt < 0.04 ? Math.sin(Math.PI * bt / 0.04) : 0.12 * F[3];
+    m[4] = b.ragCh ? 0 : lying ? 0.9 : bt < 0.04 ? Math.sin(Math.PI * bt / 0.04) : 0.12 * F[3];
     const still = b.shown === 'stand' || b.shown === 'sit' ? 1 : 0.35;
     m[5] = damp(m[5], still * 0.9 * (drift(b.t * 0.37, b.seed + 21) * 2 - 1), 14, dt);
     m[6] = damp(m[6], still * 0.5 * (drift(b.t * 0.31, b.seed + 22) * 2 - 1), 14, dt);
@@ -1195,6 +1256,7 @@ export class People implements PeopleApi {
     rotY(P, c[YAW]);
     rotX(P, c[PITCH]);
     rotZ(P, c[ROLL]);
+    if (b.rag) P.set(b.rag);
     put(D, o, J, B_HIPS, P, wide, deep);
 
     const F = M_LIMB;
@@ -1280,6 +1342,7 @@ export class People implements PeopleApi {
     rotY(P, c[YAW]);
     rotX(P, c[PITCH]);
     rotZ(P, c[ROLL]);
+    if (b.rag) P.set(b.rag);
     part(P, 0, 0.04, 0, 0.335 * W, 0.2, 0.2, rgb, C_BOTTOM, 0.9, 0.95);
 
     const F = M_LIMB;

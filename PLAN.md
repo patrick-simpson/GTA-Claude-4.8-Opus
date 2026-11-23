@@ -88,6 +88,22 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Ragdolls when a car hits someone, made funny: pushed Nov 23, about 5:20 PM ET
+
+`src/ent/ragdoll.ts`: a weighted trunk with damped, limited limb springs and 11 contact spheres on a
+fitted ground plane; bounces off building boxes, floats in water; somersault and cartoon spin over the
+bonnet at speed, flailing in the air; eases into the old lying pose and gets up with a stagger and
+dust-off (or stays down if killed). Pedestrians, Dess, police on foot, thrown passengers, other players.
+At most 5 at once (2 at low) within 60 m (30 m at low); no cost with nobody flying, about 0.1 ms with
+four (downtown, Iris Xe). Funny endings: lands on a bench, ends in a bin, bounces off the giant duck;
+pun toasts; Stats rows "Pedestrians given flying lessons", "Longest unscheduled flight", "Times used as
+a hood ornament". Net: a flying player's state frame carries 25 extra bytes (backwards-safe, no Worker
+redeploy); shared pedestrians fly locally on guests from the inferred hit (similar, not identical).
+tools/net/ragdoll.mjs passes; ride.mjs 26 of 26. `tools/pw.mjs` also ignores ggpht.com (YouTube's
+avatar images from Claude FM, which failed tools/net/people.mjs).
+Owed: police on guests use the old fall; parked cars are not walls; bench and bin endings only for
+pedestrians; a 76 ms frame when four were spawned at once.
+
 ### Ride together (passengers), protocol v5: pushed Nov 23, about 4:15 PM ET
 
 Owner: "Allow a passenger to join a car and ride together" (`tools/briefs/passengers.md`). On foot by

@@ -305,6 +305,45 @@ export function decodePlayerState(buf: ArrayBuffer, out?: PlayerState): PlayerSt
   return s;
 }
 
+// Ragdoll tail (Nov 23): while a player's own ragdoll is flying, their state frame carries 25 more bytes after the 34.
+// The service relays state frames unread up to MAX_PLAYER_FRAME_BYTES (96), and decodePlayerState only asks for at
+// least 34, so an older page reads the frame as before (pose 'down') and the Worker needs no redeploy.
+//   34 mark u8 (RAG_MARK)  35 centre of mass minus (x, y, z): 3 x i16 cm  41 orientation quaternion xyzw: 4 x i16 / 32767
+//   49 ten limb angles i8 (1/40 rad): left arm swing, abduct, elbow, right arm the same, left leg swing, knee, right leg the same
+export const RAG_MARK = 0xa7;
+export const RAG_TAIL_BYTES = 25;
+export const RAG_LIMBS = 10;
+/** Floats in a ragdoll sample: com xyz (absolute), quaternion xyzw, RAG_LIMBS angles. */
+export const RAG_FLOATS = 7 + RAG_LIMBS;
+
+/** Write a ragdoll sample after a state frame already encoded in `buf` (PLAYER_STATE_BYTES + RAG_TAIL_BYTES long). */
+export function writeRagTail(buf: ArrayBuffer, s: PlayerState, rag: ArrayLike<number>): void {
+  const d = new DataView(buf), o = PLAYER_STATE_BYTES;
+  d.setUint8(o, RAG_MARK);
+  d.setInt16(o + 1, clampI16((rag[0] - s.x) * 100), true);
+  d.setInt16(o + 3, clampI16((rag[1] - s.y) * 100), true);
+  d.setInt16(o + 5, clampI16((rag[2] - s.z) * 100), true);
+  for (let i = 0; i < 4; i++) d.setInt16(o + 7 + i * 2, clampI16(rag[3 + i] * 32767), true);
+  for (let i = 0; i < RAG_LIMBS; i++) { const v = Math.round(rag[7 + i] * 40); d.setInt8(o + 15 + i, v > 127 ? 127 : v < -127 ? -127 : v || 0); }
+}
+
+/** A ragdoll sample from a state frame that has one (decode the state first: the com is relative to it). */
+export function readRagTail(buf: ArrayBuffer, s: PlayerState, out: Float32Array): boolean {
+  if (buf.byteLength < PLAYER_STATE_BYTES + RAG_TAIL_BYTES) return false;
+  const d = new DataView(buf), o = PLAYER_STATE_BYTES;
+  if (d.getUint8(o) !== RAG_MARK) return false;
+  out[0] = s.x + d.getInt16(o + 1, true) / 100;
+  out[1] = s.y + d.getInt16(o + 3, true) / 100;
+  out[2] = s.z + d.getInt16(o + 5, true) / 100;
+  let n = 0;
+  for (let i = 0; i < 4; i++) { out[3 + i] = d.getInt16(o + 7 + i * 2, true) / 32767; n += out[3 + i] * out[3 + i]; }
+  if (!(n > 0.5)) return false;
+  n = 1 / Math.sqrt(n);
+  for (let i = 0; i < 4; i++) out[3 + i] *= n;
+  for (let i = 0; i < RAG_LIMBS; i++) out[7 + i] = d.getInt8(o + 15 + i) / 40;
+  return true;
+}
+
 // Player event: 4 bytes. [kind, id, code, arg]
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that

@@ -103,6 +103,13 @@ try {
       halfUp: sub(() => nth() % 2 === 1),
       prime,
       full: () => () => {},
+      // Four ragdolls kept in the air near the player (ent/ragdoll.ts): what a few flying people cost.
+      rag4: () => {
+        const ps = [0, 1, 2, 3].map((i) => g.people.spawn(g.player.x + 3 + i, g.player.z + 4, 0));
+        const go = () => { for (let i = 0; i < ps.length; i++) { const p = ps[i]; if (g.people.rag.flying(p)) continue; p.x = g.player.x + 3 + i * 1.5; p.z = g.player.z + 5; p.y = g.player.person.y; p.pose = 'stand'; g.people.rag.hitByCar(p, 9 + i * 3, 4, { always: true, silly: false }); } };
+        go(); const id = setInterval(go, 400);
+        return () => { clearInterval(id); for (const p of ps) g.people.remove(p); };
+      },
       frozen: () => { g.tick = () => {}; return () => { delete g.tick; }; },
       noHud: () => off(g.hud),
       hudHidden: () => { const els = [...document.body.children].filter((e) => e !== g.canvas && e.style.display !== 'none'); for (const e of els) e.style.display = 'none'; return () => { for (const e of els) e.style.display = ''; }; },

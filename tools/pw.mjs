@@ -67,7 +67,7 @@ export async function boot(o = {}) {
     : { viewport: { width, height }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
   // The Claude FM radio embeds a YouTube player; its own ad, tracking and stream hiccups are not the game's errors.
-  const THIRD = /youtube\.com|youtube-nocookie|ytimg\.com|googlevideo\.com|doubleclick\.net|google\.com|gstatic\.com|googleads|compute-pressure/i;
+  const THIRD = /youtube\.com|youtube-nocookie|ytimg\.com|googlevideo\.com|doubleclick\.net|google\.com|gstatic\.com|googleads|ggpht.com|compute-pressure/i;
   const errors = [];
   const add = (s) => { if (!THIRD.test(s)) errors.push(s); };
   page.on('console', (m) => { if (m.type() === 'error') add(m.text() + ' ' + (m.location()?.url ?? '')); });

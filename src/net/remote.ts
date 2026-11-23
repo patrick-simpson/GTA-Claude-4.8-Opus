@@ -12,7 +12,7 @@ import type { Game } from '../core/game';
 import type { Look, Person, Pose, Vehicle } from '../core/api';
 import { RNG, angleDiff, clamp } from '../core/util';
 import { KINDS, SPECS, type VehicleKind } from '../ent/vehicleSpecs';
-import { DAMAGE_WRECK, POSES, stepHealth, PlayerEvent, PlayerFlag, PlayerMode, type PlayerState } from './protocol';
+import { DAMAGE_WRECK, POSES, RAG_FLOATS, stepHealth, PlayerEvent, PlayerFlag, PlayerMode, type PlayerState } from './protocol';
 import { charCar } from '../ent/weapons';
 import { SAYS, nameText } from './names';
 
@@ -235,6 +235,12 @@ export class Remote {
   }
 
   /** A state frame from this player. now: this browser's clock, ms. */
+  /** Their own ragdoll, as their browser last sent it (protocol readRagTail), and when. */
+  private readonly rag = new Float32Array(RAG_FLOATS);
+  private ragAt = -1e9;
+  private readonly ragQ = new THREE.Quaternion();
+  pushRag(r: Float32Array, now: number): void { this.rag.set(r); this.ragAt = now; }
+
   push(s: PlayerState, now: number): void {
     // Unwrap the sender's 16 bit clock with the time that passed here, then keep the smallest lag seen: a frame that
     // was held up on the way is placed where it belongs instead of where it arrived.
@@ -353,6 +359,13 @@ export class Remote {
       per.visible = true;
       per.x = c.x; per.y = c.y; per.z = c.z; per.h = c.yaw;
       per.pose = this.pose;
+      // Flying as a ragdoll on their screen: the same body here, smoothed toward what they send.
+      const rags = g.people.rag;
+      if (now - this.ragAt < 350 && rags.remote(per)) {
+        const r = this.rag;
+        this.ragQ.set(r[3], r[4], r[5], r[6]);
+        rags.setRemote(per, r[0], r[1], r[2], this.ragQ, r.subarray(7), dt);
+      } else if (rags.flying(per)) rags.drop(per);
       per.bench = (c.flags & PlayerFlag.Bench) !== 0;
       per.speed = this.speed;
       // (A swimmer treads water upright with the feet far below the surface, so the head is where it would be standing.)

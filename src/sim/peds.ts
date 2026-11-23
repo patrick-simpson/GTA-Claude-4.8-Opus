@@ -876,6 +876,17 @@ export class Peds {
     w.hitCool = 1.2;
     p.pose = 'down'; p.speed = 0; p.h = Math.atan2(cvx, cvz);
     p.health = w.hard ? 0 : Math.max(10, p.health - 35);
+    // Near the camera and with room: a ragdoll (ent/ragdoll.ts) instead of the canned fall. It owns the body until it lands.
+    if (!was || this.game.people.rag.flying(p)) {
+      this.game.people.rag.hitByCar(p, cvx, cvz, {
+        by: byPlayer ? 'player' : 'other',
+        onDone: (r) => {
+          w.vx = w.vz = 0;
+          if (r.up) { w.timer = 0; w.hard = false; p.health = Math.max(p.health, 10); }
+          else if (!w.hard) w.timer = Math.min(w.timer, this.rng.range(1.2, 2.2));
+        },
+      });
+    }
     this.stats.hits++;
     this.game.emit('pedHit', { x: p.x, z: p.z, speed: sp, byPlayer });
     if (sp > 5) this.alarm(p.x, p.z, 16);
@@ -884,6 +895,7 @@ export class Peds {
   /** Lying in the road: slide to a stop, then get up if it was only a bump. */
   private lie(w: Walker, dt: number): void {
     const p = w.p, g = this.game;
+    if (g.people.rag.flying(p)) return;
     const sp = Math.hypot(w.vx, w.vz);
     if (sp > 0.05) {
       const k = Math.max(0, sp - 7 * dt) / sp;

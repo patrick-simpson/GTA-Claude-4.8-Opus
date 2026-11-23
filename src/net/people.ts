@@ -414,6 +414,14 @@ export class TownPeople {
 
   private place(s: Shown, w: Walker, now: number, dt: number): void {
     const p = w.p, pose = s.flags & 7, age = Math.min((now - s.at) / 1000, EXTRAP_S);
+    // A ragdoll (ent/ragdoll.ts) has the body until it lands; then the host's position is eased to as usual.
+    const rags = this.game.people.rag;
+    if (rags.flying(p)) { s.cx = p.x; s.cz = p.z; return; }
+    if (pose === POSE_DOWN && p.pose !== 'down' && s.guess === 0 && s.speed > 2.5) {
+      // Run down on the host's screen (the host flies its own ragdoll): the same knock here, from the car speed the slide implies.
+      const k = s.speed / 0.85;
+      if (rags.hitByCar(p, Math.sin(s.h) * k, Math.cos(s.h) * k, { silly: false })) { s.cx = p.x; s.cz = p.z; return; }
+    }
     let tx = s.x + Math.sin(s.h) * s.speed * age, tz = s.z + Math.cos(s.h) * s.speed * age;
     if (s.guess > 0) {
       // Knocked down on this screen and not yet on the host's: lying where the blow left them.
@@ -456,6 +464,7 @@ export class TownPeople {
       s.guess = now + GUESS_MS;
       s.gvx = v.vx * 0.85; s.gvz = v.vz * 0.85;
       p.pose = 'down'; p.speed = 0; p.h = Math.atan2(v.vx, v.vz);
+      this.game.people.rag.hitByCar(p, v.vx, v.vz, { by: 'player', silly: false, onDone: () => { s.gvx = s.gvz = 0; s.cx = p.x; s.cz = p.z; } });
     }
     this.game.emit('pedHit', { x: p.x, z: p.z, speed: sp, byPlayer: true });
   }

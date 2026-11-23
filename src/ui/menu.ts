@@ -567,6 +567,9 @@ export class Menu {
     ${row('Missions, second attempts', String(s.failed))}
     ${row('Fares · tows · parcels', `${s.fares} · ${s.tows} · ${s.parcels}`)}
     ${row('Races under par', String(s.races))}
+    ${row('Pedestrians given flying lessons', String(save.count('ragFlights')))}
+    ${row('Longest unscheduled flight', save.count('ragFar') > 0 ? `${Math.round(save.count('ragFar') * FEET)} ft` : 'None filed')}
+    ${row('Times used as a hood ornament', String(save.count('ragSelf')))}
     <div class="mn-row mn-mistakes"><span class="mn-lbl">Mistakes made</span><span>0*</span></div>
     <p class="mn-note">* As reported by the applicant. Anything typed is not counted.</p>
   </div>

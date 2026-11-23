@@ -33,7 +33,7 @@ import { angleDiff } from '../core/util';
 import { KINDS } from '../ent/vehicleSpecs';
 import {
   HELD_SHIFT, KEEPALIVE_FRAME, KEEPALIVE_MS, PERF_CANNOT_HOST_MS, PERF_INTERVAL_MS, PLAYER_STATE_BYTES, POSES, PlayerFlag, PlayerMode, SEND_HZ,
-  Frame, PlayerEvent, WorldKind, blankPlayerState, damageNibble, decodePlayerEvent, decodePlayerState, encodePlayerEvent, encodeMsg, encodePlayerState, frameKind,
+  Frame, PlayerEvent, RAG_FLOATS, RAG_TAIL_BYTES, readRagTail, writeRagTail, WorldKind, blankPlayerState, damageNibble, decodePlayerEvent, decodePlayerState, encodePlayerEvent, encodeMsg, encodePlayerState, frameKind,
   type PlayerEntry, type ServerMsg, type WelcomeMsg,
 } from './protocol';
 import { Connection, servicePlan, type NetStatus } from './conn';
@@ -91,6 +91,10 @@ export class Net {
   private readonly out = blankPlayerState();
   private readonly last = blankPlayerState();
   private readonly outBuf = new ArrayBuffer(PLAYER_STATE_BYTES);
+  /** The same with a ragdoll tail, while this player's own ragdoll flies (protocol writeRagTail). */
+  private readonly outRag = new ArrayBuffer(PLAYER_STATE_BYTES + RAG_TAIL_BYTES);
+  private readonly ragOut = new Float32Array(RAG_FLOATS);
+  private readonly ragIn = new Float32Array(RAG_FLOATS);
   private readonly inState = blankPlayerState();
   /** Send the next state whether or not it changed: somebody has just arrived and knows nothing about us. */
   private force = true;
@@ -292,7 +296,10 @@ export class Net {
     if (k !== Frame.State) return;
     const s = decodePlayerState(buf, this.inState);
     if (!s) return;
-    this.remotes.get(s.id)?.push(s, performance.now());
+    const r = this.remotes.get(s.id);
+    if (!r) return;
+    r.push(s, performance.now());
+    if (readRagTail(buf, s, this.ragIn)) r.pushRag(this.ragIn, performance.now());
   }
 
   // ── Sending ────────────────────────────────────────────────────────────────
@@ -361,8 +368,10 @@ export class Net {
     // Nobody is shown to the others while still on the title card.
     if ((state === 'play' || state === 'paused') && now - this.stateAt >= SEND_MS - 4) {
       this.gather(now);
-      if (this.force || this.changed()) {
-        if (c.send(encodePlayerState(this.out, this.outBuf))) {
+      if (this.force || this.changed() || this.game.people.rag.flying(this.game.player.person)) {
+        const rag = this.game.people.rag.sample(this.game.player.person, this.ragOut);
+        if (rag) { encodePlayerState(this.out, this.outRag); writeRagTail(this.outRag, this.out, this.ragOut); }
+        if (c.send(rag ? this.outRag : encodePlayerState(this.out, this.outBuf))) {
           Object.assign(this.last, this.out);
           this.force = false;
           this.stateAt = this.anyAt = now;

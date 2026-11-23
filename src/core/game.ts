@@ -13,6 +13,7 @@ import { Sky } from '../world/sky';
 import { Vehicles } from '../ent/vehicle';
 import { SPECS, commonKind } from '../ent/vehicleSpecs';
 import { People } from '../ent/character';
+import { Ragdolls } from '../ent/ragdoll';
 import { Player } from '../ent/player';
 import { CameraRig } from './camera';
 import { Hud } from '../ui/hud';
@@ -165,6 +166,7 @@ export class Game {
     await nextFrame();
     this.vehicles = new Vehicles(this);
     this.people = new People(this);
+    this.people.rag = new Ragdolls(this);
     this.player = new Player(this);
     this.placeStart();
 

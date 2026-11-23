@@ -887,6 +887,7 @@ export class Police {
     if (car && car.driver === 'player' && Math.abs(car.speed) > 6 && c.down <= 0) {
       // Run down by the suspect. It goes in the report.
       c.down = 6; p.pose = 'down'; p.speed = 0; p.health = Math.max(1, p.health - 40);
+      g.people.rag.hitByCar(p, car.vx, car.vz, { by: 'player', silly: false, onDone: () => { c.down = Math.min(c.down, 2.5); } });
       this.pending.push({ kind: 'officerDown', x: p.x, z: p.z, weight: 1.5 });
       return;
     }
@@ -968,6 +969,7 @@ export class Police {
     if (c.down > 0) {
       // Winded, not watching: whatever they saw a moment ago does not count while they are on the ground.
       c.sees = false; p.pose = 'down'; p.speed = 0;
+      if (this.game.people.rag.flying(p)) return true;
       if ((c.down -= dt) <= 0) { c.down = 0; p.pose = 'stand'; c.seeT = 0; }
       return true;
     }
@@ -1206,6 +1208,9 @@ export class Police {
       if (c.wid !== wid || c.shown || c.dead || c.down > 0 || !(speed > 6)) continue;
       const p = c.p;
       c.down = 6; p.pose = 'down'; p.speed = 0; p.health = Math.max(1, p.health - 40);
+      // (The striker's browser does not say which way it was going: a shove away from the nearest car will do.)
+      const v = this.game.vehicles.nearest(p.x, p.z, 8);
+      if (v) this.game.people.rag.hitByCar(p, v.vx || (p.x - v.x), v.vz || (p.z - v.z), { by: 'other', silly: false, onDone: () => { c.down = Math.min(c.down, 2.5); } });
       this.blame(by, 'officerDown', p.x, p.z, 1.5);
       return true;
     }
