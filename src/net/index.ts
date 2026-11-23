@@ -50,6 +50,7 @@ import { TownCrew } from './crew';
 import { TownJobs } from './jobs';
 import { TownRide } from './ride';
 import { SAYS, myName, nameText, rerollName } from './names';
+import { hostBotPass } from './hostbot';
 
 const SEND_MS = 1000 / SEND_HZ;
 /** The fewest ms between two things said by this player. */
@@ -85,6 +86,8 @@ export class Net {
   readonly jobs: TownJobs;
   /** Riding together: this player in another's car, or others in this player's (ride.ts). */
   readonly ride: TownRide;
+  /** This page is the mini PC's host bot (hostbot.ts): no player, nothing drawn, the town's host. */
+  readonly isBot: boolean;
   /** State frames sent, apart from the totals in conn.sent. */
   statesSent = 0;
 
@@ -118,6 +121,8 @@ export class Net {
   constructor(private readonly game: Game) {
     const plan = servicePlan();
     const c = this.conn = new Connection(plan.urls, myName, plan.fullRetryS, plan.lookup, plan.probeS);
+    c.bot = hostBotPass();
+    this.isBot = c.bot !== '';
     c.onWelcome = (m) => this.welcome(m);
     c.onMsg = (m) => this.msg(m);
     c.onFrame = (b) => this.frame(b);
@@ -147,7 +152,7 @@ export class Net {
     c.start();
     this.showNote();
     // The game's own loop stops while paused and in a hidden tab; the keepalive must not.
-    if (c.status !== 'off') setInterval(() => this.pump(performance.now()), 500);
+    if (c.status !== 'off') setInterval(() => { this.pump(performance.now()); c.flush(); }, 500);
   }
 
   get status(): NetStatus { return this.conn.status; }
@@ -363,7 +368,8 @@ export class Net {
 
   private pump(now: number): void {
     const c = this.conn;
-    if (c.status !== 'online' || this.remotes.size === 0) return;
+    // (The bot keeps saying it is alive even alone, so the service never takes it for stalled when a player arrives.)
+    if (c.status !== 'online' || (this.remotes.size === 0 && !this.isBot)) return;
     const state = this.game.state;
     // Nobody is shown to the others while still on the title card.
     if ((state === 'play' || state === 'paused') && now - this.stateAt >= SEND_MS - 4) {
@@ -394,7 +400,9 @@ export class Net {
     // (Alone too, with no service at all: a Bolt always waiting at the start.)
     if (this.game.state === 'play') this.cars.keepBolt(performance.now());
     if (this.conn.status === 'off') return;
-    const now = performance.now(), g = this.game;
+    // (The frame's own time, not the moment this line runs: the work done earlier in the frame varies, and with it
+    // where everything shown from the network would be placed. core/game.ts frameTime.)
+    const now = this.game.frameTime(), g = this.game;
     if (this.noteKind && !this.told[this.noteKind] && g.state === 'play') this.tellOnce(this.noteKind);
     // (Before this player's own state goes: a car they have this moment got out of is in the list by then.)
     this.held.update(now, dt);
@@ -418,6 +426,8 @@ export class Net {
     this.police.update(now);
     this.props.update(now);
     this.town.update(now);
+    // Everything this frame said goes as one message (conn.ts: Frame.Bundle, when the service takes it).
+    this.conn.flush();
   }
 
   /** "3 in town", under the cash slip; only while connected with somebody else here. */

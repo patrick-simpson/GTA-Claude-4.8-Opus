@@ -48,6 +48,28 @@ export const WORLD_HZ = 10;
 export const RATE_PER_SECOND = 40;
 export const RATE_BURST = 80;
 /**
+ * The same for the host (and the host bot): it alone sends the town (traffic, people, police, fire... each at up to
+ * 10 a second) on top of its own state. A busy host sent 44-45 a second before batching (Frame.Bundle); batched it is
+ * far under 40, and this allowance is the margin, not the budget.
+ */
+export const RATE_HOST_PER_SECOND = 120;
+export const RATE_HOST_BURST = 240;
+/** Largest Frame.Bundle, in bytes (the parts inside keep their own caps). */
+export const MAX_BUNDLE_BYTES = 12288;
+/** Each part of a bundle costs this much of a token, on top of the one for the bundle itself. */
+export const BUNDLE_PART_COST = 0.25;
+/**
+ * The host bot (the mini PC's dedicated host, server/home/hostbot.ts) says who it is with ?bot=<exp>.<sig>: exp is
+ * seconds since 1970 when the pass runs out, sig the base64url Ed25519 signature of hostBotText(exp) by the mini PC's
+ * key (server/src/mainkey.ts holds the public half). Only the home service accepts it, and never through the tunnel.
+ */
+export const BOT_PARAM = 'bot';
+/** The longest a bot pass may run, in seconds. */
+export const BOT_PASS_MAX_S = 48 * 3600;
+export function hostBotText(exp: number): string {
+  return `port-calamity hostbot ${exp}`;
+}
+/**
  * A name is 2 or 3 indexes into the client's fixed word lists (src/net/names.ts): part i is 0..NAME_LIST_SIZES[i]-1.
  * names.ts will not compile if these stop matching the lists.
  */
@@ -100,6 +122,8 @@ export const Close = {
   Rest: 4009,
   /** Sent after `main` (the backup only): the main service is alive, go there instead. */
   Main: 4010,
+  /** The host bot only: a newer copy of it has connected. */
+  Replaced: 4011,
 } as const;
 
 /** HTTP status the Worker answers instead of an upgrade (a browser only sees "could not connect"). */
@@ -159,6 +183,12 @@ export const Frame = {
   ToHost: 4,
   /** Host only. Byte 1 = target player id. Delivered to that player only (join snapshot), byte 1 becomes the host's id. */
   ToPlayer: 5,
+  /**
+   * Any player, only to a service whose welcome said b: 1. Several frames in one message: after the 2 byte header,
+   * repeated [u16 little-endian length][that frame]. The service handles each part as if it came alone (and passes
+   * them on one by one, so receivers never see a bundle). Saves the rate allowance and the backup's billed messages.
+   */
+  Bundle: 6,
 } as const;
 export type FrameKind = (typeof Frame)[keyof typeof Frame];
 
@@ -1623,6 +1653,8 @@ export interface WelcomeMsg {
   facts: Record<string, FactValue>;
   /** Service wall clock, ms since 1970, for clock agreement. */
   now: number;
+  /** 1 when the service takes Frame.Bundle (older services leave it out: then frames go one by one). */
+  b?: number;
 }
 export interface JoinMsg { t: 'join'; id: number; name: NameIndexes; }
 export interface LeaveMsg { t: 'leave'; id: number; }

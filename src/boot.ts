@@ -12,6 +12,7 @@ import { PROPS_FILE } from './world/propAssets';
 import { MPH } from './core/util';
 import { progress } from './world/progress';
 import { watchForUpdates } from './core/update';
+import { hostBotPass, runHostBot } from './net/hostbot';
 import { title, titleAt } from './ui/title';
 import type { Weather } from './core/api';
 import type { VehicleKind } from './ent/vehicleSpecs';
@@ -163,6 +164,8 @@ const rule = (built: number): number => {
 game.init((f, label) => title.progress(rule(f), label)).then(async () => {
   hooks.ready = true;
   hooks.boot.builtAt = Math.round(performance.now());
+  // The mini PC's host bot: the town and nothing else, nothing drawn (net/hostbot.ts).
+  if (hostBotPass()) { runHostBot(game); return; }
   // The loop starts under the picture: the first frames compile every shader and send every texture, the longest
   // hitch of the whole game, and the models that arrive during the wait are built into the scene unseen.
   game.run();

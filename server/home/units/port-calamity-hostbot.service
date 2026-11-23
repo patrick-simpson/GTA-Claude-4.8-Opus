@@ -1,0 +1,79 @@
+# PORT CALAMITY: the host bot, the town's permanent host (server/home/hostbot.ts).
+# Keeps one headless Chromium (the Debian package "chromium") showing the public game in its host-only mode,
+# joined to the message service on this computer with a pass signed by this computer's key. It simulates the
+# shared town (traffic, people, police...) for every player; it has no player, draws nothing and takes no seat.
+# One line a minute in the journal: players, town cars, tick time, CPU and memory.
+[Unit]
+Description=PORT CALAMITY host bot (the town's permanent host)
+Documentation=https://github.com/patrick-simpson/GTA-Claude-4.8-Opus/tree/main/server/home
+Wants=network-online.target
+After=network-online.target port-calamity.service port-calamity-tunnel.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=port-calamity
+Group=port-calamity
+Environment=PC_PORT=8788
+Environment=PC_KEYDIR=/var/lib/port-calamity/key
+Environment=PC_BOT_STATE=/var/lib/port-calamity/bot
+Environment=PC_CURRENT=/opt/port-calamity/app/current
+Environment=HOME=/var/lib/port-calamity/bot
+Environment=XDG_CONFIG_HOME=/var/lib/port-calamity/bot/.config
+Environment=XDG_CACHE_HOME=/var/lib/port-calamity/bot/.cache
+Environment=NODE_OPTIONS=--max-old-space-size=64
+WorkingDirectory=/var/lib/port-calamity/bot
+ExecStart=/opt/port-calamity/app/current/node --disable-warning=ExperimentalWarning /opt/port-calamity/app/current/server/home/hostbot.ts
+Restart=always
+RestartSec=10
+KillMode=control-group
+TimeoutStopSec=15
+SyslogIdentifier=port-calamity-hostbot
+
+# A whole (if idle) browser: more memory than the service, still a small share of the computer.
+# Measured on the developer's laptop: about 10% of one core and 0.9 GB private memory.
+MemoryHigh=1200M
+MemoryMax=1536M
+MemorySwapMax=0
+CPUQuota=100%
+CPUWeight=20
+TasksMax=256
+Nice=10
+LimitNOFILE=4096
+
+# It fetches the game from its public address and talks to the service on loopback. Name lookups need AF_UNIX/AF_NETLINK.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+# It reads the key (to sign its pass) and writes only its own throwaway browser profile.
+ReadWritePaths=/var/lib/port-calamity/bot
+ReadOnlyPaths=/var/lib/port-calamity/key
+InaccessiblePaths=-/var/lib/port-calamity/city -/var/lib/port-calamity/update -/opt/dashboard -/etc/dashboard
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+UMask=0077
+
+# No privileges. (Chromium runs with --no-sandbox: its own sandbox needs the namespaces forbidden here, and this
+# box is the sandbox. MemoryDenyWriteExecute is left out: the JavaScript engines need it off.)
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

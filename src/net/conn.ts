@@ -30,7 +30,7 @@
 //    every request to it, refused or not, is billed to an account that is not ours to spend.
 
 import {
-  BACKUP_HOST, Close, FULL_RETRY_S, MAIN_PATH, PROTOCOL_VERSION, REST_SPREAD_MS, cityUrl, isMainAddress, parseServerMsg,
+  BACKUP_HOST, BOT_PARAM, Close, FRAME_HEADER_BYTES, Frame, MAX_BUNDLE_BYTES, FULL_RETRY_S, MAIN_PATH, PROTOCOL_VERSION, REST_SPREAD_MS, cityUrl, isMainAddress, parseServerMsg,
   type NameIndexes, type ServerMsg, type WelcomeMsg,
 } from './protocol';
 
@@ -44,6 +44,8 @@ export const SERVICE_URLS: readonly string[] = BACKUP_HOST ? [`wss://${BACKUP_HO
 export const LOOKUP_URL: string = BACKUP_HOST ? `https://${BACKUP_HOST}` : '';
 
 const LOCAL_URL = /^wss?:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?\/?$/;
+/** A service on this computer (tests, and the mini PC's host bot). */
+export const LOCAL_SERVICE = LOCAL_URL;
 const LOCAL_HTTP = /^http:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?$/;
 
 /**
@@ -166,7 +168,17 @@ export class Connection {
   host = 0;
   city = 0;
   /** Counters since the page loaded, for the tests and the free plan sums. */
-  readonly sent = { msgs: 0, bytes: 0 };
+  /** msgs: messages that went down the socket; frames: the binary frames in them (a bundle carries several). */
+  readonly sent = { msgs: 0, bytes: 0, frames: 0, bundles: 0 };
+  /**
+   * The service takes Frame.Bundle (its welcome said b: 1): binary frames sent during a game frame wait here and go
+   * as one message at flush() (Net calls it at the end of every frame and from its half-second pump).
+   */
+  private bundles = false;
+  private readonly pend: Uint8Array[] = [];
+  private pendBytes = 0;
+  /** The host bot's pass (server/home/hostbot.ts), '' for everybody else. Sent with the join; the service is then main. */
+  bot = '';
   readonly got = { msgs: 0, bytes: 0 };
   attempts = 0;
   /** Which address is in use, or was last tried (an index into the list); -1 before any. */
@@ -379,13 +391,13 @@ export class Connection {
     if (!quiet && this.restUntil === 0) this.set('connecting');
     this.attempts++;
     this.service = i;
-    const main = this.lookup !== '' && i === 0;
+    const main = (this.lookup !== '' && i === 0) || this.bot !== '';
     this.home = main ? 'main' : 'backup';
     this.openedAt = Date.now();
     let ws: WebSocket;
     try {
       // The backup is told when main has been tried in this round and did not answer, so that it seats this browser.
-      ws = new WebSocket(cityUrl(this.urls[i], this.name(), !main && (this.mainFailed || this.sentToMain)));
+      ws = new WebSocket(cityUrl(this.urls[i], this.name(), !main && (this.mainFailed || this.sentToMain)) + (this.bot ? `&${BOT_PARAM}=${encodeURIComponent(this.bot)}` : ''));
     } catch {
       this.next();
       return;
@@ -411,6 +423,7 @@ export class Connection {
           if (m.v !== PROTOCOL_VERSION) { this.lost(ws); return; }
           off();
           this.id = m.id; this.host = m.host; this.city = m.city;
+          this.bundles = m.b === 1; this.pend.length = 0; this.pendBytes = 0;
           this.everOnline = true;
           this.onlineAt = Date.now();
           this.queue = [];
@@ -579,6 +592,7 @@ export class Connection {
     this.home = 'main';
     this.moves++;
     this.id = m.id; this.host = m.host; this.city = m.city;
+    this.bundles = m.b === 1; this.pend.length = 0; this.pendBytes = 0;
     this.onlineAt = Date.now();
     this.queue = [];
     store(KEY_MAIN, { u: this.lastMain, t: Date.now() });
@@ -679,6 +693,45 @@ export class Connection {
   send(data: ArrayBuffer | Uint8Array | string): boolean {
     const ws = this.ws;
     if (!ws || this.status !== 'online' || ws.readyState !== 1 || ws.bufferedAmount > 16384) return false;
+    if (typeof data !== 'string') {
+      this.sent.frames++;
+      // Batched: copied (callers reuse their buffers), sent at the next flush. A keepalive alone needs no company.
+      if (this.bundles && data.byteLength > 1) {
+        const n = data.byteLength;
+        if (this.pendBytes + n + 2 > MAX_BUNDLE_BYTES - FRAME_HEADER_BYTES) this.flush();
+        const src = data instanceof Uint8Array ? data : new Uint8Array(data);
+        this.pend.push(src.slice());
+        this.pendBytes += n + 2;
+        return true;
+      }
+    } else this.flush(); // (in order: what was batched goes first)
+    return this.raw(data);
+  }
+
+  /** Everything batched since the last flush, as one message (or as itself, when it is only one). */
+  flush(): void {
+    const pend = this.pend, k = pend.length;
+    if (k === 0) return;
+    let out: Uint8Array;
+    if (k === 1) out = pend[0];
+    else {
+      out = new Uint8Array(FRAME_HEADER_BYTES + this.pendBytes);
+      out[0] = Frame.Bundle;
+      let o = FRAME_HEADER_BYTES;
+      for (const f of pend) {
+        out[o] = f.byteLength & 0xff; out[o + 1] = f.byteLength >> 8;
+        out.set(f, o + 2);
+        o += 2 + f.byteLength;
+      }
+      this.sent.bundles++;
+    }
+    pend.length = 0; this.pendBytes = 0;
+    this.raw(out);
+  }
+
+  private raw(data: ArrayBuffer | Uint8Array | string): boolean {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== 1) return false;
     try { ws.send(data as ArrayBuffer | string); } catch { return false; }
     this.sent.msgs++;
     this.sent.bytes += typeof data === 'string' ? data.length : data.byteLength;

@@ -7,12 +7,14 @@
 # What it does:
 #  - makes a system user "port-calamity" that cannot log in and owns nothing but this service;
 #  - makes /opt/port-calamity (the programs) and /var/lib/port-calamity (its few small files);
-#  - installs four systemd units: the service (loopback only), the quick tunnel with its supervisor,
+#  - installs five systemd units: the service (loopback only), the quick tunnel with its supervisor,
+#    the host bot (the town's permanent host: headless Chromium running the game's host-only mode),
 #    and a timer that updates the service from this repository every five minutes (validated first,
 #    previous version kept, rolled back if the new one fails);
 #  - the first update run downloads the pinned Node, cloudflared and ws INTO /opt/port-calamity,
 #    each checked against its SHA-256. Nothing is installed system-wide except, if missing, the
-#    ordinary Debian packages git, curl, ca-certificates and xz-utils. No apt repository is added.
+#    ordinary Debian packages git, curl, ca-certificates, xz-utils and chromium (for the host bot).
+#    No apt repository is added.
 #  - prints the service's PUBLIC key at the end. That one line goes to the game's developer.
 # What it does not do: open a firewall port, log in to Cloudflare, or read, change or stop anything
 # else on this computer. The service is forbidden (by its units) from /opt/dashboard and /etc/dashboard.
@@ -24,7 +26,7 @@ RAW="${PC_RAW:-https://raw.githubusercontent.com/patrick-simpson/GTA-Claude-4.8-
 USER_NAME=port-calamity
 OPT=/opt/port-calamity
 VAR=/var/lib/port-calamity
-UNITS=(port-calamity.service port-calamity-tunnel.service port-calamity-update.service port-calamity-update.timer)
+UNITS=(port-calamity.service port-calamity-tunnel.service port-calamity-hostbot.service port-calamity-update.service port-calamity-update.timer)
 PORT=8788
 
 say() { echo "port-calamity install: $*"; }
@@ -48,6 +50,8 @@ main() {
   command -v curl >/dev/null || need+=(curl)
   command -v xz >/dev/null || need+=(xz-utils)
   [ -e /etc/ssl/certs/ca-certificates.crt ] || need+=(ca-certificates)
+  # The host bot's browser (Debian's own package and the libraries it brings).
+  [ -x /usr/bin/chromium ] || need+=(chromium)
   if [ "${#need[@]}" -gt 0 ]; then
     say "installing Debian packages: ${need[*]}"
     apt-get update -qq
@@ -65,7 +69,7 @@ main() {
   # the service user owns app/ (written only by the update unit) and the state.
   install -d -o root -g root -m 0755 "$OPT" "$OPT/bin"
   install -d -o "$USER_NAME" -g "$USER_NAME" -m 0755 "$OPT/app"
-  install -d -o "$USER_NAME" -g "$USER_NAME" -m 0750 "$VAR" "$VAR/city" "$VAR/update"
+  install -d -o "$USER_NAME" -g "$USER_NAME" -m 0750 "$VAR" "$VAR/city" "$VAR/update" "$VAR/bot"
   install -d -o "$USER_NAME" -g "$USER_NAME" -m 0700 "$VAR/key"
   # (A key kept by "uninstall.sh --keep-key" comes back to the new user.)
   chown -R "$USER_NAME:$USER_NAME" "$VAR"
@@ -83,7 +87,7 @@ main() {
   install -o root -g root -m 0755 "$tmp/update.sh" "$tmp/uninstall.sh" "$OPT/bin/"
   for u in "${UNITS[@]}"; do install -o root -g root -m 0644 "$tmp/$u" "/etc/systemd/system/$u"; done
   systemctl daemon-reload
-  systemctl enable --quiet port-calamity.service port-calamity-tunnel.service port-calamity-update.timer
+  systemctl enable --quiet port-calamity.service port-calamity-tunnel.service port-calamity-hostbot.service port-calamity-update.timer
 
   # The first update: fetches the code and the pinned programs, validates, switches. A few minutes at most.
   say "fetching and checking the service (about 100 MB of downloads the first time)..."
@@ -112,6 +116,17 @@ main() {
     [ -n "$tunnel" ] && break
     sleep 2
   done
+  # The host bot: it signs its pass with the key the tunnel has just made.
+  systemctl restart port-calamity-hostbot.service
+  bot=""
+  for _ in $(seq 1 45); do
+    bot="$(curl -fsS --max-time 3 "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -o '"bot":true' || true)"
+    [ -n "$bot" ] && break
+    sleep 2
+  done
+  if [ -n "$bot" ]; then say "the host bot is in town (it is the host whenever it is running)"
+  else say "the host bot is not in yet (it can take a minute). Later: journalctl -u port-calamity-hostbot -n 20"
+  fi
   if [ -n "$tunnel" ]; then say "the tunnel is up: $tunnel/health"
   else say "the tunnel is not up yet (it can take a minute, and it retries by itself). Later: journalctl -u port-calamity-tunnel -n 20"
   fi

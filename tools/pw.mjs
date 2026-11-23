@@ -60,7 +60,7 @@ export async function boot(o = {}) {
   const exe = process.env.PW_CHROMIUM || (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : '');
   const browser = await chromium.launch({
     ...(exe ? { executablePath: exe } : { channel: 'chromium' }), headless: true,
-    args: ['--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', '--disable-gpu-vsync', '--disable-frame-rate-limit', ...(process.env.PW_GPU === 'high' ? ['--force_high_performance_gpu'] : process.env.PW_GPU === 'low' ? ['--force_low_power_gpu'] : [])],
+    args: ['--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', ...(process.env.PW_VSYNC === '1' ? [] : ['--disable-gpu-vsync', '--disable-frame-rate-limit']), ...(process.env.PW_GPU === 'high' ? ['--force_high_performance_gpu'] : process.env.PW_GPU === 'low' ? ['--force_low_power_gpu'] : [])],
   });
   const ctx = await browser.newContext(mobile
     ? { viewport: { width, height }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }

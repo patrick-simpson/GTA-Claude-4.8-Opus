@@ -7,8 +7,8 @@ daily limits, reached through a free Cloudflare quick tunnel. For Debian 13, x86
 
 What the line below does: it downloads `install.sh` from this repository and runs it as root. That
 script makes a locked-down system user `port-calamity`, the folders `/opt/port-calamity` and
-`/var/lib/port-calamity`, and four systemd units (the service, the tunnel, an update timer). It
-installs the Debian packages git, curl and xz-utils only if they are missing, adds no apt repository,
+`/var/lib/port-calamity`, and five systemd units (the service, the tunnel, the host bot, an update timer).
+It installs the Debian packages git, curl, xz-utils and chromium (the host bot's browser) only if they are missing, adds no apt repository,
 opens no firewall port, uses no Cloudflare login, and touches nothing else on the computer.
 
     curl -fsSL https://raw.githubusercontent.com/patrick-simpson/GTA-Claude-4.8-Opus/main/server/home/install.sh | sudo bash
@@ -21,7 +21,8 @@ Running the line again is safe (it repairs and refreshes; the key is kept).
 
 ## Is it working?
 
-    systemctl status port-calamity port-calamity-tunnel port-calamity-update.timer
+    systemctl status port-calamity port-calamity-tunnel port-calamity-hostbot port-calamity-update.timer
+    journalctl -u port-calamity-hostbot -n 5 -o cat     # once a minute: "online, host: 2 players, 12 town cars, ... tick 1.6 ms"
     curl http://127.0.0.1:8788/health
     journalctl -u port-calamity-tunnel -n 20 -o cat      # "tunnel up: https://....trycloudflare.com", then "registered with the backup"
     sudo cat /var/lib/port-calamity/key/main.pub         # the public key again
@@ -46,6 +47,7 @@ With it stopped the game simply uses the backup, then single player.
 | --- | --- |
 | `main.ts` | the service: `ws` round `Room`, 127.0.0.1 only, facts in `/var/lib/port-calamity/city/facts.json`, `/health` |
 | `tunnel.ts` | parent of `cloudflared`: reads the quick tunnel's address, checks the game answers through it, registers it signed (Ed25519) with the backup, heartbeat every 30 min, replaces a dead tunnel |
+| `hostbot.ts` | the town's permanent host: keeps headless Chromium (Debian's `chromium`) on the public game in its host-only mode (`src/net/hostbot.ts`), joined to the service with a pass signed by the key (`?bot=`, checked by `main.ts`, refused if it came through the tunnel); the room makes it the host whenever it is live and falls back to the players' rules when it is not; it takes no seat and nobody is told of it; restarts its browser if the page stops answering, daily, and on a new edition of the game; a line a minute |
 | `selftest.ts` | joins a candidate version as a player; part of the update's validation |
 | `update.sh` | the self-update (below); installed root-owned, deliberately not self-updating |
 | `pins.env` | the exact Node, cloudflared and ws, with SHA-256 |

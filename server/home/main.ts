@@ -15,9 +15,16 @@
 //   PC_CURRENT   a symlink to the release in use; when it stops pointing at this copy, exit so that
 //                systemd starts the new one (how a self-update takes effect without any privilege)
 //   PC_SEATS     LOCAL TESTS ONLY: fewer seats (it can never raise the cap)
+//   PC_BOT_PUBKEY the public key host bot passes are checked with (else server/src/mainkey.ts); tests use their own
+//
+// The host bot (hostbot.ts, on this same computer) joins with ?bot=<pass>, a short signed note (protocol.ts BOT_PARAM).
+// It is accepted only straight from this computer: anything that came through the tunnel carries Cloudflare's
+// headers and is refused. The bot takes no seat and is the town's host while it is live (room.ts).
 //
 // Privacy: it never reads or prints a caller's address, and it logs no per-connection lines at all.
 
+import { createPublicKey, verify } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
@@ -27,8 +34,10 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import {
-  CITY_CAP, Close, FULL_RETRY_S, HTTP_BAD_HELLO, HTTP_BAD_ORIGIN, MAX_HOST_FRAME_BYTES, PROTOCOL_VERSION, isAllowedOrigin,
+  BOT_PARAM, BOT_PASS_MAX_S, CITY_CAP, Close, FULL_RETRY_S, HTTP_BAD_HELLO, HTTP_BAD_ORIGIN, MAX_HOST_FRAME_BYTES, PROTOCOL_VERSION,
+  hostBotText, isAllowedOrigin,
 } from '../../src/net/protocol.ts';
+import { MAIN_PUBLIC_KEY } from '../src/mainkey.ts';
 import type { FactValue, FullMsg } from '../../src/net/protocol.ts';
 import { Room, parseNameParam } from '../src/room.ts';
 import type { RoomEnv, RoomSocket } from '../src/room.ts';
@@ -143,7 +152,7 @@ const server = createServer((req, res) => {
     // Nothing private: no names, no addresses, nothing about the machine.
     const body = JSON.stringify({
       ok: true, service: 'port-calamity-home', v: PROTOCOL_VERSION, release: RELEASE,
-      uptime: Math.round((Date.now() - startedAt) / 1000), seats: room.seats, players: room.size,
+      uptime: Math.round((Date.now() - startedAt) / 1000), seats: room.seats, players: room.size, bot: room.hasBot,
     });
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(body + '\n');
   } else {
@@ -160,6 +169,29 @@ function refuseUpgrade(socket: Duplex, status: number, text: string): void {
   socket.end(`HTTP/1.1 ${status} Refused\r\ncontent-type: text/plain; charset=utf-8\r\ncache-control: no-store\r\nconnection: close\r\ncontent-length: ${Buffer.byteLength(text)}\r\n\r\n${text}`);
 }
 
+let botKey: KeyObject | null | undefined;
+/** Is this the host bot's pass, and did it come straight from this computer (not through the tunnel)? */
+function botPass(pass: string, req: IncomingMessage): boolean {
+  if (req.headers['cf-connecting-ip'] !== undefined || req.headers['cf-ray'] !== undefined || req.headers['x-forwarded-for'] !== undefined) return false;
+  const m = /^(\d{10})\.([A-Za-z0-9_-]{80,90})$/.exec(pass);
+  if (!m) return false;
+  const exp = Number(m[1]), now = Date.now() / 1000;
+  if (!(exp > now && exp <= now + BOT_PASS_MAX_S)) return false;
+  if (botKey === undefined) {
+    try {
+      botKey = createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: process.env.PC_BOT_PUBKEY || MAIN_PUBLIC_KEY }, format: 'jwk' });
+    } catch {
+      botKey = null;
+    }
+  }
+  if (!botKey) return false;
+  try {
+    return verify(null, Buffer.from(hostBotText(exp)), botKey, Buffer.from(m[2], 'base64url'));
+  } catch {
+    return false;
+  }
+}
+
 server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
   socket.on('error', () => {});
   const origin = req.headers.origin;
@@ -173,12 +205,15 @@ server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
   if (q.get('v') !== String(PROTOCOL_VERSION)) return refuseUpgrade(socket, HTTP_BAD_HELLO, 'wrong protocol version\n');
   const name = parseNameParam(q.get('name'));
   if (!name) return refuseUpgrade(socket, HTTP_BAD_HELLO, 'bad name\n');
+  const pass = q.get(BOT_PARAM);
+  const bot = pass !== null;
+  if (bot && !botPass(pass, req)) return refuseUpgrade(socket, HTTP_BAD_ORIGIN, 'bad pass\n');
   if (open.size >= MAX_SOCKETS) return refuseUpgrade(socket, 503, 'busy\n');
 
   wss.handleUpgrade(req, socket, head, (ws) => {
     open.add(ws);
     ws.on('error', () => {});
-    if (room.full) {
+    if (room.full && !bot) {
       // A browser cannot read a refused upgrade: the socket opens, says one thing and closes.
       const full: FullMsg = { t: 'full', retry: FULL_RETRY_S, seats: room.seats };
       ws.on('close', () => open.delete(ws));
@@ -206,7 +241,7 @@ server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
       } catch { /* closing */ }
     }, PING_MS);
     joins++;
-    room.join(s, name);
+    room.join(s, name, bot);
   });
 });
 

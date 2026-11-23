@@ -613,7 +613,7 @@ async function runMainChecks(keyDir) {
 async function runHomeChecks() {
   let h = await (await fetch(HTTP + '/health')).json();
   check('/health: version, release, uptime and seats, and nothing else', h.ok === true && h.v === P.PROTOCOL_VERSION && h.release === 'test-1' && h.seats === P.CITY_CAP && h.players === 0 && h.uptime >= 0
-    && Object.keys(h).sort().join() === 'ok,players,release,seats,service,uptime,v', JSON.stringify(h));
+    && Object.keys(h).sort().join() === 'bot,ok,players,release,seats,service,uptime,v' && h.bot === false, JSON.stringify(h));
   const post = await fetch(HTTP + '/health', { method: 'POST', body: 'x' });
   check('anything but GET is refused (405)', post.status === 405, `status ${post.status}`);
   // Facts across a restart of the process (the file in the state folder).

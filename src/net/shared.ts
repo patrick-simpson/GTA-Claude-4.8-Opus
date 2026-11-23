@@ -120,6 +120,8 @@ export class SharedTraffic {
   private readonly still = new Uint8Array(TRAFFIC_MAX_CARS);
   private readonly out = new Uint8Array(TRAFFIC_HEADER_BYTES + TRAFFIC_MAX_CARS * (TRAFFIC_CAR_BYTES + 1));
   private readonly anchors = new Map<number, Anchor & { lx: number; lz: number }>();
+  /** The host bot (hostbot.ts): the player standing in for this browser's own, left out of the extra anchors. 0 = none. */
+  botLead = 0;
   private readonly anchorList: Anchor[] = [];
   private readonly others: Vehicle[] = [];
   private readonly walkers: RoadPed[] = [];
@@ -321,7 +323,7 @@ export class SharedTraffic {
       const jx = r.x - a.lx, jz = r.z - a.lz;
       a.jumped = isNew || jx * jx + jz * jz > 2500;
       a.lx = r.x; a.lz = r.z;
-      list.push(a);
+      if (r.id !== this.botLead) list.push(a);
       const car = r.vehicle;
       if (car) others.push(car);
       else if (r.mode === PlayerMode.OnFoot || r.mode === PlayerMode.Down) {

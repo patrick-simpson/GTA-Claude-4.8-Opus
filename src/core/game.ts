@@ -316,6 +316,16 @@ export class Game {
     this.input.endFrame();
   }
 
+  /**
+   * The time (performance.now() clock, ms) of the frame being simulated: the display's frame time from the real-time
+   * loop, so things placed by time (the other players, the shared town) move evenly however uneven the work before
+   * them is. Frozen (tests stepping by hand) or between frames: the clock itself.
+   */
+  frameTime(): number {
+    const n = performance.now();
+    return !this.frozen && this.lastT > 0 && n - this.lastT < 100 ? this.lastT : n;
+  }
+
   render(): void {
     if (this.view) {
       this.camera.position.copy(this.view.pos);

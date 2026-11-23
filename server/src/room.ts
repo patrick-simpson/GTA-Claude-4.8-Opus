@@ -12,8 +12,8 @@
 import {
   CITY_CAP, Close, FACT_FLUSH_MS, FACT_MAX_KEYS, Frame, HOST_MIN_TENURE_MS, HOST_SLOW_MS, HOST_STALL_MS,
   HOST_TAKEOVER_RATIO, MAX_HOST_FRAME_BYTES, MAX_PLAYER_FRAME_BYTES, MAX_TEXT_CHARS, PERF_CANNOT_HOST_MS,
-  PERF_UNKNOWN_MS, PING_TEXT, PONG_TEXT, PROTOCOL_VERSION, RATE_BURST, RATE_PER_SECOND,
-  isValidName, parseClientMsg,
+  PERF_UNKNOWN_MS, PING_TEXT, PONG_TEXT, PROTOCOL_VERSION, RATE_BURST, RATE_PER_SECOND, RATE_HOST_BURST, RATE_HOST_PER_SECOND,
+  MAX_BUNDLE_BYTES, BUNDLE_PART_COST, isValidName, parseClientMsg,
 } from '../../src/net/protocol.ts';
 import type { FactValue, NameIndexes, PlayerEntry, ServerMsg, WelcomeMsg } from '../../src/net/protocol.ts';
 
@@ -33,6 +33,8 @@ export interface Seat {
   /** Reported frame time in ms; 0 = not reported yet. */
   ms: number;
   host: boolean;
+  /** The host bot (the mini PC's dedicated host): no seat, never shown to the players, the host whenever it is live. */
+  bot?: boolean;
 }
 
 /** The world outside the room. */
@@ -88,12 +90,23 @@ export class Room {
     this.hostSince = env.now();
   }
 
-  /** Players seated. */
+  /** The host bot, when one is connected. */
+  private bot: Conn | null = null;
+
+  /** Players seated (the host bot takes no seat). */
   get size(): number {
-    return this.conns.size;
+    return this.conns.size - (this.bot ? 1 : 0);
   }
   get full(): boolean {
-    return this.conns.size >= this.seats;
+    return this.size >= this.seats;
+  }
+  /** Is the host bot here? (For the wrapper's health line.) */
+  get hasBot(): boolean {
+    return this.bot !== null;
+  }
+  /** The host's id (0 none), for the wrapper's log line and the tests. */
+  get hostId(): number {
+    return this.host ? this.host.id : 0;
   }
 
   /** After the wrapper lost its memory: put a still-connected player back in their seat. */
@@ -103,19 +116,29 @@ export class Room {
     this.conns.set(sock, c);
     this.byId.set(c.id, c);
     if (c.host) this.host = c;
+    if (c.bot) this.bot = c;
     if (c.id > this.lastId) this.lastId = c.id;
   }
 
   // ---- joining ----
 
-  /** Seats the player and sends the welcome. False (and nothing sent) when the town is full or the name is bad. */
-  join(sock: RoomSocket, name: NameIndexes): boolean {
-    if (this.full || !isValidName(name) || this.conns.has(sock)) return false;
+  /**
+   * Seats the player and sends the welcome. False (and nothing sent) when the town is full or the name is bad.
+   * `bot`: the wrapper has checked this is the mini PC's host bot. It takes no seat, the players are never told of it
+   * (no join, no leave, not in their lists), and it is the host at once. A second bot replaces the first.
+   */
+  join(sock: RoomSocket, name: NameIndexes, bot = false): boolean {
+    if ((!bot && this.full) || !isValidName(name) || this.conns.has(sock)) return false;
+    if (bot && this.bot) this.kick(this.bot, Close.Replaced, 'replaced');
     const now = this.env.now();
-    const c: Conn = { id: this.newId(), name, ms: 0, host: false, sock, seen: now, tokens: RATE_BURST, tokensAt: now };
+    const c: Conn = { id: this.newId(), name, ms: 0, host: false, sock, seen: now, tokens: bot ? RATE_HOST_BURST : RATE_BURST, tokensAt: now };
+    if (bot) c.bot = true;
     this.conns.set(sock, c);
     this.byId.set(c.id, c);
-    if (!this.host) {
+    if (bot) {
+      this.bot = c;
+      this.setHost(c, now);
+    } else if (!this.host) {
       this.host = c;
       c.host = true;
       this.hostSince = now;
@@ -123,12 +146,12 @@ export class Room {
     this.save(c);
 
     const players: PlayerEntry[] = [];
-    for (const p of this.conns.values()) players.push([p.id, ...p.name]);
+    for (const p of this.conns.values()) if (!p.bot || p === c) players.push([p.id, ...p.name]);
     const welcome: WelcomeMsg = {
-      t: 'welcome', v: PROTOCOL_VERSION, id: c.id, city: 1, host: this.host.id, players, facts: this.loadFacts(), now,
+      t: 'welcome', v: PROTOCOL_VERSION, id: c.id, city: 1, host: (this.host as Conn).id, players, facts: this.loadFacts(), now, b: 1,
     };
     sock.send(JSON.stringify(welcome));
-    this.broadcast({ t: 'join', id: c.id, name }, c);
+    if (!bot) this.broadcast({ t: 'join', id: c.id, name }, c);
     return true;
   }
 
@@ -151,8 +174,10 @@ export class Room {
     if (!c) return;
     const now = this.env.now();
 
-    // Rate limit: a token bucket per connection.
-    c.tokens = Math.min(RATE_BURST, c.tokens + ((now - c.tokensAt) * RATE_PER_SECOND) / 1000) - 1;
+    // Rate limit: a token bucket per connection. The host (and the bot) sends the whole town and has more room.
+    const big = c === this.host || c.bot === true;
+    const rate = big ? RATE_HOST_PER_SECOND : RATE_PER_SECOND, burst = big ? RATE_HOST_BURST : RATE_BURST;
+    c.tokens = Math.min(burst, c.tokens + ((now - c.tokensAt) * rate) / 1000) - 1;
     c.tokensAt = now;
     if (c.tokens < 0) return this.kick(c, Close.TooFast, 'too fast');
     c.seen = now;
@@ -160,36 +185,21 @@ export class Room {
     if (typeof message !== 'string') {
       const len = message.byteLength;
       if (len === 0) return this.kick(c, Close.BadMessage, 'empty');
-      if (len > MAX_HOST_FRAME_BYTES) return this.kick(c, Close.TooBig, 'too big');
       const u8 = new Uint8Array(message);
-      const kind = u8[0];
-      if (kind === Frame.State || kind === Frame.Event) {
-        if (len > MAX_PLAYER_FRAME_BYTES) return this.kick(c, Close.TooBig, 'too big');
-        if (len < 2) return this.kick(c, Close.BadMessage, 'short');
-        u8[1] = c.id;
-        for (const p of this.conns.values()) if (p !== c) p.sock.send(message);
-      } else if (kind === Frame.World) {
-        // From someone who is not (or is no longer) the host: dropped, not punished; the job may have just moved.
-        if (c === this.host && len >= 2) {
-          u8[1] = c.id;
-          for (const p of this.conns.values()) if (p !== c) p.sock.send(message);
+      if (u8[0] === Frame.Bundle) {
+        if (len > MAX_BUNDLE_BYTES) return this.kick(c, Close.TooBig, 'too big');
+        let off = 2, parts = 0;
+        while (off < len) {
+          if (off + 2 > len) return this.kick(c, Close.BadMessage, 'bad bundle');
+          const n = u8[off] | (u8[off + 1] << 8);
+          off += 2;
+          if (n === 0 || off + n > len || u8[off] === Frame.Bundle) return this.kick(c, Close.BadMessage, 'bad bundle');
+          if (!this.binary(c, message.slice(off, off + n))) return;
+          off += n;
+          parts++;
         }
-      } else if (kind === Frame.ToHost) {
-        if (len > MAX_PLAYER_FRAME_BYTES) return this.kick(c, Close.TooBig, 'too big');
-        if (len < 2) return this.kick(c, Close.BadMessage, 'short');
-        u8[1] = c.id;
-        if (this.host && this.host !== c) this.host.sock.send(message);
-      } else if (kind === Frame.ToPlayer) {
-        if (c === this.host && len >= 2) {
-          const target = this.byId.get(u8[1]);
-          u8[1] = c.id;
-          if (target && target !== c) target.sock.send(message);
-        }
-      } else if (kind === Frame.Keepalive) {
-        if (len > 1) return this.kick(c, Close.BadMessage, 'bad keepalive');
-      } else {
-        return this.kick(c, Close.BadMessage, 'unknown frame');
-      }
+        c.tokens -= parts * BUNDLE_PART_COST;
+      } else if (!this.binary(c, message)) return;
     } else if (message === PING_TEXT) {
       c.sock.send(PONG_TEXT);
     } else {
@@ -203,7 +213,7 @@ export class Room {
       } else if (m.t === 'name') {
         c.name = m.name;
         this.save(c);
-        this.broadcast({ t: 'name', id: c.id, name: m.name }, c);
+        if (!c.bot) this.broadcast({ t: 'name', id: c.id, name: m.name }, c);
       } else if (m.t === 'fact') {
         if (c === this.host) this.writeFact(m.k, m.v, c, now);
       }
@@ -213,13 +223,53 @@ export class Room {
     if (this.dirty.size > 0 && now - this.lastFlush >= FACT_FLUSH_MS) this.flushFacts(now);
   }
 
+  /** One binary frame (alone, or a part of a bundle). False when the sender was kicked for it. */
+  private binary(c: Conn, message: ArrayBuffer): boolean {
+    const len = message.byteLength;
+    if (len > MAX_HOST_FRAME_BYTES) { this.kick(c, Close.TooBig, 'too big'); return false; }
+    const u8 = new Uint8Array(message);
+    const kind = u8[0];
+    if (kind === Frame.State || kind === Frame.Event) {
+      if (len > MAX_PLAYER_FRAME_BYTES) { this.kick(c, Close.TooBig, 'too big'); return false; }
+      if (len < 2) { this.kick(c, Close.BadMessage, 'short'); return false; }
+      // (The bot has no character and nothing to say: anything it sends this way would be a ghost. Dropped.)
+      if (c.bot) return true;
+      u8[1] = c.id;
+      for (const p of this.conns.values()) if (p !== c) p.sock.send(message);
+    } else if (kind === Frame.World) {
+      // From someone who is not (or is no longer) the host: dropped, not punished; the job may have just moved.
+      if (c === this.host && len >= 2) {
+        u8[1] = c.id;
+        for (const p of this.conns.values()) if (p !== c) p.sock.send(message);
+      }
+    } else if (kind === Frame.ToHost) {
+      if (len > MAX_PLAYER_FRAME_BYTES) { this.kick(c, Close.TooBig, 'too big'); return false; }
+      if (len < 2) { this.kick(c, Close.BadMessage, 'short'); return false; }
+      u8[1] = c.id;
+      if (this.host && this.host !== c) this.host.sock.send(message);
+    } else if (kind === Frame.ToPlayer) {
+      if (c === this.host && len >= 2) {
+        const target = this.byId.get(u8[1]);
+        u8[1] = c.id;
+        if (target && target !== c) target.sock.send(message);
+      }
+    } else if (kind === Frame.Keepalive) {
+      if (len > 1) { this.kick(c, Close.BadMessage, 'bad keepalive'); return false; }
+    } else {
+      this.kick(c, Close.BadMessage, 'unknown frame');
+      return false;
+    }
+    return true;
+  }
+
   /** The socket closed or failed. The wrapper has already dealt with the socket itself. */
   leave(sock: RoomSocket): void {
     const c = this.conns.get(sock);
     if (!c) return;
     this.conns.delete(sock);
     this.byId.delete(c.id);
-    this.broadcast({ t: 'leave', id: c.id }, null);
+    if (c === this.bot) this.bot = null;
+    else this.broadcast({ t: 'leave', id: c.id }, null);
     const now = this.env.now();
     if (this.host === c) {
       this.host = null;
@@ -269,7 +319,7 @@ export class Room {
     let pick: Conn | null = null;
     let pickRank = Infinity;
     for (const p of this.conns.values()) {
-      if (p === except) continue;
+      if (p === except || p.bot) continue;
       const stalled = now - p.seen > HOST_STALL_MS;
       if (stalled && liveOnly) continue;
       const rank = Room.score(p) + (stalled ? 1e6 : 0) + p.id * 1e-6;
@@ -283,6 +333,19 @@ export class Room {
 
   private checkHost(now: number): void {
     this.lastHostCheck = now;
+    // The host bot is the host whenever it is live; the players' rules below are the fallback while it is away or stalled.
+    const bot = this.bot;
+    if (bot) {
+      if (now - bot.seen <= HOST_STALL_MS) {
+        if (this.host !== bot) this.setHost(bot, now);
+        return;
+      }
+      if (this.host === bot) {
+        const next = this.best(now, bot, true);
+        if (next) this.setHost(next, now);
+        return;
+      }
+    }
     const host = this.host;
     if (!host) {
       const next = this.best(now, null, false);
