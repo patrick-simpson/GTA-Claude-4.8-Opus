@@ -19,6 +19,7 @@ import { Launchers } from './launchers';
 import { Moose } from './moose';
 import { DuckLoose } from './duckLoose';
 import { StuntPark } from './stuntPark';
+import { RareWeather } from './rareWeather';
 
 export class World implements WorldApi {
   readonly group = new THREE.Group();
@@ -67,6 +68,8 @@ export class World implements WorldApi {
     this.parts.push(new DuckLoose(g, this.group, fireworks));
     // Waiver Park (world/stuntPark.ts, stuntRide.ts): the stunt park east of Dock Seven, its loop, wall ride and trick score.
     this.parts.push(new StuntPark(g, this.group));
+    // Rare weather (world/rareWeather.ts): now and then a tornado, and the Muddle River flooding Tepid Falls.
+    this.parts.push(new RareWeather(g, this.group));
     await step(1, 'Sweeping up');
   }
 
