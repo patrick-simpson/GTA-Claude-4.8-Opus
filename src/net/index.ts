@@ -391,6 +391,8 @@ export class Net {
   // ── Frame ──────────────────────────────────────────────────────────────────
 
   update(dt: number): void {
+    // (Alone too, with no service at all: a Bolt always waiting at the start.)
+    if (this.game.state === 'play') this.cars.keepBolt(performance.now());
     if (this.conn.status === 'off') return;
     const now = performance.now(), g = this.game;
     if (this.noteKind && !this.told[this.noteKind] && g.state === 'play') this.tellOnce(this.noteKind);

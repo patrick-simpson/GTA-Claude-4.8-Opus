@@ -165,3 +165,4 @@ owner's ground rules for the takeover and the running state.
 - Nov 23, 4:15 PM ET: passengers pushed (protocol v5). Backup Worker needs redeploy (kvbcawana deploy-port-calamity-city.yml); asked the owner. Next: ragdoll.
 - Nov 23, 4:45 PM ET: OWNER: show passengers through car windows; more Bolts at the start (they all get taken). Brief tools/briefs/riders-and-bolts.md, next after the ragdoll worker (same files).
 - Nov 23, 5:20 PM ET: ragdolls pushed. Next: riders-and-bolts.md (visible passengers, spare Bolts).
+- Nov 23, 6:30 PM ET: occupants + keepBolt pushed. Running: glitch diagnosis. Then: SpeedScan HQ, rest of Tepid Falls; mini PC as permanent host recommended.

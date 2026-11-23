@@ -18,6 +18,7 @@
 import type { Game } from '../core/game';
 import type { Vehicle } from '../core/api';
 import { PASSENGER_SEATS } from '../ent/vehicleSpecs';
+import { seatSpot } from '../ent/occupants';
 import { PlayerEvent, PlayerMode, RIDE_OUT, SeatsWhy, decodeRide, decodeSeats, encodeRide, encodeSeats } from './protocol';
 import type { Connection } from './conn';
 import type { Remote } from './remote';
@@ -35,22 +36,8 @@ const THROW_IMPACT = 17;
 /** A rider the driver heard of whose own frames have not said "passenger of mine" this long is dropped, ms. */
 const STALE_MS = 2500;
 
-/** Where seat i of car v is now: the middle of the sitter's feet, as a Person stands. False if the car has no such seat. */
-export function seatSpot(v: Vehicle, i: number, out: { x: number; y: number; z: number }): boolean {
-  const seat = PASSENGER_SEATS[v.spec.kind][i];
-  if (!seat) return false;
-  const s = Math.sin(v.h), c = Math.cos(v.h);
-  // The driver's seat is level with the driver's door: doorPos says how far along the car that is.
-  v.doorPos(1, spot);
-  const front = (spot.x - v.x) * s + (spot.z - v.z) * c;
-  const across = seat[0], along = front + seat[1];
-  // Right of a car facing (s, c) is (-c, s).
-  out.x = v.x - c * across + s * along;
-  out.z = v.z + s * across + c * along;
-  out.y = v.y + seat[2];
-  return true;
-}
-const spot = { x: 0, z: 0 };
+/** Where seat i of car v is now (ent/occupants.ts): the point on the cushion under the sitter's hips, as a seated Person stands. */
+export { seatSpot };
 
 interface Mine { driver: number; seat: number; at: number; seen: number; answered: boolean; listedAt: number }
 
@@ -269,6 +256,12 @@ export class TownRide {
     if (r && g.input.hit('enter')) { g.input.eat('enter'); p.rideNear = null; if (this.prompting) { g.hud.prompt(null); this.prompting = false; } this.board(r, now); }
 
     // ── The others who ride, drawn in their seats ──
+    this.seatOthers();
+  }
+
+  /** The others who ride, drawn in their seats (here, and again by ent/occupants.ts in the step the cars are drawn). */
+  seatOthers(): void {
+    const p = this.game.player;
     for (const o of this.remotes.values()) {
       const body = o.body;
       if (!body || o.mode !== PlayerMode.Passenger) continue;

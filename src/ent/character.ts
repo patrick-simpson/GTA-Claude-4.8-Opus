@@ -130,6 +130,7 @@ class Body implements Person {
   speed = 0;
   visible = true;
   health = 100;
+  occupant?: boolean;
   /** Written by the weapons code: 0..1 of an arm (or both) raised along the line of fire, and that line's pitch in radians. */
   aim = 0; aimPitch = 0; aimTwo = false;
 
@@ -952,6 +953,12 @@ export class People implements PeopleApi {
     return b;
   }
 
+  /** Show p in its pose at once, with no blend from the last one (somebody put straight into a car seat: ent/occupants.ts). */
+  settle(p: Person): void {
+    const b = p as Body;
+    b.shown = b.pose; b.blend = 1; b.poseT = 10;
+  }
+
   remove(p: Person): void {
     if (this.rag) this.rag.drop(p);
     const i = this.bodies.indexOf(p as Body);
@@ -1036,7 +1043,8 @@ export class People implements PeopleApi {
     if (skinned) {
       for (let i = 0; i < this.bodies.length; i++) {
         const b = this.bodies[i];
-        if (!b.visible) continue;
+        // (Somebody seen through a car's glass is never one of the few given the full model: ent/occupants.ts.)
+        if (!b.visible || b.occupant) continue;
         const dx = b.x - eye.x, dy = b.y - eye.y, dz = b.z - eye.z, d2 = dx * dx + dy * dy + dz * dz;
         if (d2 >= lod2 || d2 >= near[nNear - 1] || dx * FWD.x + dy * FWD.y + dz * FWD.z < -1) continue;
         let j = nNear - 1;
@@ -1061,7 +1069,7 @@ export class People implements PeopleApi {
       this.animate(b, dt);
       if (skinned) {
         this.palette(b);
-        const m = b.kind * NLOD + (d2 > lod3 ? 2 : d2 > lod2 || d2 > nearCut ? 1 : 0);
+        const m = b.kind * NLOD + (d2 > lod3 ? 2 : d2 > lod2 || d2 > nearCut || b.occupant ? 1 : 0);
         const ra = this.rows[m].array as Float32Array, ri = this.counts[m]++;
         if (ra[ri] !== row) { ra[ri] = row; this.rowDirty[m] = true; }
         this.skin(b, row++, this.assets[b.kind].joints);

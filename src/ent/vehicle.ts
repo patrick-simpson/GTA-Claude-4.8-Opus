@@ -276,6 +276,8 @@ class Car implements Vehicle {
 
   get speed(): number { return this.vx * Math.sin(this.h) + this.vz * Math.cos(this.h); }
 
+  get seatX(): number { return this.batch.model.seat.x; }
+
   doorPos(side: -1 | 1, out: { x: number; z: number }): void {
     const s = Math.sin(this.h), c = Math.cos(this.h);
     const off = -side * (this.hw + 0.6), along = this.batch.model.seat.z;

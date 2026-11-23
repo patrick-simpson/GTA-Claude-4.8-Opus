@@ -213,7 +213,8 @@ export class Traffic {
    * Is (x, z) a fair place for something to appear or vanish, whoever is in town? At least `near` from everybody,
    * and for each of them either behind their view or at least `front` from it (0 = anywhere).
    */
-  private unseen(x: number, z: number, near: number, front: number): boolean {
+  /** Nobody the streets are kept busy around (every player, for a host) is within `near`, or within `front` ahead of their camera. */
+  unseen(x: number, z: number, near: number, front: number): boolean {
     for (const a of this.anchors) {
       const dx = x - a.x, dz = z - a.z;
       if (dx * dx + dz * dz < near * near) return false;

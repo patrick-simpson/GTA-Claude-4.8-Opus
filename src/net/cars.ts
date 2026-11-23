@@ -72,6 +72,12 @@ const TAKE_REACH = 16;
 const HIT_MS = 1000 / CAR_HIT_HZ;
 const HIT_MIN = 0.3;
 const HIT_REACH = 25;
+/** Owner, Nov 23: a Bolt always waiting at the start. Looked at this often, ms; a fresh one comes this long after the last went. */
+const BOLT_LOOK_MS = 1000, BOLT_WAIT_MS = 4000;
+/** No fresh Bolt while anybody is this near the bay, or has it this far ahead of their camera. Meters. */
+const BOLT_NEAR = 40, BOLT_FRONT = 140;
+/** Unattended Bolts away from the bay kept at most; the oldest unseen one goes beyond that. */
+const BOLT_SPARES = 3;
 
 type Mode = 'local' | 'host' | 'guest';
 interface Pending { v: Vehicle; cls: number; n: number; at: number; refused: boolean }
@@ -118,6 +124,12 @@ export class TownCars {
   // Anybody in town.
   private readonly rolling: { v: Vehicle; at: number }[] = [];
   private readonly rec = blankTrafficCar();
+  // The start's Bolt (keepBolt).
+  private boltI = -1;
+  private boltAt = 0;
+  private boltMiss = 0;
+  /** Fresh Bolts put in the bay, for the tests. */
+  boltsPut = 0;
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>, private readonly shared: SharedTraffic) {
     const spots = this.spots = game.parkSpots;
@@ -125,6 +137,8 @@ export class TownCars {
     this.out = new Uint8Array(PARKED_HEADER_BYTES + PARKED_MAX_CHANGES * PARKED_CHANGE_BYTES + Math.ceil(spots.length / 8));
     this.localShare = 0.55 * game.quality.density;
     for (let i = 0; i < spots.length; i++) { const v = spots[i].v; if (v) this.spotOf.set(v, i); }
+    // (The four cars the game opens with are last in the list: the Bolt is one of them.)
+    for (let i = spots.length - 1; i >= Math.max(0, spots.length - 4); i--) if (spots[i].kind === 'bolt' && spots[i].roll === 0) { this.boltI = i; break; }
     shared.onMode = (was, now) => this.changed(was, now);
     shared.onTick = (now) => this.tick(now);
     shared.onWorld = (buf) => this.world(buf);
@@ -562,6 +576,49 @@ export class TownCars {
     }
   }
 
+  // ── The start's Bolt ───────────────────────────────────────────────────────
+
+  /**
+   * Owner, Nov 23: "At the spawn point there need to be more Bolts." Everybody starts at the same kerb and drives off in
+   * the Bolt parked there. Alone, or as the town's host (Net.update calls this every frame, connected or not): when no
+   * Bolt has been standing in or by its bay for a few seconds, the bay is free and nobody can see it, a fresh one is
+   * parked there. In a town the bay is just one of the parked places coming back (its bit cleared, a full Parked frame
+   * forced), which every guest already puts back as its own copy: no new message. Spare Bolts left about the town are
+   * capped; the oldest unseen one beyond that is taken away (the traffic forgets a kept car that has gone).
+   */
+  keepBolt(now: number): void {
+    const sh = this.shared, i = this.boltI, mode = sh.mode;
+    if (i < 0 || mode === 'guest' || now - this.boltAt < BOLT_LOOK_MS) return;
+    this.boltAt = now;
+    const g = this.game, vs = g.vehicles, s = this.spots[i], tr = sh.sim;
+    const unseen = (x: number, z: number, near: number, front: number): boolean =>
+      tr ? tr.unseen(x, z, near, front) : Math.hypot(g.player.x - x, g.player.z - z) > near;
+    // Spares: unattended Bolts other than the one in the bay.
+    let spares = 0, oldest: Vehicle | null = null, waiting = false;
+    for (const v of vs.list) {
+      if (v.spec.kind !== 'bolt' || v.removed || v.sunk || v.driver !== null || v.held || v.shared) continue;
+      if (!v.wreck && Math.abs(v.x - s.x) + Math.abs(v.z - s.z) < 12 && Math.abs(v.speed) < 1) { waiting = true; continue; }
+      // (A Bolt parked in a kerb place of its own is that place's, not a spare.)
+      if (v === s.v || this.spotOf.has(v)) continue;
+      spares++;
+      if (unseen(v.x, v.z, 60, 130) && (!oldest || v.id < oldest.id)) oldest = v;
+    }
+    if (spares > BOLT_SPARES && oldest) vs.remove(oldest);
+    if (waiting) { this.boltMiss = 0; return; }
+    if (!this.boltMiss) { this.boltMiss = now; return; }
+    if (now - this.boltMiss < BOLT_WAIT_MS || !unseen(s.x, s.z, BOLT_NEAR, BOLT_FRONT)) return;
+    // A free bay: no car, this browser's or another player's, standing in it.
+    for (const o of vs.list) if (!o.removed && Math.hypot(o.x - s.x, o.z - s.z) < 5) return;
+    for (const o of vs.ghostList) if (Math.hypot(o.x - s.x, o.z - s.z) < 5) return;
+    for (const r of this.remotes.values()) if (r.seen && Math.hypot(r.x - s.x, r.z - s.z) < BOLT_NEAR) return;
+    // The last one (moved, driven off, burnt or sunk) is no longer the bay's: it is just a car now.
+    if (s.v) this.unspot(i);
+    if (mode === 'host') { this.gone[i] = 0; this.force = true; }
+    this.put(i);
+    this.boltMiss = 0;
+    this.boltsPut++;
+  }
+
   // ── For the tests ──────────────────────────────────────────────────────────
 
   /** window.__game.net().cars: counts only. */
@@ -573,7 +630,7 @@ export class TownCars {
       if (s.v) here++;
       if (this.gone[i]) empty++;
     }
-    return { places: this.spots.length, town, here, empty, waiting: this.pending !== null, handing: this.lefts.size + this.rolling.length, lost: this.lost.join(', '), ...this.stats };
+    return { places: this.spots.length, town, here, empty, waiting: this.pending !== null, handing: this.lefts.size + this.rolling.length, lost: this.lost.join(', '), boltsPut: this.boltsPut, boltSpot: this.boltI, ...this.stats };
   }
 
   /** Every parked car this browser has in its place: [number, kind, colour, x, z, heading, shared?]. */

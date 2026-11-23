@@ -124,6 +124,8 @@ export interface Vehicle {
   lent?: boolean;
   /** Half length and half width of the collision box, meters. */
   readonly hl: number; readonly hw: number;
+  /** How far left of the middle line the driver sits, meters (the model's seat). */
+  readonly seatX?: number;
   /** Where a person stands to use a door. side: -1 = left (driver), +1 = right. */
   doorPos(side: -1 | 1, out: { x: number; z: number }): void;
 }
@@ -178,6 +180,8 @@ export interface Person {
   look: Look;
   visible: boolean;
   health: number;
+  /** Drawn sitting in a car for the look of it (ent/occupants.ts): weapons and fists pass it by. */
+  occupant?: boolean;
 }
 
 export interface PeopleApi {

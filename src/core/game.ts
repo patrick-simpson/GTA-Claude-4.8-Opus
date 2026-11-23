@@ -14,6 +14,7 @@ import { Vehicles } from '../ent/vehicle';
 import { SPECS, commonKind } from '../ent/vehicleSpecs';
 import { People } from '../ent/character';
 import { Ragdolls } from '../ent/ragdoll';
+import { Occupants } from '../ent/occupants';
 import { Player } from '../ent/player';
 import { CameraRig } from './camera';
 import { Hud } from '../ui/hud';
@@ -55,6 +56,8 @@ export class Game {
   sky!: Sky;
   vehicles!: Vehicles;
   people!: People;
+  /** Drivers and riders drawn in their seats through the car glass (ent/occupants.ts). */
+  occupants!: Occupants;
   player!: Player;
   cam!: CameraRig;
   hud!: Hud;
@@ -168,6 +171,7 @@ export class Game {
     this.people = new People(this);
     this.people.rag = new Ragdolls(this);
     this.player = new Player(this);
+    this.occupants = new Occupants(this);
     this.placeStart();
 
     progress(0.9, 'Stamping the paperwork');
@@ -295,6 +299,8 @@ export class Game {
       this.time += dt;
       if (this.state === 'play') this.player.update(dt);
       this.vehicles.update(dt);
+      // Between the two: whoever sits in a car is drawn against it as it is drawn this frame.
+      this.occupants.place();
       this.people.update(dt);
       this.world.update(dt);
       for (const s of this.systems) s.update(dt);

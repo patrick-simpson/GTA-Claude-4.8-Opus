@@ -88,6 +88,23 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### People seen in cars, a Bolt always at the start, quieter city, sliders that mute: pushed Nov 23, about 6:30 PM ET
+
+- Car glass at the near and street levels was already see-through with cabins; what was missing was
+  people. `src/ent/occupants.ts`: every driven car within 40 m gets a seated driver, hands on the
+  wheel (player, other players, traffic, police in navy), from a pool of 12; placed in Game.tick
+  between cars and people so nothing lags; off at low and with `?occ=0`. Per-kind `CUSHION` and
+  `SEAT_BACK` in vehicleSpecs, seats tuned by eye; passengers raised 0.4 m. Downtown 66.6 / 64.8 fps
+  (was 65.5 / 63.5; within noise).
+- `src/net/cars.ts` `keepBolt`: when the start bay has had no unattended Bolt for 4 s, a fresh one is
+  parked there out of everyone's sight; spare Bolts capped at 3; shared as an ordinary parked place
+  (no protocol change). ride.mjs 25/25, cars.mjs 48/48.
+- (commit 085b469) Ambience trim 0.6 to 0.2; one reverb input per bus (`core.reverbFor(bus)`): the shared
+  reverb used to keep echoing birds, gulls, wind, sirens and gunshots with their slider at 0.
+  Owed: occupants stay upright on pitch and roll; small sports-car windows; stand-in cars get drivers
+  behind solid glass; the player's own left Bolt can be the spare that is cleared; the tow truck's
+  get-in point is ahead of its cab; Claude FM's volume curve is linear, the others squared.
+
 ### Ragdolls when a car hits someone, made funny: pushed Nov 23, about 5:20 PM ET
 
 `src/ent/ragdoll.ts`: a weighted trunk with damped, limited limb springs and 11 contact spheres on a

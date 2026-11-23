@@ -503,7 +503,7 @@ export class Weapons {
       const s = Math.sin(per.h), c = Math.cos(per.h);
       let best: Person | null = null, bd = 1.5;
       for (const o of g.people.list) {
-        if (o === per || !o.visible || o.pose === 'down' || Math.abs(o.y - per.y) > 1.2) continue;
+        if (o === per || !o.visible || o.occupant || o.pose === 'down' || Math.abs(o.y - per.y) > 1.2) continue;
         const ox = o.x - per.x, oz = o.z - per.z, d = Math.hypot(ox, oz);
         // In front of her: within sixty degrees of the way she faces.
         if (d < bd && ox * s + oz * c > d * 0.5) { bd = d; best = o; }
@@ -648,7 +648,7 @@ export class Weapons {
       for (let i = 0; i < people.length; i++) {
         const o = people[i];
         // Nobody already on the ground is a target.
-        if (o === me || !o.visible || o.pose === 'down') continue;
+        if (o === me || !o.visible || o.occupant || o.pose === 'down') continue;
         const qx = ox - o.x, qz = oz - o.z;
         const b = qx * dx + qz * dz, cc = qx * qx + qz * qz - 0.1;
         const disc = b * b - a * cc;
@@ -791,7 +791,7 @@ export class Weapons {
     const me = p.person;
     if (world) for (const o of g.people.list) {
       // (Another player takes their own share on their own browser.)
-      if (o === me || !o.visible || net?.isPlayer(o)) continue;
+      if (o === me || !o.visible || o.occupant || net?.isPlayer(o)) continue;
       let nx = o.x - x, nz = o.z - z;
       const d = Math.hypot(nx, nz);
       if (d >= radius || Math.abs(o.y - y) > radius) continue;

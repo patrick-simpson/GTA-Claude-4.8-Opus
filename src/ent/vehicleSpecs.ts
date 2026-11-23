@@ -135,25 +135,36 @@ export const KINDS = Object.keys(SPECS) as VehicleKind[];
 /**
  * Passenger seats (riding together, net/ride.ts), in the order they are offered: [across, along, up], meters. `across`
  * is from the car's middle line, + toward the passenger side (the driver sits on the left); `along` is from the
- * driver's seat (+ forward); `up` raises the sitter above where a car seat puts them by default (cabs, the bus).
+ * driver's seat (+ forward); `up` raises the sitter above the kind's CUSHION.
  */
 const FRONT = (up = 0): [number, number, number] => [0.4, 0, up];
-const REAR2 = (back: number, up = 0): [number, number, number][] => [[-0.4, -back, up], [0.4, -back, up]];
+const REAR2 = (back: number, up = 0, w = 0.4): [number, number, number][] => [[-w, -back, up], [w, -back, up]];
 export const PASSENGER_SEATS: Record<VehicleKind, readonly (readonly [number, number, number])[]> = {
   sedan: [FRONT(), ...REAR2(0.92)],
   hatch: [FRONT(), ...REAR2(0.85)],
   coupe: [FRONT()],
   muscle: [FRONT()],
-  sports: [FRONT(-0.04)],
-  pickup: [FRONT(0.2), [0, 0, 0.2]],
-  van: [FRONT(0.35), [0.02, 0, 0.35]],
+  sports: [FRONT()],
+  pickup: [FRONT(), [0, 0, 0]],
+  van: [FRONT(), [0.02, 0, 0]],
   taxi: [FRONT(), ...REAR2(0.92)],
-  tow: [FRONT(0.4)],
-  bus: [[0.65, -1.6, 0.5], [-0.65, -1.6, 0.5], [0.65, -2.7, 0.5], [-0.65, -2.7, 0.5], [0.65, -3.8, 0.5], [-0.65, -3.8, 0.5], [0.65, -4.9, 0.5], [-0.65, -4.9, 0.5]],
+  tow: [FRONT()],
+  bus: [[0.65, -1.6, 0], [-0.65, -1.6, 0], [0.65, -2.7, 0], [-0.65, -2.7, 0], [0.65, -3.8, 0], [-0.65, -3.8, 0], [0.65, -4.9, 0], [-0.65, -4.9, 0]],
   cruiser: [FRONT()],
-  bolt: [FRONT(), ...REAR2(0.88), [0, -0.88, 0]],
-  cmax: [FRONT(), ...REAR2(0.88), [0, -0.88, 0]],
+  bolt: [FRONT(), ...REAR2(0.88, 0, 0.48), [0, -0.88, 0]],
+  cmax: [FRONT(), ...REAR2(0.88, 0, 0.5), [0, -0.88, 0]],
 };
+
+/**
+ * How high a kind's seats are above the road, meters: the point on the cushion under a sitter's hips (ent/occupants.ts
+ * draws drivers there, net/ride.ts passengers). Tuned by eye through the windows: heads under the roof lining.
+ */
+export const CUSHION: Record<VehicleKind, number> = {
+  sedan: 0.42, hatch: 0.47, coupe: 0.33, muscle: 0.35, sports: 0.2, pickup: 0.8, van: 1.0, taxi: 0.45,
+  tow: 0.9, bus: 1.25, cruiser: 0.44, bolt: 0.55, cmax: 0.56,
+};
+/** Seats this far behind the driver's door (the model's seat), meters: the tow truck's door line is ahead of its cab's seats. */
+export const SEAT_BACK: Partial<Record<VehicleKind, number>> = { tow: 0.75 };
 
 /** Pick a kind weighted by how common it is. `r` is a random number in 0..1. */
 export function commonKind(r: number): VehicleKind {
