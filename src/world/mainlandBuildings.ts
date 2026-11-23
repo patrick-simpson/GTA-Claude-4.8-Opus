@@ -25,6 +25,7 @@ import { RNG } from '../core/util';
 import { FASCIA_OUT, MainStreet } from './mainStreetAssets';
 import { LACKWOOL, RIVER_ON, Riverfront } from './riverfrontAssets';
 import { PardonsStore } from './pardonsStore';
+import { CIVIC, civic, makeCivic } from './civicAssets';
 
 const CELL = MWALL.cell, ROW = MWALL.rows, RED = MWALL.redBrick;
 /** Edge of a chunk of town. Small enough that the shadow pass and the distance cull below drop most of the town most of the time. */
@@ -427,6 +428,8 @@ class Builder {
     lots.forEach((lot, i) => {
       if (lot.district !== 'main' && !onMain(lot)) return;
       if (lot.rect.x0 < OPERA.x1 && lot.rect.x1 > OPERA.x0 && lot.rect.z0 < OPERA.z1 && lot.rect.z1 > OPERA.z0) return;
+      const cb = CIVIC.block;
+      if (civic && lot.rect.x0 < cb.x1 && lot.rect.x1 > cb.x0 && lot.rect.z0 < cb.z1 && lot.rect.z1 > cb.z0) return;
       const rng = new RNG(52000 + first + i), r = lot.rect, y = groundAt((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
       k.at((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2);
       if (lot.interior) { this.parking(r, y, rng); return; }
@@ -849,6 +852,14 @@ class Builder {
 
   /** First Provisional Church: white clapboard, tall plain windows, a square tower on the front with a belfry and a white spire. */
   private church(lot: Rect, face: number, y: number, first: boolean): void {
+    if (civic) {
+      // The Blender model (civicAssets.ts): First Church of the Lukewarm, or St. Dither's with its tower at the front-left corner.
+      const c = first ? CIVIC.chw : CIVIC.chs, L = frameOf(lot, face), s0 = (L.len - c.W + (first ? 0 : 2.2)) / 2;
+      civic.place(first ? 'chw' : 'chs', PX(L, s0, -c.SB), y, PZ(L, s0, -c.SB), L.tx, L.tz, L.nx, L.nz);
+      const sb = s0 > 5 ? s0 / 2 - (first ? 0 : 1.1) : L.len - 1.5;
+      this.k.board(PX(L, sb, -1.6), PZ(L, sb, -1.6), face, y, 2.4, 'm-church', first ? 0.9 : 0.7, 0xf1ede2);
+      return;
+    }
     const k = this.k, L = frameOf(lot, face), w = 10, SB = 6, D = Math.min(18, L.depth - SB - 1.5), s0 = (L.len - w) / 2;
     const br = cut(lot, face, s0, s0 + w, SB, SB + D), f = frameOf(br, face), hex = 0xefece2, top = y + 7;
     k.solid(br, top + 3, y - 1);
@@ -1188,12 +1199,23 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
   if (new URLSearchParams(location.search).get('mainst') !== '0') b.ms = ms;
   const rf = new Riverfront(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   if (RIVER_ON) { b.rf = rf; rf.footbridge(); }
+  // The churches and civic buildings (civicAssets.ts): the post office and Our Lady here, the hall and the square's kit in
+  // mainlandPlaces.ts, the two smaller churches on The Stacks' lots below.
+  const cv = makeCivic(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
+  if (cv) {
+    const d = CIVIC.dlo, l = CIVIC.lady;
+    cv.place('dlo', d.x, groundAt(d.x - d.D / 2, d.z0 - d.W / 2), d.z0, 0, -1, 1, 0);
+    cv.place('chb', l.x0, groundAt(l.x0 + l.W / 2, l.z - l.D / 2), l.z, 1, 0, 0, 1);
+  }
   b.main(plan.mainlandLots, plan.blocks, plan.lots.length);
   b.stacks(plan.mainlandLots, plan.blocks, plan.lots.length);
   b.mill(plan.mainlandLots, plan.lots.length);
   // No kit.finish() here: mainlandPlaces.ts draws the landmarks into the same batches and builds the meshes.
   const pd = new PardonsStore(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
-  return { update: () => { kit.update(); ms.update(); rf.update(); pd.update(); }, setNight: (n: number) => { kit.setNight(); ms.setNight(n); rf.setNight(n); pd.setNight(n); } };
+  return {
+    update: () => { kit.update(); ms.update(); rf.update(); pd.update(); cv?.update(); },
+    setNight: (n: number) => { kit.setNight(); ms.setNight(n); rf.setNight(n); pd.setNight(n); cv?.setNight(n); },
+  };
 }
 
 void CURB; void IRON; void WHITE;

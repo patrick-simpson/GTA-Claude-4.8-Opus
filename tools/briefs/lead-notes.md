@@ -178,3 +178,8 @@ owner's ground rules for the takeover and the running state.
 - Nov 23, 9:45 PM ET: photo mode pushed. Owner reported the game slow on the laptop: perf worker running (measure real Chrome both GPUs, A/B vs f2fd64b, fix). Fun lane PAUSED until the perf fix lands (clean measurements). Running: perf, Tepid Falls mills/river.
 - Nov 23, ~10:30 PM ET: OWNER: train on the tracks, fun queue item 18.
 - Nov 23, 11:30 PM ET: pushed warm-up (79daf83) and riverfront+Holding Pattern. Fun lane: moose running. Blender lane next: SpeedScan interior. Falls owed: POND_Y drop 3-5 m and steeper crest in ground.ts mainWater().
+- Nov 23: OWNER: players look different to themselves vs others; fixed by customisation (item 10), moved up to run next after the tornado.
+- Nov 23: OWNER: Blender quality pass on all models (item 19, after everything). Phone auto-quality worker launched (governor.ts).
+- Nov 23: OWNER: Dithers College must look just like Colby College (added to tepid-waterville.md); Blender lane after the churches.
+- Nov 23: OWNER: Tepid Falls street network and traffic must match real Waterville. Brief tools/briefs/tepid-streets.md. Runs in the Blender/mainland lane after the churches, BEFORE Colby (Colby's roads depend on it).
+- Nov 23: phone quality worker done (governor.ts, api.ts, boot.ts, vehicle.ts lean, mainStreetAssets/riverfrontAssets lean). NOT pushed yet: vehicle.ts also holds the kid pass-through worker's in-progress edits; push both together when it reports. PLAN.md's 700 px phone note is outdated (now 600).

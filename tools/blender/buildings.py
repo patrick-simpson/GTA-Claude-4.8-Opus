@@ -201,19 +201,27 @@ class Build:
     # ── Windows ──────────────────────────────────────────────────────────────
     def opening(self, x0, x1, y0, y1, rise, d, wall):
         """Reveal faces of an opening (rectangle, or arched head of height `rise`) through a wall at z=0, depth d."""
-        m = self.m
-        m.face([(x0, y0, 0), (x0, y0, -d), (x0, y1, -d), (x0, y1, 0)], wall, 1.0, (1, 0, 0))
-        m.face([(x1, y0, -d), (x1, y0, 0), (x1, y1, 0), (x1, y1, -d)], wall, 1.0, (-1, 0, 0))
-        m.face([(x0, y0, 0), (x1, y0, 0), (x1, y0, -d), (x0, y0, -d)], wall, 1.0, (0, 1, 0))
+        m, wa = self.m, getattr(self, 'wall_a', 1.0)
+        m.face([(x0, y0, 0), (x0, y0, -d), (x0, y1, -d), (x0, y1, 0)], wall, wa, (1, 0, 0))
+        m.face([(x1, y0, -d), (x1, y0, 0), (x1, y1, 0), (x1, y1, -d)], wall, wa, (-1, 0, 0))
+        m.face([(x0, y0, 0), (x1, y0, 0), (x1, y0, -d), (x0, y0, -d)], wall, wa, (0, 1, 0))
         pts = self.arc(x0, x1, y1, rise)
         for (ax, ay), (bx, by) in zip(pts[:-1], pts[1:]):
             cx, cy = (x0 + x1) / 2, y1 - (0 if rise <= 0 else 0)
-            m.face([(ax, ay, 0), (bx, by, 0), (bx, by, -d), (ax, ay, -d)], wall, 1.0, (cx - (ax + bx) / 2, min(y1, cy) - (ay + by) / 2 - 0.01, 0))
+            m.face([(ax, ay, 0), (bx, by, 0), (bx, by, -d), (ax, ay, -d)], wall, wa, (cx - (ax + bx) / 2, min(y1, cy) - (ay + by) / 2 - 0.01, 0))
 
     def arc(self, x0, x1, y1, rise):
         if rise <= 0.01: return [(x0, y1), (x1, y1)]
         n = 8 if self.lod == 0 else 4
-        hw = (x1 - x0) / 2; R = (hw * hw + rise * rise) / (2 * rise); cy = y1 + rise - R; cx = (x0 + x1) / 2
+        hw = (x1 - x0) / 2
+        if rise > hw * 1.2:
+            # A pointed (Gothic) head: two arcs of radius 2*hw from the opposite springing, scaled to the rise.
+            k, out = rise / (hw * 2 * 0.8660254), []
+            for i in range(n // 2 + 1):
+                a = pi - (pi / 3) * i / (n // 2)
+                out.append((x1 + 2 * hw * cos(a), y1 + 2 * hw * sin(a) * k))
+            return out + [(2 * (x0 + hw) - px, py) for px, py in out[-2::-1]]
+        R = (hw * hw + rise * rise) / (2 * rise); cy = y1 + rise - R; cx = (x0 + x1) / 2
         a0 = atan2(y1 - cy, -hw)
         out = []
         for i in range(n + 1):
@@ -221,10 +229,13 @@ class Build:
             out.append((cx + R * cos(a), cy + R * sin(a)))
         return out
 
-    def sash(self, x0, x1, y0, y1, rise, d, panes, lit):
-        """Glass, frame, meeting rail and muntins at the back of a reveal; a blind drawn part way down."""
+    def sash(self, x0, x1, y0, y1, rise, d, panes, lit, kind='glass'):
+        """Glass, frame, meeting rail and muntins at the back of a reveal; a blind drawn part way down.
+        kind 'stained': leaded coloured glass (alpha 0.35, which the civic material lights in its own colour at night);
+        'louver': a belfry's dark opening with slats."""
         m, z = self.m, -d
         top = self.arc(x0, x1, y1, rise)
+        if kind != 'glass': return self.special(x0, x1, y0, y1, top, z, kind)
         a = lit
         m.face([(x0, y0, z), (x1, y0, z)] + [(px, py, z) for px, py in top[::-1]], GLASS_DARK, a, (0, 0, 1))
         if self.lod == 2: return
@@ -246,17 +257,59 @@ class Build:
                 for i in range(1, nx): xx = x0 + (x1 - x0) * i / nx; m.box(xx - 0.018, xx + 0.018, h0, h1, z, fz - 0.01, FRAME, skip='ktb')
                 for j in range(1, ny): yy = h0 + (h1 - h0) * j / ny; m.box(x0, x1, yy - 0.018, yy + 0.018, z, fz - 0.01, FRAME, skip='klr')
 
+    STAINED = (0x9a1f22, 0x1d3f94, 0xd19a2a, 0x2c7040, 0x6b2d86, 0xc4561c, 0x2a6f8f)
+    PALE = (0xd8b46a, 0xc98f5a, 0xa9bfd0, 0xe2cf9a, 0xb7c79a)
+
+    def special(self, x0, x1, y0, y1, top, z, kind):
+        """Stained glass (cells of colour behind lead, a fan of colour in the head) or a louvered belfry opening."""
+        m, r, lod = self.m, self.r, self.lod
+        if kind == 'door':
+            m.face([(x0, y0, z), (x1, y0, z)] + [(px, py, z) for px, py in top[::-1]], self.S.get('door', 0x4a2e1e), 0.0, (0, 0, 1))
+            if lod < 2:
+                cx = (x0 + x1) / 2
+                m.box(cx - 0.025, cx + 0.025, y0, y1, z, z + 0.04, 0x1a1410)
+                for yy in (y0 + 0.5, (y0 + y1) / 2):
+                    m.box(x0 + 0.12, x1 - 0.12, yy, yy + 0.05, z, z + 0.03, shade(self.S.get('door', 0x4a2e1e), 0.7))
+            return
+        if kind == 'louver':
+            m.face([(x0, y0, z), (x1, y0, z)] + [(px, py, z) for px, py in top[::-1]], 0x15171a, 0.0, (0, 0, 1))
+            if lod < 2:
+                yy = y0 + 0.15
+                while yy < y1 - 0.1:
+                    m.box(x0, x1, yy, yy + 0.07, z + 0.05, z + 0.16, self.S.get('louver', 0x3a3f44)); yy += 0.32
+            return
+        pal = self.PALE if self.S.get('pale') else self.STAINED
+        k = 0.42 if not self.S.get('pale') else 0.62
+        a = 0.35
+        m.face([(x0, y0, z - 0.01), (x1, y0, z - 0.01)] + [(px, py, z - 0.01) for px, py in top[::-1]], 0x111214, 0.0, (0, 0, 1))
+        nx = 1 if lod == 2 else (2 if lod == 1 else max(2, int((x1 - x0) / 0.32)))
+        ny = 1 if lod == 2 else (3 if lod == 1 else max(3, int((y1 - y0) / 0.38)))
+        g = 0.025 if lod == 0 else 0.0
+        for i in range(nx):
+            for j in range(ny):
+                ax, bx = x0 + (x1 - x0) * i / nx + g, x0 + (x1 - x0) * (i + 1) / nx - g
+                ay, by = y0 + (y1 - y0) * j / ny + g, y0 + (y1 - y0) * (j + 1) / ny - g
+                m.quad_z(ax, bx, ay, by, z, shade(r.choice(pal), k * (0.8 + 0.4 * r.random())), a)
+        if len(top) > 2:
+            cx = (x0 + x1) / 2
+            for (ax, ay), (bx, by) in zip(top[:-1], top[1:]):
+                m.face([(cx, y1, z), (ax, ay, z), (bx, by, z)], shade(r.choice(pal), k * (0.8 + 0.4 * r.random())), a, (0, 0, 1))
+        if lod < 2 and x1 - x0 > 0.9:          # a stone mullion up the middle
+            cx = (x0 + x1) / 2
+            m.box(cx - 0.05, cx + 0.05, y0, y1 + (top[len(top) // 2][1] - y1) * 0.9, z, z + 0.08, self.S['stone'])
+
     def window(self, x0, x1, y0, y1, w):
         """A whole window in the wall: hole, reveal, sash, sill and the head the style asks for."""
         S, m, lod = self.S, self.m, self.lod
         shape, stone, brick = w.get('shape', 'flat'), S['stone'], S['brick']
-        rise = {'seg': 0.28, 'round': (x1 - x0) / 2}.get(shape, 0.0)
+        rise = {'seg': 0.28, 'round': (x1 - x0) / 2, 'point': (x1 - x0) * 0.85}.get(shape, 0.0)
         d = 0.06 if lod == 2 else 0.26
         lit = 0.02 + 0.96 * self.r.random()
+        if S.get('litp') is not None: lit = 0.7 if self.r.random() < S['litp'] else 0.1      # civic: fewer lit after hours
         self.holes.append((x0, x1, y0, y1, rise))
         if lod < 2: self.opening(x0, x1, y0, y1, rise, d, brick)
-        self.sash(x0, x1, y0, y1, rise, d, w.get('panes', '1/1' if shape != 'grid' else '2/2'), lit)
-        if lod == 2: return
+        self.sash(x0, x1, y0, y1, rise, d, w.get('panes', '1/1' if shape != 'grid' else '2/2'), lit, w.get('kind', 'glass'))
+        if lod == 2 or w.get('bare'): return
         if not S.get('csill'): m.box(x0 - 0.08, x1 + 0.08, y0 - 0.1, y0, -0.03, 0.08, stone)
         if shape == 'flat':
             m.box(x0 - 0.14, x1 + 0.14, y1, y1 + 0.3, 0, 0.05, stone)
@@ -268,11 +321,11 @@ class Build:
         elif shape == 'iron':
             m.box(x0 - 0.12, x1 + 0.12, y1, y1 + 0.26, 0, 0.07, S['trim'])
             if lod == 0: m.prism([(x0, y1 + 0.26), (x1, y1 + 0.26), ((x0 + x1) / 2, y1 + 0.48)], 0, 0.05, S['trim'])
-        elif shape in ('seg', 'round'):
+        elif shape in ('seg', 'round', 'point'):
             outer, inner = self.arc(x0 - 0.16, x1 + 0.16, y1, rise + 0.16), self.arc(x0, x1, y1, rise)
             col = shade(brick, 0.82) if shape == 'seg' else stone
             for (a0, b0), (a1, b1), (c0, d0), (c1, d1) in zip(inner[:-1], inner[1:], outer[:-1], outer[1:]):
-                m.face([(a0, b0, 0.035), (a1, b1, 0.035), (c1, d1, 0.035), (c0, d0, 0.035)], col, 0.0 if shape == 'round' else 1.0, (0, 0, 1))
+                m.face([(a0, b0, 0.035), (a1, b1, 0.035), (c1, d1, 0.035), (c0, d0, 0.035)], col, 1.0 if shape == 'seg' else 0.0, (0, 0, 1))
                 m.face([(c0, d0, 0), (c1, d1, 0), (c1, d1, 0.035), (c0, d0, 0.035)], col, 0.0, ((c0 + c1) / 2 - (x0 + x1) / 2, (d0 + d1) / 2 - y1, 0))
         elif shape == 'deco':
             m.box(x0 - 0.05, x1 + 0.05, y1, y1 + 0.55, -0.04, 0.0, 0x3a3f3e)
@@ -1881,7 +1934,624 @@ def river_main():
     with open(os.path.join(SHOTS, 'riverfront_meta.json'), 'w') as fh: json.dump(out, fh, indent=1)
 
 
-if '--river' in FLAGS: river_main()
+# ── Churches and civic buildings (`-- --civic`): Quorum Square, Postponement Hall, the Dead Letter Office, three churches ──
+# After the reference's notes (tools/briefs/tepid-reference.md: the 1902 city hall and opera house, the 1911 federal post
+# office, a white clapboard steepled church, a twin-towered brick and granite church, a stone Gothic Revival church with one
+# corner tower; pictures kept in scratch/, never in the repo). Writes, in public/models:
+#   civic.glb       <piece>_0 / _1 / _2 for ph (Postponement Hall: three storeys of red brick and limestone, a pedimented
+#                   pavilion with a giant order, balustrade, hipped roof, a cupola with four clock faces, a columned belfry
+#                   and a copper dome), dlo (The Dead Letter Office: granite, raised basement, a loggia of six columns
+#                   between end pavilions, broad steps), chw (First Church of the Lukewarm: white clapboard, a front tower
+#                   of base, clock stage, belfry, octagonal lantern and spire), chb (Our Lady of Perpetual Hesitation:
+#                   brick and granite, twin towers with spires, rose window, lancets between buttresses), chs (St. Dither's:
+#                   grey ashlar, a battlemented corner tower); and the square's kit, one level each: sq_lamp, sq_bench,
+#                   sq_memorial (the war memorial), sq_monument (the soldier's monument).
+#   civic_far.glb   the _2 levels and the kit: all the phone preset fetches.
+#   civic_o.webp    Cycles occlusion of the _0 levels (their only UV).
+# Frames as the Main St designs: front-left corner at the origin, x along the front, y up, z out of the front (the main
+# front wall is z = 0). Contract as mainst.glb's, plus: alpha 0.35 is stained glass, which src/world/civicAssets.ts lights
+# in its own colour at night; clock dials are alpha 0.6 (lit softly at night) and get their hands in the game (CLOCKS below).
+
+CLOCKS = {'ph': dict(cx=20.0, cz=-12.0, half=2.6, y=25.3, r=1.45), 'chw': dict(cx=6.5, cz=0.5, half=2.2, y=12.4, r=1.15)}
+GRAN = 0x9e9a90
+
+
+class CP(Build):
+    def __init__(self, lod, seed, S, wa=1.0):
+        self.lod, self.S = lod, S
+        self.m, self.g, self.r, self.holes = Mesh(), Mesh(), random.Random(seed), []
+        self.wall_a = wa
+
+
+def lines(p, x0, x1, y0, y1, step, hex_, wa):
+    """Clapboard or ashlar joints: thin darker strips across the wall, broken round the openings."""
+    y = y0 + step
+    while y < y1 - 0.05:
+        cuts = sorted((h[0] - 0.22, h[1] + 0.22) for h in p.holes if h[2] - 0.2 <= y <= h[3] + h[4] + 0.35)
+        xa = x0
+        for c0, c1 in cuts + [(x1, x1)]:
+            if c0 > xa + 0.05: p.m.quad_z(xa, min(c0, x1), y - 0.012, y + 0.012, 0.004, hex_, wa)
+            xa = max(xa, c1)
+        y += step
+
+
+def panel(lod, seed, S, L, y0, y1, wins, wall=None):
+    """One wall at z = 0 over x 0..L and y0..y1, with windows (cx, yb, h, w, shape, extra)."""
+    wa = S.get('wa', 1.0)
+    p = CP(lod, seed, S, wa)
+    for cx, yb, h, ww, shape, ex in wins:
+        p.window(cx - ww / 2, cx + ww / 2, yb, yb + h, dict(shape=shape, **ex))
+        if ex.get('shut') and lod < 2:
+            for sx in (-1, 1):
+                xa = cx + sx * (ww / 2 + 0.06)
+                p.m.box(min(xa, xa + sx * 0.7), max(xa, xa + sx * 0.7), yb, yb + h, 0, 0.06, ex['shut'])
+    p.wall_with_holes(0, L, y0, y1, S['brick'] if wall is None else wall, wa)
+    if lod == 0 and S.get('lines'): lines(p, 0, L, y0, y1, S['lines'][0], S['lines'][1], wa)
+    if lod < 2 and S.get('quoins'):
+        y, i = y0 + 0.05, 0
+        while y < y1 - 0.5:
+            q = 0.95 if i % 2 else 0.6
+            p.m.box(0, q, y, y + 0.5, 0, 0.06, S['stone']); p.m.box(L - q, L, y, y + 0.5, 0, 0.06, S['stone'])
+            y += 0.6; i += 1
+    return p.m
+
+
+def rect4(m, fn, W, D, ox=0.0, oz=0.0, sides=(0, 1, 2, 3)):
+    """Four walls round a W x D rectangle whose front-left corner is (ox, oz): fn(side, length) gives each in its own frame."""
+    T = [lambda x, y, z: (ox + x, y, oz + z), lambda x, y, z: (ox + W + z, y, oz - x),
+         lambda x, y, z: (ox + W - x, y, oz - D - z), lambda x, y, z: (ox - z, y, oz - D + x)]
+    for k in sides:
+        src = fn(k, W if k % 2 == 0 else D)
+        if src is not None: merge(m, src, T[k])
+
+
+def band4(m, x0, x1, z0, z1, y0, y1, out, hex_, a=0.0):
+    m.box(x0 - out, x1 + out, y0, y1, z0 - out, z1 + out, hex_, a, skip='b')
+
+
+def cornice4(m, x0, x1, z0, z1, y, hex_, lod, k=1.0):
+    """Frieze, bed moulding and corona from y up (about 1 m), and modillions on the near level."""
+    band4(m, x0, x1, z0, z1, y, y + 0.5 * k, 0.03, hex_)
+    band4(m, x0, x1, z0, z1, y + 0.5 * k, y + 0.65 * k, 0.2 * k, hex_)
+    band4(m, x0, x1, z0, z1, y + 0.65 * k, y + 0.95 * k, 0.5 * k, hex_)
+    if lod == 0:
+        n = int((x1 - x0) / 0.6)
+        for i in range(n):
+            x = x0 + (i + 0.5) * (x1 - x0) / n
+            m.box(x - 0.08, x + 0.08, y + 0.5 * k, y + 0.65 * k, z1, z1 + 0.45 * k, hex_)
+            m.box(x - 0.08, x + 0.08, y + 0.5 * k, y + 0.65 * k, z0 - 0.45 * k, z0, hex_)
+
+
+def gable_z(m, x0, x1, z0, z1, ye, rise, roof, wall, wa, o=0.4, lod=0):
+    """A two-slope roof with its ridge front to back (z), gable triangles at both ends."""
+    xc, yr, hw = (x0 + x1) / 2, ye + rise, (x1 - x0) / 2
+    yo = ye - o * rise / hw
+    m.face([(x0 - o, yo, z1 + o), (xc, yr, z1 + o), (xc, yr, z0 - o), (x0 - o, yo, z0 - o)], roof, 0.0, (-rise, hw, 0))
+    m.face([(x1 + o, yo, z0 - o), (xc, yr, z0 - o), (xc, yr, z1 + o), (x1 + o, yo, z1 + o)], roof, 0.0, (rise, hw, 0))
+    m.face([(x0, ye, z1), (x1, ye, z1), (xc, yr, z1)], wall, wa, (0, 0, 1))
+    m.face([(x1, ye, z0), (x0, ye, z0), (xc, yr, z0)], wall, wa, (0, 0, -1))
+    if lod < 2:
+        for xa, xb in ((x0 - o, x0), (x1, x1 + o)):
+            ya, yb = (yo, ye) if xa < x0 else (ye, yo)
+            m.face([(xa, ya - 0.02, z0 - o), (xb, yb - 0.02, z0 - o), (xb, yb - 0.02, z1 + o), (xa, ya - 0.02, z1 + o)], shade(roof, 0.8), 0.0, (0, -1, 0))
+        for zz, nz in ((z1 + o, 1), (z0 - o, -1)):          # verge boards
+            bar(m, (x0 - o, yo, zz), (xc, yr + 0.05, zz), 0.22, wall if wa == 0 else 0xe9e5da, flat=(0, 0, nz))
+            bar(m, (xc, yr + 0.05, zz), (x1 + o, yo, zz), 0.22, wall if wa == 0 else 0xe9e5da, flat=(0, 0, nz))
+
+
+def hip(m, x0, x1, z0, z1, ye, rise, roof):
+    h, zc, yr = (z1 - z0) / 2, (z0 + z1) / 2, ye + rise
+    m.face([(x0, ye, z1), (x1, ye, z1), (x1 - h, yr, zc), (x0 + h, yr, zc)], roof, 0.0, (0, h, rise))
+    m.face([(x1, ye, z0), (x0, ye, z0), (x0 + h, yr, zc), (x1 - h, yr, zc)], roof, 0.0, (0, h, -rise))
+    m.face([(x0, ye, z0), (x0, ye, z1), (x0 + h, yr, zc)], roof, 0.0, (-rise, h, 0))
+    m.face([(x1, ye, z1), (x1, ye, z0), (x1 - h, yr, zc)], roof, 0.0, (rise, h, 0))
+
+
+def clock(m, cx, cy, r, lod, frame=0xe9e3d3):
+    """A dial on the wall plane z = 0 (lit softly at night: alpha 0.6), a dark rim, hour marks on the near level."""
+    n = {0: 24, 1: 16, 2: 8}[lod]
+    if lod < 2: m.box(cx - r - 0.3, cx + r + 0.3, cy - r - 0.3, cy + r + 0.3, 0, 0.06, frame)
+    for i in range(n):
+        a0, a1 = 2 * pi * i / n, 2 * pi * (i + 1) / n
+        m.face([(cx, cy, 0.09), (cx + r * cos(a0), cy + r * sin(a0), 0.09), (cx + r * cos(a1), cy + r * sin(a1), 0.09)], 0xf4f0e3, 0.6, (0, 0, 1))
+        R = r + 0.1
+        m.face([(cx + r * cos(a0), cy + r * sin(a0), 0.1), (cx + R * cos(a0), cy + R * sin(a0), 0.1),
+                (cx + R * cos(a1), cy + R * sin(a1), 0.1), (cx + r * cos(a1), cy + r * sin(a1), 0.1)], 0x1b1b1b, 0.0, (0, 0, 1))
+    if lod == 0:
+        for h in range(12):
+            a = 2 * pi * h / 12; ca, sa = cos(a), sin(a); w = 0.035 if h % 3 else 0.06
+            p = [(r * 0.8, -w), (r * 0.95, -w), (r * 0.95, w), (r * 0.8, w)]
+            m.face([(cx + u * ca - v * sa, cy + u * sa + v * ca, 0.105) for u, v in p], 0x1b1b1b, 0.0, (0, 0, 1))
+
+
+def column(m, x, z, y0, y1, r, hex_, lod):
+    n = {0: 12, 1: 8, 2: 6}[lod]
+    m.box(x - r * 1.3, x + r * 1.3, y0, y0 + 0.3, z - r * 1.3, z + r * 1.3, hex_, skip='b')
+    ring(m, n, r, r * 0.86, y0 + 0.3, y1 - 0.35, hex_, 0.0, x, z)
+    m.box(x - r * 1.05, x + r * 1.05, y1 - 0.35, y1 - 0.2, z - r * 1.05, z + r * 1.05, hex_)
+    m.box(x - r * 1.35, x + r * 1.35, y1 - 0.2, y1, z - r * 1.35, z + r * 1.35, hex_)
+    if lod == 0:
+        for sx in (-1, 1):
+            m.box(x + sx * r * 1.05, x + sx * r * 1.45, y1 - 0.45, y1 - 0.2, z - r * 0.9, z + r * 0.9, hex_)
+
+
+def glow_ball(m, cx, cy, cz, r, n=10):
+    rs = [0.001, 0.62, 0.95, 1, 0.9, 0.55, 0.001]
+    for k in range(6):
+        ring(m, n, r * rs[k], r * rs[k + 1], cy - r + 2 * r * k / 6, cy - r + 2 * r * (k + 1) / 6, 0xf7f1e0, 0.97, cx, cz)
+
+
+def octo(m, cx, cz, r, y0, y1, hex_, a=0.0):
+    """An octagonal prism with flat faces toward the axes."""
+    for i in range(8):
+        t0, t1 = 2 * pi * (i - 0.5) / 8, 2 * pi * (i + 0.5) / 8
+        p0, p1 = (cx + r * cos(t0), cz + r * sin(t0)), (cx + r * cos(t1), cz + r * sin(t1))
+        m.face([(p0[0], y0, p0[1]), (p1[0], y0, p1[1]), (p1[0], y1, p1[1]), (p0[0], y1, p0[1])], hex_, a, (cos(2 * pi * i / 8), 0, sin(2 * pi * i / 8)))
+
+
+def spire8(m, cx, cz, r, y0, y1, hex_):
+    for i in range(8):
+        t0, t1 = 2 * pi * (i - 0.5) / 8, 2 * pi * (i + 0.5) / 8
+        m.face([(cx + r * cos(t0), y0, cz + r * sin(t0)), (cx + r * cos(t1), y0, cz + r * sin(t1)), (cx, y1, cz)], hex_, 0.0,
+               (cos(2 * pi * i / 8), r / (y1 - y0), sin(2 * pi * i / 8)))
+
+
+PH = dict(brick=0x8c3f2e, stone=0xdcd5c3, trim=0xefe9da, wa=1.0, quoins=True, litp=0.3)
+
+
+def ph(lod):
+    """Postponement Hall, after the 1902 city hall and opera house: 40 x 24 m, cupola at the middle of the roof."""
+    S, m, W, D = PH, Mesh(), 40.0, 24.0
+    G, F1, F2, F3, CR = 1.4, 6.4, 12.4, 16.4, 17.35
+    LIM = S['stone']
+
+    def wins(xs, big=1.5):
+        out = []
+        for cx in xs:
+            out += [(cx, G + 0.9, 3.0, 1.4, 'flat', dict(panes='6/6', key=True)), (cx, F1 + 0.9, 3.8, big, 'round', dict(panes='6/6')),
+                    (cx, F2 + 0.7, 2.3, 1.3, 'flat', dict(panes='6/6'))]
+        return out
+
+    def side(k, L):
+        if k == 0:
+            out = Mesh()
+            merge(out, panel(lod, 300, S, 14, G, CR, wins([2.8, 7.0, 11.2])), lambda x, y, z: (x, y, z))
+            merge(out, panel(lod, 301, S, 14, G, CR, wins([2.8, 7.0, 11.2])), lambda x, y, z: (x + 26, y, z))
+            return out
+        n = 5 if k % 2 else 7
+        return panel(lod, 302 + k, S, L, G, CR, wins([L * (i + 0.5) / n for i in range(n)]))
+    rect4(m, side, W, D)
+    # The pavilion: 12 m, 1.5 m proud, door and the opera house's three tall arched windows, a giant order of pilasters.
+    PZ = 1.5
+    pv = [(6.0, G, 3.9, 2.4, 'round', dict(kind='door')), (2.5, G + 0.9, 3.0, 1.3, 'flat', dict(panes='6/6')), (9.5, G + 0.9, 3.0, 1.3, 'flat', dict(panes='6/6'))]
+    pv += [(x, F1 + 0.7, 4.5, 1.8, 'round', dict(panes='12/12')) for x in (2.5, 6.0, 9.5)]
+    pv += [(x, F2 + 0.7, 2.3, 1.3, 'flat', dict(panes='6/6')) for x in (2.5, 6.0, 9.5)]
+    merge(m, panel(lod, 310, dict(S, quoins=False), 12, G, CR, pv), lambda x, y, z: (x + 14, y, z + PZ))
+    for xa, nx in ((14, -1), (26, 1)):
+        m.face([(xa, G, 0), (xa, G, PZ), (xa, CR, PZ), (xa, CR, 0)], S['brick'], 1.0, (nx, 0, 0))
+    if lod < 2:
+        for x in (0.4, 4.25, 7.75, 11.6):
+            m.box(14 + x - 0.4, 14 + x + 0.4, G, F3, PZ, PZ + 0.25, LIM)
+            m.box(14 + x - 0.55, 14 + x + 0.55, F3 - 0.4, F3, PZ, PZ + 0.35, LIM)
+    # Base, belts, cornices (main block and pavilion), the balustrade, the pediment.
+    for x0, x1, z0, z1 in ((0, W, -D, 0), (14, 26, -0.5, PZ)):
+        band4(m, x0, x1, z0, z1, 0, G, 0.1, GRAN)
+        band4(m, x0, x1, z0, z1, G - 0.05, G + 0.2, 0.16, LIM)
+        if lod < 2:
+            band4(m, x0, x1, z0, z1, F1 + 0.55, F1 + 0.8, 0.09, LIM)
+            band4(m, x0, x1, z0, z1, F2 + 0.45, F2 + 0.65, 0.09, LIM)
+        cornice4(m, x0, x1, z0, z1, F3, LIM, lod)
+    if lod < 2:
+        for i in range(5):                                  # basement windows in the granite
+            for xc in (2.8, 7.0, 11.2, 28.8, 33.0, 37.2):
+                if i == 0: m.quad_z(xc - 0.55, xc + 0.55, 0.35, 1.0, 0.105, 0x1e2124, 0.3)
+    top = CR
+    band4(m, 0.15, W - 0.15, -D + 0.15, -0.15, top, top + 0.22, 0.0, LIM)
+    band4(m, 0.15, W - 0.15, -D + 0.15, -0.15, top + 0.85, top + 1.0, 0.05, LIM)
+    if lod == 0:
+        for (xa, za), (xb, zb) in (((0.3, -0.25), (W - 0.3, -0.25)), ((W - 0.25, -0.3), (W - 0.25, -D + 0.3)),
+                                   ((W - 0.3, -D + 0.25), (0.3, -D + 0.25)), ((0.25, -D + 0.3), (0.25, -0.3))):
+            n = int(max(abs(xb - xa), abs(zb - za)) / 0.42)
+            for i in range(n + 1):
+                x, z = xa + (xb - xa) * i / n, za + (zb - za) * i / n
+                if 14.2 < x < 25.8 and z > -0.5: continue
+                m.box(x - 0.07, x + 0.07, top + 0.22, top + 0.85, z - 0.07, z + 0.07, LIM)
+    elif lod == 1:
+        band4(m, 0.25, W - 0.25, -D + 0.25, -0.25, top + 0.22, top + 0.85, 0.0, shade(LIM, 0.8))
+    pk = top + 3.1
+    m.prism([(13.5, top), (26.5, top), (20, pk)], -0.4, PZ + 0.55, LIM, back=False)
+    if lod < 2:
+        bar(m, (13.2, top + 0.05, PZ + 0.65), (20, pk + 0.3, PZ + 0.65), 0.4, LIM, flat=(0, 0, 1))
+        bar(m, (20, pk + 0.3, PZ + 0.65), (26.8, top + 0.05, PZ + 0.65), 0.4, LIM, flat=(0, 0, 1))
+        for i in range(10):                                 # the oculus's ring in the tympanum
+            a0, a1 = 2 * pi * i / 10, 2 * pi * (i + 1) / 10
+            m.face([(20, top + 1.3, PZ + 0.57), (20 + 0.7 * cos(a0), top + 1.3 + 0.7 * sin(a0), PZ + 0.57), (20 + 0.7 * cos(a1), top + 1.3 + 0.7 * sin(a1), PZ + 0.57)], 0x2a2c2e, 0.6, (0, 0, 1))
+    hip(m, 0.6, W - 0.6, -D + 0.6, -0.6, top, 3.0, 0x4c5257)
+    # The cupola: a brick base, the clock stage, an open belfry of eight columns, the copper dome, lantern and finial.
+    C = CLOCKS['ph']; cx, cz = C['cx'], C['cz']
+    rect4(m, lambda k, L: panel(lod, 320 + k, dict(S, quoins=False), L, top + 1.2, 23.0, [(L / 2, 20.1, 1.9, 1.0, 'round', dict(kind='louver'))]), 6.4, 6.4, cx - 3.2, cz + 3.2)
+    band4(m, cx - 3.2, cx + 3.2, cz - 3.2, cz + 3.2, 22.6, 23.0, 0.2, LIM)
+    h = C['half']
+    TS = dict(S, brick=S['trim'], wa=0.0, quoins=False)
+
+    def dial(k, L):
+        mm = panel(lod, 330 + k, TS, L, 23.0, 27.6, [])
+        clock(mm, L / 2, C['y'], C['r'], lod, frame=LIM)
+        return mm
+    rect4(m, dial, 2 * h, 2 * h, cx - h, cz + h)
+    if lod < 2:
+        for sx in (-1, 1):
+            for sz in (-1, 1):
+                m.box(cx + sx * h - 0.25, cx + sx * h + 0.25, 23.0, 27.6, cz + sz * h - 0.25, cz + sz * h + 0.25, S['trim'])
+    band4(m, cx - h, cx + h, cz - h, cz + h, 27.6, 28.0, 0.3, S['trim'])
+    octo(m, cx, cz, 1.5, 28.0, 31.6, 0x1d1e20)
+    if lod < 2:
+        for i in range(8):
+            a = 2 * pi * (i + 0.5) / 8
+            column(m, cx + 2.15 * cos(a), cz + 2.15 * sin(a), 28.0, 31.6, 0.16, S['trim'], lod)
+    octo(m, cx, cz, 2.5, 31.6, 32.1, S['trim'])
+    CU, n = 0x5f8f7a, {0: 16, 1: 12, 2: 8}[lod]
+    prof = [(2.35, 32.1), (2.3, 32.8), (2.05, 33.7), (1.6, 34.4), (0.95, 34.95), (0.4, 35.2)]
+    for (r0, y0), (r1, y1) in zip(prof[:-1], prof[1:]): ring(m, n, r0, r1, y0, y1, CU, 0.0, cx, cz)
+    ring(m, 8, 0.45, 0.45, 35.2, 36.3, S['trim'], 0.0, cx, cz)
+    ring(m, 8, 0.6, 0.02, 36.3, 37.0, CU, 0.0, cx, cz)
+    m.box(cx - 0.04, cx + 0.04, 37.0, 38.6, cz - 0.04, cz + 0.04, 0x2a2b2c)
+    if lod < 2: ball(m, cx, 37.3, cz, 0.18, 0xc9a24a, 6)
+    # The steps up to the pavilion's door.
+    for i in range(5):
+        m.box(15.5 - 0.3 * (4 - i), 24.5 + 0.3 * (4 - i), 0, G - i * 0.28, PZ, PZ + 0.38 * (5 - i), GRAN, skip='b')
+    return m
+
+
+DL = dict(brick=0xccc7bb, stone=0xdad5ca, trim=0xdad5ca, wa=0.0, lines=(0.55, 0xb5afa3), litp=0.25)
+
+
+def dlo(lod):
+    """The Dead Letter Office, after the 1911 federal post office: granite, a loggia of six columns between end pavilions."""
+    S, m, W, D = DL, Mesh(), 30.0, 22.0
+    BS, TOP, ENT, PAR, F = 1.8, 9.0, 10.4, 11.3, 0.8
+    side_w = lambda L, n: [(L * (i + 0.5) / n, BS + 1.0, 4.2, 1.6, 'flat', dict(panes='6/6', key=True)) for i in range(n)]
+    rect4(m, lambda k, L: panel(lod, 400 + k, S, L, BS, TOP, side_w(L, 5 if k % 2 else 7)), W, D + F, 0, F, sides=(1, 2, 3))
+    for x0 in (0.0, 24.0):
+        pm = panel(lod, 410 + int(x0), S, 6.0, BS, TOP, [(3.0, BS + 1.0, 4.6, 1.7, 'flat', dict(panes='6/6', key=True))])
+        if lod < 2:
+            pm.prism([(1.8, BS + 6.0), (4.2, BS + 6.0), (3.0, BS + 6.6)], 0, 0.25, S['stone'])
+            pm.box(1.6, 4.4, BS + 5.85, BS + 6.0, 0, 0.25, S['stone'])
+            pm.box(1.2, 4.8, 7.75, 8.6, 0, 0.08, shade(S['stone'], 1.04))
+        merge(m, pm, lambda x, y, z, x0=x0: (x + x0, y, z + F))
+    cw = [(1.8 + 3.6 * i, BS + 0.8, 4.6, 1.7, 'round', dict(panes='6/6')) for i in range(5) if i != 2] + [(9.0, BS, 5.0, 2.3, 'round', dict(kind='door', bare=False))]
+    merge(m, panel(lod, 420, S, 18.0, BS, TOP, cw), lambda x, y, z: (x + 6, y, z - 2.4))
+    for xa, nx in ((6.0, 1), (24.0, -1)):
+        m.face([(xa, BS, -2.4), (xa, BS, F), (xa, TOP, F), (xa, TOP, -2.4)], S['brick'], 0.0, (nx, 0, 0))
+    m.face([(6, TOP, -2.4), (24, TOP, -2.4), (24, TOP, F), (6, TOP, F)], shade(S['brick'], 0.9), 0.0, (0, -1, 0))
+    m.face([(6, BS, F), (24, BS, F), (24, BS, -2.4), (6, BS, -2.4)], 0xb9b3a7, 0.0, (0, 1, 0))
+    for i in range(6):
+        x = 6 + 18 * i / 5 + (0.6 if i == 0 else -0.6 if i == 5 else 0)
+        column(m, x, F - 0.6, BS, TOP, 0.42, S['stone'], lod)
+    band4(m, 0, W, -D, F, 0, BS, 0.12, 0xbab4a8)
+    if lod == 0:
+        for y in (0.6, 1.2):
+            m.quad_z(-0.12, W + 0.12, y - 0.02, y + 0.02, F + 0.125, 0x938d82, 0.0)
+    band4(m, 0, W, -D, F, BS - 0.05, BS + 0.15, 0.16, S['stone'])
+    band4(m, 0, W, -D, F, TOP, ENT - 0.4, 0.06, S['stone'])
+    band4(m, 0, W, -D, F, ENT - 0.4, ENT - 0.2, 0.25, S['stone'])
+    band4(m, 0, W, -D, F, ENT - 0.2, ENT, 0.55, S['stone'])
+    band4(m, 0.1, W - 0.1, -D + 0.1, F - 0.1, ENT, PAR, 0.0, shade(S['stone'], 0.97))
+    if lod == 0:
+        m.box(8.0, 22.0, TOP + 0.3, TOP + 0.9, F + 0.06, F + 0.1, shade(S['stone'], 1.06))     # the name band, blank
+    for i in range(6):
+        m.box(5.0, 25.0, 0, BS - i * 0.3, F, F + 0.4 * (6 - i), 0xbdb7ab, skip='b')
+    for x0 in (4.0, 25.0):
+        m.box(x0, x0 + 1.0, 0, BS + 0.2, F, F + 2.6, 0xbab4a8, skip='b')
+        if lod < 2:
+            ring(m, 8, 0.07, 0.05, BS + 0.2, BS + 2.6, 0x2c3a33, 0.0, x0 + 0.5, F + 1.9)
+            glow_ball(m, x0 + 0.5, BS + 2.85, F + 1.9, 0.26, 8)
+    if lod < 2: m.box(14.9, 15.1, PAR, PAR + 7.5, -1.0, -0.8, 0xd8d8d4)      # the flagpole
+    return m
+
+
+CW = dict(brick=0xf1eee5, stone=0xf8f6ef, trim=0xf8f6ef, wa=0.0, pale=True, lines=(0.26, 0xd2cdbf), louver=0xe2ded2, door=0x7a2a22)
+
+
+def chw(lod):
+    """First Church of the Lukewarm: a white clapboard meeting house, a front tower with a clock stage, belfry and spire."""
+    S, m, W, D, E, RISE = CW, Mesh(), 13.0, 20.0, 8.6, 5.2
+    SH, WH = 0x2f4a3a, S['trim']
+
+    def side(k, L):
+        if k == 0:
+            return panel(lod, 500, S, L, 0.7, E, [(2.1, 2.6, 3.6, 1.3, 'round', dict(kind='stained', shut=SH)), (10.9, 2.6, 3.6, 1.3, 'round', dict(kind='stained', shut=SH))])
+        if k == 2: return panel(lod, 502, S, L, 0.7, E, [(L / 2, 2.4, 4.2, 1.6, 'round', dict(kind='stained'))])
+        return panel(lod, 500 + k, S, L, 0.7, E, [(3.0 + 4.6 * i, 2.0, 4.4, 1.5, 'round', dict(kind='stained', shut=SH)) for i in range(4)])
+    rect4(m, side, W, D)
+    band4(m, 0, W, -D, 0, 0, 0.7, 0.08, GRAN)
+    band4(m, 0, W, -D, 0, E - 0.55, E, 0.1, WH)
+    if lod < 2:
+        for x in (0.0, W):
+            for z in (0.0, -D):
+                m.box(x - 0.3, x + 0.3, 0.7, E - 0.5, z - 0.3, z + 0.3, WH)
+        m.box(-0.35, W + 0.35, E, E + 0.25, -0.2, 0.42, WH)
+    gable_z(m, 0, W, -D, 0, E, RISE, 0x3d4146, S['brick'], 0.0, 0.45, lod)
+    C = CLOCKS['chw']; cx, cz = C['cx'], C['cz']
+    # Tower: base with the door (5 m square, 3 m proud of the front), then the clock stage, the belfry, the lantern, the spire.
+    tb = lambda k, L: panel(lod, 510 + k, S, L, 0, 10.0, ([(2.5, 0.7, 3.0, 1.8, 'round', dict(kind='door'))] if k == 0 else []) +
+                            [(2.5, 5.4, 2.6, 1.1, 'round', dict(kind='stained'))])
+    rect4(m, tb, 5.0, 5.0, cx - 2.5, cz + 2.5, sides=(0, 1, 3))
+    band4(m, cx - 2.5, cx + 2.5, cz - 2.5, cz + 2.5, 0, 0.7, 0.08, GRAN)
+    band4(m, cx - 2.5, cx + 2.5, cz - 2.5, cz + 2.5, 10.0, 10.4, 0.22, WH)
+    h = C['half']
+
+    def dial(k, L):
+        mm = panel(lod, 520 + k, S, L, 10.4, 14.4, [])
+        clock(mm, L / 2, C['y'], C['r'], lod, frame=WH)
+        return mm
+    rect4(m, dial, 2 * h, 2 * h, cx - h, cz + h)
+    band4(m, cx - h, cx + h, cz - h, cz + h, 14.4, 14.8, 0.25, WH)
+    if lod < 2:
+        for sx in (-1, 1):
+            for sz in (-1, 1):
+                m.box(cx + sx * (h + 0.05) - 0.18, cx + sx * (h + 0.05) + 0.18, 14.8, 15.5, cz + sz * (h + 0.05) - 0.18, cz + sz * (h + 0.05) + 0.18, WH)
+    b = 1.9
+    rect4(m, lambda k, L: panel(lod, 530 + k, S, L, 14.8, 19.0, [(L / 2, 15.3, 2.7, 1.7, 'round', dict(kind='louver'))]), 2 * b, 2 * b, cx - b, cz + b)
+    if lod < 2:
+        for sx in (-1, 1):
+            for sz in (-1, 1):
+                m.box(cx + sx * b - 0.2, cx + sx * b + 0.2, 14.8, 19.0, cz + sz * b - 0.2, cz + sz * b + 0.2, WH)
+    band4(m, cx - b, cx + b, cz - b, cz + b, 19.0, 19.4, 0.25, WH)
+    octo(m, cx, cz, 1.55, 19.4, 19.9, WH); octo(m, cx, cz, 1.55, 21.7, 22.2, WH)
+    octo(m, cx, cz, 1.4, 19.9, 21.7, 0x2a2d30)
+    if lod < 2:
+        for i in range(8):
+            a = 2 * pi * (i + 0.5) / 8
+            m.box(cx + 1.5 * cos(a) - 0.1, cx + 1.5 * cos(a) + 0.1, 19.9, 21.7, cz + 1.5 * sin(a) - 0.1, cz + 1.5 * sin(a) + 0.1, WH)
+    octo(m, cx, cz, 1.75, 22.2, 22.5, WH)
+    spire8(m, cx, cz, 1.5, 22.5, 39.0, 0xf4f2ea)
+    m.box(cx - 0.04, cx + 0.04, 39.0, 40.8, cz - 0.04, cz + 0.04, 0x2a2b2c)
+    if lod < 2:
+        ball(m, cx, 39.3, cz, 0.16, 0xc9a24a, 6)
+        if lod == 0: m.prism([(cx - 0.7, 40.2), (cx + 0.5, 40.2), (cx + 0.7, 40.35), (cx + 0.5, 40.5), (cx - 0.7, 40.5)], cz - 0.02, cz + 0.02, 0x2a2b2c, back=True)
+    for i in range(3):
+        m.box(cx - 2.2, cx + 2.2, 0, 0.7 - i * 0.23, cz + 2.5, cz + 2.5 + 0.4 * (3 - i), GRAN, skip='b')
+    return m
+
+
+CB = dict(brick=0x86402f, stone=0xb7b2a6, trim=0xb7b2a6, wa=1.0, door=0x3d2a1e)
+
+
+def chb(lod):
+    """Our Lady of Perpetual Hesitation: brick and granite, twin towers with spires, a rose window, lancets between buttresses."""
+    S, m, W, D, E, RISE = CB, Mesh(), 22.0, 34.0, 12.0, 8.0
+    ST = S['stone']
+
+    def side(k, L):
+        if k == 0: return panel(lod, 600, S, L, 1.2, E, [(L / 2, 1.2, 4.4, 2.6, 'point', dict(kind='door'))])
+        if k == 2: return panel(lod, 602, S, L, 1.2, E, [(L / 2, 3.0, 6.0, 2.4, 'point', dict(kind='stained'))])
+        xs = [7.6 + 4.4 * i for i in range(6)]
+        if k == 3: xs = [L - x for x in xs]
+        mm = panel(lod, 600 + k, S, L, 1.2, E, [(x, 3.0, 5.2, 1.6, 'point', dict(kind='stained')) for x in xs])
+        if lod < 2:
+            for x in xs[:-1]:
+                bx = x + (2.2 if k == 1 else -2.2)
+                mm.box(bx - 0.4, bx + 0.4, 0, 8.4, 0, 0.75, ST)
+                mm.box(bx - 0.3, bx + 0.3, 8.4, 10.4, 0, 0.45, S['brick'], 1.0)
+        return mm
+    # The nave's front is only the part between the towers.
+    rect4(m, lambda k, L: side(k, L) if k else None, W, D)
+    merge(m, side(0, 10.2), lambda x, y, z: (x + 5.9, y, z))
+    band4(m, 0, W, -D, 0, 0, 1.2, 0.1, ST)
+    band4(m, 0, W, -D, 0, E - 0.4, E, 0.15, ST)
+    gable_z(m, 0, W, -D, 0, E, RISE, 0x4b5258, S['brick'], 1.0, 0.3, lod)
+    if lod < 2:
+        bar(m, (5.9, E + 0.0, 0.15), (11, E + RISE + 0.2, 0.15), 0.45, ST, flat=(0, 0, 1))
+        bar(m, (11, E + RISE + 0.2, 0.15), (16.1, E + 0.0, 0.15), 0.45, ST, flat=(0, 0, 1))
+        m.box(10.92, 11.08, E + RISE, E + RISE + 2.0, 0.0, 0.16, ST); m.box(10.4, 11.6, E + RISE + 1.1, E + RISE + 1.28, 0.0, 0.16, ST)
+    # The rose window over the portal.
+    rx, ry, rr, n = 11.0, 15.2, 2.3, {0: 16, 1: 12, 2: 8}[lod]
+    rnd = random.Random(61)
+    for i in range(n):
+        a0, a1 = 2 * pi * i / n, 2 * pi * (i + 1) / n
+        c1, c2, h = shade(rnd.choice(Build.STAINED), 0.45), shade(rnd.choice(Build.STAINED), 0.4), 0.5 * rr
+        m.face([(rx, ry, 0.03), (rx + h * cos(a0), ry + h * sin(a0), 0.03), (rx + h * cos(a1), ry + h * sin(a1), 0.03)], c1, 0.35, (0, 0, 1))
+        m.face([(rx + h * cos(a0), ry + h * sin(a0), 0.03), (rx + rr * cos(a0), ry + rr * sin(a0), 0.03), (rx + rr * cos(a1), ry + rr * sin(a1), 0.03), (rx + h * cos(a1), ry + h * sin(a1), 0.03)], c2, 0.35, (0, 0, 1))
+        if lod < 2: m.face([(rx + (h - 0.05) * cos(a0), ry + (h - 0.05) * sin(a0), 0.05), (rx + (h + 0.05) * cos(a0), ry + (h + 0.05) * sin(a0), 0.05), (rx + (h + 0.05) * cos(a1), ry + (h + 0.05) * sin(a1), 0.05), (rx + (h - 0.05) * cos(a1), ry + (h - 0.05) * sin(a1), 0.05)], ST, 0.0, (0, 0, 1))
+        R = rr + 0.35
+        m.face([(rx + rr * cos(a0), ry + rr * sin(a0), 0.06), (rx + R * cos(a0), ry + R * sin(a0), 0.06),
+                (rx + R * cos(a1), ry + R * sin(a1), 0.06), (rx + rr * cos(a1), ry + rr * sin(a1), 0.06)], ST, 0.0, (0, 0, 1))
+        if lod < 2: bar(m, (rx + 0.35 * cos(a0), ry + 0.35 * sin(a0), 0.07), (rx + rr * cos(a0), ry + rr * sin(a0), 0.07), 0.07, ST, flat=(0, 0, 1))
+    if lod < 2:
+        glow = [(rx + 0.4 * cos(2 * pi * i / 8), ry + 0.4 * sin(2 * pi * i / 8), 0.08) for i in range(8)]
+        m.face(glow, ST, 0.0, (0, 0, 1))
+    # The towers: brick shafts with granite corner buttresses, a louvered belfry stage, octagonal spires.
+    for tx in (-0.6, 16.1):
+        TW, TD, oz = 6.5, 6.6, 1.0
+        tw = lambda k, L: panel(lod, 610 + k + int(tx), S, L, 0, 23.5, ([(L / 2, 1.2, 3.4, 1.8, 'point', dict(kind='door'))] if k == 0 else []) +
+                                [(L / 2, 8.0, 4.0, 1.2, 'point', dict(kind='stained')), (L / 2, 15.0, 3.2, 1.0, 'point', dict(kind='stained'))])
+        rect4(m, tw, TW, TD, tx, oz)
+        band4(m, tx, tx + TW, oz - TD, oz, 0, 1.2, 0.1, ST)
+        band4(m, tx, tx + TW, oz - TD, oz, E - 0.4, E, 0.15, ST)
+        if lod < 2:
+            for x in (tx, tx + TW):
+                for z in (oz, oz - TD):
+                    m.box(x - 0.45, x + 0.45, 0, 21.0, z - 0.45, z + 0.45, ST)
+        b0, bw = 23.5, TW - 0.5
+        band4(m, tx, tx + TW, oz - TD, oz, b0 - 0.3, b0, 0.25, ST)
+        rect4(m, lambda k, L: panel(lod, 620 + k, S, L, b0, 30.0, [(L * 0.3, b0 + 0.9, 3.8, 1.2, 'point', dict(kind='louver')), (L * 0.7, b0 + 0.9, 3.8, 1.2, 'point', dict(kind='louver'))]),
+              bw, TD - 0.5, tx + 0.25, oz - 0.25)
+        band4(m, tx, tx + TW, oz - TD, oz, 30.0, 30.5, 0.3, ST)
+        sx, sz = tx + TW / 2, oz - TD / 2
+        spire8(m, sx, sz, 2.9, 30.5, 46.0, 0x8e969c)
+        if lod < 2:
+            for x in (tx + 0.4, tx + TW - 0.4):
+                for z in (oz - 0.4, oz - TD + 0.4):
+                    ring(m, 4, 0.4, 0.02, 30.5, 33.6, ST, 0.0, x, z)
+            m.box(sx - 0.07, sx + 0.07, 46.0, 48.0, sz - 0.07, sz + 0.07, 0x2c2e30); m.box(sx - 0.5, sx + 0.5, 47.0, 47.14, sz - 0.07, sz + 0.07, 0x2c2e30)
+    for i in range(4):
+        m.box(5.4 - 0.3 * (3 - i), 16.6 + 0.3 * (3 - i), 0, 1.2 - i * 0.3, 0, 0.4 * (4 - i), GRAN, skip='b')
+    return m
+
+
+CS = dict(brick=0x8e8a82, stone=0xa9a59b, trim=0xa9a59b, wa=0.0, lines=(0.42, 0x76726b), louver=0x4a4740, door=0x5a2e22)
+
+
+def chs(lod):
+    """St. Dither's: grey ashlar Gothic Revival, steep slate roof, a battlemented tower at the front-left corner."""
+    S, m, W, D, E, RISE = CS, Mesh(), 11.0, 22.0, 6.4, 6.0
+    ST = S['stone']
+
+    def side(k, L):
+        if k == 0: return panel(lod, 700, S, L, 0.5, E, [(7.0, 1.2, 3.0, 2.2, 'point', dict(kind='stained'))])
+        if k == 2: return panel(lod, 702, S, L, 0.5, E, [(L / 2 + d, 1.4, 3.2, 0.9, 'point', dict(kind='stained')) for d in (-1.3, 0, 1.3)])
+        xs = [5.5 + 3.6 * i for i in range(5)]
+        if k == 3: xs = [L - x for x in xs]
+        mm = panel(lod, 700 + k, S, L, 0.5, E, [(x, 1.6, 3.4, 1.0, 'point', dict(kind='stained')) for x in xs])
+        if lod < 2:
+            for x in xs[:-1]:
+                bx = x + (1.8 if k == 1 else -1.8)
+                mm.box(bx - 0.3, bx + 0.3, 0, 4.2, 0, 0.6, ST); mm.box(bx - 0.25, bx + 0.25, 4.2, 5.8, 0, 0.35, ST)
+        return mm
+    rect4(m, side, W, D)
+    band4(m, 0, W, -D, 0, 0, 0.5, 0.1, shade(S['brick'], 0.85))
+    band4(m, 0, W, -D, 0, E - 0.25, E, 0.12, ST)
+    gable_z(m, 0, W, -D, 0, E, RISE, 0x50565b, S['brick'], 0.0, 0.25, lod)
+    if lod < 2:
+        m.box(W / 2 - 0.08, W / 2 + 0.08, E + RISE, E + RISE + 1.6, -0.1, 0.1, ST); m.box(W / 2 - 0.5, W / 2 + 0.5, E + RISE + 0.9, E + RISE + 1.06, -0.1, 0.1, ST)
+    tx, tz, T, TH = -2.2, 1.6, 5.2, 19.5
+    tw = lambda k, L: panel(lod, 710 + k, S, L, 0, TH, ([(L / 2, 0.4, 2.6, 1.4, 'point', dict(kind='door'))] if k == 0 else []) +
+                            [(L / 2, 6.0, 2.6, 0.8, 'point', dict(kind='stained')), (L / 2, 14.6, 3.0, 1.3, 'point', dict(kind='louver'))])
+    rect4(m, tw, T, T, tx, tz)
+    band4(m, tx, tx + T, tz - T, tz, 0, 0.5, 0.1, shade(S['brick'], 0.85))
+    if lod < 2:
+        for x in (tx, tx + T):
+            for z in (tz, tz - T):
+                m.box(x - 0.4, x + 0.4, 0, 12.0, z - 0.4, z + 0.4, ST); m.box(x - 0.3, x + 0.3, 12.0, 17.5, z - 0.3, z + 0.3, ST)
+    band4(m, tx, tx + T, tz - T, tz, TH - 0.4, TH, 0.15, ST)
+    band4(m, tx + 0.05, tx + T - 0.05, tz - T + 0.05, tz - 0.05, TH, TH + 0.6, 0.1, S['brick'])
+    if lod < 2:
+        n = 5
+        for i in range(n):
+            u = (i + 0.5) / n * T
+            for (x, z) in ((tx + u, tz + 0.05), (tx + u, tz - T - 0.05), (tx - 0.05, tz - u), (tx + T + 0.05, tz - u)):
+                m.box(x - 0.32, x + 0.32, TH + 0.6, TH + 1.4, z - 0.17, z + 0.17, S['brick'])
+    else:
+        band4(m, tx + 0.05, tx + T - 0.05, tz - T + 0.05, tz - 0.05, TH + 0.6, TH + 1.2, 0.1, S['brick'])
+    for i in range(2):
+        m.box(tx + 1.2, tx + T - 1.2, 0, 0.5 - i * 0.25, tz, tz + 0.4 * (2 - i), GRAN, skip='b')
+    return m
+
+
+def sq_lamp():
+    m, K = Mesh(), 0x1d201f
+    ring(m, 8, 0.24, 0.2, 0, 0.25, K); ring(m, 8, 0.2, 0.15, 0.25, 0.95, K); ring(m, 8, 0.15, 0.085, 0.95, 1.15, K)
+    ring(m, 8, 0.075, 0.062, 1.15, 3.7, K); ring(m, 8, 0.12, 0.12, 3.7, 3.82, K); ring(m, 8, 0.09, 0.15, 3.82, 4.0, K)
+    glow_ball(m, 0, 4.3, 0, 0.3, 10)
+    ring(m, 8, 0.07, 0.0, 4.58, 4.82, K)
+    m.box(0.05, 0.72, 3.3, 3.35, -0.025, 0.025, K)
+    ring(m, 8, 0.07, 0.27, 2.82, 3.08, 0x5b4a35, 0.0, 0.66, 0)
+    m.face([(0.66 + 0.27 * cos(2 * pi * i / 8), 3.08, 0.27 * sin(2 * pi * i / 8)) for i in range(8)][::-1], 0x3f3326, 0.0, (0, 1, 0))
+    return m
+
+
+def sq_bench():
+    m, K, WD = Mesh(), 0x1d201f, 0x7a5536
+    for sx in (-0.8, 0.8):
+        m.box(sx - 0.04, sx + 0.04, 0, 0.43, -0.25, 0.25, K); m.box(sx - 0.04, sx + 0.04, 0.43, 0.95, -0.28, -0.22, K)
+        m.box(sx - 0.04, sx + 0.04, 0.62, 0.66, -0.25, 0.22, K)
+    for i in range(5):
+        z = -0.22 + i * 0.095
+        m.box(-0.92, 0.92, 0.43, 0.46, z, z + 0.075, WD)
+    for i in range(3):
+        y = 0.55 + i * 0.13
+        m.box(-0.92, 0.92, y, y + 0.085, -0.27, -0.24, WD)
+    return m
+
+
+def sq_memorial():
+    """The war memorial: a dark polished stele between two angled wings of names on a granite platform, two flagpoles."""
+    m, DK, GR, BR = Mesh(), 0x343537, 0xb5b1a7, 0x6b5530
+    m.box(-4.4, 4.4, 0, 0.3, -1.8, 1.8, GR, skip='b')
+    m.box(-0.8, 0.8, 0.3, 3.6, -0.3, 0.3, DK)
+    m.prism([(-0.8, 3.6), (0.8, 3.6), (0, 4.0)], -0.3, 0.3, DK, back=True)
+    m.box(-0.5, 0.5, 1.7, 2.7, 0.3, 0.33, BR)
+    sa, ca = sin(radians(18)), cos(radians(18))
+    for sx in (-1, 1):                                  # the wings, built on their own side and swung 18 degrees back
+        w = Mesh()
+        w.box(min(0, 3.0 * sx), max(0, 3.0 * sx), 0.3, 1.9, -0.22, 0.22, DK)
+        for r_ in range(5):
+            for c in range(3):
+                xa, xb = sorted((sx * (0.25 + c * 0.9), sx * (0.95 + c * 0.9)))
+                w.quad_z(xa, xb, 0.55 + r_ * 0.24, 0.6 + r_ * 0.24, 0.226, 0x9c9c98, 0.0)
+        merge(m, w, (lambda sx: (lambda x, y, z: (0.85 * sx + x * ca, y, z - sx * x * sa)))(sx))
+    for sx in (-2.9, 2.9):
+        ring(m, 8, 0.08, 0.045, 0.3, 9.5, 0xd9d9d4, 0.0, sx, -1.3)
+        ball(m, sx, 9.6, -1.3, 0.1, 0xc9a24a, 6)
+    return m
+
+
+def sq_monument():
+    """The soldier's monument: granite steps, a die with a bronze plaque, a tapered shaft, a private at parade rest."""
+    m, GR, LT, BZ = Mesh(), 0xb5b1a6, 0xc6c2b8, 0x4f6355
+    m.box(-2.2, 2.2, 0, 0.4, -2.2, 2.2, GR, skip='b'); m.box(-1.7, 1.7, 0.4, 0.8, -1.7, 1.7, GR)
+    m.box(-1.1, 1.1, 0.8, 3.0, -1.1, 1.1, LT)
+    for nx, nz in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        if nz: m.box(-0.6, 0.6, 1.4, 2.4, nz * 1.1, nz * 1.13, BZ)
+        else: m.box(nx * 1.1, nx * 1.13, 1.4, 2.4, -0.6, 0.6, BZ)
+    m.box(-1.3, 1.3, 3.0, 3.15, -1.3, 1.3, GR); m.box(-1.2, 1.2, 3.15, 3.3, -1.2, 1.2, GR)
+    for (a0, b0), (a1, b1) in (((0.8, 3.3), (0.55, 6.6)),):
+        for i in range(4):
+            c = [(-1, 1), (1, 1), (1, -1), (-1, -1), (-1, 1)]
+            (ux, uz), (vx, vz) = c[i], c[i + 1]
+            m.face([(ux * a0, b0, uz * a0), (vx * a0, b0, vz * a0), (vx * a1, b1, vz * a1), (ux * a1, b1, uz * a1)], LT, 0.0,
+                   ((ux + vx) / 2, 0.1, (uz + vz) / 2))
+    m.box(-0.7, 0.7, 6.6, 6.85, -0.7, 0.7, GR)
+    y = 6.85
+    for sx in (-0.13, 0.13):
+        m.box(sx - 0.1, sx + 0.1, y, y + 0.95, -0.1, 0.1, BZ)
+    m.box(-0.26, 0.26, y + 0.95, y + 1.6, -0.15, 0.15, BZ)
+    for sx in (-0.33, 0.33):
+        m.box(sx - 0.07, sx + 0.07, y + 0.95, y + 1.55, -0.07, 0.07, BZ)
+    ring(m, 6, 0.06, 0.06, y + 1.6, y + 1.7, BZ)
+    ball(m, 0, y + 1.82, 0, 0.13, BZ, 6)
+    ring(m, 6, 0.12, 0.11, y + 1.88, y + 2.0, BZ); m.box(-0.04, 0.12, y + 1.9, y + 1.92, 0.04, 0.2, BZ)
+    bar(m, (0.36, y + 0.02, 0.18), (0.4, y + 1.45, 0.12), 0.05, 0x3a4640)
+    return m
+
+
+def civic_main():
+    for ob in list(bpy.data.objects): bpy.data.objects.remove(ob)
+    coll = bpy.context.scene.collection
+    os.makedirs(OUT, exist_ok=True); os.makedirs(SHOTS, exist_ok=True)
+    pieces = {'ph': ph, 'dlo': dlo, 'chw': chw, 'chb': chb, 'chs': chs}
+    near, all_obs, far, stats = [], [], [], {}
+    for name, fn in pieces.items():
+        for lod in (0, 1, 2):
+            mesh = fn(lod)
+            ob = mesh.to_object(f'{name}_{lod}', coll); all_obs.append(ob); stats[ob.name] = len(mesh.f)
+            if lod == 0: near.append(ob)
+            else: vertex_ao(ob, reach=3.0)
+            if lod == 2: far.append(ob)
+        try: bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+        except Exception: pass
+    for name, fn in (('sq_lamp', sq_lamp), ('sq_bench', sq_bench), ('sq_memorial', sq_memorial), ('sq_monument', sq_monument)):
+        mesh = fn(); ob = mesh.to_object(name, coll); vertex_ao(ob, reach=1.5); all_obs.append(ob); far.append(ob); stats[name] = len(mesh.f)
+    out = {'faces': stats, 'clocks': CLOCKS}
+    if '--no-bake' not in FLAGS: out['ao_kB'] = bake_ao(near, 'civic_o', None, gpu=True)
+    else:
+        for ob in near: vertex_ao(ob, reach=3.0)
+    if '--no-export' not in FLAGS:
+        out['civic_kB'] = export(all_obs, os.path.join(OUT, 'civic.glb'))
+        out['far_kB'] = export(far, os.path.join(OUT, 'civic_far.glb'))
+    x = 0
+    for name in list(pieces) + ['sq_lamp', 'sq_bench', 'sq_memorial', 'sq_monument']:
+        for lod in (0, 1, 2):
+            o = bpy.data.objects.get(f'{name}_{lod}') or (bpy.data.objects.get(name) if lod == 0 else None)
+            if o: o.location = (x, 60 * lod, 0)
+        x += 50 if name in pieces else 12
+    print('CIV_STATS ' + json.dumps(out))
+    with open(os.path.join(SHOTS, 'civic_meta.json'), 'w') as fh: json.dump(out, fh, indent=1)
+
+
+if '--civic' in FLAGS: civic_main()
+elif '--river' in FLAGS: river_main()
 elif '--stock' in FLAGS: stock_main()
 elif '--store' in FLAGS: store_main()
 else: main()

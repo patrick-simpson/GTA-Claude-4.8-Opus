@@ -22,6 +22,10 @@ message, because the last commit message becomes the in-game WHAT'S NEW card).
     and a flood in Tepid Falls when the river rises; both rare, survivable, spectacular.
  9. Emotes and taunts: dances, waves, honking tunes (a radial or key menu; touch too).
 10. Customise your character and car: clothes, hats, paint, wheels, horn; saved; seen by other players.
+    OWNER (Nov 23): today each player sees THEMSELVES differently from how others see them (you are
+    Dess on your screen but another look on theirs). Fix that as part of this: whatever look a player has
+    (picked, or the default before they pick) must be exactly the same on their own screen and on every
+    other screen, including face, skin, hair, clothes and car paint. NEXT in the fun queue after item 8.
 11. Races between players: start from a marker, invite others in town, grid, countdown, checkpoints,
     podium, lap records kept in the town.
 12. Police chase with friends: one player is the cop (siren, cruiser), the others are wanted; timed.
@@ -63,3 +67,12 @@ boots with no errors at high, low and the phone layout; nothing gory.
     weight (slow to start, long to stop), it can derail if taken through a curve far too fast
     (spectacular, survivable), and the scheduled train resumes when the player leaves. In multiplayer
     the train a player drives is sent like their car, so others see it move.
+
+19. QUALITY PASS ON EVERY BLENDER MODEL (owner, Nov 23: "spend some extra effort and make sure the
+    Blender renders are super high quality on the avatars and everything you're making"; a separate
+    step after everything else). Go back over the people/avatars (faces, hands, hair, clothes, skin
+    shading), the cars, the C-Max, the boats, the moose, SpeedScan HQ and its interior, Pardon's and its
+    stock, Main St, the riverfront and the civic buildings: higher-detail sculpting where it shows,
+    proper UVs, baked normal/roughness/AO maps from high-poly versions on the RTX, PBR materials,
+    better levels of detail, side-by-side pictures before and after for each. Keep the phone and
+    frame budgets (measure each).

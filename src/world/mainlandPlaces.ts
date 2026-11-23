@@ -21,6 +21,7 @@ import { groundAt, type Lot, type Rect } from './plan';
 import { FENCE_UV, MWALL } from './textures';
 import { OPERA, PX, PZ, WIN, cut, dim, frameOf, frect, mainKit, type Frame, type MainKit, type WinStyle } from './mainlandBuildings';
 import { RIVER_ON } from './riverfrontAssets';
+import { CIVIC, civic } from './civicAssets';
 
 const R = MWALL.rows, RED = MWALL.redBrick, TAU = Math.PI * 2;
 const STONE = 0xcfcac0, GRAN = 0xb5b1a6, TAR = 0x4a4b4d, IRON = 0x2e3338, WHITE = 0xf1ede2, SLATE = 0x596068, PATH = 0xc9c1ad, WOOD = 0x6a4a32, CONC = 0xa9a69c;
@@ -64,6 +65,23 @@ function portico(k: MainKit, f: Frame, a: number, b: number, yg: number, y: numb
   return ey + 0.9;
 }
 
+/** Quorum Square with the Blender kit (civicAssets.ts): the soldier's monument, the war memorial before the hall, globe lamps, benches. */
+function civicSquare(k: MainKit, cx: number, cz: number, y: number, mz: number): void {
+  const cv = civic!, col = k.game.col;
+  cv.prop('sq_monument', cx, y, mz, 0);
+  col.addBox(cx - 2.2, mz - 2.2, cx + 2.2, mz + 2.2, y + 8.8, y - 1);
+  const wz = -1491;
+  cv.prop('sq_memorial', cx, y + 0.04, wz, 0);
+  col.addBox(cx - 4.2, wz - 1.6, cx + 4.2, wz + 0.4, y + 3.6, y - 1);
+  col.addProp(cx - 2.9, wz - 1.3, 0.12, y + 9.5, 'post', false); col.addProp(cx + 2.9, wz - 1.3, 0.12, y + 9.5, 'post', false);
+  const seat = (x: number, z: number, rot: number): void => { cv.prop('sq_bench', x, y + 0.04, z, rot); col.addProp(x, z, 0.7, y + 0.9, 'bench', false); };
+  for (const bz of [-1484, -1470, -1420]) { seat(cx - 2.3, bz, Math.PI / 2); seat(cx + 2.3, bz + 5, -Math.PI / 2); }
+  for (const bx of [-6, 42]) seat(bx, cz - 2.3, 0);
+  const lamp = (x: number, z: number): void => { cv.prop('sq_lamp', x, y + 0.04, z, 0); col.addProp(x, z, 0.24, y + 4.6, 'post', false); };
+  for (let z = -1486; z <= -1412; z += 15) if (Math.abs(z - cz) > 9 && Math.abs(z - mz) > 4) { lamp(cx - 2.4, z); lamp(cx + 2.4, z + 7); }
+  for (const x of [-12, 4, 36, 52]) { lamp(x, cz - 2.4); lamp(x + 7, cz + 2.4); }
+}
+
 function square(k: MainKit): void {
   const cx = 20, cz = -1452, y = groundAt(cx, cz), col = k.game.col, P = FENCE_UV.picket;
   k.at(cx, cz);
@@ -90,6 +108,7 @@ function square(k: MainKit): void {
 
   // The soldier's monument: a private of volunteers on a granite shaft, facing the bridge he did not live to see started.
   const mz = -1430, BRONZE = 0x55685a;
+  if (civic) { civicSquare(k, cx, cz, y, mz); return; }
   k.F.box(cx, y, mz, 4.4, 0.4, 4.4, GRAN); k.F.box(cx, y + 0.4, mz, 3.4, 0.4, 3.4, GRAN); k.F.box(cx, y + 0.8, mz, 2.2, 2.2, 2.2, 0xc4c0b6); k.F.box(cx, y + 3, mz, 2.6, 0.3, 2.6, GRAN);
   k.frustum(sqr(cx, mz, 0.8), y + 3.3, sqr(cx, mz, 0.55), y + 6.6, 0xc4c0b6);
   k.F.box(cx, y + 6.6, mz, 1.4, 0.25, 1.4, GRAN);
@@ -108,6 +127,11 @@ function opera(k: MainKit): void {
   const B: Rect = { x0: OPERA.x0 + 2, z0: OPERA.z0 + 1, x1: OPERA.x1 - 2, z1: OPERA.z1 - 3.5 }, y = groundAt(20, -1530);
   const b0 = y + 1.4, f1 = 7.4, f2 = 5.2, top = b0 + f1 + f2 + 1;
   k.at(20, -1530);
+  if (civic) {
+    k.F.floor(OPERA.x0, OPERA.z0, OPERA.x1, OPERA.z1, y + 0.03, 0xbdb6a4);
+    civic.place('ph', CIVIC.hall.x0, y, CIVIC.hall.z, 1, 0, 0, 1);
+    return;
+  }
   k.solid(B, top, y - 1);
   k.F.floor(OPERA.x0, OPERA.z0, OPERA.x1, OPERA.z1, y + 0.03, 0xbdb6a4);
   for (let s = 0; s < 4; s++) {
