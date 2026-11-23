@@ -5,8 +5,9 @@
 //
 // What the others see, from ONE small Event frame (protocol.ts, Job, 14 bytes) sent only when it changes:
 //  - taxi: the fare waiting at the kerb, standing where the runner's browser stood them, in the same look (the look
-//    is made from a seed in the frame: activities.ts riderLook); once aboard they are in the cab, where the runner's
-//    own screen shows nobody either, and the runner's name tag says "fare aboard".
+//    is made from a seed in the frame: activities.ts riderLook); once aboard they sit in the back of the cab, on the
+//    runner's screen and on everybody else's (Nov 23, with riding together: seat()), and the runner's name tag says
+//    "fare aboard".
 //  - courier: the parcels still in the van, on the runner's name tag ("2 of 4 parcels").
 //  - tow: the car to be towed is one of the runner's held cars (held.ts) and is shown where it stands. Once it is on the
 //    hook the frame says so (and which held car it is), the runner stops sending its moves, and every other screen
@@ -21,6 +22,9 @@ import type { Game } from '../core/game';
 import type { Person } from '../core/api';
 import { riderLook, type Activities } from '../game/activities';
 import { JOB_BYTES, JobKind, JobRider, SEND_HZ, blankJob, decodeJob, encodeJob, type JobRec } from './protocol';
+import type { Vehicle } from '../core/api';
+import { PASSENGER_SEATS } from '../ent/vehicleSpecs';
+import { seatSpot } from './ride';
 import type { Connection } from './conn';
 import type { Remote } from './remote';
 import type { TownHeld } from './held';
@@ -29,7 +33,9 @@ const SEND_MS = 1000 / SEND_HZ;
 /** A waiting fare further than this from where the others were told is told again, meters. */
 const MOVED = 0.5;
 
-interface Theirs { rec: JobRec; rider: Person | null; look: number }
+/** A fare sat in a cab: the person drawn, and the look they were made with. */
+interface Fare { p: Person | null; look: number }
+interface Theirs { rec: JobRec; rider: Person | null; look: number; fare: Fare }
 
 export class TownJobs {
   readonly stats = { sent: 0, bytesSent: 0, got: 0, bytesGot: 0, riders: 0, reparked: 0 };
@@ -40,6 +46,9 @@ export class TownJobs {
   private force = false;
   private sentAt = 0;
   private readonly theirs = new Map<number, Theirs>();
+  /** This player's own fare, sat in the back of the cab. */
+  private readonly ownFare: Fare = { p: null, look: -1 };
+  private readonly at = { x: 0, y: 0, z: 0 };
   /** False only to measure the old way (the towed car's moves in the Held list): tools/net/story.mjs. */
   cheapTow = true;
 
@@ -96,7 +105,7 @@ export class TownJobs {
     if (!m || !this.inTown || !this.remotes.has(m.id)) return;
     this.stats.got++; this.stats.bytesGot += buf.byteLength;
     let t = this.theirs.get(m.id);
-    if (!t) this.theirs.set(m.id, t = { rec: blankJob(), rider: null, look: -1 });
+    if (!t) this.theirs.set(m.id, t = { rec: blankJob(), rider: null, look: -1, fare: { p: null, look: -1 } });
     Object.assign(t.rec, m);
     this.apply(m.id, t);
   }
@@ -120,13 +129,14 @@ export class TownJobs {
     rem?.setJob(r.job === JobKind.Taxi && r.state === JobRider.Aboard ? 'fare aboard'
       : r.job === JobKind.Courier ? `${r.state} of ${r.total} parcel${r.total === 1 ? '' : 's'}`
         : r.job === JobKind.Tow && r.state === 1 ? 'towing' : '');
-    if (r.job === JobKind.None) this.theirs.delete(id);
+    if (r.job === JobKind.None) { this.sit(t.fare, null, 0); this.theirs.delete(id); }
   }
 
   /** Somebody has left town (index.ts). */
   dropped(id: number): void {
     const t = this.theirs.get(id);
     if (t?.rider) this.game.people.remove(t.rider);
+    if (t) this.sit(t.fare, null, 0);
     this.theirs.delete(id);
     this.held.hooks.delete(id);
   }
@@ -137,6 +147,33 @@ export class TownJobs {
     this.held.hooks.clear();
     this.held.towing = null;
     this.last = null;
+    this.sit(this.ownFare, null, 0);
+  }
+
+  /**
+   * Index.ts, once the cars are placed this step: a fare aboard sits in the back of the cab (the rear seat on the kerb
+   * side), on the runner's screen and on everybody else's, in the look the runner's browser gave them.
+   */
+  seat(): void {
+    if (!this.inTown) { this.sit(this.ownFare, null, 0); return; }
+    const g = this.game, w = this.jobsHere.view();
+    this.sit(this.ownFare, w.job === 'taxi' && w.aboard ? g.player.vehicle : null, w.riderSeed);
+    for (const [id, t] of this.theirs) {
+      const r = t.rec, aboard = r.job === JobKind.Taxi && r.state === JobRider.Aboard;
+      this.sit(t.fare, aboard ? this.remotes.get(id)?.vehicle ?? null : null, r.look);
+    }
+  }
+
+  private sit(f: Fare, car: Vehicle | null, look: number): void {
+    const g = this.game;
+    if (f.p && (!car || f.look !== look)) { g.people.remove(f.p); f.p = null; }
+    if (!car) return;
+    const n = PASSENGER_SEATS[car.spec.kind].length;
+    if (!n || !seatSpot(car, Math.min(2, n - 1), this.at)) return;
+    if (!f.p) { f.p = g.people.spawn(this.at.x, this.at.z, car.h, riderLook(g, look)); f.look = look; }
+    const p = f.p;
+    p.x = this.at.x; p.y = this.at.y; p.z = this.at.z; p.h = car.h;
+    p.pose = 'sit'; p.bench = true; p.speed = 0; p.visible = true;
   }
 
   // ── Frame ──────────────────────────────────────────────────────────────────
@@ -171,7 +208,8 @@ export class TownJobs {
     return {
       ...this.stats,
       mine: this.last ? { ...this.last, x: r2(this.last.x), z: r2(this.last.z) } : null,
-      theirs: [...this.theirs.entries()].map(([id, t]) => ({ id, job: t.rec.job, state: t.rec.state, total: t.rec.total, slot: t.rec.slot, rider: t.rider ? { x: r2(t.rider.x), z: r2(t.rider.z), top: t.rider.look.top, skin: t.rider.look.skin, hair: t.rider.look.hair } : null })),
+      ownFare: this.ownFare.p ? { x: r2(this.ownFare.p.x), z: r2(this.ownFare.p.z) } : null,
+      theirs: [...this.theirs.entries()].map(([id, t]) => ({ id, fare: t.fare.p ? { x: r2(t.fare.p.x), z: r2(t.fare.p.z) } : null, job: t.rec.job, state: t.rec.state, total: t.rec.total, slot: t.rec.slot, rider: t.rider ? { x: r2(t.rider.x), z: r2(t.rider.z), top: t.rider.look.top, skin: t.rider.look.skin, hair: t.rider.look.hair } : null })),
       hookedShown: this.held.hookedShown,
     };
   }

@@ -162,3 +162,4 @@ owner's ground rules for the takeover and the running state.
 - Nov 23, 2:15 PM ET: store unit 2 pushed. Next: store unit 3 (polish), Haiku check after.
 - Nov 23, 2:25 PM ET: OWNER: passengers ride together in another player's car. Brief tools/briefs/passengers.md. Queue: store unit 3 (running), passengers, ragdoll, SpeedScan HQ, rest of Tepid Falls.
 - Nov 23, 3:40 PM ET: store unit 3 + marker pushed. Next: passengers (multiplayer), Haiku check after.
+- Nov 23, 4:15 PM ET: passengers pushed (protocol v5). Backup Worker needs redeploy (kvbcawana deploy-port-calamity-city.yml); asked the owner. Next: ragdoll.

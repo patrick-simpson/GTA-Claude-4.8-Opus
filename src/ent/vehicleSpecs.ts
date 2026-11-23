@@ -132,6 +132,29 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
 
 export const KINDS = Object.keys(SPECS) as VehicleKind[];
 
+/**
+ * Passenger seats (riding together, net/ride.ts), in the order they are offered: [across, along, up], meters. `across`
+ * is from the car's middle line, + toward the passenger side (the driver sits on the left); `along` is from the
+ * driver's seat (+ forward); `up` raises the sitter above where a car seat puts them by default (cabs, the bus).
+ */
+const FRONT = (up = 0): [number, number, number] => [0.4, 0, up];
+const REAR2 = (back: number, up = 0): [number, number, number][] => [[-0.4, -back, up], [0.4, -back, up]];
+export const PASSENGER_SEATS: Record<VehicleKind, readonly (readonly [number, number, number])[]> = {
+  sedan: [FRONT(), ...REAR2(0.92)],
+  hatch: [FRONT(), ...REAR2(0.85)],
+  coupe: [FRONT()],
+  muscle: [FRONT()],
+  sports: [FRONT(-0.04)],
+  pickup: [FRONT(0.2), [0, 0, 0.2]],
+  van: [FRONT(0.35), [0.02, 0, 0.35]],
+  taxi: [FRONT(), ...REAR2(0.92)],
+  tow: [FRONT(0.4)],
+  bus: [[0.65, -1.6, 0.5], [-0.65, -1.6, 0.5], [0.65, -2.7, 0.5], [-0.65, -2.7, 0.5], [0.65, -3.8, 0.5], [-0.65, -3.8, 0.5], [0.65, -4.9, 0.5], [-0.65, -4.9, 0.5]],
+  cruiser: [FRONT()],
+  bolt: [FRONT(), ...REAR2(0.88), [0, -0.88, 0]],
+  cmax: [FRONT(), ...REAR2(0.88), [0, -0.88, 0]],
+};
+
 /** Pick a kind weighted by how common it is. `r` is a random number in 0..1. */
 export function commonKind(r: number): VehicleKind {
   let total = 0;

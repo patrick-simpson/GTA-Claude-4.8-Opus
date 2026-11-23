@@ -48,6 +48,7 @@ import { Town } from './town';
 import { TownHeld } from './held';
 import { TownCrew } from './crew';
 import { TownJobs } from './jobs';
+import { TownRide } from './ride';
 import { SAYS, myName, nameText, rerollName } from './names';
 
 const SEND_MS = 1000 / SEND_HZ;
@@ -82,6 +83,8 @@ export class Net {
   readonly crew: TownCrew;
   /** Jobs shown to the others where their runner has them: a fare, the parcels, the car on the hook (stage 4, step 5). */
   readonly jobs: TownJobs;
+  /** Riding together: this player in another's car, or others in this player's (ride.ts). */
+  readonly ride: TownRide;
   /** State frames sent, apart from the totals in conn.sent. */
   statesSent = 0;
 
@@ -128,6 +131,7 @@ export class Net {
     this.crew = new TownCrew(game, c, this.remotes, this.held, this.cars);
     this.shared.heldCars = () => this.held.list();
     this.jobs = new TownJobs(game, c, this.remotes, this.held);
+    this.ride = new TownRide(game, c, this.remotes);
     this.fight.crewHit = (v, dmg) => this.crew.hitHeld(v, dmg);
     this.fight.crewMate = (id) => this.crew.onTeam(id);
     // A paused game simulates nothing, so it says at once that it cannot host (and, on resuming, that it can again).
@@ -206,12 +210,14 @@ export class Net {
     this.props.refresh();
     this.held.refresh();
     this.jobs.refresh();
+    this.ride.refresh();
   }
 
   private drop(id: number): void {
     const r = this.remotes.get(id);
     if (!r) return;
     // (A car another player lent them for a mission goes back to that player, who stands it again: crew.ts. Not a stray.)
+    this.ride.dropped(id);
     if (!this.crew.borrowing(id)) this.cars.dropped(r, performance.now());
     this.fight.dropped(id);
     this.crew.dropped(id);
@@ -222,6 +228,7 @@ export class Net {
   }
 
   private clear(): void {
+    this.ride.clear();
     for (const r of this.remotes.values()) r.dispose();
     this.remotes.clear();
     this.fight.clear();
@@ -256,7 +263,8 @@ export class Net {
       const e = decodePlayerEvent(buf);
       if (!e) return;
       // The horn is heard from the flag in the state frames; waves and shouts come this way, and so does gunfire.
-      if (e.code === PlayerEvent.Held) this.held.event(buf, performance.now());
+      if (e.code === PlayerEvent.Ride || e.code === PlayerEvent.Seats) this.ride.event(buf);
+      else if (e.code === PlayerEvent.Held) this.held.event(buf, performance.now());
       else if (e.code === PlayerEvent.Crew) this.crew.event(buf);
       else if (e.code === PlayerEvent.Job) this.jobs.event(buf);
       else if (e.code === PlayerEvent.Prop) this.props.event(buf);
@@ -295,7 +303,17 @@ export class Net {
     o.t = Math.floor(now) & 0xffff;
     // (In the pause menu: the others draw a sign over this player and leave them be. Stage 4, step 5.)
     o.flags = this.game.state === 'paused' ? PlayerFlag.Paused : 0;
-    if (v) {
+    const ride = this.ride.riding, rv = p.riding;
+    if (ride && rv && !v) {
+      // A passenger (ride.ts): whose car and which seat. Where they are follows from the car on every screen.
+      o.mode = PlayerMode.Passenger;
+      o.x = per.x; o.y = per.y; o.z = per.z; o.yaw = rv.h;
+      o.vx = rv.vx; o.vz = rv.vz;
+      o.pitch = 0; o.roll = 0; o.steer = 0; o.damage = 0;
+      o.vehicle = ride.driver; o.color = ride.seat;
+      o.pose = POSES.indexOf('sit');
+      o.flags |= PlayerFlag.Bench | (p.weapons.raised << HELD_SHIFT);
+    } else if (v) {
       o.mode = PlayerMode.Driving;
       o.x = v.x; o.y = v.y; o.z = v.z; o.yaw = v.h;
       o.vx = v.vx; o.vz = v.vz;
@@ -327,6 +345,8 @@ export class Net {
   /** Has anything another screen would show moved since the last frame sent? Small enough not to be tripped by a car settling on its springs. */
   private changed(): boolean {
     const a = this.out, b = this.last;
+    // (A passenger is placed from the car on every screen: only who, where and what they hold counts.)
+    if (a.mode === PlayerMode.Passenger && b.mode === PlayerMode.Passenger) return a.vehicle !== b.vehicle || a.color !== b.color || a.flags !== b.flags;
     return a.mode !== b.mode || a.pose !== b.pose || a.flags !== b.flags || a.vehicle !== b.vehicle || a.color !== b.color || a.damage !== b.damage
       || Math.abs(a.x - b.x) > 0.02 || Math.abs(a.z - b.z) > 0.02 || Math.abs(a.y - b.y) > 0.03
       || Math.abs(angleDiff(a.yaw, b.yaw)) > 0.008
@@ -376,6 +396,9 @@ export class Net {
       const night = g.sky.night;
       for (const r of this.remotes.values()) r.update(now, dt, eye, night);
     }
+    // (Once the cars are placed: the passengers go in their seats, this player among them.)
+    this.ride.update(now);
+    this.jobs.seat();
     // After the others have been placed: a host's drivers are told where they are.
     this.fight.update(now, dt);
     this.shared.update(now, dt);
@@ -477,13 +500,17 @@ export class Net {
       crew: this.crew.info(),
       // jobs: what this player's job shows the others, and theirs as shown here (jobs.ts). pause: this player's guard (index.ts).
       jobs: this.jobs.info(),
+      // ride: riding together: this player's seat in another's car, the riders in this player's car, the lists heard (ride.ts).
+      ride: this.ride.info(),
       pause: { refused: this.game.pauseRefused, why: this.pauseRefusal(), state: this.game.state },
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({
         id: r.id, name: r.text, seen: r.seen, frames: r.frames,
         x: r3(r.x), y: r3(r.y), z: r3(r.z), h: r3(r.h), speed: r3(r.speed),
-        mode: r.mode, pose: r.pose, vehicle: r.kind, color: r.color, label: r.labelShown,
+        mode: r.mode, pose: r.pose, vehicle: r.kind, color: r.color, label: r.labelShown, rideOf: r.rideOf, rideSeat: r.rideSeat,
+        body: r.body ? { x: r3(r.body.x), y: r3(r.body.y), z: r3(r.body.z), visible: r.body.visible, pose: r.body.pose } : null,
+        car: r.vehicle ? { x: r3(r.vehicle.x), y: r3(r.vehicle.y), z: r3(r.vehicle.z), h: r3(r.vehicle.h) } : null,
         // Their car as shown here: the 16 steps of damage their browser sends, and the health and wreck made of it.
         damage: r.damage, carHealth: r.vehicle ? +r.vehicle.health.toFixed(1) : null, carWreck: !!r.vehicle?.wreck,
         horns: r.horns, hornOn: r.horn, said: r.said, lastSaid: r.lastSaid, sayShown: r.sayShown, saidCount: r.saidCount,

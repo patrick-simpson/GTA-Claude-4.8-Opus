@@ -352,7 +352,7 @@ export class TouchUI {
     }
 
     const player = g.player;
-    const driving = player.vehicle !== null;
+    const driving = player.seated !== null;
     if (driving !== this.driving) {
       this.driving = driving;
       this.root.classList.toggle('drive', driving);
@@ -368,7 +368,7 @@ export class TouchUI {
       this.root.classList.toggle('armed', armed);
     }
     if (this.aimOn && (!armed || driving || paused || !player.canFight)) this.setAim(false);
-    const near = !driving && player.nearVehicle !== null;
+    const near = !driving && (player.nearVehicle !== null || player.rideNear !== null);
     if (near !== this.near) {
       this.near = near;
       this.getIn.el.classList.toggle('gone', !near);

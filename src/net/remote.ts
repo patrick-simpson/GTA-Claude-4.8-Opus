@@ -123,6 +123,9 @@ export class Remote {
   paused = false;
   /** Stage 4, step 5 (jobs.ts): a word about their job on the tag ('' none): "fare aboard", "2 of 4 parcels", "towing". */
   job = '';
+  /** Riding together (ride.ts): whose car they sit in as a passenger (a player id, 0 none), and which seat. */
+  rideOf = 0;
+  rideSeat = 0;
   /** How bent the car they are driving is, in the 16 steps of the wire (0 on foot). */
   damage = 0;
   /** Stage 3, step 3 (fight.ts): the health they last told of, whether they are dead until they say otherwise, and the counts. */
@@ -313,6 +316,8 @@ export class Remote {
     const c = this.cur, g = this.game;
     this.x = c.x; this.y = c.y; this.z = c.z; this.h = c.yaw;
     this.mode = c.mode;
+    this.rideOf = c.mode === PlayerMode.Passenger ? c.vehicle : 0;
+    this.rideSeat = c.mode === PlayerMode.Passenger ? c.color & 0xff : 0;
     this.flags = c.flags;
     this.pose = POSES[c.pose] ?? 'stand';
     const kind = c.mode === PlayerMode.Driving && c.vehicle > 0 ? KINDS[c.vehicle - 1] ?? null : null;

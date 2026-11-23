@@ -66,7 +66,7 @@ const LAST_WORDS = [
   'Paperwork to follow.',
 ];
 
-type Mode = 'foot' | 'enter' | 'drive' | 'leave' | 'hoist' | 'tumble' | 'dead';
+type Mode = 'foot' | 'enter' | 'drive' | 'ride' | 'leave' | 'hoist' | 'tumble' | 'dead';
 
 export class Player implements PlayerApi {
   readonly person: Person;
@@ -82,10 +82,14 @@ export class Player implements PlayerApi {
   private used = new WeakSet<Vehicle>();
   swimming = false;
   nearVehicle: Vehicle | null = null;
+  /** Multiplayer (net/ride.ts): another player's car she is close enough to ride in. While set, F rides instead of taking a car. */
+  rideNear: Vehicle | null = null;
 
   private mode: Mode = 'foot';
   /** The vehicle she is seated in. */
   private car: Vehicle | null = null;
+  /** Another player's car she sits in as a passenger (net/ride.ts places her in the seat every frame). */
+  private rideCar: Vehicle | null = null;
   /** The vehicle she is walking to the door of. */
   private goal: Vehicle | null = null;
   private side: -1 | 1 = -1;
@@ -128,11 +132,16 @@ export class Player implements PlayerApi {
   }
 
   get vehicle(): Vehicle | null { return this.car; }
+  /** The car she rides in as a passenger, or null (net/ride.ts). */
+  get riding(): Vehicle | null { return this.rideCar; }
+  /** The car she is sitting in, at the wheel or not: what the chase camera, the radio and a drive-by go by. */
+  get seated(): Vehicle | null { return this.car ?? this.rideCar; }
   get x(): number { return this.car ? this.car.x : this.person.x; }
   get y(): number { return this.car ? this.car.y : this.person.y; }
   get z(): number { return this.car ? this.car.z : this.person.z; }
   get h(): number { return this.car ? this.car.h : this.person.h; }
   get speed(): number {
+    if (this.rideCar) return Math.hypot(this.rideCar.vx, this.rideCar.vz);
     return this.car ? Math.hypot(this.car.vx, this.car.vz) : Math.hypot(this.vx, this.vz);
   }
 
@@ -164,6 +173,7 @@ export class Player implements PlayerApi {
   reset(): void {
     const g = this.game, home = g.plan.sidewalkPoint(...HOME);
     if (this.car) this.release(this.car);
+    if (this.rideCar) this.release(this.rideCar);
     this.goal = null;
     this.put(home.x, home.z + 0.9, 0);
     this.health = 100; this.armor = 0; this.money = START_MONEY; this.heat = 0;
@@ -184,6 +194,7 @@ export class Player implements PlayerApi {
 
   teleport(x: number, z: number, h?: number): void {
     if (this.car) this.release(this.car);
+    if (this.rideCar) this.release(this.rideCar);
     this.goal = null;
     this.put(x, z, h ?? this.person.h);
   }
@@ -191,6 +202,7 @@ export class Player implements PlayerApi {
   enter(v: Vehicle, instant = false): void {
     if (this.car === v) return;
     if (this.car) this.release(this.car);
+    if (this.rideCar) this.release(this.rideCar);
     if (instant) { this.seat(v); return; }
     if (this.mode !== 'foot' || this.swimming) return;
     const per = this.person, d = this.door;
@@ -215,12 +227,29 @@ export class Player implements PlayerApi {
     this.nearVehicle = null;
   }
 
-  exit(): void {
+  /**
+   * Sit in another player's car as a passenger (net/ride.ts): she is drawn in the seat, the chase camera follows the car,
+   * and F gets her out. The car is never hers: nothing here moves it.
+   */
+  ride(v: Vehicle): void {
+    if (this.car) this.release(this.car);
+    const per = this.person;
+    this.rideCar = v;
+    this.goal = null;
+    this.mode = 'ride';
+    per.pose = 'sit'; per.bench = true; per.speed = 0; per.visible = true;
+    this.vx = this.vy = this.vz = 0;
+    this.swimming = false; this.wet = false; this.grounded = true;
+    this.nearVehicle = null; this.rideNear = null;
+  }
+
+  /** safe: out beside the car at walking pace, whatever its speed (the driver went away; nobody is thrown by that). */
+  exit(safe = false): void {
     if (this.mode === 'enter') { this.mode = 'foot'; this.goal = null; return; }
-    const v = this.car;
+    const v = this.car ?? this.rideCar;
     if (!v) return;
     const per = this.person, p = this.p;
-    const sp = Math.hypot(v.vx, v.vz);
+    const sp = safe ? 0 : Math.hypot(v.vx, v.vz);
     this.pickExit(v);
     const outX = p.x, outZ = p.z;
     this.release(v);
@@ -272,7 +301,7 @@ export class Player implements PlayerApi {
 
   /** Throw her to the ground with a velocity. She slides to a stop and gets up on her own. */
   knockDown(vx: number, vz: number, vy = 2.2): void {
-    if (this.car || this.mode === 'dead') return;
+    if (this.car || this.rideCar || this.mode === 'dead') return;
     this.vx = vx; this.vz = vz;
     if (vy > 0 || !this.grounded) { this.vy = vy; this.grounded = false; }
     this.mode = 'tumble';
@@ -295,6 +324,7 @@ export class Player implements PlayerApi {
       case 'foot': this.onFoot(dt); break;
       case 'enter': this.toDoor(dt); break;
       case 'drive': this.driving(dt); break;
+      case 'ride': if (!this.rideCar) this.mode = 'foot'; else if (this.game.input.eat('enter')) this.exit(); break;
       case 'leave': case 'hoist': this.scripted(dt); break;
       case 'tumble': this.tumbling(dt); break;
       case 'dead': this.lying(dt); break;
@@ -390,7 +420,7 @@ export class Player implements PlayerApi {
       else if (this.airT > 0.12) per.pose = 'fall';
     } else per.pose = sp < 0.25 ? 'stand' : sp < 3 ? 'walk' : 'run';
 
-    this.nearVehicle = this.swimming || !this.grounded ? null : this.findVehicle();
+    this.nearVehicle = this.swimming || !this.grounded || this.rideNear ? null : this.findVehicle();
     if (this.nearVehicle && inp.hit('enter')) {
       inp.eat('enter');
       this.enter(this.nearVehicle);
@@ -622,6 +652,7 @@ export class Player implements PlayerApi {
     v.driver = 'player';
     // Hidden rather than sat inside: the roof of the lowest car is below her cap.
     per.visible = false;
+    per.bench = false;
     per.pose = 'sit';
     per.speed = 0;
     per.x = v.x; per.y = v.y; per.z = v.z; per.h = v.h;
@@ -655,6 +686,14 @@ export class Player implements PlayerApi {
 
   /** Hand the car back: nobody at the wheel, pedals up. */
   private release(v: Vehicle): void {
+    if (v === this.rideCar) {
+      // A passenger hands nothing back: the car is its driver's.
+      this.rideCar = null;
+      this.person.bench = false;
+      this.person.visible = true;
+      if (this.mode === 'ride') this.mode = 'foot';
+      return;
+    }
     v.driver = null;
     v.ctl.accel = 0; v.ctl.steer = 0; v.ctl.handbrake = false; v.ctl.horn = false;
     this.car = null;
@@ -738,7 +777,7 @@ export class Player implements PlayerApi {
 
   private die(): void {
     const g = this.game;
-    if (this.car) this.exit();
+    if (this.car || this.rideCar) this.exit();
     this.mode = 'dead';
     this.goal = null;
     this.nearVehicle = null;

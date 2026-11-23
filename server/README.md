@@ -86,7 +86,7 @@ run from there. The service then answers at `https://port-calamity-city.<account
 
 ## Protocol (all of it is in `src/net/protocol.ts`)
 
-Connect: `wss://<host>/?v=3&name=3.17.20`. The name is two or three integers, indexes into
+Connect: `wss://<host>/?v=5&name=3.17.20` (version 5 since Nov 23: riding together; the Worker must run the same version as the pages, so a version change means a redeploy). The name is two or three integers, indexes into
 the game's own word lists (part i is below `NAME_LIST_SIZES[i]`, today 40, 40 and 24). There is no hello message: a bad name, a wrong version (400), a
 disallowed Origin (403) refuse the upgrade. A full town and a resting service do NOT refuse it (a
 browser cannot read a refused upgrade): the socket opens, carries one `full` or `rest` message, and
@@ -100,7 +100,7 @@ the sender's id; the service reads nothing else and forwards the same buffer.
 | 0 | Keepalive | anyone | nobody | 1 | "I am alive" |
 | 1 | State | anyone, 10 Hz | everyone else | 96 | own character or car (34 bytes today) |
 | 2 | World | host only | everyone else | 4096 | shared traffic, people, police (stage 2 on) |
-| 3 | Event | anyone, only when something happens | everyone else | 96 | horn, wave, canned shout (4 bytes); gunfire, a rocket, a blast, health after a hit (5 to 65 bytes, at most ten a second while firing) |
+| 3 | Event | anyone, only when something happens | everyone else | 96 | horn, wave, canned shout (4 bytes); gunfire, a rocket, a blast, health after a hit (5 to 65 bytes, at most ten a second while firing); Ride (5 bytes) and Seats (4 + 2 per passenger) when somebody gets in or out of another player's car |
 | 4 | ToHost | anyone | the host | 96 | a request to the host (stage 2 on) |
 | 5 | ToPlayer | host only | byte 1's player | 4096 | join snapshot for one player (stage 2 on) |
 

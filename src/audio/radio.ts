@@ -575,7 +575,7 @@ export class Radio {
       // Silently over to the first generated station, with a word on the HUD; never in the way of the game.
       if (this.station === 0) {
         this.station = 1;
-        if (this.game.player.vehicle) { this.game.hud.toast('Claude FM is off the air. Over to ' + STATIONS[0].call + '.', 3.5); this.show(); }
+        if (this.game.player.seated) { this.game.hud.toast('Claude FM is off the air. Over to ' + STATIONS[0].call + '.', 3.5); this.show(); }
       }
     });
     game.on('pause', (e) => { this.paused = e.on; if (e.on) this.fm.pause(); });
@@ -614,7 +614,7 @@ export class Radio {
 
   /** The radio key, read whether or not the context is awake yet; and Claude FM, which lives outside the context. */
   keys(): void {
-    const g = this.game, s = save.data.settings, v = g.player.vehicle;
+    const g = this.game, s = save.data.settings, v = g.player.seated;
     if (v && g.input.hit('radio')) this.next();
     if (this.station === 0 && this.fm.state === 'failed') this.station = 1;
     const fm = this.station === 0 && !!v && !v.sunk && !this.paused && document.visibilityState !== 'hidden'
@@ -623,7 +623,7 @@ export class Radio {
   }
 
   update(_dt: number): void {
-    const c = this.core, g = this.game, v = g.player.vehicle, t = c.now;
+    const c = this.core, g = this.game, v = g.player.seated, t = c.now;
     const inCar = !!v && !v.sunk;
     if (inCar && !this.wasIn && this.station >= 0) this.show();
     this.wasIn = inCar;

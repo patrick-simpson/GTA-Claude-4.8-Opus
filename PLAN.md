@@ -88,6 +88,24 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Ride together (passengers), protocol v5: pushed Nov 23, about 4:15 PM ET
+
+Owner: "Allow a passenger to join a car and ride together" (`tools/briefs/passengers.md`). On foot by
+another player's car, F (or Get in) shows "Ride with <name>" and takes a free seat
+(`PASSENGER_SEATS` in vehicleSpecs: sedan, taxi, hatch 3; coupe, sports, muscle, cruiser, tow 1;
+pickup, van 2; bus 8; Bolt, C-Max 4). `src/net/ride.ts`; PlayerMode.Passenger (vehicle = driver id,
+color = seat); new events Ride (12) and Seats (13); the driver's browser assigns seats. Passengers
+look around, shoot from the window, have their own radio; out with F, when the driver gets out, on a
+wreck or a crash over 17 m/s (knock-over), or stood safely beside the car when the driver leaves or
+drops. Taxi fares now sit in the cab for everyone. tools/net/ride.mjs 25 of 25 twice.
+PROTOCOL v4 to v5: the Cloudflare Worker (backup) must be redeployed (kvbcawana workflow
+deploy-port-calamity-city.yml); until then v5 pages are refused by it. The home service updates itself.
+Owed: the passenger is not visible through the car glass (the worker says the glass is opaque and
+cars have no drawn occupants; earlier checks described half-transparent glass with cabins: check
+which and decide whether to draw occupants); seat positions untuned; bullets do not hurt passengers;
+a save while riding reloads standing; server `npm test` fails to spawn wrangler on Windows, and
+test/local.mjs --home is 51 of 52 on Windows (SIGTERM close code).
+
 ### Pardon's, unit 3 (store finished), the map marker, and forced updates: pushed Nov 23, about 3:40 PM ET
 
 - Inside 87 fps standing / 85 moving (was 64), lot 62 (was 65, cause not found). Goods in 10 m chunks,

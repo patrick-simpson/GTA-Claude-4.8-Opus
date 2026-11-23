@@ -345,7 +345,7 @@ export class Weapons {
     if (inp.hit('prevWeapon')) this.cycle(-1);
     if (inp.digit >= 1 && inp.digit <= WEAPONS.length) this.select(inp.digit - 1);
 
-    const w = this.spec, v = p.vehicle;
+    const w = this.spec, v = p.seated;
     const foot = p.canFight;
     this.driveBy = !!v && this.slot !== 0 && w.oneHand && p.health > 0;
     this.aiming = foot && inp.down('aim');
@@ -424,7 +424,7 @@ export class Weapons {
    * just the way the weapon is held (enough for drawing it).
    */
   private aimRay(exact: boolean): void {
-    const g = this.game, p = g.player, per = p.person, cam = g.camera, v = p.vehicle;
+    const g = this.game, p = g.player, per = p.person, cam = g.camera, v = p.seated;
     const w = this.spec;
     // The view: the real camera, or the rig's angles while a test has the camera pinned elsewhere.
     let cx: number, cy: number, cz: number;
@@ -526,7 +526,7 @@ export class Weapons {
     const st = this.stats;
     st.shots++;
     fx.muzzleFlash(this.mx, this.my, this.mz, this.dx, this.dy, this.dz);
-    const cone = (this.aiming || p.vehicle ? w.spread : w.hip) + this.bloom + Math.min(p.speed, 8) * (p.vehicle ? 0.0012 : 0.003);
+    const cone = (this.aiming || p.seated ? w.spread : w.hip) + this.bloom + Math.min(p.speed, 8) * (p.seated ? 0.0012 : 0.003);
     // Two directions square to the aim, to spread the cone over.
     let rx = this.dz, rz = -this.dx;
     const rl = Math.hypot(rx, rz) || 1;
@@ -538,7 +538,7 @@ export class Weapons {
       let dx = this.dx + rx * a + ux * b, dy = this.dy + uy * b, dz = this.dz + rz * a + uz * b;
       const dl = Math.hypot(dx, dy, dz);
       dx /= dl; dy /= dl; dz /= dl;
-      const t = this.trace(this.mx, this.my, this.mz, dx, dy, dz, w.range, p.vehicle);
+      const t = this.trace(this.mx, this.my, this.mz, dx, dy, dz, w.range, p.seated);
       const hx = this.mx + dx * t, hy = this.my + dy * t, hz = this.mz + dz * t;
       st.pellets++; st.lastKind = this.hKind; st.lastDist = t; st.lastDmg = 0;
       st.lastX = hx; st.lastY = hy; st.lastZ = hz;
@@ -733,7 +733,7 @@ export class Weapons {
       r.vy -= ROCKET_G * dt;
       const sp = Math.hypot(r.vx, r.vy, r.vz), len = sp * dt;
       const dx = r.vx / sp, dy = r.vy / sp, dz = r.vz / sp;
-      const t = this.trace(r.x, r.y, r.z, dx, dy, dz, len, g.player.vehicle);
+      const t = this.trace(r.x, r.y, r.z, dx, dy, dz, len, g.player.seated);
       r.x += dx * t; r.y += dy * t; r.z += dz * t;
       if (this.hKind !== NONE || r.t > 6) {
         r.live = false; r.mesh.visible = false;
@@ -807,8 +807,8 @@ export class Weapons {
       const f = 1 - far / radius;
       const nx = far > 0.1 ? (p.x - x) / far : 0, nz = far > 0.1 ? (p.z - z) / far : 1;
       this.from.x = x; this.from.y = y; this.from.z = z;
-      p.hurt(damage * f * (p.vehicle ? 0.2 : 0.7), this.from);
-      if (!p.vehicle && f > 0.2) p.knockDown(nx * 9 * f, nz * 9 * f, 2 + 4 * f);
+      p.hurt(damage * f * (p.seated ? 0.2 : 0.7), this.from);
+      if (!p.seated && f > 0.2) p.knockDown(nx * 9 * f, nz * 9 * f, 2 + 4 * f);
     }
     if (world) this.peds?.alarm(x, z, 50);
     this.evShot.x = x; this.evShot.z = z; this.evShot.loud = true;
@@ -946,7 +946,7 @@ export class Weapons {
       if (d2 > 14400) continue;
       k.mesh.rotation.y = t * 1.4;
       k.mesh.position.y = k.y + Math.sin(t * 2.2) * 0.08;
-      if (d2 > 1.7 || p.vehicle || g.state !== 'play') continue;
+      if (d2 > 1.7 || p.seated || g.state !== 'play') continue;
       const w = WEAPONS[k.slot];
       this.give(w.id, k.ammo);
       k.wait = 90; k.mesh.visible = false;

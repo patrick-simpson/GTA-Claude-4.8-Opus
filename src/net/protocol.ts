@@ -17,7 +17,11 @@
 // and every other browser draws those cars INSTEAD of running its own. A page that does not know this would, as
 // host, leave everybody else's streets empty, so the number went up: an older page is refused by a newer service
 // (and a newer page by an older service), and a refused page is simply the single player game.
-export const PROTOCOL_VERSION = 4;
+// Version 5 (Nov 23, riding together: net/ride.ts): a player may sit in another player's car. The passenger's State frame
+// says so (mode Passenger, `vehicle` = the driver's id, `color` = the seat) and two small Event frames (Ride, Seats) carry
+// the getting in and out. An older page would draw a passenger standing in the road and, as a driver, never let them out,
+// so the number went up: the Worker must be redeployed with this file (the home computer updates itself).
+export const PROTOCOL_VERSION = 5;
 
 // ---- limits and rates (the service enforces the limits; the client should respect the rates) ----
 
@@ -305,7 +309,47 @@ export function decodePlayerState(buf: ArrayBuffer, out?: PlayerState): PlayerSt
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13 } as const;
+
+// ---- Riding together (version 5; net/ride.ts) ----
+// Ride (5 bytes, from a passenger): [kind, id, 12, driver id, seat]. Seat RIDE_OUT: they got out (driver id then says
+// whose car). Sent on getting in and out; the passenger's State frames say the same while they sit (mode Passenger,
+// `vehicle` = driver id, `color` = seat), for anybody who arrives later.
+// Seats (4 + 2n bytes, from a driver, the car's authority): [kind, id, 13, why, (passenger id, seat) x n]: who sits where
+// in this driver's car. Sent at once when it changes, when a Ride comes in, and to somebody who arrives. A passenger
+// missing from it (after their Ride went) gets out; `why` says how: SeatsWhy.
+export const RIDE_BYTES = 5;
+export const RIDE_OUT = 255;
+export const SEATS_MAX = 12;
+export const SeatsWhy = { Seated: 0, Out: 1, Thrown: 2 } as const;
+export function encodeRide(driver: number, seat: number): ArrayBuffer {
+  const buf = makeFrame(Frame.Event, 3);
+  const u8 = new Uint8Array(buf);
+  u8[2] = PlayerEvent.Ride; u8[3] = driver & 0xff; u8[4] = seat & 0xff;
+  return buf;
+}
+export function decodeRide(buf: ArrayBuffer): { id: number; driver: number; seat: number } | null {
+  if (buf.byteLength < RIDE_BYTES) return null;
+  const u8 = new Uint8Array(buf);
+  if (u8[0] !== Frame.Event || u8[2] !== PlayerEvent.Ride) return null;
+  return { id: u8[1], driver: u8[3], seat: u8[4] };
+}
+export function encodeSeats(why: number, list: readonly (readonly [number, number])[]): ArrayBuffer {
+  const n = Math.min(list.length, SEATS_MAX);
+  const buf = makeFrame(Frame.Event, 2 + 2 * n);
+  const u8 = new Uint8Array(buf);
+  u8[2] = PlayerEvent.Seats; u8[3] = why & 0xff;
+  for (let i = 0; i < n; i++) { u8[4 + 2 * i] = list[i][0] & 0xff; u8[5 + 2 * i] = list[i][1] & 0xff; }
+  return buf;
+}
+export function decodeSeats(buf: ArrayBuffer): { id: number; why: number; list: [number, number][] } | null {
+  if (buf.byteLength < 4 || (buf.byteLength & 1) !== 0) return null;
+  const u8 = new Uint8Array(buf);
+  if (u8[0] !== Frame.Event || u8[2] !== PlayerEvent.Seats) return null;
+  const list: [number, number][] = [];
+  for (let i = 4; i + 1 < u8.length && list.length < SEATS_MAX; i += 2) list.push([u8[i], u8[i + 1]]);
+  return { id: u8[1], why: u8[3], list };
+}
 
 export function encodePlayerEvent(code: number, arg = 0): ArrayBuffer {
   const buf = makeFrame(Frame.Event, 2);

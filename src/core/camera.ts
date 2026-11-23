@@ -119,7 +119,7 @@ export class CameraRig implements CameraApi {
 
   constructor(private game: Game) {
     game.on('impact', (e) => {
-      const v = game.player.vehicle;
+      const v = game.player.seated;
       if (v && (e.vehicle === v || e.other === v) && e.speed > 1.5) this.shake(clamp(e.speed / 24, 0.1, 1));
     });
     // game.start() snaps to the on-foot view and then announces the start. If the
@@ -158,7 +158,7 @@ export class CameraRig implements CameraApi {
     if (this.mode === 'title') {
       this.flyTitle(0);
     } else if (this.mode === 'drive') {
-      const v = g.player.vehicle!;
+      const v = g.player.seated!;
       this.chaseYaw = v.h; this.chaseVel = 0;
       this.freeYaw = 0; this.freePitch = 0; this.slope = 0; this.revT = 0;
       this.chase(0, v);
@@ -177,7 +177,7 @@ export class CameraRig implements CameraApi {
     if (dt > 0) {
       this.clock += dt;
       if (mode === 'title') this.flyTitle(dt);
-      else if (mode === 'drive') this.chase(dt, this.game.player.vehicle!);
+      else if (mode === 'drive') this.chase(dt, this.game.player.seated!);
       else this.follow(dt);
       if (this.blendT < 1) this.blendT = Math.min(1, this.blendT + dt / this.blendDur);
       this.trauma = Math.max(0, this.trauma - dt * 1.9);
@@ -188,7 +188,7 @@ export class CameraRig implements CameraApi {
   private wanted(): Mode {
     const g = this.game;
     if (g.state === 'title' || g.state === 'loading') return 'title';
-    return g.player.vehicle ? 'drive' : 'foot';
+    return g.player.seated ? 'drive' : 'foot';
   }
 
   /** Start a blend from whatever is on screen now into the new mode. */
@@ -200,7 +200,7 @@ export class CameraRig implements CameraApi {
     if (mode === 'drive') {
       // Keep looking the way we were looking: the difference becomes a free-look
       // offset that eases away, so the view swings in behind the car on its own.
-      const v = p.vehicle!;
+      const v = p.seated!;
       this.chaseYaw = v.h; this.chaseVel = 0;
       this.freeYaw = angleDiff(v.h, this.yaw);
       this.freePitch = this.pitch - DRIVE_PITCH;
