@@ -99,8 +99,8 @@ Asked one question at a time, the owner chose:
 13. **The town's bridge takes the furthest player's progress.** Keep `TOWN_TAKES_FURTHEST = true`.
 14. **Missions are done together.**
     - Joining: anyone NEAR the starter when a mission begins is in it, automatically, no prompt.
+    "Near" is the lead's choice: within about 30 m of the starter when the mission begins.
     - Pay: everyone in the mission gets the full reward.
     - Story: finishing it ALWAYS counts in a helper's own story too, even if they had not reached it.
     - Failing: only the mission's own rules (and the starter dying) fail it; a helper who dies respawns and can come back.
 15. **Model use:** when the weekly usage gauge for the model in use reaches 98%, switch to the next model down.
-    "Near" is the lead's choice: within about 30 m of the starter when the mission begins.
