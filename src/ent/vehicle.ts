@@ -22,6 +22,7 @@ import * as THREE from 'three';
 import { flip, sendRange } from '../core/flip';
 import { assets } from '../core/assets';
 import type { Game } from '../core/game';
+import { kid } from '../core/kid';
 import type { Vehicle, VehicleControls, VehiclesApi } from '../core/api';
 import { RNG, clamp, clamp01, damp, smooth } from '../core/util';
 import { SPECS, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
@@ -795,6 +796,7 @@ export class Vehicles implements VehiclesApi {
     this.mirror(this.paneMat, 1.4);
     // ?glb=0 keeps every kind procedural, for comparing.
     // ?cartex=0 leaves the baked maps unfetched (the near levels then have no occlusion at all: for timing only).
+    // So does a phone at medium (quality.lean): two 4096-texel sheets are too much of its memory for what a small screen shows.
     // So does a video card too small for the shared sheet: a texture it refuses reads as black, which is a black car.
     const sheetFits = game.renderer.capabilities.maxTextureSize >= SHEET_TEXELS;
     // A kind's baked maps go to the video card one cell of the shared sheets at a time (place() in vehicleAssets.ts).
@@ -804,7 +806,7 @@ export class Vehicles implements VehiclesApi {
     // the three cars parked where the game opens (core/assets.ts).
     if (new URLSearchParams(location.search).get('glb') !== '0') {
       const far = low ? 'only' : new URLSearchParams(location.search).get('carfar') === '0' ? 'none' : 'first';
-      assets.hold(loadVehicleAssets((a) => this.adopt(a), { textures: !low && sheetFits && new URLSearchParams(location.search).get('cartex') !== '0', send, far }).opening, 'cars');
+      assets.hold(loadVehicleAssets((a) => this.adopt(a), { textures: !low && !game.quality.lean && sheetFits && new URLSearchParams(location.search).get('cartex') !== '0', send, far }).opening, 'cars');
     }
     this.glow = new Sprites(1024, GLOW_VS, glowTexture(), 6);
     this.pool = new Sprites(160, POOL_VS, poolTexture(), 5);
@@ -938,6 +940,8 @@ export class Vehicles implements VehiclesApi {
   }
 
   resolveCircle(p: { x: number; z: number }, r: number, y: number): Vehicle | null {
+    // Kid-friendly mode (core/kid.ts): cars and people pass straight through each other.
+    if (kid.on) return null;
     let hit: Car | null = null;
     // (The other players' cars are solid to walk into as well.)
     for (let k = this.ghosts.length ? 1 : 0; k >= 0; k--) for (const c of k ? this.ghosts : this.cars) {

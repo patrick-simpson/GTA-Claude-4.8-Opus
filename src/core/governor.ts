@@ -67,8 +67,41 @@ export interface Hints {
   dpr: number;
 }
 
-/** A touch screen narrower than this (CSS px, short side) is a phone; at or above it, a tablet or a touch laptop. */
-const PHONE_SCREEN = 700;
+/**
+ * A touch screen narrower than this (CSS px, short side) is a phone; at or above it, a tablet or a touch laptop. 600, not
+ * 700 (Nov 23): an 11-inch Android tablet such as a Galaxy Tab S9 is 640 CSS px on its short side; phones are 360-480.
+ */
+const PHONE_SCREEN = 600;
+
+/** A phone: a finger for a pointer on a screen under PHONE_SCREEN on its short side. */
+export function isPhone(h: Hints): boolean { return h.touch && h.minScreen < PHONE_SCREEN; }
+
+/**
+ * What a phone or tablet GPU's name says about it, where the browser gives the name (Chrome on Android does; Safari
+ * says only "Apple GPU", which is 'unknown' and left to the benchmark). Capable: Adreno 7xx/8xx and the X series,
+ * Mali-G7xx/G9xx, Immortalis, Xclipse, a named recent Apple chip. Weak: Adreno up to 6xx, Mali-G5x and G71/G72, the
+ * Mali-T and 400 series, PowerVR, VideoCore. Between (Mali-G6x/G6xx, G76-G78, Tegra): the benchmark decides.
+ */
+export type MobileTier = 'capable' | 'weak' | 'unknown';
+export function mobileTier(s: string): MobileTier {
+  if (/immortalis|xclipse/i.test(s)) return 'capable';
+  if (/adreno/i.test(s)) {
+    if (/adreno\D*x\d/i.test(s)) return 'capable';
+    const m = /adreno\D*(\d{3})/i.exec(s);
+    return m && +m[1] >= 700 ? 'capable' : m ? 'weak' : 'unknown';
+  }
+  const g = /mali[-\s]*g(\d{2,3})/i.exec(s);
+  if (g) {
+    const d = g[1];
+    if (d.length === 3) return d[0] === '7' || d[0] === '9' ? 'capable' : d[0] === '6' ? 'unknown' : 'weak';
+    return d[0] === '5' || d === '71' || d === '72' || d === '31' ? 'weak' : 'unknown';
+  }
+  if (/mali|powervr|sgx|videocore/i.test(s)) return 'weak';
+  const a = /apple\s*a(\d+)/i.exec(s);
+  if (a) return +a[1] >= 14 ? 'capable' : 'weak';
+  if (/apple\s*m\d/i.test(s)) return 'capable';
+  return 'unknown';
+}
 
 function readHints(): Hints {
   const mm = (q: string): boolean => { try { return matchMedia(q).matches; } catch { return false; } };
@@ -115,11 +148,22 @@ const BUDGET = 1000 / 60;
 
 export interface BenchResult { score: number; /** The quickest and the middle frame, for judging the measurement itself. */ best: number; median: number; frames: number; took: number; gpu: string }
 
+/**
+ * The phone's run: a third of the work a frame (1280 x 720, three deep) for at most 90 ms, so a slow phone is not held
+ * for a second or warmed up before it starts. Its time is scaled by the work (x3) to the desktop run's units, which
+ * is exact where the GPU's work is the whole time (a phone) and pessimistic where the round trip counts (this laptop
+ * read 2.3 ms there, 6.9 scaled, against 4.5 for the full run).
+ */
+const PHONE_BENCH = { w: 1280, h: 720, layers: 3, ms: 90, frames: 40 };
+const FULL_BENCH = { w: BENCH_W, h: BENCH_H, layers: BENCH_LAYERS, ms: 150, frames: 80 };
+
 /** Time a small representative frame on a canvas nobody sees. Null if WebGL 2 will not start: the hints decide alone. */
-export function benchmark(): BenchResult | null {
+export function benchmark(phone = false): BenchResult | null {
   const t0 = performance.now();
+  const B = phone ? PHONE_BENCH : FULL_BENCH;
+  const BW = B.w, BH = B.h, LAYERS = B.layers, scaleBy = (BENCH_W * BENCH_H * BENCH_LAYERS) / (BW * BH * LAYERS);
   const c = document.createElement('canvas');
-  c.width = BENCH_W; c.height = BENCH_H;
+  c.width = BW; c.height = BH;
   let gl: WebGL2RenderingContext | null = null;
   try { gl = c.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: 'high-performance' }); } catch { gl = null; }
   if (!gl) return null;
@@ -199,7 +243,7 @@ void main() {
     const fbo = g.createFramebuffer();
     g.bindFramebuffer(g.FRAMEBUFFER, fbo);
     const target = (float: boolean): boolean => {
-      g.texImage2D(g.TEXTURE_2D, 0, float ? g.RGBA16F : g.RGBA8, BENCH_W, BENCH_H, 0, g.RGBA, float ? g.HALF_FLOAT : g.UNSIGNED_BYTE, null);
+      g.texImage2D(g.TEXTURE_2D, 0, float ? g.RGBA16F : g.RGBA8, BW, BH, 0, g.RGBA, float ? g.HALF_FLOAT : g.UNSIGNED_BYTE, null);
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE);
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
@@ -213,22 +257,22 @@ void main() {
     const uLayer = g.getUniformLocation(scene, 'uLayer');
     g.useProgram(post);
     g.uniform1i(g.getUniformLocation(post, 'tScene'), 1);
-    g.viewport(0, 0, BENCH_W, BENCH_H);
+    g.viewport(0, 0, BW, BH);
     g.disable(g.DEPTH_TEST);
     const px = new Uint8Array(4);
     const frame = (): void => {
       g.bindFramebuffer(g.FRAMEBUFFER, fbo);
       g.useProgram(scene);
-      for (let l = 0; l < BENCH_LAYERS; l++) { g.uniform1f(uLayer, l); g.drawElements(g.TRIANGLES, idx.length, g.UNSIGNED_SHORT, 0); }
+      for (let l = 0; l < LAYERS; l++) { g.uniform1f(uLayer, l); g.drawElements(g.TRIANGLES, idx.length, g.UNSIGNED_SHORT, 0); }
       g.bindFramebuffer(g.FRAMEBUFFER, null);
       g.useProgram(post);
       g.drawElements(g.TRIANGLES, idx.length, g.UNSIGNED_SHORT, 0);
       // Reading one pixel back is the only wait every browser honours.
       g.readPixels(0, 0, 1, 1, g.RGBA, g.UNSIGNED_BYTE, px);
     };
-    frame(); frame(); // the first two pay for compiling and for first use
+    frame(); frame(); if (phone) { frame(); frame(); } // the first two pay for compiling and for first use; a phone's GPU also has to wake
     const times: number[] = [], tb = performance.now();
-    while (times.length < 80 && (performance.now() - tb < 150 || times.length < 3)) {
+    while (times.length < B.frames && (performance.now() - tb < B.ms || times.length < 3)) {
       const a = performance.now();
       frame();
       times.push(performance.now() - a);
@@ -236,7 +280,7 @@ void main() {
     }
     // The lower quartile: whatever else the machine was doing can only have added time.
     times.sort((a, b) => a - b);
-    return { score: Math.max(0.05, times[times.length >> 2]), best: times[0], median: times[times.length >> 1], frames: times.length, took: performance.now() - t0, gpu };
+    return { score: Math.max(0.05, times[times.length >> 2] * scaleBy), best: times[0] * scaleBy, median: times[times.length >> 1] * scaleBy, frames: times.length, took: performance.now() - t0, gpu };
   } catch {
     return null;
   } finally {
@@ -271,10 +315,10 @@ function predict(name: Name, mpx: number, rel: number): number {
   return (MODEL[name][0] + MODEL[name][1] * mpx) * rel;
 }
 
-function decide(h: Hints, gpu: string, score: number | null, cap: Name | undefined): { name: Name; notch: number; why: string } {
+function decide(h: Hints, gpu: string, score: number | null, cap: Name | undefined): { name: Name; notch: number; why: string; byScore?: boolean } {
   const cls = gpuClass(gpu);
   const desktopClass = (cls === 'integrated' || cls === 'discrete') && h.minScreen >= 700 && (h.mem === null || h.mem >= 8);
-  if (h.touch && !desktopClass) return { name: 'low', notch: 0, why: `a touch screen ${Math.round(h.minScreen)} px on its short side: the phone preset` };
+  if (h.touch && !desktopClass) return handheld(h, gpu, score, cap);
   if (cls === 'software') return { name: 'low', notch: 0, why: `no graphics hardware (${gpu})` };
   if ((h.mem !== null && h.mem <= 2) || (h.cores !== null && h.cores <= 2)) return { name: 'low', notch: 0, why: `${h.mem ?? '?'} GB of memory, ${h.cores ?? '?'} cores` };
   let top: Name = 'high', limit = '';
@@ -307,11 +351,69 @@ function decide(h: Hints, gpu: string, score: number | null, cap: Name | undefin
   return { name: 'low', notch: 0, why: `benchmark ${score.toFixed(1)} ms (reference ${REF_SCORE}): too slow for medium${limit}` };
 }
 
+/**
+ * A phone, or a tablet, or a touch screen without a desktop's GPU and memory. Weak GPUs (by name), 2 GB of memory
+ * and no graphics hardware get low at once; otherwise the benchmark decides, with a phone's processor counted as
+ * PHONE_CPU times this laptop's for the part of a frame the GPU does not do, and a margin for heat (a phone that
+ * holds 60 for a minute may not for ten). A phone tops out at medium; a tablet may reach high where its memory,
+ * GPU and the measurement all allow it. Unmeasured, a GPU known to be capable gets medium and anything else low.
+ */
+const PHONE_CPU = 1.8, TABLET_CPU = 1.5, HEAT = 0.85;
+function handheld(h: Hints, gpu: string, score: number | null, cap: Name | undefined): { name: Name; notch: number; why: string; byScore?: boolean } {
+  const phone = isPhone(h), cls = gpuClass(gpu), tier = mobileTier(gpu);
+  const what = `${phone ? 'a phone' : 'a touch screen'} (${Math.round(h.minScreen)} px short side, ${gpu || 'GPU unnamed'})`;
+  if (cls === 'software') return { name: 'low', notch: 0, why: `${what}: no graphics hardware` };
+  if (h.mem !== null && h.mem <= 2) return { name: 'low', notch: 0, why: `${what}: ${h.mem} GB of memory` };
+  if (tier === 'weak') return { name: 'low', notch: 0, why: `${what}: an older mobile GPU` };
+  let top: Name = phone ? 'medium' : 'high', limit = '';
+  if (top === 'high' && ((h.mem !== null && h.mem <= 4) || cls === 'integrated')) { top = 'medium'; limit = `; ${h.mem ?? '?'} GB${cls === 'integrated' ? ', integrated GPU' : ''} keep it off high`; }
+  if (cap && ORDER.indexOf(cap) < ORDER.indexOf(top)) { top = cap; limit = `; it could not hold ${ORDER[ORDER.indexOf(cap) + 1]} last time`; }
+  if (score === null) {
+    const name: Name = tier === 'capable' ? ORDER[Math.min(ORDER.indexOf(top), 1)] : 'low';
+    return { name, notch: 0, why: `${what}: not measured, ${tier} GPU${limit}` };
+  }
+  const rel = Math.max(0.15, score / REF_SCORE), cpu = phone ? PHONE_CPU : TABLET_CPU;
+  const est = (name: Name, mpx: number): number => MODEL[name][0] * cpu + MODEL[name][1] * mpx * rel;
+  for (let i = ORDER.indexOf(top); i >= 1; i--) {
+    const name = ORDER[i], q = PRESETS[name], r0 = Math.min(h.dpr, q.pixelRatio);
+    // As on a desktop, judged at full screen at the foot of what the governor could do with it, but with room for heat.
+    const eased = est(name, h.screenMpx * r0 * r0 * (name === 'high' ? 0.64 : 0.49));
+    if (eased > BUDGET * HEAT) continue;
+    const scales = [1, ...ratioNotches(q, h.dpr)];
+    let notch = 0;
+    while (notch < scales.length - 1 && est(name, h.windowMpx * (r0 * scales[notch]) ** 2) > BUDGET * 1.15) notch++;
+    const now = est(name, h.windowMpx * (r0 * scales[notch]) ** 2);
+    return { name, notch, why: `${what}: benchmark ${score.toFixed(1)} ms (reference ${REF_SCORE}), about ${now.toFixed(0)} ms a frame at ${name}${notch ? `, ${Math.round(scales[notch] * 100)}% pixels` : ''}${limit}` };
+  }
+  // A GPU named capable keeps medium unless the measurement is far off: the short run reads slow on a GPU still at idle
+  // clocks or busy with the page loading (the same laptop read 7.8 to 22.8 ms in five emulated phones, Nov 23), and the
+  // governor eases a preset that proves too much within seconds.
+  const r0 = Math.min(h.dpr, PRESETS.medium.pixelRatio);
+  if (tier === 'capable' && est('medium', h.screenMpx * r0 * r0 * 0.49) <= BUDGET * 2) {
+    return { name: 'medium', notch: ratioNotches(PRESETS.medium, h.dpr).length >> 1, byScore: true, why: `${what}: a capable GPU by name, measured slow (${score.toFixed(1)} ms): medium, started low on the pixel ladder${limit}` };
+  }
+  return { name: 'low', notch: 0, byScore: true, why: `${what}: benchmark ${score.toFixed(1)} ms (reference ${REF_SCORE}), too slow for medium${limit}` };
+}
+
 /** What Auto would run on this machine, if that is already known without measuring: for the menu. */
 export function autoPresetIfKnown(): Name | null {
   const note = readGfx(), h = readHints();
-  if (!note) { const d = decide(h, '', null, undefined); return h.touch && h.minScreen < PHONE_SCREEN && d.name === 'low' ? 'low' : null; }
+  if (!note) return null;
   return decide(h, note.gpu, note.score, note.cap).name;
+}
+
+/**
+ * The preset as built. A phone at medium is `lean`: everything medium fetches (the cars' own files, Main St, the
+ * riverfront, the store, people, trees, props), but not the cars' two 4096-texel map sheets (3.7 MB, and about 65 MB
+ * of video memory with their mips) nor the town's baked occlusion maps (1.6 MB): 16.9 MB gzipped against 22.2 (Nov 23,
+ * before civic.glb, which adds 2.2 to both). The
+ * far-only town files were tried and rejected: a flat wall where the near file has doors, a ladder and brick.
+ * Its pixel ratio is medium's 1.5 cap even on a 3x screen; the governor's ladder goes down from there.
+ */
+function preset(name: Name, h: Hints): Quality {
+  const q = { ...PRESETS[name] };
+  if (name === 'medium' && isPhone(h)) q.lean = true;
+  return q;
 }
 
 /** Called once, before anything is built. */
@@ -320,14 +422,14 @@ export function pickQuality(): QualityChoice {
   try { const p = new URLSearchParams(location.search); asked = p.get('q'); rebench = p.has('rebench'); } catch { /* no address */ }
   const hints = readHints();
   const fixed = (name: Name, why: string, forced: boolean): QualityChoice =>
-    ({ quality: { ...PRESETS[name] }, auto: false, forced, notch: 0, why, gpu: '', score: null, benchMs: 0, hints });
+    ({ quality: preset(name, hints), auto: false, forced, notch: 0, why, gpu: '', score: null, benchMs: 0, hints });
   if (asked === 'low' || asked === 'medium' || asked === 'high') return fixed(asked, 'the address asks for it (?q=)', true);
   const kept = asked === 'auto' ? null : savedQuality();
   if (kept) return fixed(kept, 'chosen in the menu', false);
 
   let note = rebench ? null : readGfx(), benchMs = 0;
   const measure = (old: GfxNote | null): GfxNote => {
-    const b = benchmark();
+    const b = benchmark(phone);
     benchMs = b ? b.took : 0;
     const best = b && old && old.score !== null ? Math.min(old.score, b.score) : b ? b.score : old ? old.score : null;
     const n: GfxNote = { gpu: b?.gpu || old?.gpu || '', score: best === null ? null : +best.toFixed(2), n: (old?.n ?? 0) + 1, when: Date.now() };
@@ -335,20 +437,27 @@ export function pickQuality(): QualityChoice {
     writeGfx(n);
     return n;
   };
-  // A phone needs no measuring, and a measurement there would only delay it. A touch screen 700 px or more on its short side
-  // may be a tablet or a touch laptop (this laptop: a Surface whose Chrome reports no fine pointer, RTX 4050 inside, QA
-  // Nov 23): it is measured, and decide() then knows its GPU.
-  const quick = decide(hints, note?.gpu ?? '', null, undefined);
-  const phone = hints.touch && hints.minScreen < PHONE_SCREEN && quick.name === 'low';
-  if (!note && !phone) note = measure(null);
+  // Everything is measured once, phones too (until Nov 23 a phone got low unmeasured): a phone with the short run.
+  // A phone with 2 GB says so for nothing and is not held; a weak GPU is only named by the measurement's context.
+  const phone = isPhone(hints);
+  if (!note && !(phone && hints.mem !== null && hints.mem <= 2)) note = measure(null);
   let d = decide(hints, note?.gpu ?? '', note?.score ?? null, note?.cap);
-  // A first measurement that kept the machine off `high` is taken once more on the next visit and the better of
-  // the two kept: one busy moment must not mark a machine for good. Never a third time.
-  if (note && !phone && benchMs === 0 && note.n === 1 && note.score !== null && !note.cap && d.name !== 'high') {
+  // A phone's short run that says low is run once more at once: the first read in a cold browser was up to ten times
+  // the second in emulation (71 against 6.9 ms, Nov 23), and the extra tenth of a second costs less than a visit at low.
+  if (phone && note && benchMs > 0 && d.byScore) {
+    const first = benchMs;
+    note = measure(note);
+    benchMs += first;
+    d = decide(hints, note.gpu, note.score, note.cap);
+  }
+  // A first measurement that kept the machine off `high` (a phone: off medium) is taken once more on the next visit
+  // and the better kept: one busy moment must not mark a machine for good. Never again after that (a phone held at low
+  // was measured twice on its first visit, so its second visit is its third and last).
+  if (note && benchMs === 0 && (phone ? note.n <= 2 : note.n === 1) && note.score !== null && !note.cap && (phone ? d.byScore : d.name !== 'high')) {
     note = measure(note);
     d = decide(hints, note.gpu, note.score, note.cap);
   }
-  return { quality: { ...PRESETS[d.name] }, auto: true, forced: asked === 'auto', notch: d.notch, why: d.why, gpu: note?.gpu ?? '', score: note?.score ?? null, benchMs, hints };
+  return { quality: preset(d.name, hints), auto: true, forced: asked === 'auto', notch: d.notch, why: d.why, gpu: note?.gpu ?? '', score: note?.score ?? null, benchMs, hints };
 }
 
 // ── The governor ─────────────────────────────────────────────────────────────
@@ -397,6 +506,11 @@ export class Governor {
   private roomRun = 0;
   private changedAt = -1e9;
   private readonly upWait: number[];
+  /** A phone or tablet: it heats, so it steps down after two slow seconds, counts a smaller share of long frames as slow, and waits twice as long to climb. */
+  readonly handheld: boolean;
+  private readonly upBase: number;
+  private readonly slowNeed: number;
+  private readonly longSlow: number;
   private climbedAt = -1e9;
   private climbedFrom = -1;
   private descent: { from: number; ms: number }[] = [];
@@ -422,7 +536,11 @@ export class Governor {
     if (post) add('occlusion off', { ao: false });
     if (post && post.baseSamples > 0) add('FXAA alone', { msaa: false });
     if (q.name !== 'low') add(`${ORDER[ORDER.indexOf(q.name) - 1]} next load, pixels ${Math.round((s.scale - 0.1) * 100)}%`, { scale: s.scale - 0.1, demote: true });
-    this.upWait = this.steps.map(() => UP_WAIT);
+    this.handheld = choice.hints.touch && (isPhone(choice.hints) || gpuClass(gpuName(game.renderer.getContext())) === 'mobile' || !!choice.quality.lean);
+    this.upBase = this.handheld ? UP_WAIT * 2 : UP_WAIT;
+    this.slowNeed = this.handheld ? 2 : 3;
+    this.longSlow = this.handheld ? 0.2 : LONG_SLOW;
+    this.upWait = this.steps.map(() => this.upBase);
     this.step = Math.min(choice.auto ? choice.notch : 0, notches.length);
     if (this.step > 0) this.reason = `${choice.why}; started at ${this.steps[this.step].name}`;
 
@@ -485,7 +603,7 @@ export class Governor {
       this.reason = `frames at ${mean.toFixed(1)} ms: the limit has lifted`;
     }
     const b = this.budget;
-    const slow = mean > b * SLOW || long / n > LONG_SLOW;
+    const slow = mean > b * SLOW || long / n > this.longSlow;
     const fine = !slow && mean <= b * FINE && long / n <= LONG_FINE;
     if (slow) { this.slowRun++; this.okRun = 0; this.roomRun = 0; }
     else {
@@ -495,7 +613,7 @@ export class Governor {
       if (this.okRun >= 10) this.descent.length = 0;
     }
     // A step up that has lasted half a minute was right: its wait goes back to normal.
-    if (this.climbedFrom >= 0 && now - this.climbedAt > 30000) { this.upWait[this.climbedFrom] = UP_WAIT; this.climbedFrom = -1; }
+    if (this.climbedFrom >= 0 && now - this.climbedAt > 30000) { this.upWait[this.climbedFrom] = this.upBase; this.climbedFrom = -1; }
     // The note that starts the next load a preset lower is lifted when the machine shows it was not needed: back at full on the preset
     // it was lowered from (this session), or a full minute of room to spare on the capped preset itself (a later session).
     if (this.step === 0 && this.roomRun >= (this.demoted ? 30 : 60)) {
@@ -509,8 +627,8 @@ export class Governor {
     }
     if (now - this.changedAt < DWELL * 1000) return;
 
-    if (this.slowRun >= (mean > b * 1.6 ? 2 : 3)) this.down(now, mean);
-    else if (this.step > 0 && (this.roomRun >= Math.max(5, this.upWait[this.step] / 4) || this.okRun >= this.upWait[this.step])) {
+    if (this.slowRun >= (mean > b * 1.6 ? 2 : this.slowNeed)) this.down(now, mean);
+    else if (this.step > 0 && (this.roomRun >= Math.max(this.handheld ? 8 : 5, this.upWait[this.step] / 4) || this.okRun >= this.upWait[this.step])) {
       const room = this.okRun < this.upWait[this.step];
       this.climbedAt = now; this.climbedFrom = this.step;
       this.descent.length = 0;
@@ -604,7 +722,7 @@ export class Governor {
   /** For window.__game.info(). */
   brief(): Record<string, unknown> {
     return {
-      enabled: this.enabled, step: this.step, of: this.steps.length - 1, name: this.steps[this.step].name,
+      enabled: this.enabled, handheld: this.handheld, step: this.step, of: this.steps.length - 1, name: this.steps[this.step].name,
       ratio: +this.game.renderer.getPixelRatio().toFixed(3), reason: this.reason, ms: this.ms, long: this.longShare,
       budget: +this.budget.toFixed(2), capped: this.capped, demoted: this.demoted, changes: this.log.length,
     };

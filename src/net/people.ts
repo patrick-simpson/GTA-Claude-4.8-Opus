@@ -25,6 +25,7 @@
 // A guest whose host says nothing about people (an older page) keeps its private crowd.
 
 import type { Game } from '../core/game';
+import { kid } from '../core/kid';
 import type { Look, Person } from '../core/api';
 import { RNG, angleDiff, dampAngle } from '../core/util';
 import { Ambient } from '../sim/ambient';
@@ -449,7 +450,7 @@ export class TownPeople {
   /** Guest: has this player's car just run into them? Shown here at once, and the host is told. */
   private carHit(s: Shown, w: Walker, now: number): void {
     const v = this.game.player.vehicle;
-    if (!v || now < s.hitAt) return;
+    if (!v || now < s.hitAt || kid.on) return;
     const sp = Math.hypot(v.vx, v.vz);
     if (sp <= KNOCK) return;
     const p = w.p, dx = p.x - v.x, dz = p.z - v.z;

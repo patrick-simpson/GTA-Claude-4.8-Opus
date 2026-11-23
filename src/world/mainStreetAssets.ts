@@ -221,7 +221,8 @@ export class MainStreet {
       assets.bytes(file),
       this.low ? null : loadTexture('models/mainst_bc.webp', true, false),
       this.low ? null : loadTexture('models/mainst_bn.webp', true, false),
-      this.low ? null : loadTexture('models/mainst_o.webp', false, false),
+      // A phone at medium (quality.lean) skips the baked occlusion: 0.8 MB for shading a small screen hardly shows.
+      this.low || this.game.quality.lean ? null : loadTexture('models/mainst_o.webp', false, false),
     ]);
     // "glTF". The dev server answers a missing file with the index page.
     if (!buf || buf.byteLength < 20 || new DataView(buf).getUint32(0, true) !== 0x46546c67) { this.state = 'done'; return; }

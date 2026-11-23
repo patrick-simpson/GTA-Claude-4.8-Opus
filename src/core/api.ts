@@ -29,6 +29,8 @@ export interface Quality {
   drawDist: number;
   /** 0..1 multiplier for optional dressing: trees, street furniture, parked cars. */
   density: number;
+  /** A phone at medium: no car map sheets and no baked town occlusion, the rest as medium (core/governor.ts `preset`). */
+  lean?: boolean;
 }
 
 // ── World ────────────────────────────────────────────────────────────────────

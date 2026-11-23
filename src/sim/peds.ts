@@ -631,7 +631,7 @@ export class Peds {
   /** Multiplayer host: another player's car has run this person down (their browser saw it; nobody else decides). */
   struck(wid: number, cvx: number, cvz: number): boolean {
     const w = this.byWid(wid), sp = Math.hypot(cvx, cvz);
-    if (!w || !(sp > KNOCK)) return false;
+    if (!w || !(sp > KNOCK) || kid.on) return false;
     this.fall(w, cvx, cvz, sp, false);
     return true;
   }
@@ -828,6 +828,8 @@ export class Peds {
 
   /** Everything a walker does about moving vehicles: get knocked down, run, step aside, hurry up. */
   private traffic(w: Walker): void {
+    // Kid-friendly mode (core/kid.ts): cars drive straight through people; nobody is knocked, nudged, scared or hurried.
+    if (kid.on) return;
     const p = w.p, down = w.mode === DOWN;
     for (const m of this.movers) {
       const v = m.v, dx = p.x - v.x, dz = p.z - v.z;
@@ -963,7 +965,7 @@ export class Peds {
     for (const c of w.cars) {
       const cx = p.x - c.x, cz = p.z - c.z, reach = c.hl + c.hw + R;
       if (cx > reach || cx < -reach || cz > reach || cz < -reach) continue;
-      if (Math.abs(c.vx) + Math.abs(c.vz) > KNOCK) continue;
+      if (Math.abs(c.vx) + Math.abs(c.vz) > (kid.on ? 0.3 : KNOCK)) continue;
       const sh = Math.sin(c.h), ch = Math.cos(c.h);
       let lf = cx * sh + cz * ch, lr = -cx * ch + cz * sh;
       const ef = lf - clamp(lf, -c.hl, c.hl), er = lr - clamp(lr, -c.hw, c.hw), e2 = ef * ef + er * er;

@@ -28,7 +28,7 @@ const game = new Game(canvas);
   const qs = new URLSearchParams(location.search), on = (k: string): boolean => qs.get(k) !== '0';
   const low = game.quality.name === 'low';
   const cars = on('glb')
-    ? carFiles(low ? 'only' : on('carfar') ? 'first' : 'none', wantsCarMaps(low, game.renderer.capabilities.maxTextureSize))
+    ? carFiles(low ? 'only' : on('carfar') ? 'first' : 'none', wantsCarMaps(low || !!game.quality.lean, game.renderer.capabilities.maxTextureSize))
     : { far: [], opening: [], later: [] };
   const town = low ? [] : [...(on('props') && on('pbr') ? [PROPS_FILE] : []), ...(on('flora') ? FLORA_FILES : [])];
   const opening = [...(on('people') ? PEOPLE_FILES : []), ...cars.far, ...town, ...cars.opening];

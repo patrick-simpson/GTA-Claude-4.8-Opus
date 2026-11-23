@@ -1224,7 +1224,7 @@ export class Police {
   /** Host: another player's car has run into an officer at `speed` m/s (their browser saw it). */
   copStruck(wid: number, by: number, speed: number): boolean {
     for (const c of this.cops) {
-      if (c.wid !== wid || c.shown || c.dead || c.down > 0 || !(speed > 6)) continue;
+      if (c.wid !== wid || c.shown || c.dead || c.down > 0 || !(speed > 6) || kid.on) continue;
       const p = c.p;
       c.down = 6; p.pose = 'down'; p.speed = 0; p.health = Math.max(1, p.health - 40);
       // (The striker's browser does not say which way it was going: a shove away from the nearest car will do.)

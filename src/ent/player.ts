@@ -411,7 +411,7 @@ export class Player implements PlayerApi {
 
     // A car that drives into her knocks her over; one she walks into is just a wall.
     const car = this.bumped;
-    if (car && this.safeT <= 0 && this.mode === 'foot') {
+    if (car && !kid.on && this.safeT <= 0 && this.mode === 'foot') {
       let nx = per.x - car.x, nz = per.z - car.z;
       const nl = Math.hypot(nx, nz) || 1;
       nx /= nl; nz /= nl;
