@@ -88,6 +88,37 @@ pause card shows it already).
    out of the sight line (in progress with M3).
 5. **A reset button** ("Start over" on the pause card, and hold Backspace) (in
    progress with M3).
+### Multiplayer stage 5, hardening part 1 (host change, joining, reconnecting, the backup): pushed Nov 23, about 3:35 AM ET
+
+**What.** Three new tests and one game fix. `tools/net/hard1.mjs` (47 checks): the host stalls or leaves mid chase
+with the helicopter up, with a fire, a wreck and props down, as crew starter, as helper, with a tow on and a held van
+parked. `hard2.mjs` (33): joining a busy town, a 10 s and a 60 s network drop (a TCP relay plays the network), the
+main service restarting at a new address with everyone falling back to the backup and returning. `hard3.mjs` (12):
+the backup with shooting, a mission, a job and a pause; nothing for or from a host on its wire. Shared helpers in
+`tools/net/hardlib.mjs`. The real Worker was not touched: "backup" here is the local stand in.
+
+**Game fault fixed (`src/net/crew.ts`).** A helper driving a lent van who lost the network for 60 s kept the van as
+their own while the starter stood it again: two vans. A borrowed car is now taken away when its borrower finds
+itself out of town; the starter's side always stands it again.
+
+**Open fault 1 (seen in every hard2 run, printed as a NOTE).** The other way round: the STARTER drops for 60 s while
+a helper drives the lent van; the helper keeps it and the returning starter stands it again: two vans. The lead's
+rule for the next step: a starter who finds itself out of town does NOT stand a car that was lent out; its mission
+has lost the car and ends.
+
+**Open fault 2 (1 of 1 lead runs of hard1; the worker's 3 runs were clean).** After the host left with a tow job on,
+the car it was going to tow was still on another player's screen as a private sedan. Cause not proven; the code is
+stage 4 step 5's job display (already live), not this step's change. Next step finds it.
+
+**Checked by the lead.** tsc, build, server tests (148), production boot with no errors; hard2 33 of 33, hard3 12 of
+12, crew.mjs 50 of 50 (run without pictures), hard1 46 of 47 (open fault 2); one picture viewed.
+
+**Still untested.** A host stall other than mid chase; a host's own network dropping; a tow with the car on the
+hook during a host change; the real tunnel and the Worker's /main registration through a real restart (shortened to
+10 s here); police not busting a paused player. A drop longer than main's ping timeout (25 to 50 s) always means a
+new seat. Part 2 (the 30 minute four player soak and the cost counts) is next.
+
+
 ### Multiplayer stage 4, step 5, targets, jobs, pause, kerbs and wording (stage 4 done): pushed Nov 23, about 2:10 AM ET
 
 **What.** On MAIN: (1) a crew member's rounds, rams and rocket blasts hurt the starter's held TARGET cars (crew kind

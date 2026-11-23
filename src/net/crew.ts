@@ -576,6 +576,15 @@ export class TownCrew implements CrewLink {
   }
 
   /** The player is out of a lent car (or it has sunk): it goes back to the starter. */
+  /** Out of town with a lent car: it goes from here (its starter stands it again); the player is set down beside it. */
+  private takeAway(v: Vehicle): void {
+    this.borrowed.delete(v);
+    v.lent = false; v.held = false;
+    const p = this.game.player;
+    if (p.vehicle === v) p.teleport(v.x + Math.cos(v.h) * 2.6, v.z - Math.sin(v.h) * 2.6, v.h);
+    if (!v.removed) this.game.vehicles.remove(v);
+  }
+
   private giveBack(v: Vehicle, b: Borrowed, gone = false): void {
     this.borrowed.delete(v);
     v.lent = false;
@@ -730,7 +739,10 @@ export class TownCrew implements CrewLink {
     this.others.clear();
     this.lentTo.clear();
     this.release('Out of town: the job you were helping with goes on without you.');
-    for (const [v, b] of this.borrowed) this.giveBack(v, b);
+    // A car the starter lent goes with the job (stage 5): whenever a helper is out of town, the starter's browser stands
+    // it again where it was last seen (dropped() there, or its own clear() if it is out too). Kept here as well, a
+    // connection that drops and comes back would leave it twice in town: the starter's and this player's.
+    for (const v of [...this.borrowed.keys()]) this.takeAway(v);
     this.team = []; this.mIdx = 0; this.last = null;
     for (const v of [...this.lentOut.keys()]) { this.lentOut.delete(v); this.standAgain(v, v.x, v.z, v.h, 0, 0, v.health, !!v.wreck); }
   }
