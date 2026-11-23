@@ -17,6 +17,7 @@ import {
   type MainDistrict,
 } from './mainland';
 import { PD, pardonsStalls } from './pardonsSite';
+import { STREETS_NEW, StreetGraph, type EdgeKind, type NodeControl } from './streets';
 
 export type IslandDistrict =
   | 'downtown' | 'midtown' | 'oldtown' | 'suburb' | 'industrial' | 'port' | 'strand' | 'park' | 'arena';
@@ -78,6 +79,9 @@ export interface RoadNode {
   phase: number;
   /** 0 on the island, 1 on the mainland. */
   land: number;
+  /** New street graph (streets.ts) only: how the junction is run, and a roundabout's radius. */
+  control?: NodeControl;
+  ring?: number;
 }
 export interface RoadEdge {
   id: number;
@@ -98,6 +102,18 @@ export interface RoadEdge {
   closed: boolean;
   /** The Perpetual Bridge as a street: no road surface of its own, no lamps, no parking. */
   deck?: boolean;
+  // New street graph (streets.ts) only. Grid edges leave these out and are straight, `horiz` saying which way.
+  /** Centreline, flat x,z from node a to node b, both ends included. */
+  pts?: number[];
+  /** Arc length at each point of pts (cum[last] = len). */
+  cum?: number[];
+  /** Traffic only a -> b. */
+  oneWay?: boolean;
+  /** Two carriageways with a median. */
+  divided?: boolean;
+  kind?: EdgeKind;
+  /** Id of the plan road (streetData.ts) the edge was cut from. */
+  road?: string;
 }
 export interface Block {
   id: number; i: number; j: number;
@@ -345,8 +361,13 @@ export class CityPlan {
   private isleEdges: RoadEdge[] = [];
   private mainEdges: RoadEdge[] = [];
   readonly bounds: Rect = { x0: -960, z0: -2330, x1: 1010, z1: 760 };
+  /**
+   * The new mainland street graph after real Waterville (streets.ts), built with ?streets=new. Its island part has
+   * the same ids as nodes/edges here; the old grid above stays what every system draws and drives until it is adopted.
+   */
+  streets: StreetGraph | null = null;
 
-  constructor(seed = 1887) {
+  constructor(seed = 1887, streets = STREETS_NEW) {
     this.buildGraph();
     this.buildBlocks(new RNG(seed));
     this.buildParking(new RNG(seed + 7));
@@ -354,6 +375,7 @@ export class CityPlan {
     this.isleEdges = this.edges.slice();
     this.buildMainland(new RNG(seed + 101));
     this.mainEdges = this.edges.filter((e) => e.land === 1 && !e.deck);
+    if (streets) this.streets = new StreetGraph(this.nodes.slice(0, this.isle.nodes), this.edges.slice(0, this.isle.edges), this.grid[5][0]);
   }
 
   /** Streets to choose from for somebody standing at z: the island's or the mainland's. */
@@ -599,6 +621,12 @@ export class CityPlan {
 
   /** District under a point, or null outside the street grid. */
   districtAt(x: number, z: number): District | null {
+    if (z < MAIN_SPLIT_Z && this.streets) {
+      const d = this.streets.districtAt(x, z);
+      if (d) return d;
+      if (coastSD(x, z) > -20 || waterDist(x, z) < 0) return null;
+      return z > -1100 ? null : 'lake';
+    }
     if (z < MAIN_SPLIT_Z) {
       if (x >= MXS[0] - 12 && x <= MXS[MXS.length - 1] + 8 && z >= MZS[0] - 8 && z <= MZS[MNJ] + 8) {
         let i = 0, j = 0;
@@ -642,6 +670,7 @@ export class CityPlan {
   /** Nearest street name to a point. */
   streetAt(x: number, z: number): string {
     let best = '', bd = 1e9;
+    if (z < MAIN_SPLIT_Z && this.streets) return this.streets.streetAt(x, z);
     if (z < MAIN_SPLIT_Z) {
       // Only streets that exist beside the point: this grid has long gaps (the campus, the river).
       for (const e of this.mainEdges) {
