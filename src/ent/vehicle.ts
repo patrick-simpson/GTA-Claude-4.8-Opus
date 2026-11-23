@@ -205,6 +205,8 @@ class Car implements Vehicle {
   airTime = 0;
   slip = 0;
   lights = false;
+  /** Seconds of flashing the headlights left (game/emotes.ts): the lamps blink against whatever they would be. */
+  flash = 0;
   sunk = false;
   /** Burnt out (ent/weapons.ts). Nobody drives a wreck, so it is inert already; this only says so. */
   wreck = false;
@@ -924,6 +926,7 @@ export class Vehicles implements VehiclesApi {
     c.braking = braking; c.reversing = reversing;
     const sky = this.game.sky as Game['sky'] | undefined;
     c.lights = !!sky && sky.night > 0.5 && !c.wreck;
+    if (c.flash > 0) { c.flash = Math.max(0, c.flash - dt); if ((c.flash * 7 | 0) % 2 === 0) c.lights = !c.lights; }
     c.stale = true;
     // Another player's car has just been put somewhere new. Whatever of this browser's it now lies in is pushed out
     // and stopped HERE, not at the next step: nothing ever reads, draws or sends a state with the two overlapped.
@@ -1066,6 +1069,7 @@ export class Vehicles implements VehiclesApi {
         this.settle(c, dt);
         this.trail(c, dt);
         c.lights = c.driver !== null && night > 0.5 && !c.sunk;
+        if (c.flash > 0) { c.flash = Math.max(0, c.flash - dt); if ((c.flash * 7 | 0) % 2 === 0) c.lights = !c.lights; }
         if (c.dead) dead = true;
       }
       if (dead) for (let i = list.length - 1; i >= 0; i--) if (list[i].dead) list.splice(i, 1);

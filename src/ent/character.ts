@@ -176,6 +176,15 @@ class Body implements Person {
   /** Seconds of dusting off after getting up from a ragdoll, and whether one is owed. */
   dustT = 0;
   dustOwed = false;
+  /** Emotes (game/emotes.ts): the one asked for (0 none), the one drawn, its clock, its weight over the pose. */
+  emote = 0;
+  emoteGen = 0;
+  emoteSeen = 0;
+  emoteShown = 0;
+  emoteT = 0;
+  emoteW = 0;
+  emoteSwap = 1;
+  readonly emoteFrom = new Float32Array(NCH);
 
   constructor(readonly id: number, public look: Look) {
     this.seed = (Math.imul(id, 2654435761) >>> 0) % 9973;
@@ -724,6 +733,257 @@ function dustOff(b: Body, c: Float32Array, dt: number): void {
   c[ASW] = lerp(c[ASW], 0.25 + 0.2 * Math.sin(t * 15 + 1.5), w); c[AAB] = lerp(c[AAB], 0.12, w); c[AEL] = lerp(c[AEL], 0.6, w);
 }
 
+// ── Emotes (game/emotes.ts) ──────────────────────────────────────────────────
+// Each is a pose like the ones above, written over 'stand' with its own clock (b.emoteT) and blended in and out by
+// emoteLayer(). Big, simple shapes: an emote has to read from across a street. Arms: swing pi/2 is straight ahead,
+// pi straight up; with swing pi/2 an abduct of pi/2 holds the upper arm out to the side, and the elbow then lifts the
+// forearm. Index +3 is the right arm, +4 the right leg.
+
+/** Emote ids and how long each runs (0 = until cancelled). The ids travel in the Emote event (net/protocol.ts). */
+export const EMOTE_LEN: Record<number, number> = {
+  1: 2.8, 2: 0, 3: 0, 4: 0, 5: 3.2, 6: 3.2, 7: 2.2, 8: 3.2, 9: 2.6, 10: 2.8, 11: 0, 12: 0, 13: 3.6, 14: 0, 15: 0,
+};
+/** Seconds to blend in (sitting down and lying down take their time). */
+const EMOTE_IN: Record<number, number> = { 11: 0.9, 12: 0.9, 15: 0.25 };
+/** Hands while the emote shows: [left fist, right fist, right point]. Open by default. */
+const EMOTE_HAND: Record<number, [number, number, number]> = {
+  3: [0.3, 0.3, 0], 4: [0.8, 0.8, 0], 6: [0.9, 0.9, 0], 9: [0.4, 0, 1], 13: [1, 1, 0], 14: [0.7, 0.85, 0], 15: [0, 0.2, 0],
+};
+
+/** Feet planted fore-aft at zl, zr (lifted ul, ur), the pelvis at height hip, legs `wide` apart. Uses o[PITCH], o[ROLL], o[RX]. */
+function plant(o: Float32Array, hip: number, zl: number, zr: number, ul = 0, ur = 0, wide = 0.03): void {
+  o[RY] = hip - HIP;
+  const roll = o[ROLL];
+  for (let i = 0; i < 2; i++) {
+    const side = i ? -1 : 1, u = i ? ur : ul;
+    leg(o, i, hip + side * HIP_X * Math.sin(roll), i ? zr : zl, ANKLE + u, o[PITCH], u > 0 ? 0.25 : 0);
+  }
+  const tilt = -roll - o[RX] / 0.8;
+  o[LAB] = tilt + wide;
+  o[LAB + 4] = -tilt + wide;
+}
+
+function arm(o: Float32Array, right: number, sw: number, ab: number, el: number): void {
+  const k = right * 3;
+  o[ASW + k] = sw; o[AAB + k] = ab; o[AEL + k] = el;
+}
+
+/** Eases a step at the start of each slot of a stepped dance: snap, then hold. */
+function snap(u: number): number { return smooth(Math.min(1, u / 0.22)); }
+
+const ROBOT: [number, number, number, number, number][] = [
+  // left swing, right swing, twist, head yaw, left elbow
+  [1.5, 0.3, 0.35, -0.7, 1.57],
+  [0.3, 1.5, -0.35, 0.7, 1.57],
+  [1.5, 1.5, 0, 0, 0.2],
+  [0.3, 0.3, 0.35, 0.7, 1.57],
+];
+
+function emotePose(b: Body, o: Float32Array): void {
+  stand(b, o);
+  const t = b.emoteT, s = b.seed;
+  switch (b.emoteShown) {
+    case 1: { // Wave: the whole arm up and swaying overhead, the big hello that reads from down the street.
+      const w = Math.sin(t * 8.5);
+      arm(o, 1, 2.8, 0.6 + 0.32 * w, 0.3 + 0.18 * Math.sin(t * 8.5 + 1));
+      o[HROLL] = 0.12; o[HYAW] = 0; o[HPITCH] = -0.05; o[SROLL] = -0.06;
+      break;
+    }
+    case 2: { // Disco: the right hand points up across the body, then down at the hip, on the beat; left hand on the hip.
+      const beat = t * 2.1, u = beat - Math.floor(beat), up = Math.floor(beat) % 2 === 0;
+      const k = snap(u), a = up ? k : 1 - k;
+      const sway = Math.sin(Math.PI * beat);
+      o[ROLL] = 0.09 * sway; o[RX] = 0.05 * sway; o[PITCH] = 0.02;
+      const hip = STAND_HIP - 0.035 - 0.03 * Math.abs(Math.cos(Math.PI * beat));
+      plant(o, hip, 0.04, -0.02, up ? 0 : 0.05 * Math.sin(Math.PI * u), up ? 0.05 * Math.sin(Math.PI * u) : 0, 0.07);
+      arm(o, 1, lerp(0.45, 2.75, a), lerp(-0.35, 0.3, a), lerp(0.3, 0.05, a));
+      arm(o, 0, -0.35, 0.55, 1.7);
+      o[HYAW] = lerp(0.25, -0.35, a); o[HPITCH] = lerp(0.3, -0.35, a);
+      o[TWIST] = lerp(0.15, -0.2, a); o[SROLL] = -0.12 * sway; o[LEAN] = lerp(0.08, -0.06, a);
+      break;
+    }
+    case 3: { // The robot: four stiff positions, each snapped to and held.
+      const step = t * 2.6, i = Math.floor(step), u = step - i;
+      const A = ROBOT[(i + 3) % 4], B = ROBOT[i % 4], k = snap(u);
+      const v = (j: number): number => lerp(A[j], B[j], k);
+      o[ROLL] = 0; o[RX] = 0; o[PITCH] = 0;
+      plant(o, STAND_HIP - 0.04 - 0.02 * (1 - k), 0.02, 0.02, 0, 0, 0.06);
+      arm(o, 0, v(0), 0.12, v(4));
+      arm(o, 1, v(1), 0.12, 1.57);
+      o[TWIST] = v(2); o[HYAW] = v(3); o[HPITCH] = 0; o[HROLL] = 0; o[LEAN] = 0; o[SROLL] = 0;
+      o[BREATH] = 0;
+      break;
+    }
+    case 4: { // Bounce: knees pumping, fists punching alternately, head nodding.
+      const f = t * 2.2, c = Math.cos(TAU * f), p = Math.sin(Math.PI * f);
+      o[PITCH] = 0.08; o[ROLL] = 0.05 * p; o[RX] = 0.03 * p;
+      const lift = Math.max(0, Math.sin(Math.PI * f));
+      const left = Math.floor(f) % 2 === 0;
+      plant(o, STAND_HIP - 0.06 - 0.04 * (0.5 + 0.5 * c), 0.05, 0.02, left ? 0.09 * lift : 0, left ? 0 : 0.09 * lift, 0.09);
+      arm(o, 0, 0.9 + 0.7 * p, 0.25, 1.7 - 0.4 * p);
+      arm(o, 1, 0.9 - 0.7 * p, 0.25, 1.7 + 0.4 * p);
+      o[TWIST] = -0.25 * p; o[HYAW] = 0.15 * p; o[HPITCH] = 0.12 + 0.2 * c; o[LEAN] = 0.1;
+      break;
+    }
+    case 5: { // Clap: hands meet in front of the chest a little over twice a second.
+      const p = 0.5 + 0.5 * Math.cos(TAU * 2.4 * t);
+      const ab = lerp(-0.42, -0.06, Math.sqrt(p));
+      arm(o, 0, 1.15, ab, 1.05); arm(o, 1, 1.15, ab, 1.05);
+      o[HPITCH] = 0.05 + 0.06 * p; o[LEAN] = 0.04; o[HYAW] = 0.3 * Math.sin(t * 0.9 + s);
+      break;
+    }
+    case 6: { // Cheer: both fists up in a V, pumping, bouncing on the toes, looking up.
+      const pump = Math.max(0, Math.sin(TAU * 1.7 * t));
+      arm(o, 0, 2.85 - 0.45 * pump, 0.5, 0.15 + 0.5 * pump);
+      arm(o, 1, 2.85 - 0.45 * (1 - pump), 0.5, 0.15 + 0.5 * (1 - pump));
+      o[ROLL] = 0; o[RX] = 0; o[PITCH] = -0.03;
+      plant(o, STAND_HIP - 0.02 + 0.02 * pump, 0, 0, 0, 0, 0.06);
+      o[HPITCH] = -0.35; o[HYAW] = 0; o[LEAN] = -0.08;
+      break;
+    }
+    case 7: { // Shrug: forearms out and open, head on one side.
+      const e = smooth(t / 0.35);
+      arm(o, 0, 0.3, 0.6 * e + 0.1, 1.55 * e + 0.2); arm(o, 1, 0.3, 0.6 * e + 0.1, 1.55 * e + 0.2);
+      o[HROLL] = 0.3 * e; o[HPITCH] = -0.08; o[HYAW] = 0; o[LEAN] = -0.04; o[SROLL] = 0;
+      break;
+    }
+    case 8: { // Facepalm: right hand to the face, head dropping into it and shaking slowly.
+      const e = smooth(t / 0.4);
+      arm(o, 1, 1.3, -0.4, 2.3);
+      arm(o, 0, 0.55, -0.35, 1.55);
+      o[HPITCH] = 0.25 + 0.3 * e; o[LEAN] = 0.14 * e; o[HYAW] = t > 0.8 ? 0.18 * Math.sin((t - 0.8) * 3.2) : 0; o[HROLL] = 0;
+      break;
+    }
+    case 9: { // Point: right arm straight out at something, a jab to start.
+      const jab = Math.exp(-t * 6) * Math.sin(t * 18) * 0.15;
+      arm(o, 1, 1.68 + jab, 0.05, 0.05);
+      arm(o, 0, -0.35, 0.55, 1.7);
+      o[HYAW] = 0; o[HPITCH] = -0.05; o[TWIST] = 0.15; o[LEAN] = -0.02;
+      break;
+    }
+    case 10: { // Salute: heels together, back straight, right hand to the brow.
+      arm(o, 1, 1.5, 1.2, 2.5);
+      arm(o, 0, 0.02, 0.03, 0.05);
+      o[ROLL] = 0; o[RX] = 0; o[PITCH] = 0;
+      plant(o, STAND_HIP, 0, 0, 0, 0, 0);
+      o[HYAW] = 0; o[HPITCH] = -0.06; o[HROLL] = 0; o[LEAN] = -0.03; o[TWIST] = 0; o[SROLL] = 0;
+      break;
+    }
+    case 11: case 12: { // Sit on the ground, leaning back on the hands; lie down: then on the back, hands behind the head.
+      sitGround(b, o);
+      if (b.emoteShown === 12) {
+        const u = smooth((t - 0.9) / 1.3);
+        if (u > 0) { lieBack(b, LIE); for (let i = 0; i < NCH; i++) o[i] = lerp(o[i], LIE[i], u); }
+      }
+      break;
+    }
+    case 13: { // Flex: both biceps, wide stance, looking at one and then the other.
+      const pulse = 0.5 + 0.5 * Math.sin(t * 5);
+      o[ROLL] = 0; o[RX] = 0; o[PITCH] = 0;
+      plant(o, STAND_HIP - 0.03, 0.02, 0.02, 0, 0, 0.13);
+      arm(o, 0, 1.57, 1.42, 2.0 + 0.25 * pulse); arm(o, 1, 1.57, 1.42, 2.0 + 0.25 * pulse);
+      o[HYAW] = 0.65 * Math.sin(t * 1.4); o[HPITCH] = 0.05; o[LEAN] = -0.06; o[BREATH] = 1.5; o[SROLL] = 0;
+      break;
+    }
+    case 14: { // Air guitar: rocked back on bent knees, left hand up the neck, right strumming, head banging.
+      const strum = Math.sin(t * 15);
+      o[PITCH] = -0.06; o[ROLL] = 0.04; o[RX] = 0.02;
+      plant(o, STAND_HIP - 0.08, 0.14, -0.1, 0, 0, 0.12);
+      arm(o, 0, 1.15, 0.85, 0.55 + 0.1 * Math.sin(t * 2));
+      arm(o, 1, 0.55, -0.45, 1.5 + 0.35 * strum);
+      o[LEAN] = -0.2; o[TWIST] = 0.3; o[HYAW] = -0.25; o[HPITCH] = 0.2 + 0.32 * Math.sin(t * 8); o[SROLL] = 0.05;
+      break;
+    }
+    case 15: { // Be a lamppost: rigid, one arm straight up with the hand bent over like a lamp head. Nothing else.
+      o.fill(0);
+      o[RY] = STAND_HIP - HIP;
+      leg(o, 0, STAND_HIP, 0, ANKLE, 0, 0); leg(o, 1, STAND_HIP, 0, ANKLE, 0, 0);
+      arm(o, 1, Math.PI, 0.16, 0.85);
+      arm(o, 0, 0, -0.02, 0);
+      break;
+    }
+  }
+}
+
+const LIE = new Float32Array(NCH);
+
+function sitGround(b: Body, o: Float32Array): void {
+  const t = b.t, breath = Math.sin(t * 1.5);
+  o.fill(0);
+  const hip = 0.16, pitch = -0.25;
+  o[PITCH] = pitch;
+  o[RY] = hip - HIP;
+  // Knees up, feet flat on the ground in front, a little apart.
+  leg(o, 0, hip, 0.47, ANKLE, pitch, 0);
+  leg(o, 1, hip, 0.42, ANKLE, pitch, 0);
+  o[LAB] = 0.16; o[LAB + 4] = 0.2;
+  o[LEAN] = -0.08 - 0.01 * breath;
+  // Leaning back on straight arms, hands on the ground behind.
+  arm(o, 0, -0.55, 0.32, 0.08); arm(o, 1, -0.55, 0.32, 0.08);
+  o[HPITCH] = 0.05 + 0.08 * (drift(t * 0.2, b.seed + 5) * 2 - 1);
+  o[HYAW] = 0.6 * (drift(t * 0.25, b.seed + 11) * 2 - 1);
+  o[BREATH] = breath;
+}
+
+function lieBack(b: Body, o: Float32Array): void {
+  const t = b.t, breath = Math.sin(t * 1.2);
+  o.fill(0);
+  o[PITCH] = -1.5;
+  o[RY] = 0.12 - HIP;
+  o[RZ] = -0.1;
+  // One leg out straight, the other knee up.
+  o[LSW] = 0.04; o[LKN] = 0.05; o[LAB] = 0.08; o[LFT] = 0.35;
+  o[LSW + 4] = 0.75; o[LKN + 4] = 1.45; o[LAB + 4] = 0.1; o[LFT + 4] = 0.55;
+  // Hands behind the head.
+  arm(o, 0, 2.9, 1.0, 2.3); arm(o, 1, 2.9, 1.0, 2.3);
+  o[HPITCH] = 0.1; o[HYAW] = 0.25 * (drift(t * 0.15, b.seed + 11) * 2 - 1);
+  o[BREATH] = breath * 1.3;
+}
+
+const EMO = new Float32Array(NCH);
+
+/** Over the pose: the emote asked for, blended in while she stands, out when she moves or it ends. */
+function emoteLayer(b: Body, c: Float32Array, dt: number): void {
+  const on = b.emote !== 0 && b.shown === 'stand' && !b.ragCh && b.aim < 0.05;
+  if (on && b.emoteGen !== b.emoteSeen) {
+    b.emoteSeen = b.emoteGen;
+    if (b.emoteW > 0.01 && b.emoteShown) {
+      // From one emote straight into another: cross-fade from what is showing now.
+      emotePose(b, EMO);
+      const w = smooth(b.emoteW);
+      for (let i = 0; i < NCH; i++) b.emoteFrom[i] = c[i] + (EMO[i] - c[i]) * w;
+      b.emoteSwap = 0; b.emoteW = 1;
+    } else b.emoteSwap = 1;
+    b.emoteShown = b.emote; b.emoteT = 0;
+  }
+  if (!b.emoteShown) return;
+  const sitting = b.emoteShown === 11 || b.emoteShown === 12;
+  b.emoteW = on ? Math.min(1, b.emoteW + dt / (EMOTE_IN[b.emoteShown] ?? 0.3)) : Math.max(0, b.emoteW - dt / (sitting ? 0.6 : 0.3));
+  if (b.emoteW <= 0) { b.emoteShown = 0; return; }
+  b.emoteT += dt;
+  const len = EMOTE_LEN[b.emoteShown] ?? 0;
+  if (on && len > 0 && b.emoteT >= len) b.emote = 0;
+  emotePose(b, EMO);
+  if (b.emoteSwap < 1) {
+    b.emoteSwap = Math.min(1, b.emoteSwap + dt / 0.35);
+    const k = smooth(b.emoteSwap);
+    for (let i = 0; i < NCH; i++) EMO[i] = b.emoteFrom[i] + (EMO[i] - b.emoteFrom[i]) * k;
+  }
+  const w = smooth(b.emoteW);
+  for (let i = 0; i < NCH; i++) c[i] += (EMO[i] - c[i]) * w;
+}
+
+/** Start emote `id` on this person (0 stops it). The same id again restarts it. */
+export function setEmote(p: Person, id: number): void {
+  const b = p as Body;
+  b.emote = EMOTE_LEN[id] !== undefined ? id : 0;
+  if (b.emote) b.emoteGen++;
+}
+/** The emote this person is doing now (0 none; a one-shot reads 0 once it has finished). */
+export function emoteOf(p: Person): number { return (p as Body).emote; }
+/** How far the emote is blended in, 0..1 (tools and tests). */
+export function emoteWeight(p: Person): number { return (p as Body).emoteW; }
+
 /** A ragdoll takes over the body: its pelvis frame (column-major 4x4, scale included) and its channels replace the animation. */
 export function ragAttach(p: Person, m: Float64Array, ch: Float32Array): void {
   const b = p as Body;
@@ -1146,6 +1406,7 @@ export class People implements PeopleApi {
       cur.set(TGT);
     }
     if (b.aim > 0.004 && b.shown !== 'down' && b.shown !== 'swim') aimOver(b, cur);
+    if (b.emote || b.emoteShown) emoteLayer(b, cur, dt);
     if (b.ragCh) cur.set(b.ragCh);
     else if (b.dustT > 0) dustOff(b, cur, dt);
 
@@ -1164,6 +1425,14 @@ export class People implements PeopleApi {
     const r = 1 - Math.exp(-10 * dt);
     m[8] += (fist * (1 - wheel) * (b.aimTwo ? 1 - aim : 1) - m[8]) * r; m[9] += (Math.max(wheel, b.aimTwo ? aim * 0.8 : 0) - m[9]) * r; m[10] = 0;
     m[12] += (fist * (1 - wheel) * (1 - aim) - m[12]) * r; m[13] += (wheel * (1 - aim) - m[13]) * r; m[14] += (aim - m[14]) * r;
+    if (b.emoteW > 0) {
+      const hd = EMOTE_HAND[b.emoteShown], w = smooth(b.emoteW);
+      m[8] = lerp(m[8], hd ? hd[0] : 0, w); m[12] = lerp(m[12], hd ? hd[1] : 0, w);
+      m[14] = lerp(m[14], hd ? hd[2] : 0, w);
+      m[9] *= 1 - w; m[13] *= 1 - w;
+      // Lying back she looks at the sky with her eyes open.
+      if (b.emoteShown === 12) m[4] = Math.min(m[4], 0.15);
+    }
   }
 
   private colors(b: Body): void {

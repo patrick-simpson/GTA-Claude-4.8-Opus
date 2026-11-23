@@ -380,7 +380,10 @@ export function readRagTail(buf: ArrayBuffer, s: PlayerState, out: Float32Array)
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15 } as const;
+// Emote (4 bytes): [kind, id, 15, emote id] (game/emotes.ts EMOTES; 0 = stopped). Sent when a player starts or stops one,
+// and again every few seconds while a looping one runs, for anybody who arrives. Relayed unread by the service; a page
+// that does not know code 15 hands it to the weapons code, which ignores codes it does not know: no new version.
 
 // ---- Looks (fun queue item 10; game/looks.ts) ----
 // Look (3 + LOOK_BYTES = 27 bytes): [kind, id, 14, the player's look descriptor]. Sent on arriving, when somebody else

@@ -228,6 +228,13 @@ export class Remote {
     mat.needsUpdate = true;
   }
 
+  /** The emote they last said they are doing (game/emotes.ts; 0 = none), when it was heard (ms), and how many were heard. */
+  emote = 0;
+  emoteAt = 0;
+  emoteN = 0;
+  /** Horn tunes of theirs played here (game/emotes.ts). */
+  tunes = 0;
+
   /** Their look as they chose it (game/looks.ts), or null: an older page that never sent one keeps the made-up look. */
   look: PlayerLook | null = null;
   setLook(bytes: Uint8Array): void {

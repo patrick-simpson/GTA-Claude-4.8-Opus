@@ -702,6 +702,7 @@ const KEYS: [string[], string][] = [
   [['J'], 'Replay the last 10 s'],
   [['O'], 'Photo mode'],
   [['L'], 'Light a firework'],
+  [['Hold N'], 'Emotes / horn tunes'],
   [['LMB', 'RMB'], 'Fire / aim'],
   [['Q', 'E', 'R'], 'Switch / reload'],
   [['Esc'], 'Pause'],

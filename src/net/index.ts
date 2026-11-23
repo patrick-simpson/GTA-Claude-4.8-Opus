@@ -52,6 +52,7 @@ import { TownRide } from './ride';
 import { SAYS, myName, nameText, rerollName } from './names';
 import { hostBotPass } from './hostbot';
 import { encodeLook, myLook, onMyLook } from '../game/looks';
+import { emoteOf } from '../ent/character';
 
 const SEND_MS = 1000 / SEND_HZ;
 /** The fewest ms between two things said by this player. */
@@ -185,6 +186,20 @@ export class Net {
     return true;
   }
 
+  /** Emotes (game/emotes.ts): frames sent and heard. */
+  emotesSent = 0;
+  emotesGot = 0;
+  /**
+   * Tell everybody this player has started emote `id` (game/emotes.ts EMOTES), or stopped (0). One 4 byte Event frame,
+   * only when somebody is here to see it. Returns whether it went.
+   */
+  emote(id: number): boolean {
+    if (!this.canSay || !Number.isInteger(id) || id < 0 || id > 255) return false;
+    if (!this.conn.send(encodePlayerEvent(PlayerEvent.Emote, id))) return false;
+    this.emotesSent++;
+    return true;
+  }
+
   /** The say key: the next line in turn. */
   sayCycle(): void {
     const i = this.sayNext;
@@ -283,6 +298,11 @@ export class Net {
       if (e.code === PlayerEvent.Look) {
         const l = decodeLookEvent(buf);
         if (l) { this.looksGot++; this.remotes.get(l.id)?.setLook(l.look); }
+        return;
+      }
+      if (e.code === PlayerEvent.Emote) {
+        const r = this.remotes.get(e.id);
+        if (r) { r.emote = e.arg; r.emoteAt = performance.now(); r.emoteN++; this.emotesGot++; }
         return;
       }
       if (e.code === PlayerEvent.Ride || e.code === PlayerEvent.Seats) this.ride.event(buf);
@@ -544,6 +564,7 @@ export class Net {
       pause: { refused: this.game.pauseRefused, why: this.pauseRefusal(), state: this.game.state },
       // looks (game/looks.ts): this player's descriptor and their body as drawn here; frames sent and heard.
       looks: { sent: this.looksSent, got: this.looksGot, mine: Array.from(encodeLook(myLook())), drawn: JSON.stringify(this.game.player.person.look) },
+      emotesSent: this.emotesSent, emotesGot: this.emotesGot,
       saysSent: this.saysSent, lastSay: this.lastSay, radarDots: this.game.hud.peerDots.slice(),
       countText: this.countEl && this.countEl.style.display !== 'none' ? this.countEl.textContent : '',
       remotes: [...this.remotes.values()].map((r) => ({
@@ -556,6 +577,7 @@ export class Net {
         damage: r.damage, carHealth: r.vehicle ? +r.vehicle.health.toFixed(1) : null, carWreck: !!r.vehicle?.wreck,
         look: r.look ? Array.from(encodeLook(r.look)) : null, drawn: r.body ? JSON.stringify(r.body.look) : '',
         carFinish: r.vehicle?.finish ?? 0, carRims: r.vehicle?.rims ?? 0, carHorn: r.vehicle?.hornKind ?? null,
+        emote: r.emote, emoteN: r.emoteN, bodyEmote: r.body ? emoteOf(r.body) : 0, tunes: r.tunes,
         horns: r.horns, hornOn: r.horn, said: r.said, lastSaid: r.lastSaid, sayShown: r.sayShown, saidCount: r.saidCount,
       })),
     };

@@ -507,6 +507,25 @@ export class VehicleSounds {
     this.remoteHorns(t);
   }
 
+  /**
+   * A short tune on a horn (game/emotes.ts): every note is this horn's own voice, pitched by `semi` semitones, from `at`
+   * seconds for `dur` seconds. where: the car it comes from (null = her own, heard close). False when it is not heard.
+   */
+  tune(kind: VehicleKind, notes: readonly (readonly [number, number, number])[], where: { x: number; y: number; z: number } | null): boolean {
+    const core = this.core;
+    let out: AudioNode, t = core.now + 0.03;
+    if (where) {
+      const sp = core.place(where.x, where.y + 0.8, where.z, { ref: 8, max: 140, wet: 0.3 });
+      if (!sp) return false;
+      out = sp.in; t += sp.lag;
+    } else out = core.direct('sfx', 0.75, 0.25);
+    for (const [at, dur, semi] of notes) {
+      const v = new HornVoice(core, kind, out, t + at, Math.pow(2, semi / 12));
+      v.release(t + at + dur);
+    }
+    return true;
+  }
+
   /** Somebody else's horn, from the flag in their state frames. Heard with the same falloff as an AI car's. */
   private remoteHorns(t: number): void {
     const core = this.core, g = this.game, hs = this.netHorns;

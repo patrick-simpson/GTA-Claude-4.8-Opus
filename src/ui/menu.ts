@@ -48,6 +48,7 @@ const CONTROLS: [string, string, string, string][] = [
   ['Fire / aim', 'LMB / RMB', 'RT / LT', 'FIRE / AIM'],
   ['Switch / reload', 'Q E / R', 'LB RB / X', 'SWAP'],
   ['Horn', 'H', 'D-pad down', 'HORN'],
+  ['Emotes, dances, horn tunes', 'Hold N', '', 'EMOTE'],
   ['Radio: next station', 'T', 'D-pad up', 'RADIO'],
   ['Camera / look back', 'V / C', 'D-pad left / R3', 'CAMERA'],
   ['Replay the last 10 s', 'J', '', 'REPLAY'],
