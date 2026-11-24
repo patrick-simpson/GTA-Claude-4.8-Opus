@@ -25,6 +25,8 @@ import { progress } from '../world/progress';
 import { mulberry, type AudioCore } from './audio';
 import { hiss, ping, thud } from './sfx';
 import { ClaudeFM, CLAUDE_FM_CALL } from './claudefm';
+import { CAROLS } from './carols';
+import { holiday } from '../world/holiday';
 import { RadioVoice } from './voices';
 
 // ── Harmony ──────────────────────────────────────────────────────────────────
@@ -178,7 +180,8 @@ export const STATIONS: Station[] = [
     lead: { w: [1, 0.9, 0.6, 0.5, 0, 0.3, 0, 0.3], a: 0.006, d: 0.05, s: 0.9, r: 0.04, lp: 10, vib: 14, vibHz: 6.6, level: 0.19 },
     lead2: { w: [1, 0.3, 0.9, 0.2, 0, 0.5, 0, 0.4], a: 0.006, d: 0.05, s: 0.9, r: 0.04, lp: 12, vib: 16, vibHz: 6.6, level: 0.15 },
     mix: { drums: 0.8, bass: 1, stab: 1, pad: 1, lead: 1, lead2: 1 }, trem: [0.2, 6.6], wet: 0.1, am: true, hiss: 0.012,
-  },
+  },  // The Christmas station (audio/carols.ts), on the air in the holiday season only: onAir() below.
+  CAROLS,
 ];
 
 // ── The composer ─────────────────────────────────────────────────────────────
@@ -588,7 +591,15 @@ export class Radio {
   }
 
   /** How many places on the dial: Claude FM, then the generated stations; Tepid Falls' transmitter does not reach until the bridge does. */
-  count(): number { return 1 + (progress.complete ? STATIONS.length : STATIONS.length - 1); }
+  count(): number { return 1 + STATIONS.length; }
+  /** Dial place n (1.. = STATIONS[n - 1]) is broadcasting: WTPD once the bridge is up, the carols in the holiday season. */
+  onAir(n: number): boolean {
+    const st = STATIONS[n - 1];
+    if (!st) return n <= 0;
+    if (st === CAROLS) return holiday.on;
+    if (st.seed === 610) return progress.complete;
+    return true;
+  }
 
   private show(): void {
     if (this.station === 0) { this.game.hud.radio(CLAUDE_FM_CALL, ''); return; }
@@ -601,6 +612,7 @@ export class Radio {
     const c = this.core;
     let n = this.station + 1 >= this.count() ? -1 : this.station + 1;
     if (n === 0 && this.fm.state === 'failed') n = 1;
+    while (n > 0 && !this.onAir(n)) n = n + 1 >= this.count() ? -1 : n + 1;
     this.station = n;
     save.data.settings.station = this.station;
     save.write();
@@ -634,7 +646,7 @@ export class Radio {
     const inCar = !!v && !v.sunk;
     if (inCar && !this.wasIn && this.station >= 0) this.show();
     this.wasIn = inCar;
-    if (this.station >= this.count()) this.station = -1;
+    if (this.station >= this.count() || (this.station > 0 && !this.onAir(this.station))) this.station = -1;
     const want = inCar && this.station > 0 && save.data.settings.volMusic > 0;
     if (!want) { if (this.player) { this.player.stop(t); this.player = null; } this.voice.tick(null, 0, 1); return; }
     if (!this.player) {

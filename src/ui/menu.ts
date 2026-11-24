@@ -25,6 +25,7 @@ import { DUCKS } from '../game/activities';
 import { clock } from '../game/script';
 import { save, type QualityPick } from '../game/save';
 import { season, type SeasonPick } from '../world/season';
+import { holiday, type HolidayPick } from '../world/holiday';
 import { autoPresetIfKnown } from '../core/governor';
 import { kid } from '../core/kid';
 import { VOICE_CREDIT } from '../audio/voices';
@@ -630,7 +631,7 @@ export class Menu {
     const s = save.data.settings;
     const tog = (key: string, on: boolean): string => `<button type="button" class="mn-tog ${on ? 'on' : ''}" data-set="${key}" aria-pressed="${on}"><i></i>${on ? 'On' : 'Off'}</button>`;
     const q = (['auto', 'low', 'medium', 'high'] as QualityPick[]).map((v) => `<button type="button" class="mn-seg ${s.quality === v ? 'on' : ''}" data-set="quality" data-v="${v}">${v}</button>`).join('');
-    const seasons = (['auto', 'autumn', 'winter', 'summer'] as SeasonPick[]).map((v) => `<button type="button" class="mn-seg ${s.season === v ? 'on' : ''}" data-set="season" data-v="${v}">${v}</button>`).join('');
+    const seasons = (['auto', 'autumn', 'winter', 'summer'] as SeasonPick[]).map((v) => `<button type="button" class="mn-seg ${season.shown === v ? 'on' : ''}" data-set="season" data-v="${v}">${v}</button>`).join('');
     const running = this.game.quality.name, gov = this.game.gov;
     // Auto and a fixed preset swap while running; only a different preset has to rebuild the world.
     const want = s.quality === 'auto' ? autoPresetIfKnown() : s.quality;
@@ -653,6 +654,7 @@ export class Menu {
     <div class="mn-row"><span class="mn-lbl">Automatic replays</span><span>${tog('autoReplay', this.game.cam.replay.auto)}</span></div>
     <div class="mn-row"><span class="mn-lbl">Quality</span><span class="mn-segs">${q}</span></div>
     <div class="mn-row"><span class="mn-lbl">Season</span><span class="mn-segs">${seasons}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Holiday decorations</span><span class="mn-segs">${(['auto', 'on', 'off'] as HolidayPick[]).map((v) => `<button type="button" class="mn-seg ${holiday.shown === v ? 'on' : ''}" data-set="holiday" data-v="${v}">${v}</button>`).join('')}</span></div>
     ${this.nameRow()}
     <p class="mn-note">${how}${stale ? ` A change of preset rebuilds the world, so <b>${want}</b> takes effect when the page is reloaded: <button type="button" class="mn-link" data-set="reload">save and reload now</button>` : ''}</p>
     <p class="mn-note">${VOICE_CREDIT}</p>
@@ -692,7 +694,8 @@ export class Menu {
       if (v) v.textContent = String(Math.round(s[key] * 100));
       this.game.audio?.applySettings(key);
     } else if (key === 'quality') { s.quality = (el.dataset.v as QualityPick) ?? 'auto'; this.game.gov.setPick(s.quality); }
-    else if (key === 'season') { const v = el.dataset.v; s.season = v === 'autumn' || v === 'winter' || v === 'summer' ? v : 'auto'; season.pick = s.season; }
+    else if (key === 'season') { const v = el.dataset.v; s.season = v === 'autumn' || v === 'winter' || v === 'summer' ? v : 'auto'; season.choose(s.season); }
+    else if (key === 'holiday') { const v = el.dataset.v; holiday.choose(v === 'on' || v === 'off' ? v : 'auto'); }
     else if (key === 'invertY' || key === 'fsTap' || key === 'reducedMotion') s[key] = !s[key];
     else if (key === 'autoReplay') this.game.cam.replay.setAuto(!this.game.cam.replay.auto);
     else if (key === 'kid') kid.flip(!kid.on);
@@ -700,7 +703,7 @@ export class Menu {
     this.todo.applySettings();
     save.write();
     // The slider keeps the pointer; everything else is redrawn with its new state.
-    if (key !== 'sens' && !key.startsWith('vol')) { this.panes[3].innerHTML = this.settingsHtml(); (this.panes[3].querySelector(`[data-set="${key}"]${key === 'quality' ? `[data-v="${s.quality}"]` : key === 'season' ? `[data-v="${s.season}"]` : ''}`) as HTMLElement | null)?.focus(); }
+    if (key !== 'sens' && !key.startsWith('vol')) { this.panes[3].innerHTML = this.settingsHtml(); (this.panes[3].querySelector(`[data-set="${key}"]${key === 'quality' ? `[data-v="${s.quality}"]` : key === 'season' ? `[data-v="${season.shown}"]` : key === 'holiday' ? `[data-v="${holiday.shown}"]` : ''}`) as HTMLElement | null)?.focus(); }
   }
 
   // ── CONTROLS ───────────────────────────────────────────────────────────────

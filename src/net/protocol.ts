@@ -486,7 +486,7 @@ export function decodePlayerEvent(buf: ArrayBuffer): { id: number; code: number;
 //
 // Byte 2 says what the frame asks. Stage 2, step 2 has one: "my car has just struck your car N". Step 3 adds three
 // (below, "Taking and leaving cars"); a host of an older page of this version ignores a kind it does not know.
-export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7, Heat: 8, CarShot: 9, Give: 10, Mine: 11, Kid: 12 } as const;
+export const ToHostKind = { CarHit: 1, ParkHit: 2, Take: 3, Leave: 4, PedKnock: 5, PedHurt: 6, Bang: 7, Heat: 8, CarShot: 9, Give: 10, Mine: 11, Kid: 12, Season: 13 } as const;  // Season: net/townSeason.ts (its codec and fact are there)
 
 // The town's bridge (stage 4, step 1; net/town.ts). The durable fact FACT_BRIDGE is [spans, stage, bank]: only the host
 // can write a fact, so a guest tells the host what should go into it. Still version 4: the service passes both unread.

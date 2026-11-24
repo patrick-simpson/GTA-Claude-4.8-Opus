@@ -55,6 +55,9 @@ import {
 import type { Connection } from './conn';
 import type { Remote } from './remote';
 import { KID_OFF_LINE, KID_ON_LINE, kid } from '../core/kid';
+import { TownSeason } from './townSeason';
+import { season } from '../world/season';
+import { holiday } from '../world/holiday';
 
 /** Does a player whose own bridge is further along than the town's bring the town up to it? (See the header.) */
 export const TOWN_TAKES_FURTHEST = true;
@@ -149,11 +152,24 @@ export class Town {
   private kidClaim = false;
   /** The last kid-mode line shown, for the tests. */
   lastKid = '';
+  /** The season and the holiday decorations, the town's (net/townSeason.ts, FACT_SEASON). */
+  private readonly season: TownSeason;
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>) {
     game.sky.asked = (hour, weather) => this.asked(hour, weather);
     kid.tell = (line) => this.kidSay(line);
     kid.ask = (on) => this.kidFlip(on);
+    this.season = new TownSeason({
+      inTown: () => this.online && Number.isFinite(this.svcOff),
+      isHost: () => this.host,
+      id: () => this.conn.id,
+      hostKnown: () => !!this.conn.host,
+      send: (b) => this.conn.send(b),
+      put: (k, v) => this.put(k, v),
+      name: (id) => this.remotes.get(id)?.text ?? null,
+      isRemote: (id) => this.remotes.has(id),
+      say: (line) => { const st = this.game.state; if (st === 'play' || st === 'paused') this.game.hud.toast(line, 6); },
+    });
   }
 
   private get online(): boolean { return this.conn.status === 'online'; }
@@ -178,6 +194,7 @@ export class Town {
 
   private fact(k: string, v: FactValue): void {
     this.known.set(k, JSON.stringify(v));
+    if (this.season.factIn(k, v)) return;
     if (k === FACT_KID) this.kidHeard(v);
     else if (k === FACT_CLOCK) { if (typeof v === 'number' && Number.isFinite(v)) this.clockOff = v >= 0 && v < 24 ? v : mod24(v); }
     else if (k === FACT_WEATHER_SEED) {
@@ -216,6 +233,7 @@ export class Town {
     this.inTown = false; this.hostReady = false; this.live = false; this.unsent = false;
     progress.sink = null;
     this.kidFact = null; this.kidAsk = null; this.kidClaim = false;
+    this.season.down();
     this.owed = 0; this.aheadSince = 0; this.claimsMade = 0; this.claimAt = -1e9;
   }
 
@@ -415,6 +433,7 @@ export class Town {
   toHost(buf: ArrayBuffer): boolean {
     if (buf.byteLength < 3) return false;
     const what = new Uint8Array(buf, 2, 1)[0];
+    if (what === ToHostKind.Season) return this.season.toHost(buf);
     if (what === ToHostKind.Kid) {
       const k = decodeKid(buf);
       if (!this.host || !k || !this.remotes.has(k.id)) return true;
@@ -448,6 +467,7 @@ export class Town {
     this.sky(now);
     this.works(now);
     this.kidTick(now);
+    this.season.tick(now);
   }
 
   /** For the tests (window.__game.net().town). */
@@ -464,6 +484,8 @@ export class Town {
       inTown: this.inTown, bridge: st(this.bridge), shown: st(progress), own: st(o), apart: progress.mine !== null, owed: +this.owed.toFixed(2),
       lastFinish: this.lastFinish,
       kid: kid.on, kidOwn: kid.own, kidFact: this.kidFact, kidAsk: this.kidAsk ? this.kidAsk.on : null, lastKid: this.lastKid,
+      season: season.now, seasonShown: season.shown, holiday: holiday.on, holidayShown: holiday.shown, seasonFact: this.season.fact, lastSeason: this.season.last,
+      seasonAsks: this.season.stats.asks, seasonBytes: this.season.stats.askBytes, seasonGot: this.season.stats.got, seasonWrites: this.season.stats.writes,
       ...this.stats,
     };
   }

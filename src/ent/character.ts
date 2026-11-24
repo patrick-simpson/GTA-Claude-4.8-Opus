@@ -974,6 +974,13 @@ function emoteLayer(b: Body, c: Float32Array, dt: number): void {
 }
 
 /** Start emote `id` on this person (0 stops it). The same id again restarts it. */
+/**
+ * Something worn on the head that is not part of the model (world/christmas.ts: Santa hats): called with each skinned
+ * person's head frame (column-major, scaled by their height) as the crowd texture is filled. Null: no cost.
+ */
+let headHook: ((p: Person, m: Float64Array) => void) | null = null;
+export function setHeadHook(fn: ((p: Person, m: Float64Array) => void) | null): void { headHook = fn; }
+
 export function setEmote(p: Person, id: number): void {
   const b = p as Body;
   b.emote = EMOTE_LEN[id] !== undefined ? id : 0;
@@ -1600,6 +1607,7 @@ export class People implements PeopleApi {
     rotX(T, c[HPITCH] * 0.6);
     rotZ(T, c[HROLL] * 0.6);
     put(D, o, J, B_HEAD, T, 1, 1);
+    if (headHook) headHook(b, T);
   }
 
   private draw(b: Body, far: boolean): void {

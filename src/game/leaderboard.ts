@@ -20,6 +20,7 @@ import { clock } from './script';
 import { money } from '../core/util';
 import { LeaderBillboard } from '../world/leaderBillboard';
 import { TownBoard } from '../net/leaderboard';
+import { presentsFound } from '../world/christmas';
 
 const FEET = 3.28084;
 
@@ -45,6 +46,7 @@ export const CATEGORIES: readonly Category[] = [
   { key: 'money', title: 'Most money on hand', max: 1_000_000_000, fmt: (v) => money(v) },
   { key: 'ducks', title: 'Ducks returned', max: 100_000, fmt: (v) => String(v) },
   { key: 'moose', title: 'Moose met', max: 100_000, fmt: (v) => String(v) },
+  { key: 'presents', title: 'Presents found', max: 25, fmt: (v) => `${v} of 25` },
 ];
 export const CAT = Object.fromEntries(CATEGORIES.map((c, i) => [c.key, i])) as Record<string, number>;
 
@@ -82,6 +84,7 @@ export function myBest(game: Game, cat: number): number | null {
     case 'money': return pos(Math.max(b['lb.money'] ?? 0, game.player ? game.player.money : 0));
     case 'ducks': return pos(c.ducksReturned);
     case 'moose': return pos(c.moose);
+    case 'presents': return pos(presentsFound());
     default: return null;
   }
 }

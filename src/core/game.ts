@@ -9,6 +9,7 @@ import { RNG } from './util';
 import { CityPlan } from '../world/plan';
 import { Colliders } from '../world/collide';
 import { World } from '../world/world';
+import { Christmas } from '../world/christmas';
 import { Sky } from '../world/sky';
 import { Vehicles } from '../ent/vehicle';
 import { SPECS, commonKind } from '../ent/vehicleSpecs';
@@ -93,6 +94,8 @@ export class Game {
   state: GameState = 'loading';
   /** Simulated seconds since the world was built. Stops while paused. */
   time = 0;
+  /** The holiday decorations, presents and snowballs (world/christmas.ts). */
+  christmas!: Christmas;
   /**
    * What the traffic signals run on. Alone it is `time` exactly. In a shared town (src/net/shared.ts) it is the
    * town's clock, the same in every browser there; on leaving, `signalShift` keeps the lamps where they were.
@@ -207,6 +210,7 @@ export class Game {
     // Emotes and horn tunes (fun queue item 9): after the net, so what others did this frame is heard at once.
     this.systems.push((this.emotes = new Emotes(this)));
     this.systems.push((this.chat = new Chat(this))); // fun queue item 21: safe chat
+    this.systems.push((this.christmas = new Christmas(this))); // fun queue item 17: the Christmas update (world/christmas.ts)
     this.systems.push(new Leaderboard(this)); // fun queue item 15: the town leaderboard (billboards, menu, town facts)
     this.photo = new Photo(this);
     this.spectate = new Spectate(this);

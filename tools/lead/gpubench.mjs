@@ -24,12 +24,12 @@ const SC = {
   mainst: { land: 1, time: 13, at: [80, -1300, 3.14] },
   park: { time: 13, at: [140, -110, 1.57] },
 }[name];
-const query = ['q=' + (opt.q ?? 'high'), 'save=0', 'net=0', 'xmas=0', SC.land ? 'bridge=8&stage=4' : '', typeof opt.query === 'string' ? opt.query : ''].filter(Boolean).join('&');
+const query = ['q=' + (opt.q ?? 'high'), 'save=0', 'net=0', (typeof opt.query === 'string' && /xmas=/.test(opt.query) ? '' : 'xmas=0'), SC.land ? 'bridge=8&stage=4' : '', typeof opt.query === 'string' ? opt.query : ''].filter(Boolean).join('&');
 const server = await createServer({ root: ROOT, logLevel: 'error', clearScreen: false, optimizeDeps: { noDiscovery: true, include: [] },
   cacheDir: path.join(os.tmpdir(), 'pc-vite-' + process.pid), server: { port: 0, host: '127.0.0.1', hmr: false, watch: null } });
 await server.listen();
 const port = server.httpServer.address().port;
-const browser = await chromium.launch({ channel: 'chromium', headless: true, args: ['--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', '--force_high_performance_gpu'] });
+const browser = await chromium.launch({ channel: 'chromium', headless: true, args: ['--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', (opt.gpu === 'low' ? '--force_low_power_gpu' : '--force_high_performance_gpu')] });
 const page = await (await browser.newContext({ viewport: { width: Number(opt.w ?? 1280), height: Number(opt.h ?? 720) }, deviceScaleFactor: 1 })).newPage();
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error' && !/403/.test(m.text())) errors.push(m.text()); });
@@ -46,6 +46,11 @@ try {
     const hide = (o) => { const v = o.visible; o.visible = false; return () => { o.visible = v; }; };
     const cfgs = {
       full: () => () => {},
+      noXmas: () => hide(g.christmas.group),
+      noBulbs: () => { const h = []; g.christmas.group.traverse((o) => { if (o.isInstancedMesh && o.material.toneMapped === false && o.visible) { o.visible = false; h.push(o); } }); return () => h.forEach((o) => { o.visible = true; }); },
+      noGreen: () => { const h = []; g.christmas.group.traverse((o) => { if (o.isInstancedMesh && o.material.toneMapped !== false && o.count > 100 && o.visible) { o.visible = false; h.push(o); } }); return () => h.forEach((o) => { o.visible = true; }); },
+      noKit: () => { const h = []; g.christmas.group.traverse((o) => { if (o.parent === g.christmas.group && !o.isInstancedMesh && o.visible) { o.visible = false; h.push(o); } }); return () => h.forEach((o) => { o.visible = true; }); },
+      noTreeShadow: () => { const h = []; g.christmas.group.traverse((o) => { if (o.castShadow) { o.castShadow = false; h.push(o); } }); return () => h.forEach((o) => { o.castShadow = true; }); },
       noShadow: () => { const e = g.renderer.shadowMap.enabled; g.renderer.shadowMap.autoUpdate = false; g.sky.sun.castShadow = false; return () => { g.renderer.shadowMap.autoUpdate = true; g.sky.sun.castShadow = true; }; },
       noPost: () => { g.post.enabled = false; return () => { g.post.enabled = true; }; },
       noAO: () => { g.post.aoOn = false; return () => { g.post.aoOn = true; }; },
@@ -76,3 +81,6 @@ try {
   console.log(JSON.stringify({ scene: name, gpu: gpu.slice(0, 60), calls: res.calls, tris: res.tris }));
   for (const k in res.acc) { const a = res.acc[k]; console.log(`  ${k.padEnd(11)} mean ${(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2)} ms  best ${Math.min(...a).toFixed(2)}  rounds ${a.map((x) => x.toFixed(1)).join(' ')}  js-submit ${(res.cpus[k].reduce((x, y) => x + y, 0) / a.length).toFixed(2)}`); }
 } finally { console.log(JSON.stringify({ errors: errors.slice(0, 3) })); await browser.close(); await server.close(); }
+
+
+
