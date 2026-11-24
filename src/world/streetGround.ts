@@ -39,6 +39,8 @@ export class StreetSurface {
   readonly nodes: RoadNode[] = [];
   /** Lift of each node above the plateau, by graph node id. */
   readonly lift: Float32Array;
+  /** Height of each junction pad above the plateau: the node's lift; a roundabout on a grade (the Thruway's last stretch at exit 130) is raised to the highest road meeting it at the rim (else a cliff). */
+  readonly padLift: Float32Array;
   readonly passes: Passage[] = [];
   private readonly bumps = new Map<number, Bump[]>();
   /** Per-ramp lift samples, 1 m apart (solveRamps). */
@@ -71,6 +73,16 @@ export class StreetSurface {
       let m = 0;
       for (let s = 0; s <= e.len; s += 4) m = Math.max(m, this.liftAt(e, s));
       this.maxLift.set(e.id, Math.max(m, this.liftAt(e, e.len)));
+    }
+    this.padLift = Float32Array.from(this.lift);
+    for (const n of this.nodes) {
+      if (n.edges.length === 0 || this.fixed[n.id] || n.control !== 'roundabout') continue;
+      for (const id of n.edges) {
+        const e = g.edges[id];
+        if (!this.edges.includes(e)) continue;
+        const atB = e.b === n.id && e.a !== n.id, s = atB ? e.len - this.trim(e, true) : this.trim(e, false);
+        this.padLift[n.id] = Math.max(this.padLift[n.id], this.liftAt(e, clamp(s, 0, e.len)));
+      }
     }
     this.index();
     this.grade();
@@ -128,7 +140,7 @@ export class StreetSurface {
         let h = this.liftBase(e, s);
         for (const o of hwys) {
           const pr = g.project(o, q.x, q.z);
-          if (pr.d < o.hw + e.hw - 0.5 && pr.s > 0.5 && pr.s < o.len - 0.5) h = Math.max(h, this.liftBase(o, pr.s));
+          if (pr.d < o.hw + e.hw + 0.7 && pr.s > 0.5 && pr.s < o.len - 0.5) h = Math.max(h, this.liftBase(o, pr.s));
         }
         T[i] = h; if (h > 0.05) any = true;
       }
@@ -262,8 +274,8 @@ export class StreetSurface {
       for (const id of pads) {
         const n = this.g.nodes[id], d2 = (x - n.x) ** 2 + (z - n.z) ** 2, r = this.padR(n);
         if (d2 > r * r) continue;
-        if (n.control === 'roundabout' && d2 < this.islandR(n) ** 2) return { kind: 'walk', h: fl + CURB_H * 2 };
-        take(fl + this.lift[id]);
+        if (n.control === 'roundabout' && d2 < this.islandR(n) ** 2) return { kind: 'walk', h: fl + this.padLift[id] + CURB_H * 2 };
+        take(fl + this.padLift[id]);
       }
     }
     let walk = false;

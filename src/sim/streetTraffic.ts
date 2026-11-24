@@ -20,6 +20,7 @@ import { RNG, TAU, clamp } from '../core/util';
 import type { District, RoadEdge, RoadNode } from '../world/plan';
 import type { StreetGraph } from '../world/streets';
 import { signalState } from '../world/signals';
+import { setGroundHint, streetSurface } from '../world/plan';
 import { SPECS, type VehicleKind } from '../ent/vehicleSpecs';
 import type { Anchor, Driver, RoadPed } from './traffic';
 import { StreetSignals } from '../world/streetSignals';
@@ -264,7 +265,12 @@ export class StreetDrivers {
     };
     for (const o of g.vehicles.list) if (!clear(o)) return false;
     for (const o of host.others) if (!clear(o)) return false;
+    // On an overpass (the Thruway over Second Thought Ave and Main St) the ground under the point is the road below
+    // unless the spawn says which level it means: cars seated there stood at the foot of the embankment, unable to move.
+    const S = streetSurface();
+    if (S) setGroundHint(S.flat(x, z) + S.liftAt(e, s) + 0.3);
     const v = g.vehicles.spawn(kind, x, z, Math.atan2(p.tx, p.tz));
+    if (S) setGroundHint();
     v.driver = 'ai';
     d.v = v; d.wid = host.newWid();
     host.byVeh.set(v, d);

@@ -221,7 +221,7 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
   const wu = (p: V, t: number): [number, number] => [p[0] / t, p[2] / t];
   for (const n of S.nodes) {
     if (n.edges.length === 0) continue;
-    const r = S.padR(n), lift = S.lift[n.id], N = 28;
+    const r = S.padR(n), lift = S.padLift[n.id], N = 28;
     const ring = (rad: number, dy: number, k: number): V => {
       const a = (k / N) * Math.PI * 2, x = n.x + Math.cos(a) * rad, z = n.z + Math.sin(a) * rad;
       return [x, S.flat(x, z) + lift + dy, z];

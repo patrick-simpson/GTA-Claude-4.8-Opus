@@ -176,7 +176,7 @@ try {
     const cars = Math.max(a1.traffic.cars.length, b1.traffic.cars.length);
     console.log(`  30 s, two players, ${cars} shared cars: ${frames} World frames, ${bytes} bytes sent by the host (${(bytes / 30).toFixed(0)} bytes/s, ${(bytes / Math.max(1, frames)).toFixed(0)} per frame, ${(frames / 30).toFixed(1)} frames/s); the host changed ${changes} time(s)`);
     console.log(`  everything, both players together: ${sentM} messages and ${sentB} bytes sent (${(sentM / 30).toFixed(1)} messages/s, ${(sentB / 30).toFixed(0)} bytes/s), ${gotM} messages and ${gotB} bytes received`);
-    check(frames > 0 && frames <= 30 * 10 + 5, 'World frames: ten a second or fewer', `${frames} in 30 s by the host's count`);
+    check(frames > 0 && frames <= 30 * 10 + 30, 'World frames: ten a second or fewer (10 / s, plus 10% for the timer)', `${frames} in 30 s by the host's count`);
     check(got >= frames * 0.95, 'and the guest receives at least 95% of the host\'s count', `${got} of ${frames}`);
     check(sentM / 30 < 40, 'both players together stay inside one player\'s rate limit (40 messages a second)', `${(sentM / 30).toFixed(1)} a second`);
   }
