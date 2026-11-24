@@ -40,7 +40,7 @@ import { CUT_FAR, CUT_NEAR, CUT_VERTEX, PropField, loadProps } from './propAsset
 import { RIVER_ON } from './riverfrontAssets';
 import { campusFree } from './dithersPlan';
 import { PD } from './pardonsSite';
-import { buildingNear, mainlandLots, primeBuildingMask } from './mainlandBuildings';
+import { RESERVED, buildingNear, mainlandLots, primeBuildingMask } from './mainlandBuildings';
 import { WALK_W } from './streetGround';
 
 // Palette (see PLAN.md).
@@ -497,16 +497,6 @@ const TOWN_B: Rect = { x0: MXS[9] - 6, z0: MZS[0] - 6, x1: MXS[10] + 6, z1: MZS[
 const inTown = (x: number, z: number, m: number): boolean =>
   (x > TOWN_A.x0 - m && x < TOWN_A.x1 + m && z > TOWN_A.z0 - m && z < TOWN_A.z1 + m)
   || (x > TOWN_B.x0 - m && x < TOWN_B.x1 + m && z > TOWN_B.z0 - m && z < TOWN_B.z1 + m);
-/**
- * New streets: built places that are not lots (the square, the hall's forecourt, the Holding Pattern, the Dead Letter
- * Office, Our Lady, the depot, the mill yards, the walk to the footbridge). The same rectangles as mainlandBuildings.ts
- * RESERVED, which does not export them: the woods keep out.
- */
-const TOWN_SITES: Rect[] = [
-  { x0: 103, z0: -1839, x1: 159.5, z1: -1776.5 }, { x0: 109, z0: -1866, x1: 153, z1: -1837.5 }, { x0: 15, z0: -1935, x1: 48, z1: -1772 },
-  { x0: 200, z0: -2250, x1: 228, z1: -2214 }, { x0: -153, z0: -1320, x1: -104, z1: -1274 }, { x0: 222, z0: -1768, x1: 262, z1: -1664 },
-  { x0: 176, z0: -1568, x1: 252, z1: -1196 }, { x0: 176, z0: -1896, x1: 290, z1: -1884 },
-];
 const inExtraLot = (x: number, z: number, m: number): boolean =>
   EXTRA_LOTS.some((l) => x > l.rect.x0 - m && x < l.rect.x1 + m && z > l.rect.z0 - m && z < l.rect.z1 + m);
 const onHill = (x0: number, z0: number, x1: number, z1: number): boolean =>
@@ -2382,7 +2372,7 @@ class Ground implements WorldPart {
       col.forBoxes(x, z, r, (b: Box) => { if (b.y0 < g + 5 && b.y1 > g + 0.4 && x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) hit = true; });
       return hit;
     };
-    const site = (x: number, z: number): boolean => TOWN_SITES.some((q) => x > q.x0 - 3 && x < q.x1 + 3 && z > q.z0 - 3 && z < q.z1 + 3);
+    const site = (x: number, z: number): boolean => RESERVED.some((q) => x > q.x0 - 3 && x < q.x1 + 3 && z > q.z0 - 3 && z < q.z1 + 3);
     const STEP = 13;
     for (let x = -950; x < 1000; x += STEP) for (let z = -2975; z < -1000; z += STEP) {
       const px = x + rng.range(0, STEP - 2.5), pz = z + rng.range(0, STEP - 2.5), roll = rng.next(), alt = rng.next();
@@ -2572,7 +2562,7 @@ class Ground implements WorldPart {
             if ( turfK > 0.004 ) {
               vec3 tMean = max( textureLod( uTurf, vShore / ${F1(TILE_M.grass)}, 9.0 ).rgb, vec3( 0.02 ) );
               // (The blades are for near ground: from the air an 8 m tile is a pattern, so it eases out with distance.)
-              vec3 tNear = mix( vec3( 1.0 ), texture2D( uTurf, vShore / ${F1(TILE_M.grass)} ).rgb / tMean, 0.9 - 0.75 * smoothstep( 50.0, 240.0, length( vViewPosition ) ) );
+              vec3 tNear = mix( vec3( 1.0 ), texture2D( uTurf, vShore / ${F1(TILE_M.grass)} ).rgb / tMean, 0.85 - 0.8 * smoothstep( 16.0, 110.0, length( vViewPosition ) ) );
               // Broad dry and lush patches (the lawns' own recipe, toneGrass), so a field is never one flat green from the air.
               float ta = texture2D( uTurfTone, vShore / 131.0 ).r, tb = texture2D( uTurfTone, vShore / 37.0 ).g;
               float tk = clamp( 0.5 + ( ta - 0.5 ) * 2.2 + ( tb - 0.5 ) * 1.2, 0.0, 1.0 );

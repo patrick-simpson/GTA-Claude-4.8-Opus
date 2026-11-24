@@ -27,9 +27,9 @@ function round(p: number[]): number[] {
 /** The shoreline: where the still water meets the bank. */
 export const POND_SHORE: number[] = round(round(RAW));
 /** Height of the water's surface. */
-export const POND_LEVEL = 12.0;
+export const POND_LEVEL = 11.2;
 /** How far outside the shore the ground is reshaped. */
-export const POND_BANK = 13;
+export const POND_BANK = 17;
 /** Everything the basin touches lies inside this box. Its sides are on the terrain mesh's 8 m lattice (ground.ts mainTerrain), which draws the inside finer. */
 export const POND_BOX = { x0: -584, z0: -2544, x1: -488, z1: -2440 };
 

@@ -429,7 +429,8 @@ export const NEW_SITES = {
   /** The Holding Pattern: west of Main St from Tarnish St to Applejack St, between Dutch Elm St and the west row's backs (the real Concourse). */
   hp: { x0: 15, z0: -1935, x1: 48, z1: -1772 } as Rect,
 };
-const RESERVED: Rect[] = STREETS_NEW ? [
+/** New streets: ground kept for set pieces that are not lots. ground.ts keeps its woods off the same rectangles. */
+export const RESERVED: Rect[] = STREETS_NEW ? [
   NEW_SITES.square, NEW_SITES.hall, NEW_SITES.hp,
   { x0: 200, z0: -2250, x1: 228, z1: -2214 },   // the Dead Letter Office
   { x0: -153, z0: -1320, x1: -104, z1: -1274 }, // Our Lady (set at an angle to Tarnish St)
