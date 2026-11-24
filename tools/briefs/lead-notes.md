@@ -190,3 +190,6 @@ owner's ground rules for the takeover and the running state.
 - Nov 24: owner: song is copyright free, grab the mp3. It is Kevin MacLeod (CC BY 4.0): bake the music into the promo video with the credit line; official MP3 not found yet (not in incompetech pieces.json; filmmusic.io unreachable).
 - Nov 24: owner: "The season should always sync across players." Season + holiday picks become town facts like kid mode (host decides Auto from its date); given to the Christmas perf worker. Rule for future shared-world toggles: town-wide, not per screen.
 - Nov 24: owner: two Blender runs at the same time are allowed (was one).
+- Nov 24: queued 21 safe chat (owner yes) and 22 drowning (owner).
+- Nov 24: owner approved installing KTX-Software + glTF-Transform, RenderDoc, ComfyUI + Stable Diffusion, Piper TTS, DaVinci Resolve (NOT FreeMoCap): "use each app to do what you think would improve the game the most. Impress us... Make creative decisions and set up the app yourself." One worker per tool. Licence rule: only models/voices whose licences allow use in a public game; record each in tools/licenses/.
+- Nov 24: DaVinci Resolve 21.2.0.6 (free) installed at C:\Program Files\Blackmagic Design\DaVinci Resolve (fuscript.exe present) for the promo grade/edit.

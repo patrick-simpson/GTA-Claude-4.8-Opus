@@ -1,0 +1,27 @@
+{
+  "style": "mid-century screenprint poster illustration, gouache, flat bold shapes, limited palette of deep navy, cream, vermilion red, mustard yellow and teal, subtle paper grain, charming and wry, wide empty area left for lettering",
+  "negative": "text, letters, words, numbers, typography, caption, logo, watermark, signature, photograph, 3d render, realistic, blurry, deformed, ugly, nsfw, celebrity, brand",
+  "steps": 28, "cfg": 6.5,
+  "jobs": [
+    { "id": "bb-speedscan", "w": 1216, "h": 640, "seed": 11, "prompt": "cardboard parcels riding a conveyor belt under a glowing red scanner beam, cheerful shipping depot, a tiny seagull inspecting a box" },
+    { "id": "bb-pardons", "w": 1216, "h": 640, "seed": 12, "prompt": "an absurd heap of mismatched surplus goods: a canoe, floor lamps, a bathtub, stacked chairs, a stuffed moose head, garden gnomes, outside a corrugated warehouse" },
+    { "id": "bb-dithers", "w": 1216, "h": 640, "seed": 13, "prompt": "an old red brick college hall with a clock tower on an autumn hill, maple trees, a student asleep on the lawn with a book over his face" },
+    { "id": "bb-lackwool", "w": 1216, "h": 640, "seed": 14, "prompt": "a big brick woolen mill with a tall smokestack beside a river, a flock of sheep in knitted sweaters, hills behind" },
+    { "id": "bb-radio881", "w": 1216, "h": 640, "seed": 15, "prompt": "a big retro tabletop radio with a wobbly dial and wavy sound lines, filing cabinets and paper stacks in the background" },
+    { "id": "bb-tepid", "w": 1216, "h": 640, "seed": 16, "prompt": "a pitifully small waterfall trickling over mossy rocks with a steaming teapot beside it, a family in lawn chairs politely admiring it, pine forest" },
+    { "id": "bb-bridge", "w": 1216, "h": 640, "seed": 17, "prompt": "a half finished steel bridge over a harbor with a gap in the middle, little construction workers waving, wooden planks stacked, lobster boats below" },
+    { "id": "bb-derby", "w": 1216, "h": 640, "seed": 18, "prompt": "battered rusty sedans crashing together in a muddy demolition derby arena, flying hubcaps, confetti, floodlights, cheering crowd silhouettes" },
+    { "id": "po-duck", "w": 640, "h": 1216, "seed": 21, "prompt": "a single plump yellow duck wearing a tiny red scarf, sitting calmly, lost duck flyer portrait, cream background, vertical" },
+    { "id": "po-moose", "w": 640, "h": 1216, "seed": 22, "prompt": "a large moose standing in the middle of a road at dusk with a yellow warning diamond shape behind it, pine trees, vertical" },
+    { "id": "po-bond", "w": 640, "h": 1216, "seed": 23, "prompt": "a wooden plank held up proudly by two cartoon townspeople, a bridge in the distance, fundraising poster, vertical" },
+    { "id": "po-derby", "w": 640, "h": 1216, "seed": 24, "prompt": "two beat up cars colliding head on with a burst of flames and stars, derby night poster, vertical, dramatic" },
+    { "id": "po-fair", "w": 640, "h": 1216, "seed": 25, "prompt": "a small town christmas fair, snowy stalls with string lights, a decorated fir tree, mittened crowd, vertical" },
+    { "id": "po-cat", "w": 640, "h": 1216, "seed": 26, "prompt": "a grumpy orange cat sitting on a stack of official paperwork with a rubber stamp, vertical" },
+    { "id": "po-light", "w": 640, "h": 1216, "seed": 27, "prompt": "a tall striped lighthouse on a rocky point with waves and a gull, vertical" },
+    { "id": "po-stamp", "w": 640, "h": 1216, "seed": 28, "prompt": "a giant rubber stamp and an ink pad and a pile of forms, municipal notice poster, vertical" },
+    { "id": "ca-harbor", "w": 1216, "h": 640, "seed": 31, "prompt": "a small Maine harbor at dawn, lobster boats, fog, a tilted lighthouse, gulls on pilings" },
+    { "id": "ca-moose", "w": 1216, "h": 640, "seed": 32, "prompt": "a moose in morning fog beside a pine road, a pickup truck stopped politely in the distance" },
+    { "id": "ca-mill", "w": 1216, "h": 640, "seed": 33, "prompt": "brick mill beside a river at golden hour, ducks on the water, steam from the chimney" },
+    { "id": "ca-downtown", "w": 1216, "h": 640, "seed": 34, "prompt": "a coastal downtown main street at dusk, glowing shop windows, bunting, a lone clock tower, drizzle" }
+  ]
+}

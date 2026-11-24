@@ -118,6 +118,9 @@ class Kit {
   /** Thin things seen from both sides: canopies, umbrellas, roofs. */
   dbl = new Batch();
   sign = new Batch();
+  /** Painted billboards and posters (tools/art): their own atlases, so their own batches. */
+  bb = new Batch();
+  pst = new Batch();
   decal = new Batch();
   marks = new Batch();
   cobble = new Batch();
@@ -154,7 +157,23 @@ class Kit {
   hoarding(key: string, x: number, y0: number, z: number, w: number, h: number, hd: number): void {
     const c = Math.cos(hd), s = Math.sin(hd);
     this.f.box(x - 0.2 * s, y0 - 0.2, z - 0.2 * c, w + 0.4, h + 0.4, 0.3, INK, hd, 7);
-    this.board(key, x, y0, z, w, h, hd);
+    const art = ART_BOARDS.indexOf(key);
+    if (art < 0) { this.board(key, x, y0, z, w, h, hd); return; }
+    // boards.webp is 2 columns x 4 rows of 1024 x 512, row 0 at the top.
+    const u0 = (art % 2) * 0.5, vt = 1 - Math.floor(art / 2) * 0.25, hw = w / 2;
+    this.bb.quad(x - hw * c, y0, z + hw * s, x + hw * c, y0, z - hw * s, x + hw * c, y0 + h, z - hw * s, x - hw * c, y0 + h, z + hw * s, 0xffffff, u0 + 0.002, vt - 0.248, u0 + 0.498, vt - 0.002);
+  }
+
+  /** A poster (posters.webp: 4 columns x 2 rows of 512 x 1024) on both faces of an upright panel centered on (x, z) along heading hd. */
+  poster(slot: number, x: number, y0: number, z: number, w: number, h: number, hd: number, off = 0.04): void {
+    const c = Math.cos(hd), s = Math.sin(hd), hw = w / 2, u0 = (slot % 4) * 0.25, vt = 1 - Math.floor(slot / 4) * 0.5;
+    for (const side of [1, -1]) {
+      const nx = s * off * side, nz = c * off * side, k = side;
+      // Seen from the back, the viewer's left is the board's local +X.
+      this.pst.quad(x - hw * c * k + nx, y0, z + hw * s * k + nz, x + hw * c * k + nx, y0, z - hw * s * k + nz,
+        x + hw * c * k + nx, y0 + h, z - hw * s * k + nz, x - hw * c * k + nx, y0 + h, z + hw * s * k + nz,
+        0xffffff, u0 + 0.002, vt - 0.498, u0 + 0.248, vt - 0.002);
+    }
   }
 
   /** Light pool on the ground. Additive, so it only shows once mats.glow fades in at dusk. */
@@ -205,6 +224,8 @@ class Kit {
     add(this.decal, m.decal, false);
     add(this.marks, m.marks, false);
     add(this.sign, m.sign, false);
+    add(this.bb, m.boards, false);
+    add(this.pst, m.posters, false);
     add(this.lamp, lampMat, false);
     add(this.glow, m.glow, false, 2);
   }
@@ -553,6 +574,11 @@ function buildArena(K: Kit): void {
 
 // ── Billboards ───────────────────────────────────────────────────────────────
 
+/** Order of the cells in public/textures/art/boards.webp (tools/art/compose.mjs BOARDS). */
+const ART_BOARDS = ['bb-speedscan', 'bb-pardons', 'bb-dithers', 'bb-lackwool', 'bb-radio881', 'bb-tepid', 'bb-bridge', 'bb-derby'];
+/** Posters in posters.webp order: duck, moose, bond, derby, fair, cat, lighthouse, notice. */
+const POSTER_SLOTS = 8;
+
 /** A 2:1 board on a steel frame. `posts` 1 = a single mast (fits a sidewalk), 2 = a trestle. */
 function billboard(K: Kit, key: string, x: number, z: number, hd: number, w = 12, base = 6.5, posts = 2): void {
   const f = K.f, g = groundAt(x, z), h = w / 2, c = Math.cos(hd), s = Math.sin(hd);
@@ -584,6 +610,34 @@ function billboard(K: Kit, key: string, x: number, z: number, hd: number, w = 12
   K.halo(hx, g + base + h / 2, hz, w * 1.5, hd, 0x5a4a2c);
 }
 
+/** Notice stands on the sidewalks: two posts and a panel carrying four posters (two a side). */
+function buildPosters(K: Kit): void {
+  K.place('posters');
+  const rng = new RNG(8802), park0 = blockRect(K.game, 6, 2), park1 = blockRect(K.game, 7, 3);
+  let slot = 0, n = 0;
+  const stand = (x: number, z: number, hd: number): void => {
+    const f = K.f, g = groundAt(x, z), c = Math.cos(hd), s = Math.sin(hd);
+    for (const lx of [-1.15, 1.15]) f.box(x + lx * c, g, z - lx * s, 0.12, 3.1, 0.12, STEEL, hd, 4);
+    f.box(x, g + 0.7, z, 2.6, 2.2, 0.07, INK, hd, 7);
+    f.box(x, g + 2.9, z, 2.8, 0.12, 0.18, BONE, hd, 7);
+    for (const lx of [-0.62, 0.62]) K.poster(slot++ % POSTER_SLOTS, x + lx * c, g + 0.8, z - lx * s, 1.0, 2.0, hd);
+    K.col.addProp(x, z, 0.6, 3, 'post', false);
+    n++;
+  };
+  for (const blk of K.game.plan.blocks) {
+    const r = blk.rect;
+    if (r.x1 > park0.x0 && r.x0 < park1.x1 && r.z1 > park0.z0 && r.z0 < park1.z1) continue;
+    if (r.z0 < -520 || r.z1 > 520 || r.x0 < -660 || r.x1 > 660) continue; // the island only; the mainland has its own streets
+    if (!rng.chance(0.3) || n >= 30) continue;
+    // One stand on the sidewalk of a street-facing edge, turned along the walk like a blade sign so people coming down the pavement see its faces.
+    const edge = rng.int(0, 3), cx = (r.x0 + r.x1) / 2 + rng.range(-12, 12), cz = (r.z0 + r.z1) / 2 + rng.range(-12, 12), m = SIDEWALK / 2 + 0.2;
+    if (edge === 0) stand(cx, r.z0 + m, Math.PI / 2);
+    else if (edge === 1) stand(cx, r.z1 - m, Math.PI / 2);
+    else if (edge === 2) stand(r.x0 + m, cz, 0);
+    else stand(r.x1 - m, cz, 0);
+  }
+}
+
 function buildBillboards(K: Kit): void {
   K.place('boards');
   const bb = K.signs.billboards, pick = (i: number): string => bb[Math.min(i, bb.length - 1)];
@@ -591,13 +645,16 @@ function buildBillboards(K: Kit): void {
   // little toward the player. The pier and the wheel are west of south from there, so it frames them.
   billboard(K, 'wdoof', 52, 302.3, Math.PI + 0.26, 10, 7.5, 1);
   // WDOOF again, beside the bridge approach, for anyone lining up the big jump.
-  billboard(K, 'wdoof', 2, -458, 0.12, 14, 7);
-  // The rest stand where an avenue runs out, facing back down it.
-  billboard(K, pick(3), -624, -20, Math.PI / 2, 14, 7);       // west end of Ledger St
-  billboard(K, pick(4), 606, -20, -Math.PI / 2, 14, 7);       // east end of Ledger St
-  billboard(K, pick(1), 310, 428, Math.PI, 14, 7);            // south end of Ironbound Ave
-  billboard(K, pick(2), 310, -456, 0, 14, 7);                 // north end of Ironbound Ave
-  billboard(K, pick(2), -624, 290, Math.PI / 2, 14, 7);       // west end of Strand Blvd
+  // The rest are painted boards (public/textures/art): they stand where an avenue runs out, facing back down it.
+  billboard(K, 'bb-bridge', 2, -458, 0.12, 14, 7);                // beside the bridge approach, for anyone lining up the big jump
+  billboard(K, 'bb-speedscan', -624, -20, Math.PI / 2, 14, 7);    // west end of Ledger St
+  billboard(K, 'bb-pardons', 606, -20, -Math.PI / 2, 14, 7);      // east end of Ledger St
+  billboard(K, 'bb-derby', 310, 428, Math.PI, 14, 7);             // south end of Ironbound Ave
+  billboard(K, 'bb-dithers', 310, -456, 0, 14, 7);                // north end of Ironbound Ave
+  billboard(K, 'bb-lackwool', -624, 290, Math.PI / 2, 14, 7);     // west end of Strand Blvd
+  billboard(K, 'bb-radio881', -624, -78, Math.PI / 2, 14, 7);     // a second board a block north of the Ledger St one
+  billboard(K, 'bb-tepid', 606, 38, -Math.PI / 2, 14, 7);         // and one a block south of the east one
+  void pick;
 }
 
 // ── Low Tide Beach ───────────────────────────────────────────────────────────
@@ -1013,6 +1070,7 @@ export function buildPlaces(game: Game, mats: CityMaterials, parent: THREE.Group
   buildPark(K);
   buildArena(K);
   buildBillboards(K);
+  buildPosters(K);
   buildBeach(K);
   buildHarbor(K);
   buildRocks(K);

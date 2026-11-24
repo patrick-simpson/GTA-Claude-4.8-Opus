@@ -1,0 +1,11 @@
+{
+  "_note": "ComfyUI API-format graph. comfy.mjs fills __POSITIVE__, __NEGATIVE__, __SEED__, __W__, __H__, __STEPS__, __CFG__, __PREFIX__. SDXL base 1.0 + SDXL VAE, tiled decode for 6 GB.",
+  "1": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "sd_xl_base_1.0.safetensors" } },
+  "2": { "class_type": "VAELoader", "inputs": { "vae_name": "sdxl_vae.safetensors" } },
+  "3": { "class_type": "CLIPTextEncode", "inputs": { "text": "__POSITIVE__", "clip": ["1", 1] } },
+  "4": { "class_type": "CLIPTextEncode", "inputs": { "text": "__NEGATIVE__", "clip": ["1", 1] } },
+  "5": { "class_type": "EmptyLatentImage", "inputs": { "width": "__W__", "height": "__H__", "batch_size": 1 } },
+  "6": { "class_type": "KSampler", "inputs": { "model": ["1", 0], "positive": ["3", 0], "negative": ["4", 0], "latent_image": ["5", 0], "seed": "__SEED__", "steps": "__STEPS__", "cfg": "__CFG__", "sampler_name": "dpmpp_2m", "scheduler": "karras", "denoise": 1 } },
+  "7": { "class_type": "VAEDecodeTiled", "inputs": { "samples": ["6", 0], "vae": ["2", 0], "tile_size": 512, "overlap": 64, "temporal_size": 64, "temporal_overlap": 8 } },
+  "8": { "class_type": "SaveImage", "inputs": { "images": ["7", 0], "filename_prefix": "__PREFIX__" } }
+}

@@ -27,6 +27,18 @@ function gull(x: number, y: number, s: number): string {
   return `<path d="M${x - 20 * s} ${y - 3 * s}q${11 * s} ${-9 * s} ${20 * s} ${3 * s}q${9 * s} ${-12 * s} ${20 * s} ${-3 * s}" fill="none" stroke="${INK}" stroke-width="${3.4 * s}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
+/** Painted plates for the title card (public/textures/art, made with tools/art): one a visit, with a dry caption set in the HUD font. */
+const PLATES: [string, string][] = [
+  ['harbor', 'Plate 1. Counting the gulls, twice, for accuracy.'],
+  ['moose', 'Plate 2. The moose is almost across.'],
+  ['mill', 'Plate 3. Carding the wool, tediously.'],
+  ['downtown', 'Plate 4. Stamping your visit, in triplicate.'],
+];
+function plate(): string {
+  const [k, cap] = PLATES[Math.floor(Math.random() * PLATES.length)];
+  return `<img class="tt-card" src="textures/art/card-${k}.webp" alt="" decoding="async" onload="this.classList.add('on')"><div class="tt-cap">${cap}</div>`;
+}
+
 function picture(): string {
   const rng = new RNG(1907);
   const sx = 560;
@@ -129,7 +141,7 @@ export class Title {
     root.id = 'title';
     this.root = root;
     root.innerHTML = `
-<div class="tt-pic">${picture()}
+<div class="tt-pic">${picture()}${plate()}
   <div class="tt-tab"><span>Harbor Authority of Port Calamity</span><span>Visitor information, sheet 1 of 1</span></div>
 </div>
 <div class="tt-band">

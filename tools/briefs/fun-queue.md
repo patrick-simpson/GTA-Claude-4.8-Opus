@@ -96,6 +96,7 @@ boots with no errors at high, low and the phone layout; nothing gory.
     Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/'. Only if no official file
     exists, ask the lead before taking the audio any other way. Then the picture and music are cut together
     in one file, and the sync and YouTube fallback below no longer apply.
+    DaVinci Resolve 21.2 (free) is installed for the grade and edit (fuscript.exe for scripting).
     OWNER CHANGE (Nov 24): "prepackage the video so it's super high quality. Don't have it render in real
     time." So it is a PRE-RENDERED VIDEO FILE, picture only (no audio track: the music still streams from
     the hidden YouTube player, and the video's clock follows the player's time so cuts stay on the beat;
@@ -115,3 +116,18 @@ boots with no errors at high, low and the phone layout; nothing gory.
     paperwork style with punchy lines, and the logo at the end with "PRESS ANY KEY" (overlaid live as HTML
     so it stays sharp). Phones get the 720p file. Shown once per new edition
     or first visit, with a menu option to replay it.
+
+21. SAFE CHAT (owner, Nov 24: "Is there a safe way to add chat that can't be abused" -> "Yes, add it").
+    No typing, ever (multiplayer decision 5 stands). Chat built from pieces: a quick-chat wheel (hold a key /
+    long-press) of ~30 lines in the game's voice; a sentence builder from fixed lists ("Meet me at [place]",
+    "Race you to [place]", "Let's go [activity]") that also drops a marker on the others' maps; map pings
+    (tap the map); short speech bubbles over the character and emoji reactions; a per-player mute. On the
+    wire only a phrase index and a place index travel; screens show only built-in phrases, so a tampered
+    client can't send words. Kid mode uses a gentler list. Rate-limited per player.
+22. DROWNING (owner, Nov 24: "add the ability to drown if you don't swim"). Water is dangerous if you don't
+    keep swimming: stop swimming (no input) and you tread for a moment, then start sinking; a breath meter
+    appears underwater; when it runs out you drown (screen fades, "WASHED UP" card in the paperwork style,
+    respawn on the nearest shore or the hospital, the usual cost). Swimming keeps you up, so normal
+    swimming is unchanged; long swims tire you (stamina) and tired swimmers sink faster. Cars that sink:
+    get out or drown. Ragdoll-ish limp float. NPCs knocked into water swim to shore. Kid mode: a lifeguard
+    whistle and you're plucked out onto the shore, no drowning. Multiplayer: others see you sink and wash up.

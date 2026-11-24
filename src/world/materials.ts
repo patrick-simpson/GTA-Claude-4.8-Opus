@@ -62,6 +62,9 @@ export class CityMaterials {
   readonly kit: Surface;
   /** Sign atlas (tex.signs). Alpha-tested for the round hanging signs; gently self-lit at night so it stays readable. */
   readonly sign: Surface;
+  /** Painted billboards (public/textures/art/boards.webp, 2x4 of 1024x512) and posters (posters.webp, 4x2 of 512x1024). Lit gently at night like `sign`. */
+  readonly boards: Surface;
+  readonly posters: Surface;
 
   /** 12 m street: u across the full width, v along it at 12 m per repeat. */
   readonly street: Surface;
@@ -124,6 +127,15 @@ export class CityMaterials {
     this.kit = this.mat(tex.kit.tex, { emissive: 0xffffff, emissiveMap: tex.kit.glow, emissiveIntensity: 0, env: 2.1 });
     // The sign lights itself with its own picture, so a lit sign keeps its colours.
     this.sign = this.mat(tex.signs.tex, { emissive: 0xffffff, emissiveMap: tex.signs.tex, emissiveIntensity: 0, alphaTest: 0.5, rough: 0.55 });
+    // Stable Diffusion pictures with the lettering set on top (tools/art). They arrive a moment after boot; until then the quads are plain white.
+    const art = (name: string): THREE.Texture => {
+      const t = new THREE.TextureLoader().load(`textures/art/${name}.webp`);
+      t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+      return t;
+    };
+    const bt = art('boards'), pt = art('posters');
+    this.boards = this.mat(bt, { emissive: 0xffffff, emissiveMap: bt, emissiveIntensity: 0, rough: 0.6 });
+    this.posters = this.mat(pt, { emissive: 0xffffff, emissiveMap: pt, emissiveIntensity: 0, rough: 0.75 });
 
     this.street = this.mat(tex.street);
     this.avenue = this.mat(tex.avenue);
@@ -223,6 +235,8 @@ export class CityMaterials {
     for (const f of this.facade) f.emissiveIntensity = w * 0.92;
     this.kit.emissiveIntensity = w * 0.66;
     this.sign.emissiveIntensity = n * 0.32;
+    this.boards.emissiveIntensity = n * 0.3;
+    this.posters.emissiveIntensity = n * 0.12;
     // Lawns are the most saturated thing in town and stayed postcard green under the moon.
     this.grass.color.setRGB(1 - 0.42 * n, 1 - 0.34 * n, 1 - 0.24 * n);
     this.glow.opacity = smooth(n * 1.2);
@@ -263,7 +277,7 @@ export class CityMaterials {
   /** Every material, for a pass that needs to touch them all (the bug bash's wireframe toggle, disposal). */
   get all(): THREE.Material[] {
     return [
-      ...this.facade, this.flat, this.flatDouble, this.kit, this.sign, this.street, this.avenue, this.asphalt,
+      ...this.facade, this.flat, this.flatDouble, this.kit, this.sign, this.boards, this.posters, this.street, this.avenue, this.asphalt,
       this.sidewalk, this.grass, this.sand, this.wood, this.cobble, this.roofGravel, this.roofTile, this.shingle,
       this.corrugated, this.container, this.ramp, this.fence, this.marks, this.decal, this.glow,
     ];
