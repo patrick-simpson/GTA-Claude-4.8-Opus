@@ -1,5 +1,5 @@
-// Debug overlay of the new street graph (streets.ts), shown with ?streets=new until the ground meshes
-// (step 2 unit 2) replace it: plain coloured strips at road width a little above the ground, a disc per
+// Debug overlay of the new street graph (streets.ts), shown with ?streetsdebug over the ground meshes
+// (step 2 unit 2): plain coloured strips at road width a little above the ground, a disc per
 // junction coloured by its control, rings for roundabouts, block outlines and lot footprints.
 //   strips: highway orange, ramp yellow, arterial white, local steel blue, the bridge cyan; one-way roads darker
 //   discs:  signal red, stop / give-way amber, dead end magenta; overpasses violet squares

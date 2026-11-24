@@ -23,8 +23,9 @@ import { RNG, TAU, clamp, hash2, noise2, smooth } from '../core/util';
 import { assets } from '../core/assets';
 import {
   AVE_HW, BREAKWATER, BRIDGE, BRIDGE_SPAN, BRIDGE_SPANS, CURB, PIER, RAMPS, SIDEWALK, WATER_Y, XS, ZS,
-  groundAt, hwX, hwZ, islandSD, roadY, terrainAt, type Block, type District, type Rect,
+  groundAt, hwX, hwZ, islandSD, roadY, streetSurface, terrainAt, type Block, type District, type Rect,
 } from './plan';
+import { buildStreetMeshes } from './streetMeshes';
 import {
   COAST, DAM_Z, EXTRA_LOTS, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MAIN_SPLIT_Z, MAIN_Y, MXS, MZS, POND_Y, RAIL, RAIL_TRESTLE,
   RIVER_HW, ROAD_BRIDGE, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, hillAt, mainlandTerrain, riverX, waterDist,
@@ -102,6 +103,9 @@ const inset = (r: Rect, road: readonly boolean[], d: number): Rect => ({
 });
 
 /** True on a stunt ramp, within 12 m of one, or in its run-up and landing strip. */
+/** Lamps along the new streets stay off the railway and out of the river. */
+const keepOutLamp = (x: number, z: number): boolean => (Math.abs(z - RAIL.z) < 5.5 && x > RAIL.x0 - 4 && x < RAIL.x1 + 4) || waterDist(x, z) < 4;
+
 function nearRamp(x: number, z: number): boolean {
   for (const r of RAMPS) {
     const dx = x - r.x, dz = z - r.z;
@@ -118,6 +122,9 @@ function keepOut(x: number, z: number): boolean {
   if (z < MAIN_SPLIT_Z) {
     // The mainland's: the railway, the bridge's landing, the footpath to the footbridge, the Thruway's stub, the water's edge.
     if (Math.abs(z - RAIL.z) < 5.5 && x > RAIL.x0 - 4 && x < RAIL.x1 + 4) return true;
+    // Under the new street plan: its roads and sidewalks instead of the old grid's.
+    const surf = streetSurface();
+    if (surf) return surf.nearRoad(x, z, 3) || waterDist(x, z) < 3;
     if (Math.abs(x - BRIDGE.x) < BRIDGE.hw + 5 && z > MZS[MZS.length - 1] + 5) return true;
     if (Math.abs(z - FOOTBRIDGE_Z) < 3.5 && x > MXS[8] && x < 660) return true;
     if (Math.abs(x - MXS[0]) < AVE_HW + 3 && z < MZS[0]) return true;
@@ -900,6 +907,9 @@ class Ground implements WorldPart {
   private streakU = { uAmount: { value: 0 }, uColor: { value: new THREE.Color(SODIUM) } };
   private nightGlow = 0;
   private mainShown = true;
+  /** The new street plan (streets.ts) is on: the old mainland grid's surfaces, signals, lamps and furniture are not drawn. */
+  private readonly newPlan = streetSurface() !== null;
+  private newLamps: [number, number, number][] = [];
   private pools = new Batch();
   private halos: number[] = [];
 
@@ -938,7 +948,7 @@ class Ground implements WorldPart {
     this.sea();
     this.mainWater();
     this.surfaces();
-    this.mainSurfaces();
+    if (streetSurface()) this.newStreets(); else this.mainSurfaces();
     this.mainStructures();
     // Order matters from here: each claims its spots and the next works around them.
     this.signals();
@@ -1277,6 +1287,8 @@ class Ground implements WorldPart {
     let seenMain = false;
     for (const n of plan.nodes) {
       if (!n.hasLight) continue;
+      // The new street plan has its own junctions (signals come with its traffic): the old grid's are gone.
+      if (n.land && this.newPlan) continue;
       // Nodes are in order, the island's first: everything from here on is the mainland's.
       if (n.land && !seenMain) { seenMain = true; this.sigMain = this.sigNode.length; }
       for (const eid of n.edges) {
@@ -1340,8 +1352,9 @@ class Ground implements WorldPart {
 
   private streetLamps(): void {
     const plan = this.plan;
+    for (const [x, z, h] of this.newLamps) if (!keepOutLamp(x, z) && this.claim(x, z, 0.6)) this.lamp(x, z, h);
     for (const e of plan.edges) {
-      if (e.deck) continue;
+      if (e.deck || (e.land && this.newPlan)) continue;
       const A = plan.nodes[e.a], B = plan.nodes[e.b];
       const s0 = (e.horiz ? A.hx : A.hz) + 9, s1 = e.len - (e.horiz ? B.hx : B.hz) - 9;
       const count = Math.max(2, Math.round((s1 - s0) / 32) + 1);
@@ -1492,6 +1505,7 @@ class Ground implements WorldPart {
   private furniture(): void {
     const rng = new RNG(7310), col = this.game.col;
     for (const b of this.plan.blocks) {
+      if (b.land && this.newPlan) continue;
       const [odds, fill] = FURN_MIX[b.district];
       const total = odds.reduce((a, v) => a + v, 0);
       this.eachSide(b, (len, at, inward, avenue) => {
@@ -1606,7 +1620,8 @@ class Ground implements WorldPart {
 
   /** Beach, bluff, plateau, riverbanks and countryside: one grid like the island's, cut into bands so the frustum can drop most of it. */
   private mainTerrain(): void {
-    const STEP = 8, X0 = -976, Z0 = -2528, NX = 250, NZ = 212, W = NX + 1, BANDS = 4;
+    // The new street plan reaches the north bluff: the grid runs on north to the sea.
+    const STEP = 8, X0 = -976, Z0 = this.newPlan ? -3008 : -2528, NX = 250, NZ = this.newPlan ? 272 : 212, W = NX + 1, BANDS = this.newPlan ? 5 : 4;
     const pos = new Float32Array(W * (NZ + 1) * 3), col = new Float32Array(pos.length);
     const uv = new Float32Array(W * (NZ + 1) * 2), sds = new Float32Array(W * (NZ + 1)), sandy = new Float32Array(W * (NZ + 1));
     const stops: [number, THREE.Color][] = ([
@@ -1644,7 +1659,7 @@ class Ground implements WorldPart {
     for (let j = 0; j < NZ; j++) {
       for (let i = 0; i < NX; i++) {
         const x = X0 + i * STEP, z = Z0 + j * STEP;
-        if (inside(TOWN_A, x, z) || inside(TOWN_B, x, z)) continue;
+        if (!this.newPlan && (inside(TOWN_A, x, z) || inside(TOWN_B, x, z))) continue;
         const a = j * W + i, b = a + 1, d = a + W, e = d + 1;
         if (Math.min(sds[a], sds[b], sds[d], sds[e]) > 70) continue;
         all.push(d, e, b, d, b, a);
@@ -1713,6 +1728,21 @@ class Ground implements WorldPart {
     const m = new THREE.Mesh(geo, mat);
     m.name = 'mill-pond';
     this.far(m, -1);
+  }
+
+  /** The new street plan's roads, sidewalks, junctions, overpasses, bridge and culverts (streetMeshes.ts). */
+  private newStreets(): void {
+    const surf = streetSurface()!, mats = this.mats;
+    const b = buildStreetMeshes(surf, mats, this.game.col);
+    this.meshM(b.street, mats.street);
+    this.meshM(b.avenue, mats.avenue);
+    this.meshM(b.asphalt, mats.asphalt);
+    this.meshM(b.grass, mats.grass);
+    this.meshM(b.sidewalk, mats.sidewalk);
+    this.meshM(b.curb, mats.flat);
+    this.meshM(b.concrete, mats.flat, 0, this.game.quality.shadows);
+    this.meshM(b.marks, mats.marks);
+    this.newLamps = b.lamps;
   }
 
   /** Tepid Falls' streets, paint and blocks: the island's recipe, laid at the plateau's height and bent over the hill. */
@@ -1805,9 +1835,10 @@ class Ground implements WorldPart {
     // Trestle St over the river: a slab on three piers with solid parapets.
     const rb = ROAD_BRIDGE, zc = (rb.z0 + rb.z1) / 2, rxm = riverX(zc);
     const bx0 = rxm - RIVER_HW - 26, bx1 = rxm + RIVER_HW + 26;
-    flat.box((bx0 + bx1) / 2, Y - 1.1, zc, bx1 - bx0, 1.08, 13.2, CONC, 0, 6);
-    for (const k of [-0.75, 0, 0.75]) flat.box(rxm + k * RIVER_HW, -4, zc, 2.2, Y + 2.9, 11, CONC, 0, 4);
-    for (const sg of [-1, 1]) {
+    // Under the new street plan Trestle St crosses further south (streetMeshes.ts draws it): no old deck.
+    if (!this.newPlan) flat.box((bx0 + bx1) / 2, Y - 1.1, zc, bx1 - bx0, 1.08, 13.2, CONC, 0, 6);
+    if (!this.newPlan) for (const k of [-0.75, 0, 0.75]) flat.box(rxm + k * RIVER_HW, -4, zc, 2.2, Y + 2.9, 11, CONC, 0, 4);
+    if (!this.newPlan) for (const sg of [-1, 1]) {
       const z = zc + sg * 6.3;
       flat.box((bx0 + bx1) / 2, Y, z, bx1 - bx0 + 8, 1.0, 0.6, CONC, 0, 5);
       col.addBox(bx0 - 4, z - 0.3, bx1 + 4, z + 0.3, Y + 1.2, Y - 1.5);
@@ -1886,7 +1917,7 @@ class Ground implements WorldPart {
     }
     // Crossbucks at every level crossing, one for each direction of traffic.
     for (const e of plan.edges) {
-      if (!e.land || e.deck || e.horiz) continue;
+      if (!e.land || e.deck || e.horiz || this.newPlan) continue;
       const A = plan.nodes[e.a], B = plan.nodes[e.b];
       if (A.z > RAIL.z || B.z < RAIL.z || A.x < RAIL.x0 || A.x > RAIL.x1) continue;
       for (const sg of [-1, 1]) {
@@ -1902,7 +1933,7 @@ class Ground implements WorldPart {
 
     // The Thruway is divided: a concrete barrier down the middle, with gaps at every crossing.
     for (const e of plan.edges) {
-      if (!e.land || e.deck || e.horiz) continue;
+      if (!e.land || e.deck || e.horiz || this.newPlan) continue;
       const A = plan.nodes[e.a], B = plan.nodes[e.b];
       if (A.x !== MXS[0]) continue;
       const z0 = A.z + A.hz + 16, z1 = B.z - B.hz - 16;
@@ -1912,8 +1943,10 @@ class Ground implements WorldPart {
     }
     // And it ends, for now, at a barrier two hundred meters past Town Line Rd.
     const zn = MZS[0] - ST_HW_M - 222;
-    sawhorses(flat, MXS[0], Y, zn, 0, AVE_HW * 2 - 0.4);
-    col.addBox(MXS[0] - AVE_HW, zn - 0.3, MXS[0] + AVE_HW, zn + 0.3, Y + 1.15, Y - 0.5);
+    if (!this.newPlan) {
+      sawhorses(flat, MXS[0], Y, zn, 0, AVE_HW * 2 - 0.4);
+      col.addBox(MXS[0] - AVE_HW, zn - 0.3, MXS[0] + AVE_HW, zn + 0.3, Y + 1.15, Y - 0.5);
+    }
 
     this.meshM(flat, this.mats.flat, 0, this.game.quality.shadows);
   }
@@ -1922,7 +1955,7 @@ class Ground implements WorldPart {
   private mainTrees(): void {
     const plan = this.plan, den = this.den, rng = new RNG(9131);
     for (const b of plan.blocks) {
-      if (!b.land) continue;
+      if (!b.land || this.newPlan) continue;
       const [species, gap, share] = STREET_TREES[b.district];
       this.eachSide(b, (len, at) => {
         for (let s = gap * 0.5; s < len - 4; s += gap) {
@@ -1935,7 +1968,7 @@ class Ground implements WorldPart {
       });
     }
     for (const b of plan.blocks) {
-      if (b.district !== 'college' && b.district !== 'square') continue;
+      if ((b.district !== 'college' && b.district !== 'square') || this.newPlan) continue;
       const r = b.rect, sq = b.district === 'square', G = sq ? 11 : 15;
       for (let x = r.x0 + 7; x < r.x1 - 7; x += G) for (let z = r.z0 + 7; z < r.z1 - 7; z += G) {
         const px = x + rng.range(0, G - 3), pz = z + rng.range(0, G - 3), roll = rng.next(), alt = rng.next();
@@ -1947,7 +1980,7 @@ class Ground implements WorldPart {
         this.tree(sq ? (alt < 0.75 ? 'elm' : 'sugarmaple') : alt < 0.25 ? 'pine' : alt < 0.45 ? 'birch' : alt < 0.7 ? 'sugarmaple' : 'redoak', px, pz, rng);
       }
     }
-    for (let x = -950; x < 1000; x += 24) for (let z = -2510; z < -1000; z += 24) {
+    for (let x = -950; x < 1000; x += 24) for (let z = this.newPlan ? -2950 : -2510; z < -1000; z += 24) {
       const px = x + rng.range(0, 19), pz = z + rng.range(0, 19), roll = rng.next(), alt = rng.next();
       if (inTown(px, pz, 9)) continue;
       const want = (0.22 + 0.75 * smooth(noise2(px * 0.012 + 3, pz * 0.012 + 11) * 2 - 0.55)) * den;
@@ -2172,7 +2205,7 @@ class Ground implements WorldPart {
       // the lake, and (found by trial, they are short) along the stream and the brook.
       const bank = (x: number, z: number): void => {
         const wd = waterDist(x, z);
-        if (wd < 0.3 || wd > 3 || inTown(x, z, 6) || noise2(x * 0.07, z * 0.07 + 4) < 0.45) return;
+        if (wd < 0.3 || wd > 3 || inTown(x, z, 6) || noise2(x * 0.07, z * 0.07 + 4) < 0.45 || streetSurface()?.nearRoad(x, z, 4)) return;
         reeds(x, z, gy(x, z));
       };
       const sparse = den < 1 ? 2 : 1;

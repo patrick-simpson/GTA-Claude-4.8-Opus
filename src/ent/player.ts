@@ -13,7 +13,7 @@ import type { Person, PlayerApi, Vehicle } from '../core/api';
 import { myLook, onMyLook, toStyled } from '../game/looks';
 import type { Box } from '../world/collide';
 import { clamp, clamp01, damp, dampAngle, headingOf, lerp, money, smooth } from '../core/util';
-import { groundAt } from '../world/plan';
+import { groundAt, setGroundHint } from '../world/plan';
 import { waterLevelAt } from '../world/mainland';
 import { Weapons } from './weapons';
 import { kid } from '../core/kid';
@@ -525,7 +525,9 @@ export class Player implements PlayerApi {
   /** Height of what she would stand on at (x, z): the ground, or the top of a box her feet could reach. */
   private support(x: number, z: number, y: number): number {
     this.qx = x; this.qy = y; this.qz = z;
+    setGroundHint(y);
     this.qTop = groundAt(x, z);
+    setGroundHint();
     this.game.col.forBoxes(x, z, 0.05, this.boxTop);
     return this.qTop;
   }

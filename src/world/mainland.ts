@@ -178,7 +178,19 @@ export const DECKS: MRect[] = [ROAD_BRIDGE, FOOTBRIDGE, RAIL_TRESTLE];
 // ── Height of the natural ground ─────────────────────────────────────────────
 
 /** Height of the mainland's natural ground: beach, bluff, plateau, riverbanks and the hill. No curbs, no decks. */
+/**
+ * The new street plan (streetGround.ts) grades the ground under and beside its roads: when set, every caller of
+ * mainlandTerrain() gets the graded height. naturalTerrain() is the ground before that.
+ */
+let terrainGrade: ((x: number, z: number, natural: number) => number) | null = null;
+export function setTerrainGrade(f: ((x: number, z: number, natural: number) => number) | null): void { terrainGrade = f; }
+
 export function mainlandTerrain(x: number, z: number): number {
+  const h = naturalTerrain(x, z);
+  return terrainGrade === null ? h : terrainGrade(x, z, h);
+}
+
+export function naturalTerrain(x: number, z: number): number {
   // The town itself: flat, or the hill. Nothing else reaches in here, so skip the coast's arctangent.
   if (z < -1072 && z > -2068 && ((x > -712 && x < 178) || (x > 462 && x < 588 && z < -1612))) {
     return MAIN_Y + hillAt(x, z);

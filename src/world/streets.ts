@@ -1,6 +1,6 @@
 // Tepid Falls' new street graph (tepid-streets.md step 2): angled and curved roads after real Waterville.
 //
-// Pure data, no rendering. Built from streetData.ts (the traced plan) when the page has ?streets=new;
+// Pure data, no rendering. Built from streetData.ts (the traced plan) unless the page has ?streets=old;
 // CityPlan keeps it as `plan.streets` beside the old grid until the last unit makes it the default.
 //
 // The graph
@@ -27,8 +27,11 @@ import { PD } from './pardonsSite';
 import { PLAN_JUNCTIONS, PLAN_ROADS, PLAN_ROUNDABOUTS, type RoadKind } from './streetData';
 import type { ParkSpot, RoadEdge, RoadNode } from './plan';
 
-/** ?streets=new: build and use the new graph. Off by default until step 2 unit 6. */
-export const STREETS_NEW = typeof location !== 'undefined' && new URLSearchParams(location.search).get('streets') === 'new';
+/**
+ * The new graph is the default since step 2 unit 2 (owner: rebuild the live map in place, glitches and all);
+ * ?streets=old brings back the old mainland grid until the rebuild is done.
+ */
+export const STREETS_NEW = typeof location === 'undefined' || new URLSearchParams(location.search).get('streets') !== 'old';
 
 export type NodeControl = 'signal' | 'stop' | 'roundabout' | 'end' | 'none';
 export type EdgeKind = RoadKind | 'bridge';

@@ -13,11 +13,12 @@
 import { RNG, clamp, smooth } from '../core/util';
 import {
   DECKS, EXTRA_LOTS, LAKE, MAIN_SPLIT_Z, MAIN_Y, MI0, MJ0, MXS, MZS, M_AVE_X, M_AVE_Z, M_EW_NAMES, M_NS_NAMES, RAIL,
-  RIVER_HW, STAGE_OF, STAGE_OVERRIDE, coastSD, hillAt, mCell, mainlandTerrain, mhSeg, mvSeg, riverX, waterDist,
+  RIVER_HW, STAGE_OF, STAGE_OVERRIDE, coastSD, hillAt, mCell, mainlandTerrain, mhSeg, mvSeg, riverX, setTerrainGrade, waterDist,
   type MainDistrict,
 } from './mainland';
 import { PD, pardonsStalls } from './pardonsSite';
 import { STREETS_NEW, StreetGraph, type EdgeKind, type NodeControl } from './streets';
+import { StreetSurface } from './streetGround';
 
 export type IslandDistrict =
   | 'downtown' | 'midtown' | 'oldtown' | 'suburb' | 'industrial' | 'port' | 'strand' | 'park' | 'arena';
@@ -250,6 +251,16 @@ export function terrainAt(x: number, z: number): number {
 let groundExtra: ((x: number, z: number, base: number) => number) | null = null;
 export function setGroundExtra(f: ((x: number, z: number, base: number) => number) | null): void { groundExtra = f; }
 
+/** The new street plan's surfaces (streetGround.ts), when the plan has them: the mainland's groundAt() is theirs. */
+let SURF: StreetSurface | null = null;
+export const streetSurface = (): StreetSurface | null => SURF;
+/**
+ * Where an overpass crosses a road, groundAt() answers for whoever asks: physics sets the height it is at
+ * (setGroundHint(y)) before it probes and clears it after (setGroundHint()). Without a hint: the lower road.
+ */
+let groundHint = -Infinity;
+export function setGroundHint(y = -Infinity): void { groundHint = y; }
+
 export function groundAt(x: number, z: number): number {
   const b = groundBase(x, z);
   return groundExtra === null ? b : groundExtra(x, z, b);
@@ -271,7 +282,7 @@ function groundBase(x: number, z: number): number {
   if (Math.abs(x - BRIDGE.x) <= BRIDGE.hw && z <= BRIDGE.z0 && z >= bridgeEnd) {
     return bridgeY(BRIDGE.z0 - z) + rampHeight(x, z);
   }
-  if (z < MAIN_SPLIT_Z) return mainGroundAt(x, z);
+  if (z < MAIN_SPLIT_Z) return SURF !== null ? SURF.groundAt(x, z, groundHint) : mainGroundAt(x, z);
   let deck = -99;
   if (inRect(PIER, x, z)) deck = DECK_Y * clamp((z - PIER.z0) / 10, 0, 1);
   if (inRect(PIER_HEAD, x, z)) deck = DECK_Y;
@@ -290,6 +301,7 @@ function groundBase(x: number, z: number): number {
  * three decks and then the natural terrain, which costs about what the island's beach does.
  */
 function mainGroundAt(x: number, z: number): number {
+  if (SURF !== null) return SURF.groundAt(x, z, groundHint);
   if (x > MXS[0] && x < MXS[MXS.length - 1] && z > MZS[0] && z < MZS[MNJ]) {
     let i = 0, j = 0;
     while (x > MXS[i + 1]) i++;
@@ -362,7 +374,7 @@ export class CityPlan {
   private mainEdges: RoadEdge[] = [];
   readonly bounds: Rect = { x0: -960, z0: -2330, x1: 1010, z1: 760 };
   /**
-   * The new mainland street graph after real Waterville (streets.ts), built with ?streets=new. Its island part has
+   * The new mainland street graph after real Waterville (streets.ts), built by default (?streets=old leaves it out). Its island part has
    * the same ids as nodes/edges here; the old grid above stays what every system draws and drives until it is adopted.
    */
   streets: StreetGraph | null = null;
@@ -375,7 +387,15 @@ export class CityPlan {
     this.isleEdges = this.edges.slice();
     this.buildMainland(new RNG(seed + 101));
     this.mainEdges = this.edges.filter((e) => e.land === 1 && !e.deck);
-    if (streets) this.streets = new StreetGraph(this.nodes.slice(0, this.isle.nodes), this.edges.slice(0, this.isle.edges), this.grid[5][0]);
+    if (streets) {
+      this.streets = new StreetGraph(this.nodes.slice(0, this.isle.nodes), this.edges.slice(0, this.isle.edges), this.grid[5][0]);
+      // The bridge's own deck ends here (ground.ts bridgeFullEnd): the new landing road runs from its node to there.
+      SURF = new StreetSurface(this.streets, BRIDGE.z1 - BRIDGE_SPANS * BRIDGE_SPAN);
+      const surf = SURF;
+      setTerrainGrade((x, z, nat) => surf.graded(x, z, nat));
+      // The new roads reach the north bluff (exit 130).
+      this.bounds.z0 = -2990;
+    }
   }
 
   /** Streets to choose from for somebody standing at z: the island's or the mainland's. */

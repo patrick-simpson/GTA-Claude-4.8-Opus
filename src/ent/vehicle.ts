@@ -28,7 +28,7 @@ import { RNG, clamp, clamp01, damp, smooth } from '../core/util';
 import { SPECS, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
 import { vehicleModel, wheelGeometry, type VehicleModel } from './vehicleModels';
 import { loadVehicleAssets, SHEET_TEXELS, type CarMaps, type SendCell, type VehicleAsset } from './vehicleAssets';
-import { BRIDGE, groundAt, terrainAt, WATER_Y } from '../world/plan';
+import { BRIDGE, groundAt, setGroundHint, terrainAt, WATER_Y } from '../world/plan';
 import type { Box, Prop } from '../world/collide';
 
 const STEP = 1 / 120;
@@ -1115,6 +1115,8 @@ export class Vehicles implements VehiclesApi {
   // ── Driving ────────────────────────────────────────────────────────────────
 
   private step(c: Car, dt: number): void {
+    // An overpass and the road under it share x, z: the ground this car finds is the one just below it.
+    setGroundHint(c.y);
     if (carHooks.step !== null && c.driver === 'player' && carHooks.step(c, dt)) return;
     const sp = c.spec, ctl = c.ctl;
     let sh = Math.sin(c.h), ch = Math.cos(c.h);

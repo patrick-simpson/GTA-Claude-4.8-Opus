@@ -71,8 +71,8 @@ export class World implements WorldApi {
     this.parts.push(new StuntPark(g, this.group));
     // Rare weather (world/rareWeather.ts): now and then a tornado, and the Muddle River flooding Tepid Falls.
     this.parts.push(new RareWeather(g, this.group));
-    // ?streets=new: the new street graph (streets.ts) drawn as a debug overlay until its ground meshes exist.
-    if (g.plan.streets) this.group.add(buildStreetsOverlay(g.plan.streets));
+    // ?streetsdebug: the new street graph (streets.ts) drawn as a debug overlay over its ground meshes.
+    if (g.plan.streets && new URLSearchParams(location.search).has('streetsdebug')) this.group.add(buildStreetsOverlay(g.plan.streets));
     await step(1, 'Sweeping up');
   }
 
