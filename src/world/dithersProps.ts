@@ -4,8 +4,11 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Game } from '../core/game';
-import { groundAt } from './plan';
+import { groundAt, streetSurface } from './plan';
 import { CAMPUS_BUILDINGS, CAMPUS_DRIVES, CAMPUS_FIELDS, CAMPUS_PATHS, campusFree } from './dithersPlan';
+
+/** True when (x, z) is more than m metres from every street's carriageway and sidewalk (the current graph, so no lamp, bench or tree stands in a road). */
+const offRoad = (x: number, z: number, m: number): boolean => !streetSurface()?.nearRoad(x, z, m);
 
 /** Merged boxes and quads in a movable frame (a yaw about y, as three's rotation.y). */
 class G {
@@ -135,12 +138,12 @@ export function buildCampusProps(game: Game, parent: THREE.Object3D, env: THREE.
         const x = ax + tx * t, z = az + tz * t;
         if (acc > LAMP_GAP && lampM.length < 240) {
           const ox = x - tz * 1.9 * side, oz = z + tx * 1.9 * side;
-          if (campusFree(ox, oz, 0.8) && awayFromWalks(ox, oz, 1.2) === true) { lampM.push(m4.clone().setPosition(ox, groundAt(ox, oz), oz)); acc = 0; side = -side; }
-          else if (campusFree(ox, oz, 0.8)) { const px = x - tz * 2.6 * side, pz = z + tx * 2.6 * side; if (campusFree(px, pz, 0.8)) { lampM.push(m4.clone().setPosition(px, groundAt(px, pz), pz)); acc = 0; side = -side; } }
+          if (campusFree(ox, oz, 0.8) && offRoad(ox, oz, 1) && awayFromWalks(ox, oz, 1.2) === true) { lampM.push(m4.clone().setPosition(ox, groundAt(ox, oz), oz)); acc = 0; side = -side; }
+          else if (campusFree(ox, oz, 0.8) && offRoad(ox, oz, 1)) { const px = x - tz * 2.6 * side, pz = z + tx * 2.6 * side; if (campusFree(px, pz, 0.8) && offRoad(px, pz, 1)) { lampM.push(m4.clone().setPosition(px, groundAt(px, pz), pz)); acc = 0; side = -side; } }
         }
         if (bacc > BENCH_GAP && benchM.length < 110) {
           const ox = x + tz * 2.3, oz = z - tx * 2.3;
-          if (campusFree(ox, oz, 1.0)) { q.setFromAxisAngle(UP, Math.atan2(-tz, tx) + Math.PI / 2 * 0 + Math.PI); benchM.push(new THREE.Matrix4().compose(new THREE.Vector3(ox, groundAt(ox, oz) + 0.02, oz), q.setFromAxisAngle(UP, Math.atan2(tx, tz) - Math.PI / 2), new THREE.Vector3(1, 1, 1))); bacc = 0; }
+          if (campusFree(ox, oz, 1.0) && offRoad(ox, oz, 1)) { q.setFromAxisAngle(UP, Math.atan2(-tz, tx) + Math.PI / 2 * 0 + Math.PI); benchM.push(new THREE.Matrix4().compose(new THREE.Vector3(ox, groundAt(ox, oz) + 0.02, oz), q.setFromAxisAngle(UP, Math.atan2(tx, tz) - Math.PI / 2), new THREE.Vector3(1, 1, 1))); bacc = 0; }
         }
       }
     }
@@ -174,7 +177,7 @@ export function buildCampusProps(game: Game, parent: THREE.Object3D, env: THREE.
     const step = 17 / Math.sqrt(scale);
     for (let x = -575; x < -330; x += step) for (let z = -2565; z < -2185; z += step) {
       const px = x + (rnd() - 0.5) * step * 0.8, pz = z + (rnd() - 0.5) * step * 0.8;
-      if (!campusFree(px, pz, 5) || !awayFromWalks(px, pz, 3.6)) continue;
+      if (!campusFree(px, pz, 5) || !awayFromWalks(px, pz, 3.6) || !offRoad(px, pz, 4)) continue;
       const s = 0.62 + rnd() * 0.4;
       spots.push(new THREE.Matrix4().compose(new THREE.Vector3(px, groundAt(px, pz) - 0.1, pz), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6.28), new THREE.Vector3(s, s * (0.9 + rnd() * 0.3), s)));
       cols.push(new THREE.Color(hues[Math.floor(rnd() * hues.length)]).offsetHSL((rnd() - 0.5) * 0.02, 0, (rnd() - 0.5) * 0.06));

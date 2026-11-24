@@ -37,6 +37,7 @@ import { flip, sendRange } from '../core/flip';
 import { CUT_FAR, CUT_NEAR, CUT_VERTEX, PropField, loadProps } from './propAssets';
 import { RIVER_ON } from './riverfrontAssets';
 import { campusFree } from './dithersPlan';
+import { PD } from './pardonsSite';
 import { buildingNear, primeBuildingMask } from './mainlandBuildings';
 
 // Palette (see PLAN.md).
@@ -107,7 +108,7 @@ const inset = (r: Rect, road: readonly boolean[], d: number): Rect => ({
 
 /** True on a stunt ramp, within 12 m of one, or in its run-up and landing strip. */
 /** Lamps along the new streets stay off the railway and out of the river. */
-const keepOutLamp = (x: number, z: number): boolean => (!RAILWAY && Math.abs(z - RAIL.z) < 5.5 && x > RAIL.x0 - 4 && x < RAIL.x1 + 4) || railNear(x, z, 6) || waterDist(x, z) < 4;
+const keepOutLamp = (x: number, z: number): boolean => (!RAILWAY && Math.abs(z - RAIL.z) < 5.5 && x > RAIL.x0 - 4 && x < RAIL.x1 + 4) || railNear(x, z, 6) || waterDist(x, z) < 4 || !campusFree(x, z, 0.5) || inPardons(x, z, 0);
 
 function nearRamp(x: number, z: number): boolean {
   for (const r of RAMPS) {
@@ -120,6 +121,9 @@ function nearRamp(x: number, z: number): boolean {
   return false;
 }
 
+/** Pardon's lot and store (pardonsSite.ts), m metres of margin: no trees, shrubs or lamps of the town's on them. */
+const inPardons = (x: number, z: number, m: number): boolean => x > PD.XE - PD.SW - m && x < PD.XE + m && z > PD.LOT.z0 - m && z < PD.ZF + PD.SD + m;
+
 /** Spots other builders need empty: ramp runs, the park pond and promenade, the mouths of the bridge, pier and breakwater. */
 function keepOut(x: number, z: number): boolean {
   if (z < MAIN_SPLIT_Z) {
@@ -128,7 +132,7 @@ function keepOut(x: number, z: number): boolean {
     if (railNear(x, z, 5)) return true;
     // Under the new street plan: its roads and sidewalks instead of the old grid's.
     const surf = streetSurface();
-    if (surf) return surf.nearRoad(x, z, 3) || waterDist(x, z) < 3 || !campusFree(x, z, 2) || buildingNear(x, z, 1.5); // Dithers College: no trees in its halls or pond
+    if (surf) return surf.nearRoad(x, z, 3) || waterDist(x, z) < 3 || !campusFree(x, z, 2) || buildingNear(x, z, 1.5) || inPardons(x, z, 2); // Dithers College: no trees in its halls or pond
     if (Math.abs(x - BRIDGE.x) < BRIDGE.hw + 5 && z > MZS[MZS.length - 1] + 5) return true;
     if (Math.abs(z - FOOTBRIDGE_Z) < 3.5 && x > MXS[8] && x < 660) return true;
     if (Math.abs(x - MXS[0]) < AVE_HW + 3 && z < MZS[0]) return true;
