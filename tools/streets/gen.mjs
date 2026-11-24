@@ -168,6 +168,18 @@ const drop = (id) => { const i = roads.findIndex((q) => q.id === id); if (i < 0)
   moveEnd('ramp_130_43139524', 0, [-122.3, -2828.2]);
 }
 
+// Street fix (Nov 24, owner: "Mardens and Colby is screwed up"):
+// 1. Cherry Tree St's first edge (from the Offramp Rd node at -588,-1271 to Second Thought Ave) cut across the NE corner of Pardon's
+//    lot (x <= -599.5, z >= -1281.5): it now bends south first and meets the avenue along its north kerb, clear of the lot.
+{ const r = R('cherry_tree_st_0'); r.pts = flat([[-588.1, -1271], [-589.9, -1276], [-590.2, -1285], [-595, -1291.2], [-604, -1294], [-613.6, -1295], ...pairs(r.pts).slice(2)]); }
+// 2. Second Thought Ave's 90 degree corner at -770,-1248.5 (exit 127 interchange, a lamp stood on the carriageway there) becomes an arc.
+{ const r = R('second_thought_ave_0'), P = pairs(r.pts), i = P.findIndex((q) => Math.abs(q[0] + 769.9) < 0.2 && Math.abs(q[1] + 1248.5) < 0.2);
+  if (i < 1) throw new Error('Second Thought corner');
+  const a = P[i - 1], v = P[i], b = P[i + 1], ax = v[0] - a[0], az = v[1] - a[1], bx = b[0] - v[0], bz = b[1] - v[1], la = Math.hypot(ax, az), lb = Math.hypot(bx, bz), rr = Math.min(la, lb) * 0.55;
+  const p0 = [v[0] - (ax / la) * rr, v[1] - (az / la) * rr], p1 = [v[0] + (bx / lb) * rr, v[1] + (bz / lb) * rr], arc = [];
+  for (let k = 0; k <= 8; k++) { const t = k / 8, u = 1 - t; arc.push([u * u * p0[0] + 2 * u * t * v[0] + t * t * p1[0], u * u * p0[1] + 2 * u * t * v[1] + t * t * p1[1]]); }
+  P.splice(i, 1, ...arc); r.pts = flat(P); }
+
 // Added roads (unit A, #7): real Waterville streets missing from the plan, warped with the plan's mapping (scratch/fixA/addroads.py)
 // and given invented game names; plus one hand-made link that closes the north end (Depot St - Bagpipe Ave - Tuition Ave).
 roads.push({ id: 'headwaters_ln_0', name: 'Headwaters Ln', kind: 'local', lanes: 1, oneWay: false, divided: false, stage: 3,
