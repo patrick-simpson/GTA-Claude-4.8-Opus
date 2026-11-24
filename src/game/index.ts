@@ -13,6 +13,7 @@ import { story } from './missions';
 import type { Blip } from '../ui/hud';
 import { Activities } from './activities';
 import { Racing } from './race';
+import { Delivery } from './delivery';
 import { Pursuit } from './pursuit';
 import { Shops } from './shops';
 import { Menu } from '../ui/menu';
@@ -32,6 +33,8 @@ export class ThingsToDo {
   readonly jobs: Activities;
   /** Races, alone or with others in town (fun queue item 11). */
   readonly racing: Racing;
+  /** Delivery Rush from SpeedScan HQ or Pardon's (fun queue item 14). */
+  readonly delivery: Delivery;
   /** Hot Pursuit: a police chase between players (fun queue item 12). */
   readonly pursuit: Pursuit;
   readonly shops: Shops;
@@ -58,6 +61,7 @@ export class ThingsToDo {
     this.jobs = new Activities(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.racing = new Racing(game, this.markers, () => this.jobs.races, () => this.busy === null, (id) => this.setBusy(id));
     this.pursuit = new Pursuit(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
+    this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.shops = new Shops(game, this.markers);
     this.menu = new Menu(game, this);
 
@@ -109,6 +113,7 @@ export class ThingsToDo {
     const g = this.game;
     this.missions.abandon();
     this.jobs.stop();
+    this.delivery.stop();
     this.busy = null;
     save.hold = false;
     this.waypoint = null;
@@ -141,12 +146,13 @@ export class ThingsToDo {
     this.missions.update(dt);
     this.racing.update(dt);
     this.pursuit.update(dt);
+    this.delivery.update(dt);
     this.jobs.update(dt);
     this.shops.update(dt);
     const w = this.waypoint;
     if (w) this.markers.put(w.x, w.z, 'goal', 5, 30);
     this.markers.end();
-    this.say(this.missions.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.jobs.prompt ?? this.shops.prompt);
+    this.say(this.missions.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.delivery.prompt ?? this.jobs.prompt ?? this.shops.prompt);
     // M or Tab (Back on a pad): straight to the map.
     if (g.input.eat('map')) { this.menu.tab = 0; g.setPaused(true); }
     const down = !(g.player.health > 0);
@@ -173,6 +179,7 @@ export class ThingsToDo {
       out.length = 0;
       this.missions.blips(out);
       this.jobs.blips(out);
+      this.delivery.blips(out);
       this.racing.blips(out);
       this.pursuit.blips(out);
       this.shops.blips(out);
@@ -182,7 +189,7 @@ export class ThingsToDo {
       for (const b of out) sig += `${b.kind}${b.label ?? ''}${Math.round(b.x)},${Math.round(b.z)}${b.r ? 'r' + b.r : ''};`;
       if (sig !== this.navSig) { this.navSig = sig; nav.blips = out.slice(); nav.rev++; }
     }
-    const to = this.missions.target ?? this.jobs.target ?? this.waypoint;
+    const to = this.missions.target ?? this.delivery.target ?? this.jobs.target ?? this.waypoint;
     this.routeT += dt;
     if (to !== this.routeTo || this.routeT > 1) {
       this.routeTo = to; this.routeT = 0;

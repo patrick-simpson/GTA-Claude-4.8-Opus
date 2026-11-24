@@ -549,7 +549,7 @@ export class Menu {
     <h3>Section F · Races under par</h3>
     ${races}
     <h3>Section G · Odd jobs</h3>
-    ${row('Fares carried', String(d.stats.fares))}${row('Cars towed', String(d.stats.tows))}${row('Parcels delivered', String(d.stats.parcels))}
+    ${row('Fares carried', String(d.stats.fares))}${row('Cars towed', String(d.stats.tows))}${row('Parcels delivered', String(d.stats.parcels))}${row('Best rush', d.best.rush !== undefined ? money(d.best.rush) : '—')}
   </div>
 </div>`;
   }
