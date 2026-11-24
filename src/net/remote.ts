@@ -233,7 +233,11 @@ export class Remote {
     let line = '';
     if (code === PlayerEvent.Wave) line = SAYS[0];
     else if (code === PlayerEvent.Shout && arg >= 0 && arg + 1 < SAYS.length) line = SAYS[arg + 1];
-    if (!line) return;
+    if (line) this.showSay(line, now);
+  }
+
+  /** Put `line` in a bubble over them for SAY_MS (the canned shouts above, and safe chat: game/chat.ts). Built-in text only. */
+  showSay(line: string, now: number): void {
     this.said = this.lastSaid = line; this.saidAt = now; this.saidCount++;
     // A new canvas and texture for each line: a texture keeps the size it was first uploaded at.
     const cv = document.createElement('canvas');

@@ -424,7 +424,7 @@ export interface Blip {
   label?: string;
 }
 /** What src/game/ wants drawn on the radar. Bump `rev` after changing either list. */
-export interface Nav { blips: Blip[]; route: number[] | null; rev: number }
+export interface Nav { blips: Blip[]; route: number[] | null; rev: number; /** Other players' map pings (game/chat.ts), drawn over the blips. */ pings?: { x: number; z: number; who: string }[] }
 
 class Radar {
   private ctx: CanvasRenderingContext2D;
@@ -540,6 +540,19 @@ class Radar {
         c.font = `900 ${Math.round(br * 1.5)}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
         c.textAlign = 'center'; c.textBaseline = 'middle';
         c.fillText(b.label, px, py + br * 0.1);
+      }
+    }
+    // Safe chat pings (game/chat.ts): a violet diamond with a bang, pulsing, where another player asked to meet.
+    if (nav.pings) {
+      const pulse = 1 + 0.18 * Math.sin(performance.now() / 180);
+      for (const pg of nav.pings) {
+        const dx = pg.x - x, dz = pg.z - z, d = Math.hypot(dx, dz) || 1;
+        const lim = (rf - br * 1.25) / kf, q = d > lim ? lim / d : 1;
+        const px = (dx * ca - dz * sa) * q * kf, py = (dx * sa + dz * ca) * q * kf, s = br * 1.3 * pulse;
+        c.fillStyle = PEER_COLOR; c.strokeStyle = BONE; c.lineWidth = Math.max(1.5, br * 0.28);
+        c.beginPath(); c.moveTo(px, py - s); c.lineTo(px + s, py); c.lineTo(px, py + s); c.lineTo(px - s, py); c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = BONE; c.font = `900 ${Math.round(br * 1.5)}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
+        c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('!', px, py + br * 0.1);
       }
     }
     // Pardon's Surplus & Salvage (src/world/pardonsStore.ts): a red badge at its entrance once the bridge is open.
@@ -757,6 +770,7 @@ const KEYS: [string[], string][] = [
   [['O'], 'Photo mode'],
   [['L'], 'Light a firework'],
   [['Hold N'], 'Emotes / horn tunes'],
+  [['Hold Y'], 'Quick chat (no typing)'],
   [['LMB', 'RMB'], 'Fire / aim'],
   [['Q', 'E', 'R'], 'Switch / reload'],
   [['Esc'], 'Pause'],

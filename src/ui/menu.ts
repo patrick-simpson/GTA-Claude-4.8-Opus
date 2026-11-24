@@ -51,6 +51,7 @@ const CONTROLS: [string, string, string, string][] = [
   ['Switch / reload', 'Q E / R', 'LB RB / X', 'SWAP'],
   ['Horn', 'H', 'D-pad down', 'HORN'],
   ['Emotes, dances, horn tunes', 'Hold N', '', 'EMOTE'],
+  ['Quick chat and map pings', 'Hold Y', '', 'CHAT'],
   ['Radio: next station', 'T', 'D-pad up', 'RADIO'],
   ['Camera / look back', 'V / C', 'D-pad left / R3', 'CAMERA'],
   ['Replay the last 10 s', 'J', '', 'REPLAY'],
@@ -495,6 +496,8 @@ export class Menu {
     if (!todo.busy) for (const o of todo.missions.offers()) { const gv = todo.missions.givers[o.giver]; badge(gv.at.x, gv.at.z, VERMILION, gv.letter, false, BONE); }
     if (goal) badge(goal.x, goal.z, MUSTARD, '', true);
     if (way) badge(way.x, way.z, MUSTARD, '', true);
+    // Safe chat pings (game/chat.ts): a violet diamond with a bang and the sender's made-up name under it.
+    for (const pg of this.game.hud.nav.pings ?? []) { badge(pg.x, pg.z, PEER_COLOR, '!', true, BONE); text(pg.who, X(pg.x), Z(pg.z) + r + 12, 10, INK, true); }
 
     // Other players (multiplayer): a violet dot with the made-up name beside it. Nothing when not connected.
     for (const o of g.net.peers) {
@@ -669,11 +672,14 @@ export class Menu {
   private nameRow(): string {
     const n = this.game.net;
     if (n.status === 'off') return '';
-    return `<div class="mn-row"><span class="mn-lbl">Town name</span><span><button type="button" class="mn-link mn-name" data-set="newname" title="Get a new made-up name"><b>${esc(n.name)}</b> &middot; new name</button></span></div>`;
+    // Safe chat (game/chat.ts): who else is in town, each with a mute button. A muted player's bubbles, log lines, pings and shouts are not shown here.
+    const others = n.peers.map((r) => `<div class="mn-row"><span class="mn-lbl">${esc(r.text)}</span><span><button type="button" class="mn-link" data-set="mute" data-id="${r.id}">${n.chat.muted(r.id) ? 'muted &middot; unmute' : 'mute'}</button></span></div>`).join('');
+    return `<div class="mn-row"><span class="mn-lbl">Town name</span><span><button type="button" class="mn-link mn-name" data-set="newname" title="Get a new made-up name"><b>${esc(n.name)}</b> &middot; new name</button></span></div>${others ? `<div class="mn-row"><span class="mn-lbl">In town (Y is quick chat)</span><span></span></div>${others}` : ''}`;
   }
 
   private onSetting(el: HTMLElement): void {
     const s = save.data.settings, key = el.dataset.set;
+    if (key === 'mute') { const id = Number(el.dataset.id); this.game.net.chat.mute(id, !this.game.net.chat.muted(id)); this.panes[3].innerHTML = this.settingsHtml(); return; }
     if (key === 'newname') { const b = el.querySelector('b'); const nm = this.game.net.reroll(); if (b) b.textContent = nm; return; }
     if (key === 'reload') { this.todo.saveNow(); location.reload(); return; }
     if (key === 'sens') {

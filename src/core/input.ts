@@ -5,7 +5,7 @@ import { clamp } from './util';
 
 export type Action =
   | 'enter' | 'jump' | 'fire' | 'aim' | 'reload' | 'nextWeapon' | 'prevWeapon'
-  | 'handbrake' | 'horn' | 'radio' | 'pause' | 'map' | 'interact' | 'lookBack' | 'camera' | 'sprint' | 'say' | 'emote';
+  | 'handbrake' | 'horn' | 'radio' | 'pause' | 'map' | 'interact' | 'lookBack' | 'camera' | 'sprint' | 'say' | 'emote' | 'chat';
 
 const KEYMAP: Record<string, Action> = {
   KeyF: 'enter', Enter: 'enter',
@@ -21,6 +21,7 @@ const KEYMAP: Record<string, Action> = {
   KeyV: 'camera',
   KeyB: 'say',
   KeyN: 'emote',
+  KeyY: 'chat',
   ShiftLeft: 'sprint', ShiftRight: 'sprint',
 };
 

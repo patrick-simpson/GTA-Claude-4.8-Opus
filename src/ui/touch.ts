@@ -122,6 +122,9 @@ export class TouchUI {
     // Emotes and horn tunes (game/emotes.ts): one tap opens the wheel, a tap on a choice plays it. Under PHOTO.
     act('t-emote always', '', 'Emote', 'emote').el.style.cssText =
       'right:var(--sr);top:calc(var(--st) + 128px + 3 * var(--g));width:48px;height:40px;font-size:10px;letter-spacing:0;';
+    // Quick chat (game/chat.ts): one tap or a long press opens the wheel. Beside EMOTE.
+    act('t-chat always', '', 'Chat', 'chat').el.style.cssText =
+      'right:calc(var(--sr) + 48px + var(--g));top:calc(var(--st) + 128px + 3 * var(--g));width:48px;height:40px;font-size:10px;letter-spacing:0;';
     // Replay the last ten seconds (fx/replay.ts): a small key under pause, styled here beside its only use.
     this.key('t-replay always', '', 'Replay', () => game.cam.replay.rewatch(), () => { /* one press, one replay */ }).el.style.cssText =
       'right:var(--sr);top:calc(var(--st) + 48px + var(--g));width:48px;height:40px;font-size:10px;letter-spacing:0;';
