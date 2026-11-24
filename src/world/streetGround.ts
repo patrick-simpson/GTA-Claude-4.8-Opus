@@ -535,9 +535,9 @@ export class StreetSurface {
   }
 
   /**
-   * A street over a steep hill face follows the ground, grade and all (Chapel Hill Rd climbed 15%). Its profile is the ground's
-   * upper envelope, smoothed: valleys are bridged by fill (the terrain is graded up to it, see grade()), crests are kept, and
-   * each end meets its street at the ground's own height. Only streets over the grade limit get one.
+   * A street over a steep hill face follows the ground, grade and all (Chapel Hill Rd climbed 15%). Its profile is a surface of
+   * at most 8% grade held between cut and fill (the terrain is graded up or down to it, see grade() and graded()), and each end
+   * meets its street at the ground's own height. Only streets over the grade limit get one.
    */
   private solveProfiles(): void {
     for (const e of this.edges) {
@@ -546,9 +546,11 @@ export class StreetSurface {
       let steep = 0;
       for (let i = 0; i < n; i++) { const q = this.g.pointAt(e, Math.min(i, e.len)); f[i] = this.flat(q.x, q.z) + this.liftAt(e, Math.min(i, e.len)); if (i) steep = Math.max(steep, Math.abs(f[i] - f[i - 1])); }
       if (steep < 0.1) continue;
-      const env = new Float32Array(n), H = new Float32Array(n), W1 = 14, W2 = 22;
-      for (let i = 0; i < n; i++) { let m = -1e9; for (let k = Math.max(0, i - W1); k <= Math.min(n - 1, i + W1); k++) m = Math.max(m, f[k]); env[i] = m; }
-      for (let i = 0; i < n; i++) { let a = 0, c = 0; for (let k = Math.max(0, i - W2); k <= Math.min(n - 1, i + W2); k++) { a += env[k]; c++; } H[i] = Math.max(f[i], a / c); }
+      // A real hill road climbs at 8% at most. Balance cut and fill: halfway between the steepest-allowed surface that never
+      // dips below the ground (fill) and the one that never rises above it (cut), then rounded off (a smoothing never steepens it).
+      const H = new Float32Array(n), up = new Float32Array(n), lo = new Float32Array(n), GR = 0.075;
+      for (let i = 0; i < n; i++) { let a = -1e9, b = 1e9; for (let k = 0; k < n; k++) { const d = GR * Math.abs(i - k); a = Math.max(a, f[k] - d); b = Math.min(b, f[k] + d); } up[i] = a; lo[i] = b; }
+      for (let i = 0; i < n; i++) { let a = 0, c = 0; for (let k = Math.max(0, i - 12); k <= Math.min(n - 1, i + 12); k++) { a += (up[k] + lo[k]) / 2; c++; } H[i] = a / c; }
       // Back to the ground's own height at the ends (the pads sit on it).
       const out = new Float32Array(n), ta = this.trim(e, false) + 6, tb = this.trim(e, true) + 6;
       for (let i = 0; i < n; i++) out[i] = (H[i] - f[i]) * smooth(clamp((i - ta) / 24, 0, 1)) * smooth(clamp((e.len - i - tb) / 24, 0, 1));
@@ -722,7 +724,7 @@ export class StreetSurface {
         take(fl + this.padH(n, x, z));
       }
     }
-    let walk = false, walkL = 0;
+    let walk = false, walkL = 0, up = 0; // up: how far a hill road (fill or cut, see solveProfiles) stands off the plateau here: not an overpass
     const segs = this.segCells.get(key);
     if (segs) {
       // One surface per road: the nearest of its segments (on the inside of a bend a road is within reach of two stretches
@@ -747,10 +749,11 @@ export class StreetSurface {
       for (const [ei, [, s]] of near) {
         const e = this.edges[ei];
         take(fl + (e.kind === 'ramp' ? this.surfLift(e, s, x, z) : this.liftAt(e, s)));
+        if (this.prof.has(e.id)) up = Math.max(up, Math.abs(this.liftAt(e, s)));
       }
     }
     // Off every carriageway and pad: a junction's rounded corner is asphalt outside the roads' own widths, and its sidewalk wraps round it.
-    if (lo === Infinity || lo > fl + 1) {
+    if (lo === Infinity || lo > fl + 1 + up) {
       const js = this.juncCells.get(key);
       if (js) {
         let on = false;
@@ -771,7 +774,7 @@ export class StreetSurface {
       }
     }
     // A sidewalk under an overpass is still a sidewalk: it only loses to a road at its own level.
-    if (walk && lo !== Infinity && lo > fl + 1) take(fl + walkL + CURB_H);
+    if (walk && lo !== Infinity && lo > fl + 1 + up) take(fl + walkL + CURB_H);
     if (lo !== Infinity) return { kind: 'road', h: hint === -Infinity ? lo : best > -Infinity ? best : lo };
     if (walk) return { kind: 'walk', h: fl + walkL + CURB_H };
     void hi;
@@ -885,7 +888,7 @@ export class StreetSurface {
     if (k <= 0) return nat;
     const L = (this.lw[c] * (1 - u) + this.lw[c + 1] * u) * (1 - v) + (this.lw[c + GNX] * (1 - u) + this.lw[c + GNX + 1] * u) * v;
     const fl = this.flat(x, z) + L;
-    return fl > nat ? nat + (fl - nat) * k : nat;
+    return fl > nat || L < 0 ? nat + (fl - nat) * k : nat;
   }
 
   /** Spots where a road's fill crosses a stream (not the river): x, z, edge, s. For culverts. */
