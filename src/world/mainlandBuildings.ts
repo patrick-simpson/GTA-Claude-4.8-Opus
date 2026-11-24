@@ -29,6 +29,7 @@ import { FASCIA_OUT, MS_XE, MS_XW, MainStreet } from './mainStreetAssets';
 import { LACKWOOL, RIVER_ON, Riverfront } from './riverfrontAssets';
 import { PardonsStore } from './pardonsStore';
 import { CIVIC, civic, makeCivic } from './civicAssets';
+import { BY_KIND, DESIGN, HOUSES_ON, houses, makeHouses, type Kind } from './houseAssets';
 
 const CELL = MWALL.cell, ROW = MWALL.rows, RED = MWALL.redBrick;
 /** Edge of a chunk of town. Small enough that the shadow pass and the distance cull below drop most of the town most of the time. */
@@ -418,17 +419,42 @@ const MAIN_ROWS: Record<'w' | 'e', [number, number][]> = {
   e: [[-1640, -1757], [-1777, -1864], [-1884, -1950], [-1988, -2062]],
 };
 
-let LOTS: Lot[] | null = null;
+/** A lot at its own angle: centre, heading of its front (forward = (sin h, cos h)), frontage w across it, depth d. */
+export interface Ori { cx: number; cz: number; h: number; w: number; d: number }
+/** A lot, and for houses that stand at the street's own angle (houseAssets.ts) the oriented lot they stand on. */
+export interface OLot extends Lot { ori?: Ori }
+const oriCorners = (o: Ori, m = 0): number[] => {
+  const fx = Math.sin(o.h), fz = Math.cos(o.h), rx = fz, rz = -fx, hw = o.w / 2 + m, hd = o.d / 2 + m;
+  return [o.cx + fx * hd + rx * hw, o.cz + fz * hd + rz * hw, o.cx + fx * hd - rx * hw, o.cz + fz * hd - rz * hw,
+    o.cx - fx * hd - rx * hw, o.cz - fz * hd - rz * hw, o.cx - fx * hd + rx * hw, o.cz - fz * hd + rz * hw];
+};
+/** Whether two oriented rectangles (a grown by m on every side) overlap: separating axis test. */
+function oriHit(a: Ori, b: Ori, m: number): boolean {
+  const ca = oriCorners(a, m), cb = oriCorners(b);
+  for (const l of [a, b]) for (const [ax, az] of [[Math.sin(l.h), Math.cos(l.h)], [Math.cos(l.h), -Math.sin(l.h)]]) {
+    let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+    for (let k = 0; k < 8; k += 2) {
+      const pa = ca[k] * ax + ca[k + 1] * az, pb = cb[k] * ax + cb[k + 1] * az;
+      a0 = Math.min(a0, pa); a1 = Math.max(a1, pa); b0 = Math.min(b0, pb); b1 = Math.max(b1, pb);
+    }
+    if (a1 < b0 || b1 < a0) return false;
+  }
+  return true;
+}
+const rectOri = (r: Rect): Ori => ({ cx: (r.x0 + r.x1) / 2, cz: (r.z0 + r.z1) / 2, h: 0, w: r.x1 - r.x0, d: r.z1 - r.z0 });
+
+let LOTS: OLot[] | null = null;
 /** The lots the builders here and mainlandPlaces.ts build on: plan.mainlandLots, or under the new streets the converted ones. */
-export function mainlandLots(plan: CityPlan): Lot[] {
+export function mainlandLots(plan: CityPlan): OLot[] {
   const G = plan.streets;
   if (!G) return plan.mainlandLots;
   if (LOTS) return LOTS;
-  const out: Lot[] = [], taken: Rect[] = [];
+  const out: OLot[] = [], taken: Rect[] = [], takenO: Ori[] = [];
   const clear = (r: Rect, margin: number): boolean => {
     if (r.x1 - r.x0 < 4 || r.z1 - r.z0 < 4) return false;
     for (const q of RESERVED) if (hitsR(r, q)) return false;
     for (const q of taken) if (hitsR(r, q, 0.6)) return false;
+    if (takenO.length) { const ro = rectOri(r); for (const t of takenO) if (oriHit(ro, t, 0.6)) return false; }
     const nx = Math.ceil((r.x1 - r.x0) / 3), nz = Math.ceil((r.z1 - r.z0) / 3);
     for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
       if (i > 0 && i < nx && j > 0 && j < nz) continue;
@@ -464,6 +490,27 @@ export function mainlandLots(plan: CityPlan): Lot[] {
   // Every other frontage lot of the graph, squared to the axes.
   for (const l of G.lots) {
     const fx = Math.sin(l.h), fz = Math.cos(l.h);
+    // Houses (houseAssets.ts) stand on the oriented lot itself, at its own angle, not on a squared-off part of it.
+    if (HOUSES_ON && l.district === 'stacks') {
+      let got: Ori | null = null;
+      for (const k of [1, 0.9, 0.8, 0.7]) {
+        if (got) break;
+        for (const back of [0, 1.5]) {
+          const w = l.w * k, d = l.d * k;
+          const o: Ori = { cx: l.cx - fx * back - fx * (l.d - d) / 2, cz: l.cz - fz * back - fz * (l.d - d) / 2, h: l.h, w, d: d - back };
+          if (RESERVED.some((q) => oriHit(o, rectOri(q), 0)) || taken.some((q) => oriHit(o, rectOri(q), 0.6)) || takenO.some((t) => oriHit(o, t, 0.6))) continue;
+          got = o; break;
+        }
+      }
+      if (got) {
+        const cs = oriCorners({ ...got, w: got.w * 0.8, d: got.d * 0.8 });
+        const rect: Rect = { x0: Math.min(cs[0], cs[2], cs[4], cs[6]), z0: Math.min(cs[1], cs[3], cs[5], cs[7]), x1: Math.max(cs[0], cs[2], cs[4], cs[6]), z1: Math.max(cs[1], cs[3], cs[5], cs[7]) };
+        const fc = Math.abs(fz) >= Math.abs(fx) ? (fz < 0 ? 0 : 2) : (fx > 0 ? 1 : 3);
+        out.push({ rect, block: 100000 + l.block, district: l.district, face: fc, interior: false, ori: got });
+        takenO.push(got);
+        continue;
+      }
+    }
     const face = Math.abs(fz) >= Math.abs(fx) ? (fz < 0 ? 0 : 2) : (fx > 0 ? 1 : 3);
     const fnx = face === 1 ? 1 : face === 3 ? -1 : 0, fnz = face === 2 ? 1 : face === 0 ? -1 : 0;
     let done = false;
@@ -774,7 +821,7 @@ class Builder {
   // district is the same few meshes as Main St: about 330 triangles for a triple-decker with its porches
   // and back stairs, 170 for a gabled house. Mirroring swaps the plan (door, drive, stairs), never a texture.
 
-  stacks(lots: Lot[], blocks: Block[], first: number): void {
+  stacks(lots: OLot[], blocks: Block[], first: number): void {
     const k = this.k;
     const size = (l: Lot): [number, number] => { const w = l.rect.x1 - l.rect.x0, d = l.rect.z1 - l.rect.z0; return l.face & 1 ? [d, w] : [w, d]; };
     const taken = new Set<number>();
@@ -804,11 +851,13 @@ class Builder {
       if (i === churchA || i === churchB) { this.church(r, lot.face, y, i === churchA); return; }
       if (i === school) { this.school(r, lot.face, y); return; }
       const block = blocks[lot.block], f = frameOf(r, lot.face);
-      if (block && !storeOn.has(lot.block) && lot.block % 3 === 0 && this.corner(lot, block)) {
+      if (!storeOn.has(lot.block) && lot.block % 3 === 0 && (lot.ori ? !!houses && this.cornerO(lot.ori) : !!block && this.corner(lot, block))) {
         storeOn.add(lot.block);
-        this.store(r, lot.face, y, rng, STORES[stores++ % STORES.length], lot.block);
+        if (houses && lot.ori) this.hood(lot, rng, true);
+        else this.store(r, lot.face, y, rng, STORES[stores++ % STORES.length], lot.block);
         return;
       }
+      if (houses && lot.ori && lot.district === 'stacks') { this.hood(lot, rng, false); return; }
       const n = !sister && f.len >= 23 ? 2 : 1, sw = sister ? 14 : f.len / n, off = sister ? (f.len - 14) / 2 : 0;
       for (let j = 0; j < n; j++) this.houseSlot(r, lot.face, off + j * sw, sw, y, rng, !sister);
       // A fence down one side and along the back, set just inside the line so two neighbours' fences never lie in one plane.
@@ -818,6 +867,116 @@ class Builder {
         if (rng.chance(0.7)) k.fenceRun(cut(r, lot.face, 0.15, f.len - 0.15, f.depth - 0.15, f.depth - 0.15), y, kind);
       }
     });
+  }
+
+  /**
+   * One lot's house (houseAssets.ts) at the lot's own angle, with its driveway, front walk, mailbox, a car in some drives, a garage
+   * or a shed behind and chain-link fences. Setback by type (triple-deckers close to the walk, capes well back); the mix by
+   * district: the South End by the mills and the North End are mostly triple-deckers, the leafy streets west of downtown capes,
+   * gable-fronts and Victorians, and Victorians also gather near downtown. Frame: u along the frontage left to right as seen from
+   * the street, q in from the lot's front edge (the walk's back edge is 0.6 m before q = 0).
+   */
+  private hood(lot: OLot, rng: RNG, store: boolean): void {
+    const o = lot.ori, H = houses, k = this.k;
+    if (!o || !H) return;
+    const nx = Math.sin(o.h), nz = Math.cos(o.h), tx = nz, tz = -nx;
+    const loc = (u: number, q: number): [number, number] => [o.cx + nx * (o.d / 2 - q) + tx * u, o.cz + nz * (o.d / 2 - q) + tz * u];
+    const gy = (u: number, q: number): number => { const [x, z] = loc(u, q); return groundAt(x, z); };
+    const west = o.cx < 20 && o.cz < -1640 && o.cz > -2060, south = o.cz > -1640, north = o.cz < -2060;
+    const dm = Math.hypot(o.cx - 70, o.cz + 1850);
+    const wt: Record<string, number> = south ? { td: 5.5, cape: 0.7, gf: 1.8, vic: 0.4 } : north ? { td: 4, cape: 1.2, gf: 2.4, vic: 0.8 }
+      : west ? { td: 1, cape: 3.5, gf: 2, vic: 1.6 } : { td: 3, cape: 2, gf: 2, vic: 0.6 };
+    if (dm < 330) wt.vic += 1.8;
+    const kinds: Kind[] = [];
+    if (store) kinds.push('store');
+    const bag = ['td', 'cape', 'gf', 'vic'], tot = bag.reduce((a, b) => a + wt[b], 0);
+    let r0 = rng.range(0, tot), first = 'td';
+    for (const b of bag) { r0 -= wt[b]; if (r0 <= 0) { first = b; break; } }
+    kinds.push(first as Kind, 'gf', 'cape', 'td');
+    let name = '';
+    for (const kd of kinds) {
+      const n = rng.pick(BY_KIND[kd]), d = DESIGN[n];
+      if (d.w + 1.2 <= o.w && d.minSet + d.D <= o.d - 0.4) { name = n; break; }
+    }
+    if (!name) return;
+    const D = DESIGN[name], W = D.w, mir = rng.chance(0.5);
+    const hasDrive = D.kind !== 'store' && o.w >= W + 4.6 && rng.chance(0.82);
+    const ds = rng.chance(0.5) ? 1 : -1;
+    const uc = hasDrive ? -ds * (o.w / 2 - W / 2 - 0.5) : rng.range(-0.4, 0.4) * Math.max(0, o.w - W - 1) / 2;
+    const leafy = west && (D.kind === 'cape' || D.kind === 'gf' || D.kind === 'vic');
+    const set = Math.min(Math.max(D.set + (leafy ? rng.range(-0.5, 1.8) : rng.range(-0.3, 0.4)), D.minSet), o.d - 0.4 - D.D);
+    const u0 = uc - W / 2, [ox, oz] = loc(u0, set);
+    const y = (Math.max(gy(u0, set), gy(u0 + W, set), gy(u0, set + D.D), gy(u0 + W, set + D.D)) + groundAt(ox, oz)) / 2;
+    k.at(ox, oz);
+    H.place(name, mir, ox, y, oz, tx, tz, nx, nz);
+    const f0 = loc(-o.w / 2, 0);
+    const F = { ox: f0[0], oz: f0[1], tx, tz, nx, nz, len: o.w, depth: o.d };
+    const sy = gy(0, o.d / 2);
+    // Front walk from the door to the street, and the drive (with its garage if there is one).
+    const doorU = u0 + (mir ? W - D.door : D.door);
+    const qEnd = set - D.front - 1.0;
+    if (qEnd > 0.5) k.hq(k.F, F, doorU - 0.6 + o.w / 2, doorU + 0.6 + o.w / 2, -qEnd, 0.6, gy(doorU, qEnd / 2) + 0.04, true, 0xb9b5ab, 1);
+    const ud = ds * (o.w / 2 - 1.9);
+    let qGar = -1;
+    if (hasDrive && rng.chance(0.34)) {
+      const q = o.d - 0.4 - 6.2;
+      if (q >= set + 2) {
+        qGar = q;
+        const gn = rng.pick(BY_KIND.garage), [gx, gz] = loc(ud - 1.9, q);
+        H.place(gn, false, gx, gy(ud, q + 3), gz, tx, tz, nx, nz);
+      }
+    }
+    if (hasDrive) {
+      const qd = qGar > 0 ? qGar + 0.3 : set + D.D * rng.range(0.45, 0.8);
+      k.hq(k.F, F, ud - 1.5 + o.w / 2, ud + 1.5 + o.w / 2, -qd, 0.6, Math.max(gy(ud, 0), gy(ud, qd)) + 0.04, true, rng.chance(0.5) ? 0x5e5e60 : 0xa59f92, 1);
+      // A car in the drive, nose to the street or away from it.
+      if (rng.chance(0.42)) {
+        const qc = rng.range(3.3, 5.0) + 2.35, lim = qGar > 0 ? qGar - 0.3 : o.d - 0.4;
+        if (qc + 2.4 < lim) {
+          const flip = rng.chance(0.5), cnx = flip ? -nx : nx, cnz = flip ? -nz : nz, [cx, cz] = loc(ud, qc);
+          H.place(rng.pick(['car0', 'car1', 'car2']), false, cx, groundAt(cx, cz) + 0.02, cz, cnz, -cnx, cnx, cnz, false, rng.pick([0xf2f2f2, 0x3b3f44, 0x8a2a30, 0x2a4676, 0xa5acb1, 0x37543f, 0x1d1d1f, 0xb8a98a, 0xe8e8e8]));
+        }
+      }
+    }
+    // A shed in the back corner opposite the drive, and a mailbox on the curb side.
+    if (rng.chance(0.42)) {
+      const us = -(hasDrive ? ds : (rng.chance(0.5) ? 1 : -1)) * (o.w / 2 - 1.9), q = o.d - 0.4 - 2.3;
+      if (q >= set + D.D + 0.3) { const [sx, sz] = loc(us - 1.35, q); H.place('shed_a', false, sx, groundAt(sx, sz), sz, tx, tz, nx, nz); }
+    }
+    if (rng.chance(0.6)) {
+      const um = Math.max(-o.w / 2 + 0.4, Math.min(o.w / 2 - 0.4, hasDrive ? ud - ds * 2.0 : uc + (W / 2 + 1.0) * (rng.chance(0.5) ? 1 : -1))), [mx, mz] = loc(um, 0.5);
+      H.place('mailbox', false, mx, groundAt(mx, mz), mz, tx, tz, nx, nz, false);
+    }
+    // Fences: chain-link down the sides and across the back, a low picket along the front in the leafy streets. Not solid (they may run at an angle).
+    const run = (ua: number, qa: number, ub: number, qb: number, kind: 'picket' | 'chain'): void => {
+      const [ax, az] = loc(ua, qa), [bx, bz] = loc(ub, qb);
+      k.fenceRun({ x0: ax, z0: az, x1: bx, z1: bz }, sy, kind, false);
+    };
+    if (D.kind !== 'store' && rng.chance(west ? 0.35 : 0.55)) {
+      const q0 = Math.max(set + 1.0, 2.5), hw = o.w / 2 - 0.2;
+      for (const sd of [-1, 1]) if (!(hasDrive && sd === ds) || rng.chance(0.2)) run(sd * hw, q0, sd * hw, o.d - 0.2, 'chain');
+      if (qGar < 0) run(-hw, o.d - 0.2, hw, o.d - 0.2, 'chain');
+    }
+    if (leafy && rng.chance(0.3)) {
+      const hw = o.w / 2 - 0.2, gaps: [number, number][] = [[doorU - 0.9, doorU + 0.9]];
+      if (hasDrive) gaps.push([ud - 1.7, ud + 1.7]);
+      gaps.sort((a, b) => a[0] - b[0]);
+      let at = -hw;
+      for (const [a, b] of gaps) { if (a - at > 1) run(at, 0.4, a, 0.4, 'picket'); at = Math.max(at, b); }
+      if (hw - at > 1) run(at, 0.4, hw, 0.4, 'picket');
+    }
+  }
+
+  /** Whether an oriented lot has a cross street just beside it (a point 7 m past either side is on or by a road). */
+  private cornerO(o: Ori): boolean {
+    const G = this.game.plan.streets;
+    if (!G) return false;
+    const nx = Math.sin(o.h), nz = Math.cos(o.h);
+    for (const sd of [-1, 1]) for (const q of [0.25, 0.5]) {
+      const u = sd * (o.w / 2 + 7), x = o.cx + nx * (o.d / 2 - o.d * q * 0.5) + nz * u, z = o.cz + nz * (o.d / 2 - o.d * q * 0.5) - nx * u;
+      if (!G.clearOfRoads(x, z, 3)) return true;
+    }
+    return false;
   }
 
   /** Whether a lot stands on a corner of its block: two of its sides within a sidewalk of a street. */
@@ -1399,6 +1558,7 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
     }
   }
   const lots = mainlandLots(plan);
+  makeHouses(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   b.pickChurches(lots);
   b.main(lots, plan.blocks, plan.lots.length);
   b.stacks(lots, plan.blocks, plan.lots.length);
@@ -1407,8 +1567,8 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
   // No kit.finish() here: mainlandPlaces.ts draws the landmarks into the same batches and builds the meshes.
   const pd = new PardonsStore(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   return {
-    update: () => { kit.update(); ms.update(); rf.update(); pd.update(); cv?.update(); },
-    setNight: (n: number) => { kit.setNight(); ms.setNight(n); rf.setNight(n); pd.setNight(n); cv?.setNight(n); },
+    update: () => { kit.update(); ms.update(); rf.update(); pd.update(); cv?.update(); houses?.update(); },
+    setNight: (n: number) => { kit.setNight(); ms.setNight(n); rf.setNight(n); pd.setNight(n); cv?.setNight(n); houses?.setNight(n); },
   };
 }
 

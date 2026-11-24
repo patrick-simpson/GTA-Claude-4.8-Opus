@@ -23,6 +23,8 @@ const SC = {
   pardons: { land: 1, time: 13, at: [-628, -1135, 0] },
   mainst: { land: 1, time: 13, at: [80, -1300, 3.14] },
   park: { time: 13, at: [140, -110, 1.57] },
+  hood: { land: 1, time: 13, at: [-182, -1296, 1.06 + 3.14] },
+  hood2: { land: 1, time: 13, at: [-240, -1850, -1.86 + 3.14] },
 }[name];
 const query = ['q=' + (opt.q ?? 'high'), 'save=0', 'net=0', (typeof opt.query === 'string' && /xmas=/.test(opt.query) ? '' : 'xmas=0'), SC.land ? 'bridge=8&stage=4' : '', typeof opt.query === 'string' ? opt.query : ''].filter(Boolean).join('&');
 const server = await createServer({ root: ROOT, logLevel: 'error', clearScreen: false, optimizeDeps: { noDiscovery: true, include: [] },
