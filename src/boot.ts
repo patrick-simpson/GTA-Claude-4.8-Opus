@@ -15,6 +15,7 @@ import { watchForUpdates } from './core/update';
 import { encodeLook, myLook, setMyLook } from './game/looks';
 import { hostBotPass, runHostBot } from './net/hostbot';
 import { title, titleAt } from './ui/title';
+import { promo } from './ui/promo';
 import type { Weather } from './core/api';
 import type { VehicleKind } from './ent/vehicleSpecs';
 
@@ -36,6 +37,8 @@ const game = new Game(canvas);
   assets.plan([...opening, ...cars.later], opening.length);
 }
 title.attach(game);
+// After the title card: its first key or tap starts the game, and the trailer plays inside that gesture.
+promo.attach(game);
 watchForUpdates(game);
 
 /**
@@ -44,6 +47,8 @@ watchForUpdates(game);
  */
 const hooks = {
   game,
+  /** The trailer (ui/promo.ts): stats, replay(). */
+  promo,
   ready: false,
   error: '' as string,
   /** Skip the title card. */

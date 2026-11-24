@@ -1,0 +1,893 @@
+{
+ "title": "Port Calamity promo, 60 s",
+ "note": "Beat grid measured with librosa 0.10/1.0 from the real recording: median 117.45 bpm (0.5108 s a beat), with small tempo drift, so the edited track's beats are listed in music.grid and every cut is on one of them (tools/promo/timeline.mjs). Edit: track 0-32.07 s (quiet intro, the band comes in at 17 s) + 104.23-132.03 s (lift, a breath at ~40 s, the climb, the final hit at 54.75 s = beat 105, ring-out to 60 s), joined on a same-phase beat with a 60 ms crossfade. The end plate starts on the final hit.",
+ "bpm": 117.45,
+ "music": {
+  "file": "C:/Users/User/promo/music/swing-machine.mp3",
+  "source": "https://youtu.be/Rtahc_olXjE",
+  "licence": "public domain (video description); see tools/licenses/music.md",
+  "credit": "Music: 'Swing Machine' by Kevin MacLeod (public domain)",
+  "length": 60.0,
+  "edit": {
+   "aEnd": 32.0668,
+   "bStart": 104.2344,
+   "trackEnd": 132.03,
+   "crossfade": 0.06
+  },
+  "hit": 54.752,
+  "sections": {
+   "intro": [
+    0,
+    16.9
+   ],
+   "band in": 16.9,
+   "crossfade": 32.07,
+   "breath": 39.8,
+   "climb": 43.8,
+   "hit": 54.752,
+   "ringout": [
+    54.752,
+    60
+   ]
+  },
+  "grid": [
+   0.6037,
+   1.1378,
+   1.6718,
+   2.1827,
+   2.6935,
+   3.2044,
+   3.7384,
+   4.2493,
+   4.7601,
+   5.2709,
+   5.7818,
+   6.2926,
+   6.8267,
+   7.3375,
+   7.8483,
+   8.3592,
+   8.87,
+   9.3809,
+   9.9149,
+   10.4258,
+   10.9366,
+   11.4474,
+   11.9583,
+   12.4691,
+   13.0032,
+   13.514,
+   14.0249,
+   14.5357,
+   15.0001,
+   15.4877,
+   15.9985,
+   16.6023,
+   17.0899,
+   17.6239,
+   18.1348,
+   18.6456,
+   19.1565,
+   19.6673,
+   20.2014,
+   20.7122,
+   21.223,
+   21.7339,
+   22.2679,
+   22.7788,
+   23.2896,
+   23.8005,
+   24.3345,
+   24.8454,
+   25.3562,
+   25.867,
+   26.3779,
+   26.8887,
+   27.3995,
+   27.9336,
+   28.4444,
+   28.9553,
+   29.4661,
+   29.977,
+   30.511,
+   31.0219,
+   31.5559,
+   32.0668,
+   32.5776,
+   33.1117,
+   33.6225,
+   34.1333,
+   34.6442,
+   35.155,
+   35.6659,
+   36.1767,
+   36.7107,
+   37.2216,
+   37.7324,
+   38.2433,
+   38.7773,
+   39.2882,
+   39.799,
+   40.3098,
+   40.8439,
+   41.3547,
+   41.8656,
+   42.3764,
+   42.8873,
+   43.4213,
+   43.9089,
+   44.443,
+   44.9538,
+   45.4647,
+   45.9755,
+   46.4863,
+   47.0204,
+   47.5312,
+   48.0421,
+   48.5529,
+   49.087,
+   49.5978,
+   50.1087,
+   50.6195,
+   51.1536,
+   51.6644,
+   52.1752,
+   52.6861,
+   53.1969,
+   53.7078,
+   54.2418,
+   54.7527,
+   55.2635,
+   55.7743
+  ]
+ },
+ "shots": [
+  {
+   "id": "01_tower",
+   "beats": 8,
+   "move": "crane up the SpeedScan tower to the stink lines, golden hour",
+   "setup": "g.game.sky.ask(17.6, 'clear', true); g.teleport(27, 110, 3.14);",
+   "wait": 6000,
+   "warm": 1,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -170,
+       18,
+       240
+      ],
+      "at": [
+       27,
+       120,
+       32
+      ],
+      "fov": 48
+     },
+     {
+      "t": 1,
+      "pos": [
+       -230,
+       300,
+       300
+      ],
+      "at": [
+       27,
+       400,
+       32
+      ],
+      "fov": 42
+     }
+    ]
+   },
+   "card": {
+    "form": "FORM PC-1",
+    "dept": "HARBOR AUTHORITY",
+    "line": "Welcome to Port Calamity",
+    "small": "Population: pending review",
+    "in": 2,
+    "out": 7.5
+   }
+  },
+  {
+   "id": "02_mainst",
+   "beats": 8,
+   "move": "low dolly down Tepid Falls' Main St, wreaths and lights up",
+   "setup": "g.stage(4); g.game.sky.ask(16.3, 'clear', true); g.teleport(70, -1720, 3.14);",
+   "wait": 7000,
+   "warm": 2,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       64,
+       8,
+       -1680
+      ],
+      "at": [
+       72,
+       7,
+       -1820
+      ],
+      "fov": 50
+     },
+     {
+      "t": 1,
+      "pos": [
+       64,
+       6,
+       -1760
+      ],
+      "at": [
+       74,
+       8,
+       -1900
+      ],
+      "fov": 46
+     }
+    ]
+   },
+   "card": {
+    "form": "FORM TF-2",
+    "dept": "TEPID FALLS",
+    "line": "A whole other town",
+    "small": "Over the bridge. Mind the toll.",
+    "in": 1,
+    "out": 7.5,
+    "pos": "high"
+   }
+  },
+  {
+   "id": "03_falls",
+   "beats": 4,
+   "move": "slow push in on Threadbare Dam's falls",
+   "setup": "g.stage(4); g.game.sky.ask(9.5, 'clear', true); g.teleport(300, -1520, 0);",
+   "wait": 6000,
+   "warm": 1,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       345,
+       14,
+       -1480
+      ],
+      "at": [
+       316,
+       4,
+       -1570
+      ],
+      "fov": 50
+     },
+     {
+      "t": 1,
+      "pos": [
+       335,
+       10,
+       -1515
+      ],
+      "at": [
+       316,
+       4,
+       -1575
+      ],
+      "fov": 46
+     }
+    ]
+   }
+  },
+  {
+   "id": "04_train",
+   "beats": 8,
+   "move": "tracking the Budget Line along the river, side on, world-locked",
+   "setup": "g.stage(4); const tr = g.game.world.parts.find((p) => p.derail); P.train = { x: 300, y: 5, z: -2150 }; P.each = () => { const i = tr.info(); P.train.x = i.x; P.train.z = i.z; }; let best = 1e9, hb = 8; for (let h = 6; h < 12; h += 0.05) { g.game.sky.ask(h, 'clear', true); g.step(1); const i = tr.info(); const d = Math.abs(i.z + 2120); if (d < best) { best = d; hb = h; } } g.game.sky.ask(hb, 'clear', true); g.step(1); const i = tr.info(); g.teleport(i.x - 40, i.z, 0); P.each();",
+   "wait": 6000,
+   "warm": 0.5,
+   "cam": {
+    "follow": "train",
+    "world": true,
+    "offset": [
+     -45,
+     9,
+     25
+    ],
+    "look": [
+     0,
+     3,
+     -5
+    ],
+    "fov": 45
+   },
+   "card": {
+    "form": "TIMETABLE B-1",
+    "dept": "THE BUDGET LINE",
+    "line": "Trains. In principle.",
+    "in": 1,
+    "out": 7
+   },
+   "query": "season=autumn"
+  },
+  {
+   "id": "05_dithers",
+   "beats": 4,
+   "move": "orbit the Dithers College clock tower",
+   "setup": "g.stage(4); g.game.sky.ask(8.4, 'clear', true); g.teleport(-473, -2380, 3.14); P.lib = { x: -473.1, y: 17, z: -2424.9 };",
+   "wait": 7000,
+   "warm": 1,
+   "cam": {
+    "ref": "lib",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       40,
+       48,
+       40
+      ],
+      "at": [
+       0,
+       34,
+       0
+      ],
+      "fov": 45
+     },
+     {
+      "t": 0.5,
+      "pos": [
+       55,
+       46,
+       0
+      ],
+      "at": [
+       0,
+       35,
+       0
+      ],
+      "fov": 45
+     },
+     {
+      "t": 1,
+      "pos": [
+       40,
+       44,
+       -40
+      ],
+      "at": [
+       0,
+       36,
+       0
+      ],
+      "fov": 45
+     }
+    ]
+   },
+   "query": "season=autumn"
+  },
+  {
+   "id": "09_stunt",
+   "beats": 8,
+   "timeScale": 0.45,
+   "move": "slow-motion jump off the long ramp at the stunt park, low side camera tracking",
+   "setup": "g.game.sky.ask(17.2, 'clear', true); const id = g.spawnVehicle('sports', 572, 425, Math.PI / 2); g.drive(id); P.car = g.game.player.vehicle;",
+   "keys": [
+    "KeyW"
+   ],
+   "wait": 4000,
+   "warm": 0.1,
+   "cam": {
+    "follow": "car",
+    "world": true,
+    "offset": [
+     0,
+     3,
+     -18
+    ],
+    "look": [
+     6,
+     4,
+     0
+    ],
+    "fov": 50
+   },
+   "card": {
+    "form": "WAIVER 14-B",
+    "dept": "STUNT PARK",
+    "line": "Signed. Probably.",
+    "in": 5,
+    "out": 7.5
+   },
+   "query": "season=summer",
+   "preroll": "P.car.vx = 34; P.car.vz = 0;"
+  },
+  {
+   "id": "10_chase",
+   "beats": 8,
+   "move": "Thruway pursuit at golden hour: heat 5, police cars behind, the helicopter overhead; camera ahead of the car looking back and up",
+   "setup": "g.stage(4); g.game.sky.ask(17.6, 'clear', true); const id = g.spawnVehicle('sports', -712, -1110, -3.114); g.drive(id); P.car = g.game.player.vehicle; g.setHeat(5); P.each = () => { g.setHeat(5); g.game.player.health = 100; };",
+   "keys": [
+    "KeyW"
+   ],
+   "wait": 4000,
+   "warm": 26,
+   "cam": {
+    "follow": "car",
+    "offset": [
+     2.5,
+     3.4,
+     -10
+    ],
+    "look": [
+     0,
+     4,
+     -18
+    ],
+    "fov": 62
+   },
+   "card": {
+    "form": "CITATION 5",
+    "dept": "CALAMITY P.D.",
+    "line": "Wanted. Very.",
+    "in": 0.5,
+    "out": 4
+   },
+   "query": "season=summer",
+   "preroll": "const st = g.game.systems.find((s) => s.tag === 'police'); const H = st && st.heli; const c = P.car; const rig = [[10, -3.4], [17, 3.2], [26, -2.6]]; const cops = rig.map(([d, s]) => { const id = g.spawnVehicle('cruiser', c.x, c.z - 20, c.h); return g.game.vehicles.list.find((v) => v.id === id); }).filter(Boolean); P.each = () => { g.setHeat(5); g.game.player.health = 100; const fx = Math.sin(c.h), fz = Math.cos(c.h), rx = -fz, rz = fx; cops.forEach((v, k) => { const [d, s] = rig[k]; const w = s + Math.sin((P.t || 0) * 1.7 + k * 2) * 0.6; v.x = c.x - fx * d + rx * w; v.z = c.z - fz * d + rz * w; v.y = c.y; v.h = c.h + Math.sin((P.t || 0) * 1.7 + k * 2) * 0.03; v.vx = c.vx; v.vz = c.vz; v.driver = null; }); if (H) { H.present = true; H.x = c.x - fx * 44 + rx * 7; H.z = c.z - fz * 44 + rz * 7; H.y = c.y + 17; H.h = c.h; } }; setTimeout(() => {}, 0); console.log('promo: ' + cops.map((v) => v.spec.kind + '@' + Math.round(Math.hypot(v.x - c.x, v.z - c.z))).join(',') + ' / ' + cops.length + ' cruisers rigged, heli ' + !!H);",
+   "keysLate": true,
+   "each_check": true
+  },
+  {
+   "id": "11_cannon",
+   "beats": 4,
+   "timeScale": 0.7,
+   "move": "The Great Calamitini fires: slow-motion follow of the flight",
+   "setup": "g.game.sky.ask(12.5, 'clear', true); g.teleport(94, 420, 0); const L = g.game.launchers; L.testMount('strand'); L.testAim(0.8, 0.7); P.pl = g.game.player;",
+   "preroll": "const L = g.game.launchers; L.testFire(); let n = 0; while (L.state !== 'flight' && n < 600) { g.step(1); n++; } g.step(4); P.pl = g.game.player.person; console.log('cannon ' + L.state + ' after ' + n + ' steps');",
+   "wait": 4000,
+   "warm": 2.5,
+   "cam": {
+    "follow": "pl",
+    "world": true,
+    "offset": [
+     28,
+     8,
+     -24
+    ],
+    "look": [
+     0,
+     2,
+     0
+    ],
+    "fov": 60
+   },
+   "query": "season=summer"
+  },
+  {
+   "id": "06_pardons",
+   "beats": 4,
+   "move": "glide through Pardon's aisles",
+   "setup": "g.stage(4); g.game.sky.ask(13, 'clear', true); g.teleport(-607, -1152, 0); P.store = { x: 0, y: 4.9, z: 0 };",
+   "wait": 7000,
+   "warm": 0.5,
+   "cam": {
+    "ref": "store",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -607,
+       1.7,
+       -1150
+      ],
+      "at": [
+       -640,
+       1.5,
+       -1118
+      ],
+      "fov": 60
+     },
+     {
+      "t": 1,
+      "pos": [
+       -616,
+       1.7,
+       -1141
+      ],
+      "at": [
+       -650,
+       1.5,
+       -1110
+      ],
+      "fov": 58
+     }
+    ]
+   },
+   "card": {
+    "form": "RECEIPT",
+    "dept": "PARDON'S SURPLUS & SALVAGE",
+    "line": "Everything must go",
+    "small": "(nothing has, so far)",
+    "in": 0.5,
+    "out": 3.8,
+    "pos": "high"
+   }
+  },
+  {
+   "id": "07_moose",
+   "beats": 4,
+   "move": "long lens down a snowy avenue: a bull moose standing in the lane",
+   "setup": "g.game.sky.ask(15.5, 'clear', true); const M = g.game.moose; let si = M.sites.findIndex((s) => /Anchor/.test(s.name) && Math.abs(s.z + 170) < 30); if (si < 0) si = M.sites.findIndex((s) => /Anchor/.test(s.name)); const s = M.sites[si]; M.forced = { si, t0: g.game.sky.hour * 60 - 36, bull: true, calf: false, stand: 120, side: 1 }; g.teleport(s.x, s.z, 0); g.step(1); P.site = { x: s.x, y: g.info().y, z: s.z }; g.teleport(s.x, s.z - 40, 0); console.log('promo: moose site ' + s.name + ' ' + Math.round(s.x) + ',' + Math.round(s.z) + ' dir ' + s.dx.toFixed(2) + ',' + s.dz.toFixed(2));",
+   "wait": 7000,
+   "warm": 1,
+   "cam": {
+    "ref": "site",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -2.5,
+       1.7,
+       -30
+      ],
+      "at": [
+       1,
+       2.2,
+       0
+      ],
+      "fov": 30
+     },
+     {
+      "t": 1,
+      "pos": [
+       -2.0,
+       1.5,
+       -25
+      ],
+      "at": [
+       1,
+       2.1,
+       0
+      ],
+      "fov": 28
+     }
+    ]
+   }
+  },
+  {
+   "id": "08_duck",
+   "beats": 4,
+   "move": "speedboat chasing toward the giant duck, low follow",
+   "setup": "g.game.sky.ask(11, 'clear', true); const b = g.game.player.boats.list.find((x) => x.id === 9001); b.x = 0; b.z = 600; b.h = 0; g.game.player.enter(b, true); g.game.cam.snap(); P.boat = b;",
+   "keys": [
+    "KeyW"
+   ],
+   "wait": 4000,
+   "warm": 1.5,
+   "cam": {
+    "follow": "boat",
+    "offset": [
+     3,
+     1.6,
+     8
+    ],
+    "look": [
+     0,
+     2,
+     40
+    ],
+    "fov": 55
+   },
+   "card": {
+    "form": "HARBOR NOTICE 9",
+    "dept": "MARINE DIVISION",
+    "line": "Do not feed the duck",
+    "in": 1,
+    "out": 3.8,
+    "pos": "high"
+   },
+   "query": "season=summer"
+  },
+  {
+   "id": "12_derby",
+   "beats": 4,
+   "move": "orbit the derby bowl, crowd in the stands",
+   "setup": "g.game.sky.ask(19.2, 'clear', true); g.teleport(-430, -70, 0); g.game.todo.derby.call(); P.bowl = { x: -421, y: 0.2, z: -70 };",
+   "wait": 5000,
+   "warm": 6,
+   "cam": {
+    "ref": "bowl",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -14,
+       26,
+       6
+      ],
+      "at": [
+       8,
+       0,
+       0
+      ],
+      "fov": 55
+     },
+     {
+      "t": 1,
+      "pos": [
+       14,
+       24,
+       6
+      ],
+      "at": [
+       -8,
+       0,
+       0
+      ],
+      "fov": 55
+     }
+    ]
+   },
+   "card": {
+    "form": "ENTRY FORM D",
+    "dept": "DEMOLITION DERBY",
+    "line": "Bring a spare",
+    "in": 0.5,
+    "out": 3.8,
+    "pos": "high"
+   },
+   "query": "season=summer"
+  },
+  {
+   "id": "13_racers",
+   "beats": 8,
+   "move": "low dolly across four cars on the line at the lights, night; they launch on beat 5",
+   "setup": "g.stage(4); g.game.sky.ask(21.5, 'clear', true); g.teleport(70, -1780, Math.PI); const id = g.spawnVehicle('sports', 65.5, -1790, Math.PI); g.drive(id); P.grid = { x: 70.5, y: g.game.player.vehicle.y, z: -1790 }; P.cars = [69, 72.5, 76].map((x, k) => g.spawnVehicle(['muscle', 'sedan', 'sports'][k], x, -1790, Math.PI));",
+   "wait": 5000,
+   "warm": 0.1,
+   "preroll": "let n = 0; P.each = (dt) => { n += dt; if (n > 2 && !P.go) { P.go = 1; for (const id of P.cars) { const v = g.game.vehicles.list.find((c) => c.id === id); if (v) v.driver = 'ai'; } } };",
+   "cam": {
+    "ref": "grid",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -3,
+       1.0,
+       -12
+      ],
+      "at": [
+       0,
+       0.9,
+       0
+      ],
+      "fov": 42
+     },
+     {
+      "t": 1,
+      "pos": [
+       3,
+       1.3,
+       -11
+      ],
+      "at": [
+       0,
+       1.0,
+       2
+      ],
+      "fov": 46
+     }
+    ]
+   },
+   "card": {
+    "form": "PERMIT M-4",
+    "dept": "MULTIPLAYER",
+    "line": "Bring friends",
+    "small": "Same town. Same paperwork.",
+    "in": 1,
+    "out": 4.5
+   },
+   "keys": [
+    "KeyW"
+   ]
+  },
+  {
+   "id": "14_radio",
+   "beats": 4,
+   "move": "in-car, dashboard height, sunset drive with the radio card",
+   "setup": "g.game.sky.ask(17.9, 'clear', true); g.teleport(-30, 285, 1.57); const id = g.spawnVehicle('sedan'); g.drive(id); P.car = g.game.player.vehicle;",
+   "keys": [
+    "KeyW"
+   ],
+   "wait": 4000,
+   "warm": 3,
+   "cam": {
+    "follow": "car",
+    "offset": [
+     2.4,
+     1.6,
+     -1.5
+    ],
+    "look": [
+     0,
+     1.3,
+     20
+    ],
+    "fov": 50
+   },
+   "card": {
+    "form": "CAR RADIO",
+    "dept": "FM 104.9",
+    "line": "Claude FM",
+    "small": "Now playing: whatever it likes",
+    "in": 0.25,
+    "out": 4,
+    "pos": "low"
+   }
+  },
+  {
+   "id": "15_tornado",
+   "beats": 8,
+   "move": "wide: the tornado touches down beyond the town, slow push",
+   "setup": "g.stage(4); g.game.sky.ask(15, 'clear', true); P.tw = { x: 180, y: 5, z: -1950 }; const T = window.__storm.tornado; T.start(180, -1950); P.each = () => { const p = T.pos; if (p && (p.x || p.z)) { P.tw.x = p.x; P.tw.z = p.z; } }; g.teleport(110, -1760, 3.14);",
+   "wait": 5000,
+   "warm": 40,
+   "cam": {
+    "follow": "tw",
+    "world": true,
+    "offset": [
+     -110,
+     18,
+     240
+    ],
+    "look": [
+     0,
+     25,
+     0
+    ],
+    "fov": 55
+   },
+   "card": {
+    "form": "ADVISORY W-9",
+    "dept": "WEATHER OFFICE",
+    "line": "Conditions: adverse",
+    "in": 1,
+    "out": 7.5,
+    "pos": "high"
+   },
+   "query": "season=summer",
+   "preroll": "const T = window.__storm.tornado; P.each = () => { const p = T.pos; if (p && (p.x || p.z)) { P.tw.x = p.x; P.tw.z = p.z; } };"
+  },
+  {
+   "id": "16_xmas",
+   "beats": 8,
+   "move": "crane down into Main St's Christmas lights at night",
+   "setup": "g.stage(4); g.game.sky.ask(20.2, 'clear', true); g.teleport(70, -1760, 3.14);",
+   "wait": 7000,
+   "warm": 1,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       66,
+       16,
+       -1690
+      ],
+      "at": [
+       72,
+       6,
+       -1800
+      ],
+      "fov": 50
+     },
+     {
+      "t": 1,
+      "pos": [
+       66,
+       3.5,
+       -1720
+      ],
+      "at": [
+       72,
+       6,
+       -1830
+      ],
+      "fov": 50
+     }
+    ]
+   }
+  },
+  {
+   "id": "17_fireworks",
+   "beats": 9,
+   "move": "from the pier head: the fireworks finale, extra shells on the beat",
+   "setup": "g.game.fireworks.mode = 'on'; g.game.sky.ask(21.1, 'clear', true); g.teleport(0, 560, 0);",
+   "wait": 4000,
+   "warm": 8,
+   "preroll": "const F = g.game.fireworks; const done = new Set(); const n = P.beats.length; P.each = () => { P.beats.forEach((b, k) => { if (k === 0) return; const vol = k >= n - 3 ? 5 : 1; for (let j = 0; j < vol; j++) { const key = k * 10 + j; if (done.has(key)) continue; const h = vol > 1 ? 70 + j * 9 : 40 + (k % 4) * 12; const rise = Math.sqrt(2 * h / 16) * 0.96; if (P.t >= b - rise) { done.add(key); if (b - rise > -0.05) F.launch(['peony', 'willow', 'peony', 'ring'][(k + j) % 4], (vol > 1 ? (j - 2) * 55 : ((k * 37) % 5 - 2) * 40), -0.8, 800 + (j % 2) * 30, h, (k + j) % 6, (k + 2 * j + 3) % 6); } } }); };",
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -70,
+       10,
+       540
+      ],
+      "at": [
+       0,
+       70,
+       800
+      ],
+      "fov": 55
+     },
+     {
+      "t": 1,
+      "pos": [
+       -60,
+       9,
+       575
+      ],
+      "at": [
+       0,
+       80,
+       800
+      ],
+      "fov": 50
+     }
+    ]
+   },
+   "card": {
+    "form": "FORM PC-∞",
+    "dept": "HARBOR AUTHORITY",
+    "line": "This is going to be epic",
+    "small": "(subject to approval)",
+    "in": 1,
+    "out": 6,
+    "pos": "high"
+   }
+  },
+  {
+   "id": "18_end",
+   "beats": 3,
+   "move": "clean plate from the final hit: slow drift over the night harbour to the lit tower, for the live logo card",
+   "setup": "g.game.sky.ask(21.6, 'clear', true); g.teleport(27, 200, 3.14); P.each = null;",
+   "wait": 6000,
+   "warm": 1,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       120,
+       70,
+       700
+      ],
+      "at": [
+       27,
+       160,
+       32
+      ],
+      "fov": 45
+     },
+     {
+      "t": 1,
+      "pos": [
+       60,
+       90,
+       600
+      ],
+      "at": [
+       27,
+       200,
+       32
+      ],
+      "fov": 42
+     }
+    ]
+   }
+  }
+ ]
+}
