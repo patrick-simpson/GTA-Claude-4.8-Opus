@@ -815,8 +815,8 @@ function buildBridge(c: Ctx): void {
   const dy = bridgeY;
   const V = 12; // TILE_M.avenue
 
-  // Gull Heights Rd stops at z0 + 9; carry the avenue across the gap.
-  slab(deck, F, -9, 0, -HW, HW, 0, 0, 0, 0, 0xffffff, 1, 1, [0, -9 / V, 1, 0]);
+  // Gull Heights Rd ends at z -440 and ground.ts lays the avenue from there to z0 (-445): nothing to carry across.
+  // (An old slab here ran from a = -9 and lay over the street's last 4 m and that strip: a z-fight.)
 
   for (let i = 0; i < n; i++) {
     const a0 = i * SEG, a1 = a0 + SEG, y0 = dy(a0), y1 = dy(a1), last = i === n - 1;
