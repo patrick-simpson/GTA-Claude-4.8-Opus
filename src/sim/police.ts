@@ -27,7 +27,7 @@ import type { Game } from '../core/game';
 import { kid } from '../core/kid';
 import type { Look, Person, Vehicle } from '../core/api';
 import { RNG, TAU, clamp, clamp01, lerp, money } from '../core/util';
-import { groundAt, isWater, type RoadNode } from '../world/plan';
+import { groundAt, isWater, type RoadEdge, type RoadNode } from '../world/plan';
 import { Beacons, Heli, frontage } from './policeAir';
 
 /** Pursuit cars wanted at each level, before quality scaling. Roadblock pairs come on top from level 3. */
@@ -103,6 +103,8 @@ export interface Unit {
   /** drive: after the player. park: stopped with the crew out. leave: stood down, driving off. */
   state: 'drive' | 'park' | 'leave';
   path: number[]; pi: number; pathT: number;
+  /** New streets: the way to go as a chain of x,z points kept right of the centreline, and its arc length at each point. */
+  wp?: number[]; wc?: number[];
   /** Which side of the player this car favours (-1 left, 1 right), so two cars take a side each. */
   side: number;
   crew: Cop[];
@@ -473,7 +475,23 @@ export class Police {
 
   /** A stretch of road to appear on: out of sight, well clear of the player, nothing parked on it. */
   private spawnPursuer(pl: Suspect): boolean {
-    const g = this.game, plan = g.plan, rng = this.rng, pv = pl.vehicle;
+    const g = this.game, plan = g.plan, rng = this.rng, pv = pl.vehicle, SG = plan.streets;
+    if (SG) {
+      for (let k = 0; k < 14; k++) {
+        const e = rng.pick(SG.edges), A = SG.nodes[e.a], B = SG.nodes[e.b];
+        if (e.deck || e.closed || e.len < 40) continue;
+        const c = SG.pointAt(e, e.len * rng.range(0.3, 0.7)), d = Math.hypot(c.x - pl.x, c.z - pl.z);
+        if (d < 120 || d > 280) continue;
+        if (k < 7 && pv && pl.speed > 8 && (c.x - pl.x) * pl.vx + (c.z - pl.z) * pl.vz < 0) continue;
+        const toB = Math.hypot(B.x - pl.x, B.z - pl.z) < Math.hypot(A.x - pl.x, A.z - pl.z), sg = toB ? 1 : -1;
+        const fx = c.dx * sg, fz = c.dz * sg, off = e.oneWay ? 0 : e.divided ? e.hw * 0.5 : 1.8;
+        const x = c.x - fz * off, z = c.z + fx * off;
+        if (isWater(x, z) || this.inView(x, z) || g.vehicles.nearest(x, z, 9)) continue;
+        this.addUnit(x, z, Math.atan2(fx, fz), 'pursue', pl);
+        return true;
+      }
+      return false;
+    }
     for (let k = 0; k < 12; k++) {
       const e = rng.pick(plan.edges), A = plan.nodes[e.a], B = plan.nodes[e.b];
       const s = e.len * rng.range(0.3, 0.7);
@@ -501,6 +519,7 @@ export class Police {
   private planBlock(pl: Suspect): boolean {
     const g = this.game, plan = g.plan, pv = pl.vehicle;
     if (!pv || pl.speed < 11) return false;
+    if (plan.streets) return this.planBlockG(pl);
     const ne = plan.nearestEdge(pl.x, pl.z), e = ne.edge;
     if (ne.d > e.hw) return false;
     const along = e.horiz ? pl.vx : pl.vz;
@@ -538,6 +557,55 @@ export class Police {
       // Driving toward the junction: heading is (-ox, -oz); keep right of the centerline.
       const hx = -ox, hz = -oz;
       const x = site.x + ox * back - hz * 1.8, z = site.z + oz * back + hx * 1.8;
+      if (this.inView(x, z) || g.vehicles.nearest(x, z, 8)) continue;
+      const u = this.addUnit(x, z, Math.atan2(hx, hz), 'block', pl);
+      u.sx = cx + ox * lat; u.sz = cz + oz * lat; u.nx = site.x + ox * 3; u.nz = site.z + oz * 3;
+      made.push(u);
+    }
+    if (made.length === 0) return false;
+    this.stats.blocks++;
+    if (pl === this.me) g.emit('roadblock', { x: cx, z: cz });
+    return true;
+  }
+
+  /** planBlock on the new street graph: the same two cars out of the cross streets, with the streets' own directions. */
+  private planBlockG(pl: Suspect): boolean {
+    const g = this.game, G = g.plan.streets!;
+    const ne = G.nearestEdge(pl.x, pl.z), e = ne.edge;
+    if (ne.d > e.hw) return false;
+    const t = G.pointAt(e, ne.s), along = pl.vx * t.dx + pl.vz * t.dz;
+    if (Math.abs(along) < 9) return false;
+    const fwd = along > 0 ? 1 : -1;
+    let edge = e, node = G.nodes[fwd > 0 ? e.b : e.a], dx = t.dx * fwd, dz = t.dz * fwd;
+    let site: RoadNode | null = null;
+    for (let k = 0; k < 4; k++) {
+      const dist = (node.x - pl.x) * dx + (node.z - pl.z) * dz;
+      if (dist > 150 + pl.speed * 2.5) { site = node; break; }
+      let next: RoadEdge | null = null, bs = 0.8, nx = dx, nz = dz;
+      for (const id of node.edges) {
+        const c = G.edges[id];
+        if (c === edge || c.deck) continue;
+        const fromA = c.a === node.id, q = G.pointAt(c, fromA ? Math.min(6, c.len) : Math.max(c.len - 6, 0));
+        const ox = q.dx * (fromA ? 1 : -1), oz = q.dz * (fromA ? 1 : -1), s = ox * dx + oz * dz;
+        if (s > bs) { bs = s; next = c; nx = ox; nz = oz; }
+      }
+      if (!next) break;
+      edge = next; node = G.nodes[G.other(next, node.id)]; dx = nx; dz = nz;
+    }
+    if (!site) return false;
+    const half = Math.max(site.hx, site.hz, site.ring ?? 0);
+    const cx = site.x - dx * (half + 3.5), cz = site.z - dz * (half + 3.5), lat = edge.hw * 0.42;
+    const made: Unit[] = [];
+    for (const id of site.edges) {
+      if (made.length >= 2) break;
+      const c = G.edges[id];
+      if (c === edge || c.deck || c.len < 60) continue;
+      const fromA = c.a === site.id, q = G.pointAt(c, fromA ? 6 : c.len - 6);
+      const ox = q.dx * (fromA ? 1 : -1), oz = q.dz * (fromA ? 1 : -1);
+      // Cross streets only, and not the two on one side.
+      if (Math.abs(ox * dx + oz * dz) > 0.6 || made.some((m) => (m.sx - cx) * ox + (m.sz - cz) * oz > 0)) continue;
+      const back = 48 + made.length * 4, r = G.pointAt(c, fromA ? back : c.len - back);
+      const hx = -ox, hz = -oz, x = r.x - hz * 1.8, z = r.z + hx * 1.8;
       if (this.inView(x, z) || g.vehicles.nearest(x, z, 8)) continue;
       const u = this.addUnit(x, z, Math.atan2(hx, hz), 'block', pl);
       u.sx = cx + ox * lat; u.sz = cz + oz * lat; u.nx = site.x + ox * 3; u.nz = site.z + oz * 3;
@@ -676,6 +744,11 @@ export class Police {
 
   /** The junction this car is pointed at on the street it is on. */
   private nodeAhead(v: Vehicle): number {
+    const SG = this.game.plan.streets;
+    if (SG) {
+      const ne = SG.nearestEdge(v.x, v.z), c = SG.pointAt(ne.edge, ne.s);
+      return Math.sin(v.h) * c.dx + Math.cos(v.h) * c.dz >= 0 ? ne.edge.b : ne.edge.a;
+    }
     const plan = this.game.plan, ne = plan.nearestEdge(v.x, v.z), e = ne.edge;
     const f = e.horiz ? Math.sin(v.h) : Math.cos(v.h);
     return f >= 0 ? e.b : e.a;
@@ -683,6 +756,7 @@ export class Police {
 
   /** Drive the streets to (gx, gz): junction to junction on the right of the road, slowing for the corners. */
   private route(u: Unit, gx: number, gz: number, vmax: number, dt: number): void {
+    if (this.game.plan.streets) { this.routeG(u, gx, gz, vmax, dt); return; }
     const plan = this.game.plan, v = u.v;
     if ((u.pathT -= dt) <= 0 || u.path.length === 0) {
       u.pathT = 1.4;
@@ -728,6 +802,71 @@ export class Police {
     this.steer(u, gx, gz, Math.min(vmax, 4 + d * 0.5), dt, null);
   }
 
+  /** route() on the new street graph: a path of junctions turned into a chain of points along the streets' own curves, followed with a lookahead. */
+  private routeG(u: Unit, gx: number, gz: number, vmax: number, dt: number): void {
+    const G = this.game.plan.streets!, v = u.v;
+    if ((u.pathT -= dt) <= 0 || !u.wp || u.wp.length < 4) {
+      u.pathT = 1.4;
+      const head = this.nodeAhead(v);
+      const ge = G.nearestEdge(gx, gz).edge, A = G.nodes[ge.a], B = G.nodes[ge.b];
+      const viaA = Math.hypot(A.x - v.x, A.z - v.z) + Math.hypot(A.x - gx, A.z - gz);
+      const viaB = Math.hypot(B.x - v.x, B.z - v.z) + Math.hypot(B.x - gx, B.z - gz);
+      u.path = G.findPath(head, viaA < viaB ? ge.a : ge.b);
+      u.pi = 0;
+      // The chain: the street under the car up to its head junction, then each street of the path, kept right of the centre.
+      const wp: number[] = [];
+      const add = (e: RoadEdge, toNode: number): void => {
+        const p = G.edgePts(e), n = p.length / 2, up = e.b === toNode;
+        const off = e.oneWay ? 0 : e.divided ? e.hw * 0.5 : e.lanes >= 2 ? (u.side > 0 ? 5.2 : 1.8) : 1.75;
+        for (let q = 0; q < n; q++) {
+          const k = up ? q : n - 1 - q, k0 = Math.max(0, k - 1), k1 = Math.min(n - 1, k + 1);
+          let tx = p[k1 * 2] - p[k0 * 2], tz = p[k1 * 2 + 1] - p[k0 * 2 + 1];
+          const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
+          if (!up) { tx = -tx; tz = -tz; }
+          wp.push(p[k * 2] - tz * off, p[k * 2 + 1] + tx * off);
+        }
+      };
+      const ne = G.nearestEdge(v.x, v.z).edge;
+      if (ne.a === head || ne.b === head) add(ne, head);
+      for (let k = 0; k + 1 < u.path.length; k++) {
+        const na = G.nodes[u.path[k]];
+        let pick: RoadEdge | null = null;
+        for (const id of na.edges) { const c = G.edges[id]; if (G.other(c, na.id) === u.path[k + 1] && (!pick || c.len < pick.len)) pick = c; }
+        if (pick) add(pick, u.path[k + 1]);
+      }
+      u.wp = wp;
+      const cum = [0];
+      for (let k = 1; k < wp.length / 2; k++) cum.push(cum[k - 1] + Math.hypot(wp[k * 2] - wp[k * 2 - 2], wp[k * 2 + 1] - wp[k * 2 - 1]));
+      u.wc = cum;
+    }
+    const wp = u.wp!, cum = u.wc!, n = wp.length / 2;
+    if (n < 2) { this.steer(u, gx, gz, Math.min(vmax, 4 + Math.hypot(gx - v.x, gz - v.z) * 0.5), dt, null); return; }
+    let bi = 0, bd = Infinity;
+    for (let k = 0; k < n; k++) { const d = (wp[k * 2] - v.x) ** 2 + (wp[k * 2 + 1] - v.z) ** 2; if (d < bd) { bd = d; bi = k; } }
+    const L = clamp(7 + Math.abs(v.speed) * 0.55, 8, 24), end = cum[n - 1];
+    const at = (s: number): [number, number] => {
+      s = Math.min(s, end);
+      let k = bi;
+      while (k < n - 1 && cum[k + 1] < s) k++;
+      const t = k < n - 1 ? (s - cum[k]) / ((cum[k + 1] - cum[k]) || 1) : 0, k2 = Math.min(n - 1, k + 1);
+      return [wp[k * 2] + (wp[k2 * 2] - wp[k * 2]) * t, wp[k * 2 + 1] + (wp[k2 * 2 + 1] - wp[k * 2 + 1]) * t];
+    };
+    if (cum[bi] + 3 >= end) { this.steer(u, gx, gz, Math.min(vmax, 4 + Math.hypot(gx - v.x, gz - v.z) * 0.5), dt, null); return; }
+    const [tx, tz] = at(cum[bi] + L);
+    // How fast: slow for the first sharp change of heading within 60 m, and for the end of the road.
+    const [x0, z0] = at(cum[bi] + 2), [x1, z1] = at(cum[bi] + 8), h0 = Math.atan2(x1 - x0, z1 - z0);
+    let want = vmax;
+    const vc = u.target.level >= 4 ? 12.5 : 10;
+    for (let s = 14; s <= 60; s += 6) {
+      const [xa, za] = at(cum[bi] + s - 6), [xb, zb] = at(cum[bi] + s);
+      let dh = Math.atan2(xb - xa, zb - za) - h0;
+      dh = Math.abs(Math.atan2(Math.sin(dh), Math.cos(dh)));
+      if (dh > 0.6) { want = Math.min(want, Math.sqrt(vc * vc + 2 * 6.5 * Math.max(0, s - 12))); break; }
+    }
+    if (end - cum[bi] < 60) want = Math.min(want, Math.sqrt(169 + 2 * 6.5 * Math.max(0, end - cum[bi] - 8)));
+    this.steer(u, tx, tz, want, dt, null);
+  }
+
   private driveUnit(u: Unit, dt: number): void {
     const g = this.game, pl = u.target, v = u.v, lvl = pl.level;
     const dx = pl.x - v.x, dz = pl.z - v.z, d = Math.hypot(dx, dz);
@@ -757,7 +896,7 @@ export class Police {
       if ((u.wT -= dt) <= 0) {
         u.wT = 20;
         const a = Math.atan2(v.x - pl.x, v.z - pl.z) + this.rng.range(-0.6, 0.6);
-        const n = g.plan.nearestNode(v.x + Math.sin(a) * 420, v.z + Math.cos(a) * 420);
+        const n = (g.plan.streets ?? g.plan).nearestNode(v.x + Math.sin(a) * 420, v.z + Math.cos(a) * 420);
         u.wx = n.x; u.wz = n.z; u.pathT = 0;
       }
       this.route(u, u.wx, u.wz, 13, dt);
@@ -825,7 +964,7 @@ export class Police {
     if ((u.wT -= dt) <= 0 || Math.hypot(u.wx - v.x, u.wz - v.z) < 16) {
       u.wT = 14;
       const a = this.rng.range(0, TAU), r = this.rng.range(30, Math.max(60, pl.radius));
-      const n = g.plan.nearestNode(pl.kx + Math.sin(a) * r, pl.kz + Math.cos(a) * r);
+      const n = (g.plan.streets ?? g.plan).nearestNode(pl.kx + Math.sin(a) * r, pl.kz + Math.cos(a) * r);
       u.wx = n.x; u.wz = n.z; u.pathT = 0;
     }
     if (g.time - pl.lastSeen < 3) u.arrived = false;

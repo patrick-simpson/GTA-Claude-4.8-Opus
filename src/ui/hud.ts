@@ -16,6 +16,7 @@ import {
 } from '../world/plan';
 import { COAST, DAM_Z, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MZS, RAIL, RIVER_HW, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, riverX, streamX, tribZ } from '../world/mainland';
 import { progress } from '../world/progress';
+import { STREETS_NEW } from '../world/streets';
 
 import { PEER_COLOR } from '../net/names';
 /** Pardon's entrance (world) and the store's red: the radar badge, and the map's in menu.ts. */
@@ -150,7 +151,9 @@ export function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   mainlandChart(c);
 
   // City blocks. Mercy Park is sage; the port and the arena get a hatch.
-  for (const blk of plan.blocks) {
+  const S = plan.streets;
+  // The new street graph replaces the old mainland grid: only the island's blocks and edges come from the plan.
+  for (const blk of S ? plan.blocks.slice(0, plan.isle.blocks) : plan.blocks) {
     const r = blk.rect, w = r.x1 - r.x0, d = r.z1 - r.z0;
     if (w <= 0 || d <= 0) continue;
     c.fillStyle = WASH[blk.district];
@@ -173,6 +176,16 @@ export function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
     c.restore();
   }
 
+  if (S) {
+    for (const b of S.blocks) {
+      if (b.open || !b.district) continue;
+      c.fillStyle = WASH[b.district];
+      c.beginPath();
+      for (let k = 0; k < b.poly.length; k += 2) { if (k) c.lineTo(b.poly[k], b.poly[k + 1]); else c.moveTo(b.poly[0], b.poly[1]); }
+      c.closePath();
+      c.fill();
+    }
+  }
   hillChart(c);
 
   // Decks over the water.
@@ -187,7 +200,7 @@ export function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
     c.beginPath(); c.moveTo(x0, z0); c.lineTo(x1, z1); c.stroke();
   };
   for (const pass of [1, 2, 3]) {
-    for (const e of plan.edges) {
+    for (const e of S ? plan.edges.slice(0, plan.isle.edges) : plan.edges) {
       const A = plan.nodes[e.a], B = plan.nodes[e.b];
       if (e.deck) continue;
       if (pass === 1 && e.lanes === 1) road(A.x, A.z, B.x, B.z, 7, INK, 'square');
@@ -195,6 +208,7 @@ export function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
       if (pass === 3 && e.lanes === 2) road(A.x, A.z, B.x, B.z, 2, LAND, 'butt');
     }
   }
+  if (S) streetLines(c, S);
   // The Perpetual Bridge: drawn as built, then as promised. The chart is redrawn whenever a span is added.
   const bz = bridgeEndZ(), landing = MZS[MZS.length - 1] + 6;
   road(BRIDGE.x, ZS[0], BRIDGE.x, progress.complete ? landing : bz, 13, INK, 'butt');
@@ -211,7 +225,7 @@ export function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   c.setLineDash([12, 5]);
   road(RAIL.x0, RAIL.z, RAIL.x1, RAIL.z, 3.4, INK, 'butt');
   c.setLineDash([]);
-  road(FOOTBRIDGE.x0 - 70, FOOTBRIDGE_Z, FOOTBRIDGE.x1 + 270, FOOTBRIDGE_Z, 2.2, INK, 'butt');
+  if (!S) road(FOOTBRIDGE.x0 - 70, FOOTBRIDGE_Z, FOOTBRIDGE.x1 + 270, FOOTBRIDGE_Z, 2.2, INK, 'butt');
   road(FOOTBRIDGE.x0, FOOTBRIDGE_Z, FOOTBRIDGE.x1, FOOTBRIDGE_Z, 5, INK, 'butt');
 
   // Stunt ramps: a mustard wedge pointing the way you leave the ground.
@@ -265,6 +279,31 @@ export function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   return cv;
 }
 
+/** The new mainland streets as ink lines: highways and avenues heavy and split by a paper line, ramps and locals thin, roundabouts as rings. */
+function streetLines(c: CanvasRenderingContext2D, S: NonNullable<CityPlan['streets']>): void {
+  const path = (pts: number[]): void => {
+    c.beginPath();
+    for (let k = 0; k < pts.length; k += 2) { if (k) c.lineTo(pts[k], pts[k + 1]); else c.moveTo(pts[0], pts[1]); }
+  };
+  const mainland = S.edges.slice(S.isle.edges).filter((e) => !e.deck && e.pts);
+  const wide = (e: (typeof mainland)[number]): number => (e.kind === 'highway' ? 15 : e.kind === 'ramp' ? 4.5 : e.lanes >= 2 || e.kind === 'arterial' ? 11 : 6.5);
+  c.lineJoin = 'round';
+  c.lineCap = 'butt';
+  for (const pass of [1, 2]) {
+    for (const e of mainland) {
+      const w = wide(e);
+      if (pass === 1) { c.strokeStyle = INK; c.lineWidth = w; path(e.pts!); c.stroke(); }
+      else if (w >= 11 || e.divided) { c.strokeStyle = LAND; c.lineWidth = 1.8; path(e.pts!); c.stroke(); }
+    }
+  }
+  for (const n of S.nodes.slice(S.isle.nodes)) {
+    if (n.control !== 'roundabout' || !n.ring) continue;
+    c.strokeStyle = INK; c.lineWidth = 13; c.beginPath(); c.arc(n.x, n.z, n.ring, 0, TAU); c.stroke();
+    c.strokeStyle = LAND; c.lineWidth = 1.8; c.beginPath(); c.arc(n.x, n.z, n.ring, 0, TAU); c.stroke();
+    c.fillStyle = SAGE; c.beginPath(); c.arc(n.x, n.z, Math.max(2, n.ring - 8), 0, TAU); c.fill();
+  }
+}
+
 /** Tepid Falls' land and water: buff above a sand line, the river, its brook, the stream and the lake in shoal green, the hill in form lines. */
 function mainlandChart(c: CanvasRenderingContext2D): void {
   const shore = mring(-5.5);
@@ -282,7 +321,7 @@ function mainlandChart(c: CanvasRenderingContext2D): void {
   // Fresh water: every course once in ink, a little wider, then again in water, so the banks come out as fine lines.
   const courses: { w: number; pts: [number, number][] }[] = [];
   const river: [number, number][] = [], brook: [number, number][] = [], stream: [number, number][] = [];
-  for (let z = -2340; z <= -976; z += 12) if (coastSD(riverX(z), z) < 4) river.push([riverX(z), z]);
+  for (let z = STREETS_NEW ? -2990 : -2340; z <= -976; z += 12) if (coastSD(riverX(z), z) < 4) river.push([riverX(z), z]);
   for (let x = riverX(-1530); x <= 1020; x += 12) if (coastSD(x, tribZ(x)) < 4) brook.push([x, tribZ(x)]);
   for (let z = STREAM_Z0; z <= -976; z += 12) if (coastSD(streamX(z), z) < 4) stream.push([streamX(z), z]);
   courses.push({ w: RIVER_HW * 2, pts: river }, { w: TRIB_HW * 2, pts: brook }, { w: STREAM_HW * 2, pts: stream });
@@ -1421,6 +1460,8 @@ export class Hud implements HudApi {
     this.airT = 0;
     if (t < 0.8) return;
     const feet = Math.round(Math.hypot(v.x - this.airX, v.z - this.airZ) * FEET);
+    // The stunt park's own trick card already told this flight; one notice is enough.
+    if (document.querySelector('.sp-card.on')) { if (this.intro === 3) this.endIntro(); return; }
     if (t >= 1.5 || feet >= 110) this.plate('AIRBORNE', `${feet} ft · ${t.toFixed(1)} s · no flight plan filed`, true);
     else this.toast(`Off the ground for ${t.toFixed(1)} s and ${feet} ft. ${HOPS[this.hops++ % HOPS.length]}`, 5);
     if (this.intro === 3) this.endIntro();

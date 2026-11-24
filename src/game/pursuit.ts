@@ -127,7 +127,7 @@ export class Pursuit {
     };
     const st = pol ? pol.station : { x: 0, z: 0, name: 'Harbor Patrol Station No. 1' };
     const isl = { x: st.x, z: st.z, name: 'Harbor Patrol Station No. 1', park: near(g.plan.parking, st.x, st.z) };
-    const mp = near(g.plan.mainlandParking, SITES.square.x, SITES.square.z);
+    const mp = near(g.plan.streets ? g.plan.streets.parking : g.plan.mainlandParking, SITES.square.x, SITES.square.z);
     const ml = { x: mp.x, z: mp.z, name: 'the Tepid Falls patrol post', park: mp };
     this.stationsCache = [isl, ml];
     return this.stationsCache;

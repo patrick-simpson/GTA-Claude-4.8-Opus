@@ -15,7 +15,9 @@ import type { Game } from '../core/game';
 import { kid } from '../core/kid';
 import type { Look, Person, Vehicle } from '../core/api';
 import { RNG, clamp, dampAngle } from '../core/util';
-import { PIER, groundAt, type Block, type District, type RoadNode } from '../world/plan';
+import { MAIN_SPLIT_Z } from '../world/mainland';
+import { PIER, groundAt, type Block, type District, type RoadEdge, type RoadNode } from '../world/plan';
+import type { StreetGraph } from '../world/streets';
 import type { Prop } from '../world/collide';
 import { signalState } from '../world/signals';
 import { spawnOk, type Anchor, type RoadPed } from './traffic';
@@ -105,6 +107,13 @@ export interface Walker extends RoadPed {
   cars: Vehicle[];
   inRoad: boolean;
   hitCool: number;
+  /**
+   * New streets (plan.streets): the walker follows the sidewalk of an edge instead of a block's side. e is the edge (null = a block
+   * walker), es the distance along it, sd the side (+1 is left of a -> b), dir the way along. pe, px, pz, ps, pdir, psd: the edge
+   * and the place across the road that a crossing is making for.
+   */
+  e: RoadEdge | null; es: number; sd: number;
+  pe: RoadEdge | null; px: number; pz: number; ps: number; pdir: number; psd: number;
   /** Multiplayer: their number on the wire (0 until this browser has been in a shared town), and which group of players they are nearest. */
   wid: number; grp: number;
 }
@@ -120,6 +129,9 @@ export class Peds {
   private readonly usable: boolean[] = [];
   private readonly spots: Spot[][] = [];
   private nearBlocks: Block[] = [];
+  /** New streets: the edges with a sidewalk near the player (the mainland's people walk these, not the old blocks). */
+  private nearEdges: RoadEdge[] = [];
+  private readonly sg: StreetGraph | null;
   private nearT = 0;
   /** The busiest of the near blocks, so the choice between them is relative. */
   private top = 1;
@@ -147,8 +159,10 @@ export class Peds {
 
   constructor(private readonly game: Game) {
     const rng = this.rng, plan = game.plan;
+    this.sg = plan.streets;
     for (const b of plan.blocks) {
-      this.usable[b.id] = b.road[0] || b.road[1] || b.road[2] || b.road[3];
+      // With the new streets the old mainland grid is gone: its blocks hold nobody.
+      this.usable[b.id] = (b.road[0] || b.road[1] || b.road[2] || b.road[3]) && !(this.sg && b.land === 1);
       this.spots[b.id] = [];
     }
     this.blocks = plan.blocks.filter((b) => this.usable[b.id]);
@@ -179,6 +193,7 @@ export class Peds {
         ax: 0, az: 0, asideX: 0, asideZ: 0, asideT: 0, stuck: 0, sideT: 0, sideS: 1,
         cool: rng.range(4, 40), scan: rng.next() * 0.5, cars: [], inRoad: false, hitCool: 0,
         x: 0, z: 0, vx: 0, vz: 0, wid: 0, grp: 0,
+        e: null, es: 0, sd: 1, pe: null, px: 0, pz: 0, ps: 0, pdir: 1, psd: 1,
       };
       w.p.visible = false;
       this.walkers.push(w);
@@ -205,7 +220,9 @@ export class Peds {
     let n = 0, f = 0;
     for (const w of this.walkers) if (!w.pier) n++;
     for (const b of this.nearBlocks) f += this.busy(b);
-    f = this.nearBlocks.length ? Math.min(1, f / this.nearBlocks.length * 1.15) : 0;
+    for (const e of this.nearEdges) f += this.edgeBusy(e);
+    const cnt = this.nearBlocks.length + this.nearEdges.length;
+    f = cnt ? Math.min(1, f / cnt * 1.15) : 0;
     return Math.round(n * f * (this.game.sky.weather === 'rain' ? 0.55 : 1));
   }
 
@@ -385,6 +402,7 @@ export class Peds {
             this.step(w, w.inset, p.z + w.dir * 1.6, v, dt);
             break;
           }
+          if (w.e) { this.pathWalk(w, v, dt); break; }
           const b = w.block, len = this.sideLen(b, w.side, w.inset);
           w.t = this.project(w);
           if ((w.dir > 0 && w.t >= len - 0.35) || (w.dir < 0 && w.t <= 0.35)) { this.corner(w); break; }
@@ -400,14 +418,15 @@ export class Peds {
           this.atFar(w);
           p.h = dampAngle(p.h, Math.atan2(this.qx - p.x, this.qz - p.z), 6, dt);
           if ((this.frame + i) % 16 === 0 && this.mayCross(w)) { w.mode = CROSS; w.timer = 0; this.stats.crossings++; }
-          else if (w.timer > 45 || run) { w.mode = WALK; w.dir = -w.dir; }
+          else if (w.timer > 45 || run) { w.mode = WALK; w.dir = -w.dir; w.pe = null; }
           break;
         }
         case CROSS: {
           this.atFar(w);
           const far = this.step(w, this.qx, this.qz, run ? 4.6 : w.cs * (w.hurry > 0 ? 1.4 : 1), dt);
           w.timer += dt;
-          if (far < 0.5 && w.nb) { w.block = w.nb; w.side = w.nside; w.nb = null; w.mode = WALK; }
+          if (far < 0.5 && w.pe) { w.e = w.pe; w.es = w.ps; w.dir = w.pdir; w.sd = w.psd; w.pe = null; w.mode = WALK; }
+          else if (far < 0.5 && w.nb) { w.block = w.nb; w.side = w.nside; w.nb = null; w.mode = WALK; }
           else if (w.timer > 40) this.adopt(w);
           break;
         }
@@ -462,7 +481,8 @@ export class Peds {
 
   /** The point a crossing is making for. */
   private atFar(w: Walker): void {
-    if (w.nb && w.nt >= 0) this.at(w.nb, w.nside, w.nt, w.inset);
+    if (w.pe) { this.qx = w.px; this.qz = w.pz; }
+    else if (w.nb && w.nt >= 0) this.at(w.nb, w.nside, w.nt, w.inset);
     else { this.qx = w.tx; this.qz = w.tz; }
   }
 
@@ -498,7 +518,18 @@ export class Peds {
       return dx * dx + dz * dz < 100 * 100;
     });
     this.top = 0.01;
+    this.nearEdges = [];
+    const sg = this.sg;
+    if (sg && pl.z < MAIN_SPLIT_Z + 130) {
+      for (let k = sg.isle.edges; k < sg.edges.length; k++) {
+        const e = sg.edges[k];
+        if (!this.walkable(e)) continue;
+        const m = sg.pointAt(e, e.len / 2);
+        if (Math.abs(m.x - pl.x) < 100 + e.len / 2 && Math.abs(m.z - pl.z) < 100 + e.len / 2 && sg.project(e, pl.x, pl.z).d < 100) this.nearEdges.push(e);
+      }
+    }
     for (const b of this.nearBlocks) this.top = Math.max(this.top, this.busy(b));
+    for (const e of this.nearEdges) this.top = Math.max(this.top, this.edgeBusy(e));
     if (this.extra.length > 0) this.regroup();
   }
 
@@ -625,6 +656,7 @@ export class Peds {
     p.y = groundAt(p.x, p.z);
     this.adopt(w);
     if (w.pier) w.dir = Math.cos(p.h) >= 0 ? 1 : -1;
+    else if (w.e) w.dir = this.alongDir(w, Math.sin(p.h), Math.cos(p.h));
     else w.dir = Math.sin(p.h) * DIR_X[w.side] + Math.cos(p.h) * DIR_Z[w.side] >= 0 ? 1 : -1;
   }
 
@@ -658,8 +690,11 @@ export class Peds {
   /** Try one random sidewalk spot. Brings the walker out only if the spot is acceptable. */
   private seat(w: Walker, near: number, far: number, front: number): boolean {
     const rng = this.rng, g = this.game;
-    if (this.nearBlocks.length === 0) return false;
-    const b = rng.pick(this.nearBlocks);
+    const nB = this.nearBlocks.length, nE = this.nearEdges.length;
+    if (nB + nE === 0) return false;
+    const pick = rng.int(0, nB + nE - 1);
+    if (pick >= nB) return this.seatEdge(w, this.nearEdges[pick - nB], near, far, front);
+    const b = this.nearBlocks[pick];
     // Busy districts get more of the cast; the Cannery and the docks next to nobody.
     if (rng.next() * this.top > this.busy(b)) return false;
     let side = rng.int(0, 3);
@@ -670,7 +705,7 @@ export class Peds {
     const t = rng.next() * len;
     this.at(b, side, t, inset);
     if (!this.fair(this.qx, this.qz, near, far, front) || g.col.pointBlocked(this.qx, this.qz, 1)) return false;
-    w.block = b; w.side = side; w.t = t; w.inset = inset; w.dir = rng.sign();
+    w.block = b; w.side = side; w.t = t; w.inset = inset; w.dir = rng.sign(); w.e = null; w.pe = null;
     const p = w.p;
     p.x = this.qx; p.z = this.qz; p.y = groundAt(p.x, p.z); p.h = Math.atan2(DIR_X[side] * w.dir, DIR_Z[side] * w.dir);
     p.visible = true; p.health = 100; p.pose = 'walk'; p.bench = false;
@@ -684,6 +719,15 @@ export class Peds {
     const p = w.p;
     w.nb = null; w.mode = WALK;
     if (w.pier) { w.inset = clamp(p.x, -7.6, 7.6); return; }
+    w.pe = null;
+    if (this.sg && p.z < MAIN_SPLIT_Z) {
+      const sg = this.sg, r = sg.nearestEdge(p.x, p.z, (e) => this.walkable(e));
+      const e = r.edge, [lo, hi] = this.span(e), c = sg.pointAt(e, r.s);
+      w.e = e; w.es = clamp(r.s, lo, hi); w.inset = clamp(Math.abs(r.d) - e.hw, 1.2, 2.6);
+      w.sd = (p.x - c.x) * -c.dz + (p.z - c.z) * c.dx >= 0 ? 1 : -1;
+      return;
+    }
+    w.e = null;
     let b = this.blockAtPoint(p.x, p.z);
     if (!b || !this.usable[b.id]) {
       let bd = Infinity;
@@ -707,7 +751,127 @@ export class Peds {
     if (w.spot) { w.spot.n--; w.spot = null; }
     if (w.mode === DOWN) return;
     if (w.mode === CROSS) return;
-    w.mode = WALK; w.nb = null; w.timer = 0;
+    w.mode = WALK; w.nb = null; w.timer = 0; w.pe = null;
+  }
+
+  // ── Sidewalks of the new streets ───────────────────────────────────────────
+
+  /** An edge people can walk beside: a street, not a highway, a ramp or the bridge deck, and not behind barriers. */
+  private walkable(e: RoadEdge): boolean {
+    return !e.deck && !e.closed && e.kind !== 'highway' && e.kind !== 'ramp' && e.kind !== 'bridge' && e.len > 22;
+  }
+
+  /** The stretch of an edge with a sidewalk: clear of the junction pads at both ends. */
+  private span(e: RoadEdge): [number, number] {
+    const sg = this.sg!, A = sg.nodes[e.a], B = sg.nodes[e.b];
+    const pa = Math.max(A.hx, A.hz, A.ring ?? 0) + 2.5, pb = Math.max(B.hx, B.hz, B.ring ?? 0) + 2.5;
+    return pa + 6 < e.len - pb ? [pa, e.len - pb] : [e.len / 2, e.len / 2];
+  }
+
+  private edgeBusy(e: RoadEdge): number {
+    const m = this.sg!.pointAt(e, e.len / 2), d = this.game.plan.districtAt(m.x, m.z);
+    if (!d) return 0;
+    const k = BUSY[d];
+    return k[0] + (k[1] - k[0]) * this.game.sky.night;
+  }
+
+  private readonly swOk = new Map<number, Uint8Array>();
+
+  /** Is there sidewalk at s on side sd of e: clear of every other street's paved width (the plan puts some streets close)? */
+  private sideOk(e: RoadEdge, s: number, sd: number, inset: number): boolean {
+    let a = this.swOk.get(e.id);
+    const n = Math.ceil(e.len / 3) + 1;
+    if (!a) {
+      a = new Uint8Array(n * 2);
+      for (let k = 0; k < n; k++) {
+        for (let q = 0; q < 2; q++) {
+          this.edgeAt(e, Math.min(k * 3, e.len), q ? 1 : -1, 1.8);
+          a[k * 2 + q] = this.sg!.clearOfOthers(this.qx, this.qz, 0.6, e.id) ? 1 : 0;
+        }
+      }
+      this.swOk.set(e.id, a);
+    }
+    void inset;
+    return a[Math.round(clamp(s, 0, e.len) / 3) * 2 + (sd > 0 ? 1 : 0)] === 1;
+  }
+
+  /** Point on the sidewalk of edge e at s, on side sd (+1 left of a -> b), `inset` m past the paved edge. Sets qx, qz. */
+  private edgeAt(e: RoadEdge, s: number, sd: number, inset: number): void {
+    const c = this.sg!.pointAt(e, s), off = e.hw + inset;
+    this.qx = c.x - c.dz * sd * off; this.qz = c.z + c.dx * sd * off;
+  }
+
+  /** Which way along their edge (+1 toward b) a heading or a push away points. */
+  private alongDir(w: Walker, hx: number, hz: number): number {
+    const c = this.sg!.pointAt(w.e!, w.es);
+    const d = hx * c.dx + hz * c.dz;
+    return Math.abs(d) < 0.05 ? w.dir : d > 0 ? 1 : -1;
+  }
+
+  private seatEdge(w: Walker, e: RoadEdge, near: number, far: number, front: number): boolean {
+    const rng = this.rng, g = this.game, [lo, hi] = this.span(e);
+    if (hi - lo < 6 || rng.next() * this.top > this.edgeBusy(e)) return false;
+    const inset = rng.range(1.3, 2.6), sd = rng.sign(), s = rng.range(lo, hi);
+    if (!this.sideOk(e, s, sd, inset)) return false;
+    this.edgeAt(e, s, sd, inset);
+    if (!this.fair(this.qx, this.qz, near, far, front) || g.col.pointBlocked(this.qx, this.qz, 1)) return false;
+    w.e = e; w.es = s; w.sd = sd; w.inset = inset; w.dir = rng.sign(); w.pe = null; w.nb = null;
+    const p = w.p, c = this.sg!.pointAt(e, s);
+    p.x = this.qx; p.z = this.qz; p.y = groundAt(p.x, p.z); p.h = Math.atan2(c.dx * w.dir, c.dz * w.dir);
+    p.visible = true; p.health = 100; p.pose = 'walk'; p.bench = false;
+    w.active = true; w.mode = WALK; w.flee = 0; w.hard = false; w.cars.length = 0; w.scan = 0;
+    w.cool = rng.range(4, 40);
+    return true;
+  }
+
+  /** WALK along an edge's sidewalk, steering a little ahead; at the end, the corner. */
+  private pathWalk(w: Walker, v: number, dt: number): void {
+    const e = w.e!, p = w.p, [lo, hi] = this.span(e);
+    w.es = this.sg!.project(e, p.x, p.z).s;
+    if ((w.dir > 0 && w.es >= hi - 0.35) || (w.dir < 0 && w.es <= lo + 0.35)) { this.pathCorner(w); return; }
+    const ahead = clamp(w.es + w.dir * 1.6, lo, hi);
+    // Where another street's lanes cover the sidewalk, turn back.
+    if (!this.sideOk(e, ahead + w.dir * 3, w.sd, w.inset)) { w.dir = -w.dir; return; }
+    this.edgeAt(e, ahead, w.sd, w.inset);
+    this.step(w, this.qx, this.qz, v, dt);
+  }
+
+  /** At the end of an edge: turn back, or take another street from the junction, crossing the road mouths in between if the way runs over them. */
+  private pathCorner(w: Walker): void {
+    const sg = this.sg!, e = w.e!, p = w.p, rng = this.rng;
+    const node = sg.nodes[w.dir > 0 ? e.b : e.a];
+    const cands = node.edges.map((id) => sg.edges[id]).filter((c) => c !== e && this.walkable(c) && this.span(c)[1] > this.span(c)[0]);
+    if (!cands.length || rng.chance(w.flee > 0 ? 0.1 : 0.06)) { w.dir = -w.dir; return; }
+    const c = rng.pick(cands), fromA = c.a === node.id, [lo, hi] = this.span(c), s2 = fromA ? lo : hi;
+    // The sidewalk of the new street nearest to where we stand: the same corner when it is a turn toward our side.
+    let best = 1, bd = Infinity;
+    for (const sd of [-1, 1]) {
+      if (!this.sideOk(c, s2 + (fromA ? 3 : -3), sd, w.inset)) continue;
+      this.edgeAt(c, s2, sd, w.inset);
+      const d = Math.hypot(this.qx - p.x, this.qz - p.z);
+      if (d < bd) { bd = d; best = sd; }
+    }
+    if (bd === Infinity) { w.dir = -w.dir; return; }
+    this.edgeAt(c, s2, best, w.inset);
+    const tx = this.qx, tz = this.qz;
+    // Does the straight way over cut across any road leaving the junction?
+    const pad = Math.max(node.hx, node.hz, node.ring ?? 0) + 3;
+    let cross = false;
+    for (const id of node.edges) {
+      const f = sg.edges[id];
+      if (f.deck) continue;
+      const fa = f.a === node.id, p0 = sg.pointAt(f, fa ? Math.min(pad, f.len) : Math.max(f.len - pad, 0));
+      const ax = p.x, az = p.z, bx = tx, bz = tz, cx = node.x, cz = node.z, dx = p0.x, dz = p0.z;
+      const den = (bx - ax) * (dz - cz) - (bz - az) * (dx - cx);
+      if (Math.abs(den) < 1e-9) continue;
+      const t = ((cx - ax) * (dz - cz) - (cz - az) * (dx - cx)) / den, u = ((cx - ax) * (bz - az) - (cz - az) * (bx - ax)) / den;
+      if (t > 0.02 && t < 0.98 && u > 0 && u < 1) { cross = true; break; }
+    }
+    const dir2 = fromA ? 1 : -1;
+    if (!cross) { w.e = c; w.es = s2; w.dir = dir2; w.sd = best; return; }
+    w.pe = c; w.ps = s2; w.pdir = dir2; w.psd = best; w.px = tx; w.pz = tz;
+    w.tx = p.x; w.tz = p.z; w.node = null; w.nb = null;
+    w.mode = KERB; w.timer = 0;
   }
 
   // ── Corners and crossings ──────────────────────────────────────────────────
@@ -807,6 +971,7 @@ export class Peds {
       if (rng.chance(0.04)) { w.mode = IDLE; w.timer = 0; w.face = w.inset > 0 ? Math.PI / 2 : -Math.PI / 2; w.cool = rng.range(5, 14); }
       return;
     }
+    if (w.e) return;
     const b = w.block;
     for (const s of this.spots[b.id]) {
       if (s.side !== w.side || !s.prop.alive || s.n >= (s.bench ? 1 : 3)) continue;
@@ -933,6 +1098,7 @@ export class Peds {
     this.leave(w);
     const p = w.p;
     if (w.pier) { w.dir = p.z >= z ? 1 : -1; return; }
+    if (w.e) { w.dir = this.alongDir(w, p.x - x, p.z - z); return; }
     const along = (p.x - x) * DIR_X[w.side] + (p.z - z) * DIR_Z[w.side];
     if (Math.abs(along) > 0.5) w.dir = along > 0 ? 1 : -1;
   }

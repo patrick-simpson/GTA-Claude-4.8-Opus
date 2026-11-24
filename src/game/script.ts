@@ -104,6 +104,29 @@ export const dist = (a: Pt, b: Pt): number => Math.hypot(a.x - b.x, a.z - b.z);
 
 /** The streets between two points as a line a car can follow: intersection to intersection, kept to the right-hand lane. */
 export function streetRoute(plan: CityPlan, a: Pt, b: Pt, lane = 3): Pt[] {
+  const G = plan.streets;
+  if (G) {
+    // The new street graph: along each street's own curve, kept right of its centreline.
+    const ids = G.findPath(G.nearestNode(a.x, a.z).id, G.nearestNode(b.x, b.z).id);
+    if (ids.length < 2) return [a, b];
+    const out: Pt[] = [];
+    for (let k = 0; k + 1 < ids.length; k++) {
+      const na = G.nodes[ids[k]];
+      let pick = null as (typeof G.edges)[number] | null;
+      for (const id of na.edges) { const c = G.edges[id]; if (G.other(c, na.id) === ids[k + 1] && (!pick || c.len < pick.len)) pick = c; }
+      if (!pick) continue;
+      const p = G.edgePts(pick), n = p.length / 2, up = pick.b === ids[k + 1], off = Math.min(lane, pick.hw * 0.6) * (pick.oneWay ? 0 : 1);
+      for (let q = 0; q < n; q++) {
+        const i = up ? q : n - 1 - q, i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+        let tx = p[i1 * 2] - p[i0 * 2], tz = p[i1 * 2 + 1] - p[i0 * 2 + 1];
+        const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
+        if (!up) { tx = -tx; tz = -tz; }
+        if (out.length && Math.hypot(p[i * 2] - tz * off - out[out.length - 1].x, p[i * 2 + 1] + tx * off - out[out.length - 1].z) < 3) continue;
+        out.push({ x: p[i * 2] - tz * off, z: p[i * 2 + 1] + tx * off });
+      }
+    }
+    return out.length > 1 ? out : [a, b];
+  }
   const ids = plan.findPath(plan.nearestNode(a.x, a.z).id, plan.nearestNode(b.x, b.z).id);
   const c: Pt[] = ids.map((id) => ({ x: plan.nodes[id].x, z: plan.nodes[id].z }));
   if (c.length < 2) return [a, b];

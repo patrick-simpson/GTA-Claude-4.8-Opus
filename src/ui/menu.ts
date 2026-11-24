@@ -259,19 +259,39 @@ export class Menu {
     for (let j = 0; j < ZS.length; j++) this.labels.push({ text: EW_NAMES[j], x: (XS[2] + XS[3]) / 2 + (j % 2 ? 240 : 0), z: ZS[j], vert: false });
     // The mainland: each street name once, on its longest stretch.
     const best = new Map<string, { len: number; x: number; z: number; vert: boolean }>();
-    for (const e of plan.edges) {
+    const S = plan.streets;
+    if (S) {
+      // New streets: the midpoint of the longest stretch, running up the page if it runs mostly north-south.
+      for (const e of S.edges.slice(S.isle.edges)) {
+        if (e.deck || !e.pts || e.kind === 'ramp') continue;
+        const old = best.get(e.name);
+        if (old && e.len <= old.len) continue;
+        const m = S.pointAt(e, e.len / 2);
+        best.set(e.name, { len: e.len, x: m.x, z: m.z, vert: Math.abs(m.dz) > Math.abs(m.dx) });
+      }
+    } else for (const e of plan.edges) {
       if (e.land !== 1 || e.deck) continue;
       const a = plan.nodes[e.a], b = plan.nodes[e.b], old = best.get(e.name);
       if (!old || e.len > old.len) best.set(e.name, { len: e.len, x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, vert: !e.horiz });
     }
     for (const [text, v] of best) this.labels.push({ text, x: v.x, z: v.z, vert: v.vert });
     const sum = new Map<District, { x: number; z: number; n: number }>();
-    for (const b of plan.blocks) {
+    for (const b of plan.streets ? plan.blocks.slice(0, plan.isle.blocks) : plan.blocks) {
       const s = sum.get(b.district) ?? { x: 0, z: 0, n: 0 };
       s.x += (b.rect.x0 + b.rect.x1) / 2; s.z += (b.rect.z0 + b.rect.z1) / 2; s.n++;
       sum.set(b.district, s);
     }
     for (const [d, s] of sum) this.districts.push({ text: DISTRICT_NAME[d], x: s.x / s.n, z: s.z / s.n });
+    // New mainland: a district's name sits on its biggest block, so it lands on its own ground.
+    if (plan.streets) {
+      const big = new Map<string, { a: number; x: number; z: number }>();
+      for (const b of plan.streets.blocks) {
+        if (b.open || !b.district) continue;
+        const o = big.get(b.district);
+        if (!o || b.area > o.a) big.set(b.district, { a: b.area, x: b.cx, z: b.cz });
+      }
+      for (const [d, v] of big) this.districts.push({ text: DISTRICT_NAME[d as District], x: v.x, z: v.z });
+    }
   }
 
   private size(): { w: number; h: number; dpr: number } {

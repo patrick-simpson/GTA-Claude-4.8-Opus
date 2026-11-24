@@ -479,7 +479,54 @@ export class StreetGraph {
           // Right of a -> b travel is (-dz, dx).
           const x = p.x - p.dz * off * side, z = p.z + p.dx * off * side;
           if (Math.abs(waterDist(x, z)) < 40) continue;
+          // Never in another street's lane or a junction's pad (curved roads run close together).
+          if (!this.clearOfOthers(x, z, 1.3, e.id)) continue;
           this.parking.push({ x, z, h: side > 0 ? Math.atan2(p.dx, p.dz) : Math.atan2(-p.dx, -p.dz) });
+        }
+      }
+    }
+    this.buildLotParking();
+  }
+
+  /** True when (x, z) is clear by `margin` of every mainland road but `own`, and of every junction pad. */
+  clearOfOthers(x: number, z: number, margin: number, own: number): boolean {
+    for (const n of this.nodes) {
+      if (n.id < this.isle.nodes || (n.edges.length < 3 && !n.ring)) continue;
+      if (Math.abs(n.x - x) > 40 || Math.abs(n.z - z) > 40) continue;
+      const r = Math.max(n.hx, n.hz, n.ring ?? 0) + margin + 1.5;
+      if ((n.x - x) ** 2 + (n.z - z) ** 2 < r * r) return false;
+    }
+    for (const e of this.mainEdges) {
+      if (e.id === own) continue;
+      const b = e.id * 4;
+      if (x < this.bbox[b] - margin || x > this.bbox[b + 2] + margin || z < this.bbox[b + 1] - margin || z > this.bbox[b + 3] + margin) continue;
+      const p = e.pts!, lim = (e.hw + margin) * (e.hw + margin);
+      for (let k = 0; k + 3 < p.length; k += 2) if (projSeg(x, z, p[k], p[k + 1], p[k + 2], p[k + 3]).d2 < lim) return false;
+    }
+    return true;
+  }
+
+  /**
+   * The Holding Pattern's stalls (mainlandBuildings.ts holdingPatternWest paints them): on each tarmac strip between the lanes
+   * and Dutch Elm St, a stall in every 2.75 m row at the strip's west end and, on wide strips, its east end, nose out to the
+   * edge. A car needs its whole footprint clear of every road. Appended last, so no earlier spot or roll moves.
+   */
+  private buildLotParking(): void {
+    const R = { x0: 15, z0: -1935, x1: 48, z1: -1772 };
+    const ok = (x: number, z: number): boolean => this.clearOfRoads(x, z, 1.2);
+    for (let z = Math.ceil(R.z0 / 2.75) * 2.75 + 1.4; z < R.z1 - 2; z += 2.75) {
+      let run = -1;
+      for (let x = R.x0; x <= R.x1 + 0.01; x += 0.5) {
+        const inside = x < R.x1 && ok(x, z - 1.1) && ok(x, z + 1.1);
+        if (inside && run < 0) run = x;
+        if ((!inside || x >= R.x1) && run >= 0) {
+          const xa = run, xb = x;
+          run = -1;
+          if (xb - xa < 5.6) continue;
+          // A stall on every other row, so the lot is half empty like a real one.
+          if (Math.round(z / 2.75) % 2) continue;
+          this.parking.push({ x: xa + 2.8, z, h: -Math.PI / 2 });
+          if (xb - xa >= 11.4 && Math.round(z / 2.75) % 4 === 0) this.parking.push({ x: xb - 2.8, z, h: Math.PI / 2 });
         }
       }
     }

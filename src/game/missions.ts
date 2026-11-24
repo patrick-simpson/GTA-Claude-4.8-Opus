@@ -16,6 +16,7 @@ import type { Game } from '../core/game';
 import type { Look } from '../core/api';
 import { BUILDING_SITES } from '../world/buildings';
 import { XS, ZS } from '../world/plan';
+import { STREETS_NEW } from '../world/streets';
 import { streetRoute, type Giver, type Mission, type Pt, type Step } from './script';
 
 const P = (x: number, z: number): Pt => ({ x, z });
@@ -38,7 +39,7 @@ export function story(game: Game): { givers: Record<string, Giver>; missions: Mi
     return { at: P(s.x + OUT[s.side][0] * d, s.z + OUT[s.side][1] * d), h: H_OUT[s.side], side: s.side };
   };
   /** The south-east corner of a mainland intersection: somewhere to stand that is not the road. */
-  const corner = (x: number, z: number): Pt => { const n = plan.nearestNode(x, z); return P(n.x + n.hx + 1.7, n.z + n.hz + 1.7); };
+  const corner = (x: number, z: number): Pt => { const n = (plan.streets ?? plan).nearestNode(x, z); return P(n.x + n.hx + 1.7, n.z + n.hz + 1.7); };
 
   const lou = front('marlowe', 2.1, -396.7, 275.9, 2);
   const finch = front('finch', 1.8, -16.1, 309.4, 3);
@@ -48,7 +49,7 @@ export function story(game: Game): { givers: Record<string, Giver>; missions: Mi
   const road = (f: { at: Pt; side: number }, d: number): Pt => P(f.at.x + OUT[f.side][0] * d, f.at.z + OUT[f.side][1] * d);
   const louRd = road(lou, 6), finchRd = road(finch, 6), gusRd = road(gus, 6.5), vanceRd = road(vance, 6);
 
-  const millAt = corner(170, -1295), deanAt = corner(-480, -1620), margeAt = corner(-590, -1180);
+  const millAt = corner(170, -1295), deanAt = STREETS_NEW ? corner(-440, -2612) : corner(-480, -1620), margeAt = corner(-590, -1180);
 
   const givers: Record<string, Giver> = {
     lou: { name: 'LOU', letter: 'L', short: 'Talk to Lou', at: lou.at, h: lou.h, look: look({ top: 0x14213d, bottom: 0x14213d, hat: 0x14213d, hair: 0x8d8d8d, skin: 0xe0b08c, build: 1.12 }) },
@@ -304,13 +305,13 @@ export function story(game: Game): { givers: Record<string, Giver>; missions: Mi
         say('DEAN FENWICK-OHM', 'Dithers College has an honor code, Ms. Marlowe. Nobody has read it, which is how we know it is working.'),
         say('DESS', 'And you need a tow-truck driver because.'),
         say('DEAN FENWICK-OHM', 'Because the Provost drives a hatchback full of exam papers off campus every afternoon, and I cannot follow him. I have tenure, not a licence.'),
-        { t: 'spawnVehicle', tag: 'prov', kind: 'hatch', at: P(-347, -1516), h: Math.PI, color: 0x4a4e69 },
-        { t: 'goto', at: P(-347, -1474), r: 12, mode: 'car', stop: true, text: 'Pull up on Birch St, in a vehicle, behind the Provost\'s grey hatchback.' },
+        { t: 'spawnVehicle', tag: 'prov', kind: 'hatch', at: STREETS_NEW ? P(-371, -2625) : P(-347, -1516), h: STREETS_NEW ? Math.PI / 2 : Math.PI, color: 0x4a4e69 },
+        { t: 'goto', at: STREETS_NEW ? P(-412, -2625) : P(-347, -1474), r: 12, mode: 'car', stop: true, text: STREETS_NEW ? 'Pull up on Dithers Loop, in a vehicle, behind the Provost\'s grey hatchback.' : 'Pull up on Birch St, in a vehicle, behind the Provost\'s grey hatchback.' },
         { t: 'checkpoint' },
-        { t: 'tail', tag: 'prov', speed: 10, near: 13, far: 120, text: 'Follow the Provost. Academics check their mirrors more than you would think.', route: () => [P(-347, -1516), ...streetRoute(plan, P(-350, -1620), P(-590, -1840))] },
+        { t: 'tail', tag: 'prov', speed: 10, near: 13, far: 120, text: 'Follow the Provost. Academics check their mirrors more than you would think.', route: () => STREETS_NEW ? [P(-371, -2625), ...streetRoute(plan, P(-340, -2615), P(-190, -2827))] : [P(-347, -1516), ...streetRoute(plan, P(-350, -1620), P(-590, -1840))] },
         say('DESS', 'He is selling them out of the boot at the Thruway exit. Entrepreneurial, for a classicist.'),
         { t: 'despawn', tag: 'prov' },
-        { t: 'race', par: 120, r: 12, mode: 'car', text: 'Get back up Dithers Hill before the faculty meeting ends.', cps: [P(-480, -1840), P(-350, -1840), P(-350, -1505), P(-480, -1505), P(-480, -1626)] },
+        { t: 'race', par: 120, r: 12, mode: 'car', text: 'Get back up Dithers Hill before the faculty meeting ends.', cps: STREETS_NEW ? [P(-313, -2594), P(-411, -2623), P(-520, -2549), P(-580, -2500)] : [P(-480, -1840), P(-350, -1840), P(-350, -1505), P(-480, -1505), P(-480, -1626)] },
         say('DEAN FENWICK-OHM', 'The Thruway exit! We shall form a committee. He will chair it, naturally; he has the experience.'),
       ],
     },
@@ -324,7 +325,7 @@ export function story(game: Game): { givers: Record<string, Giver>; missions: Mi
         say('MARGE', 'A record. Somebody drives the whole Thruway, end to end, fast enough that the county has to admit it goes somewhere. Then they will build my booth.'),
         { t: 'getVehicle', text: 'Get in something quick.' },
         { t: 'checkpoint' },
-        { t: 'race', par: 150, r: 14, mode: 'car', text: 'Drive the whole Thruway, south to north, inside the time.', cps: [P(-700, -1080), P(-700, -1295), P(-700, -1505), P(-700, -1735), P(-700, -1955), P(-700, -2060), P(-590, -2060)] },
+        { t: 'race', par: STREETS_NEW ? 190 : 150, r: 14, mode: 'car', text: 'Drive the whole Thruway, south to north, inside the time.', cps: STREETS_NEW ? [P(-710, -1080), P(-727, -1295), P(-715, -1600), P(-707, -1753), P(-684, -2078), P(-657, -2543), P(-614, -2708), P(-516, -2779), P(-366, -2802), P(-190, -2827)] : [P(-700, -1080), P(-700, -1295), P(-700, -1505), P(-700, -1735), P(-700, -1955), P(-700, -2060), P(-590, -2060)] },
         { t: 'heat', level: 2 },
         say('DESS', 'And there is the county, admitting it.', true),
         { t: 'checkpoint' },

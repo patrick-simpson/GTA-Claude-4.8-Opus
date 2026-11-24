@@ -259,8 +259,28 @@ export class Snowfall {
     const plan = this.game.plan, out: number[] = [];
     let s = 77;
     const rnd = (): number => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+    const SG = plan.streets;
+    if (SG) {
+      // The new mainland: ridges along each polyline's kerbs, at the street's own angle, stopping short of junction pads and
+      // of any other street's lanes (the plan has a few streets close together).
+      for (let k = SG.isle.edges; k < SG.edges.length; k++) {
+        const e = SG.edges[k];
+        if (e.closed || e.deck || e.len < 12) continue;
+        const A = SG.nodes[e.a], B = SG.nodes[e.b], off = e.hw - BANK_W * 0.5 - 0.05;
+        const t0 = Math.max(A.hx, A.hz, A.ring ?? 0) + 3, t1 = e.len - Math.max(B.hx, B.hz, B.ring ?? 0) - 3;
+        for (const side of [-1, 1]) {
+          let t = t0 + rnd() * 2;
+          while (t < t1 - 1.5) {
+            const len = Math.min(2.4 + rnd() * 1.8, t1 - t), c = SG.pointAt(e, t + len / 2);
+            const x = c.x - c.dz * side * off, z = c.z + c.dx * side * off, y = groundAt(x, z);
+            if (y > -0.5 && SG.clearOfOthers(x, z, 0.3, e.id)) out.push(x, z, 0, len, y, Math.atan2(-c.dz, c.dx));
+            t += len + (rnd() < 0.18 ? 3 + rnd() * 4 : 0.3 + rnd() * 0.6);
+          }
+        }
+      }
+    }
     for (const e of plan.edges) {
-      if (e.closed || e.deck) continue;
+      if (e.closed || e.deck || (SG && e.land === 1)) continue;
       const A = plan.nodes[e.a], B = plan.nodes[e.b];
       const off = e.hw - BANK_W * 0.5 - 0.05;
       const t0 = (e.horiz ? A.x + A.hx : A.z + A.hz) + 3, t1 = (e.horiz ? B.x - B.hx : B.z - B.hz) - 3;
@@ -272,16 +292,16 @@ export class Snowfall {
           const x = e.horiz ? mid : A.x + side * off, z = e.horiz ? A.z + side * off : mid;
           const y = groundAt(x, z);
           // Not where the street runs over water (bridges, the causeway's edges).
-          if (y > -0.5) out.push(x, z, e.horiz ? 1 : 0, len, y);
+          if (y > -0.5) out.push(x, z, 0, len, y, e.horiz ? 0 : Math.PI / 2);
           t += len + (rnd() < 0.18 ? 3 + rnd() * 4 : 0.3 + rnd() * 0.6);
         }
       }
     }
     this.banks = new Float32Array(out);
-    const n = out.length / 5;
+    const n = out.length / 6;
     this.alive = new Uint8Array(n).fill(1);
     for (let i = 0; i < n; i++) {
-      const k = this.key(Math.floor(out[i * 5] / CELL), Math.floor(out[i * 5 + 1] / CELL));
+      const k = this.key(Math.floor(out[i * 6] / CELL), Math.floor(out[i * 6 + 1] / CELL));
       let l = this.grid.get(k);
       if (!l) this.grid.set(k, (l = []));
       l.push(i);
@@ -296,8 +316,8 @@ export class Snowfall {
       if (!l) continue;
       for (const i of l) {
         if (!al[i]) continue;
-        const o = i * 5, along = b[o + 2] > 0.5;
-        const da = along ? c.x - b[o] : c.z - b[o + 1], dc = along ? c.z - b[o + 1] : c.x - b[o];
+        const o = i * 6, ox = c.x - b[o], oz = c.z - b[o + 1], cs = Math.cos(b[o + 5]), sn = Math.sin(b[o + 5]);
+        const da = ox * cs - oz * sn, dc = ox * sn + oz * cs;
         if (Math.abs(da) > b[o + 3] * 0.5 + r || Math.abs(dc) > BANK_W * 0.5 + r * 0.8 || Math.abs(c.y - b[o + 4]) > 1.5) continue;
         al[i] = 0;
         this.dirty = true;
@@ -321,10 +341,10 @@ export class Snowfall {
       if (!l) continue;
       for (const i of l) {
         if (!al[i]) continue;
-        const o = i * 5, dx = b[o] - x, dz = b[o + 1] - z;
+        const o = i * 6, dx = b[o] - x, dz = b[o + 1] - z;
         if (dx * dx + dz * dz > R2) continue;
         const jit = 0.8 + 0.4 * ((i * 0.618) % 1);
-        this.q.setFromAxisAngle(this.up, b[o + 2] > 0.5 ? 0 : Math.PI / 2);
+        this.q.setFromAxisAngle(this.up, b[o + 5]);
         this.m4.compose(this.v.set(b[o], b[o + 4] - 0.05, b[o + 1]), this.q, this.sc.set(b[o + 3], h * jit, BANK_W));
         this.m4.toArray(arr, n * 16);
         if (++n >= this.cap) break;

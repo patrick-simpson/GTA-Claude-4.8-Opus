@@ -85,12 +85,33 @@ boots with no errors at high, low and the phone layout; nothing gory.
     from YouTube; never download or copy the audio into the repo. Browsers only allow sound after a click or
     key, so the promo starts on the title card's first click/tap (which already exists), and if YouTube
     can't be reached it plays silent with the game's own music bed.
-    Build it as a REAL-TIME in-engine cinematic (no video file to download): a scripted sequence of shots
+    OWNER CHANGE 2 (Nov 24): "It's copyright free, so you can just grab the mp3." The video is by Kevin
+    MacLeod (incompetech; oEmbed confirms channel @incompetech_kmac), whose music is Creative Commons
+    Attribution 4.0. So BAKE THE MUSIC INTO THE VIDEO (this overrides the streaming/no-copy lines above and
+    below): get the official MP3 from Kevin MacLeod's own sources (incompetech.com; its pieces.json
+    catalogue did NOT list "Swing Machine" on Nov 24, and the guessed mp3 URL 404s; try filmmusic.io,
+    which the lead's network could not reach, or a download link in the video description, read in the
+    laptop's Chrome). Record the license and add the credit line, in the promo's end card and the
+    credits/menu: '"Swing Machine" Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By
+    Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/'. Only if no official file
+    exists, ask the lead before taking the audio any other way. Then the picture and music are cut together
+    in one file, and the sync and YouTube fallback below no longer apply.
+    OWNER CHANGE (Nov 24): "prepackage the video so it's super high quality. Don't have it render in real
+    time." So it is a PRE-RENDERED VIDEO FILE, picture only (no audio track: the music still streams from
+    the hidden YouTube player, and the video's clock follows the player's time so cuts stay on the beat;
+    if YouTube fails, the video plays with the game's own music bed). How to make it: drive the real game
+    on the laptop's RTX 4050 in an offline capture mode (fixed time step frame by frame, not real time,
+    so every frame is perfect): maximum quality settings, supersampled (render 4K, downscale), motion
+    blur by sub-frame accumulation, 60 fps, plus Blender (window visible) for any hero shots the engine
+    can't make look good enough (e.g. the logo reveal). Colour-grade and encode with ffmpeg: 1080p60
+    (H.264 high profile for reach, plus AV1/VP9 if smaller) and a 720p cut for phones; keep each file
+    small enough for GitHub Pages (aim under ~25 MB for 1080p). Load it in the background while the
+    title card shows; any key/tap skips. The shot list below still applies, as a scripted sequence of shots
     from the actual game cut to the song's beats (measure the beat grid from the track's tempo): the
     SpeedScan tower with its stink lines, a car chase with police and the helicopter, ragdolls and the
     cannon, the stunt-park loop, boats and the duck, moose on a snowy road, the derby crowd, the tornado,
     fireworks over the pier, Tepid Falls' Main St, the store interior, multiplayer racers at the lights;
     cinematic cameras (dolly, crane, orbit, slow-motion at the drop), letterbox, title cards in the game's
-    paperwork style with punchy lines, and the logo at the end with "PRESS ANY KEY". Every shot pre-warmed
-    (src/core/warmup.ts) so nothing hitches; phones get a shorter, lighter cut. Shown once per new edition
+    paperwork style with punchy lines, and the logo at the end with "PRESS ANY KEY" (overlaid live as HTML
+    so it stays sharp). Phones get the 720p file. Shown once per new edition
     or first visit, with a menu option to replay it.

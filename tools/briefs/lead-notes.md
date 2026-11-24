@@ -186,3 +186,7 @@ owner's ground rules for the takeover and the running state.
 - Nov 24: streets unit 1 committed LOCALLY, not pushed (invisible behind ?streets=new; push with the next visible change so the WHAT'S NEW card makes sense). Mini PC tunnel up (v5, bot:false: owner has not run the install line).
 - Nov 24: OWNER: show the Waterville rebuild live as it goes, glitches accepted. New streets become the default from unit 2 (?streets=old for the old mainland); push each unit as it lands.
 - Nov 24: OWNER: 60 s promo on load with 'Swing Machine' (YouTube Rtahc_olXjE, hidden embed like Claude FM), any key skips; fun-queue item 20, LAST.
+- Nov 24: promo (fun 20) changed by the owner to a PRE-RENDERED video (offline capture on the RTX 4050, supersampled, ffmpeg encode, picture only; music still streams from the hidden YouTube player, synced to its clock).
+- Nov 24: owner: song is copyright free, grab the mp3. It is Kevin MacLeod (CC BY 4.0): bake the music into the promo video with the credit line; official MP3 not found yet (not in incompetech pieces.json; filmmusic.io unreachable).
+- Nov 24: owner: "The season should always sync across players." Season + holiday picks become town facts like kid mode (host decides Auto from its date); given to the Christmas perf worker. Rule for future shared-world toggles: town-wide, not per screen.
+- Nov 24: owner: two Blender runs at the same time are allowed (was one).

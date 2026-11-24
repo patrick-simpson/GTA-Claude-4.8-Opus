@@ -375,7 +375,7 @@ export class Activities {
   /** Kerb places a car to tow may stand in: 160 to 520 m from (x, z), and (in a shared town) none where this browser is only shown a car (clearOf). */
   private towSpots(x: number, z: number): { x: number; z: number; h: number }[] {
     const g = this.game;
-    return (z < -900 ? g.plan.mainlandParking : g.plan.parking).filter((s) => { const d = Math.hypot(s.x - x, s.z - z); return d > 160 && d < 520 && clearOf(g, s, s.h) === s; });
+    return (z < -900 ? (g.plan.streets ? g.plan.streets.parking : g.plan.mainlandParking) : g.plan.parking).filter((s) => { const d = Math.hypot(s.x - x, s.z - z); return d > 160 && d < 520 && clearOf(g, s, s.h) === s; });
   }
 
   /**
