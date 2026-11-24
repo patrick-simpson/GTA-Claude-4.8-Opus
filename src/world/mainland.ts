@@ -198,9 +198,23 @@ export const DECKS: MRect[] = NEW ? [FOOTBRIDGE] : [ROAD_BRIDGE, FOOTBRIDGE, RAI
 let terrainGrade: ((x: number, z: number, natural: number) => number) | null = null;
 export function setTerrainGrade(f: ((x: number, z: number, natural: number) => number) | null): void { terrainGrade = f; }
 
-export function mainlandTerrain(x: number, z: number): number {
+function mainlandTerrainRaw(x: number, z: number): number {
   const h = naturalTerrain(x, z);
   return terrainGrade === null ? h : terrainGrade(x, z, h);
+}
+
+/**
+ * The ground. At the bridge landing's bluff (x -46..-14, z -1045..-1017) the edge is sharp enough that the terrain mesh,
+ * which is sampled every 8 m (ground.ts mainTerrain: X0 -976, Z0 -3008), sits up to a quarter metre off the exact height:
+ * there the height is the mesh's own, bilinear on its lattice, so what you stand on is what is drawn.
+ */
+export function mainlandTerrain(x: number, z: number): number {
+  if (x > -46 && x < -14 && z > -1045 && z < -1017) {
+    const fx = (x + 976) / 8, fz = (z + 3008) / 8, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+    const g = (a: number, b: number): number => mainlandTerrainRaw(-976 + a * 8, -3008 + b * 8);
+    return (g(i, j) * (1 - u) + g(i + 1, j) * u) * (1 - v) + (g(i, j + 1) * (1 - u) + g(i + 1, j + 1) * u) * v;
+  }
+  return mainlandTerrainRaw(x, z);
 }
 
 export function naturalTerrain(x: number, z: number): number {

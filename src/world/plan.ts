@@ -13,7 +13,7 @@
 import { RAILWAY } from './railway';
 import { RNG, clamp, smooth } from '../core/util';
 import {
-  DECKS, EXTRA_LOTS, LAKE, MAIN_SPLIT_Z, MAIN_Y, MI0, MJ0, MXS, MZS, M_AVE_X, M_AVE_Z, M_EW_NAMES, M_NS_NAMES, RAIL,
+  DECKS, EXTRA_LOTS, FOOTBRIDGE, LAKE, MAIN_SPLIT_Z, MAIN_Y, MI0, MJ0, MXS, MZS, M_AVE_X, M_AVE_Z, M_EW_NAMES, M_NS_NAMES, RAIL,
   RIVER_HW, STAGE_OF, STAGE_OVERRIDE, coastSD, hillAt, mCell, mainlandTerrain, mhSeg, mvSeg, riverX, setTerrainGrade, waterDist,
   type MainDistrict,
 } from './mainland';
@@ -283,7 +283,11 @@ function groundBase(x: number, z: number): number {
   if (Math.abs(x - BRIDGE.x) <= BRIDGE.hw && z <= BRIDGE.z0 && z >= bridgeEnd) {
     return bridgeY(BRIDGE.z0 - z) + rampHeight(x, z);
   }
-  if (z < MAIN_SPLIT_Z) return SURF !== null ? SURF.groundAt(x, z, groundHint) : mainGroundAt(x, z);
+  if (z < MAIN_SPLIT_Z) {
+    // The footbridge's plank deck (the street plan has only roads: without this it was drawn but not there to walk on).
+    if (SURF !== null && z > FOOTBRIDGE.z0 && z < FOOTBRIDGE.z1 && x > FOOTBRIDGE.x0 - 0.8 && x < FOOTBRIDGE.x1 + 0.8) return MAIN_Y;
+    return SURF !== null ? SURF.groundAt(x, z, groundHint) : mainGroundAt(x, z);
+  }
   let deck = -99;
   if (inRect(PIER, x, z)) deck = DECK_Y * clamp((z - PIER.z0) / 10, 0, 1);
   if (inRect(PIER_HEAD, x, z)) deck = DECK_Y;

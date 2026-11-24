@@ -17,11 +17,11 @@ import type { Overpass, StreetGraph } from './streets';
 import type { RoadEdge, RoadNode } from './plan';
 
 export const WALK_W = 3.5, CURB_H = 0.16;
+/** Steepest a ramp is allowed to climb or sink where it has to reach the Thruway's height (the Thruway's own steepest is 11%). */
+const RAMP_GRADE = 0.08;
 /** Height an overpass carries its road above the one below, and how far each way it takes to climb there. */
 export const LIFT_H = 6.6;
 const LIFT_R = 95;
-/** Steepest a ramp may climb or sink where it meets the Thruway (11%: the Thruway's own steepest, so a ramp can match it). */
-const RAMP_SLOPE = 0.11;
 const CELL = 16, CX0 = -1040, CZ0 = -3060, CNX = 128;
 const GS = 4, GX0 = -1000, GZ0 = -3010, GNX = 512, GNZ = 548;
 
@@ -48,6 +48,8 @@ export class StreetSurface {
   private readonly bumps = new Map<number, Bump[]>();
   /** Per-ramp lift samples, 1 m apart (solveRamps). */
   private readonly rampLift = new Map<number, Float32Array>();
+  /** A hill road's vertical profile above the plateau, 1 m apart (solveProfiles). */
+  private readonly prof = new Map<number, Float32Array>();
   private readonly fixed: Uint8Array;
   private readonly maxLift = new Map<number, number>();
   private readonly sMax = new Map<number, number>();
@@ -57,6 +59,9 @@ export class StreetSurface {
   private readonly segCells = new Map<number, number[]>();
   private readonly padCells = new Map<number, number[]>();
   private readonly w = new Float32Array(GNX * GNZ);
+  /** Height the grading target stands above the plateau (a hill road's fill), same grid as w. */
+  private readonly lw = new Float32Array(GNX * GNZ);
+  private readonly ld = new Float32Array(GNX * GNZ).fill(1e9);
 
   constructor(readonly g: StreetGraph, landingStubZ: number) {
     for (let k = g.isle.edges; k < g.edges.length; k++) {
@@ -80,9 +85,15 @@ export class StreetSurface {
       for (let s = 0; s <= e.len; s += 4) m = Math.max(m, this.liftAt(e, s));
       this.maxLift.set(e.id, Math.max(m, this.liftAt(e, e.len)));
     }
+    this.solveProfiles();
     this.padLift = Float32Array.from(this.lift);
     this.padGx = new Float32Array(g.nodes.length);
     this.padGz = new Float32Array(g.nodes.length);
+    for (const n of this.nodes) if (n.edges.length > 0) this.fitPad(n);
+    // The ramps' rims take the pads' heights, and the pads are fitted again to the roads that result.
+    this.rampLift.clear();
+    this.solveRamps(true);
+    this.padLift.set(this.lift); this.padGx.fill(0); this.padGz.fill(0);
     for (const n of this.nodes) if (n.edges.length > 0) this.fitPad(n);
     this.index();
     this.grade();
@@ -158,43 +169,139 @@ export class StreetSurface {
 
   /** Lift above the plateau at distance s along an edge (a ramp also follows the Thruway where it hugs it: solveRamps). */
   liftAt(e: RoadEdge, s: number): number {
-    const h = this.liftBase(e, s), t = this.rampLift.get(e.id);
-    if (!t) return h;
-    const f = clamp(s, 0, t.length - 1), i = Math.min(t.length - 2, Math.floor(f)), u = f - i;
-    return Math.max(h, t[i] * (1 - u) + t[i + 1] * u);
+    const t = this.rampLift.get(e.id), pf = this.prof.get(e.id);
+    const at = (a: Float32Array): number => { const f = clamp(s, 0, a.length - 1), i = Math.min(a.length - 2, Math.floor(f)), u = f - i; return a[i] * (1 - u) + a[i + 1] * u; };
+    return (t ? at(t) : this.liftBase(e, s)) + (pf ? at(pf) : 0);
   }
 
   /**
    * An exit ramp runs alongside (often on top of) the Thruway for its last stretch, and the Thruway is lifted where it
-   * crosses something: a ramp left at grade ended in a cliff against the raised carriageway (traffic stopped at the foot
-   * of it, Nov 24). Every ramp takes the Thruway's height wherever they share a carriageway, and climbs or sinks to it at
-   * no more than RAMP_SLOPE, ahead of the meeting and after it. A fixed end stays at the street's level.
+   * crosses something. Wherever a ramp's carriageway overlaps or touches a highway's and runs the same way, the ramp takes
+   * the highway's height exactly (one surface, no step, no second mesh at a different height). Between those runs and the
+   * street end of the ramp (held at the street's grade, flat into its pad) the profile is a cubic: grade is continuous, so
+   * no kinks, and it climbs or sinks no faster than it must. `rampReport` keeps each ramp's steepest grade and its worst
+   * change of grade per 5 m, for the tests.
    */
-  private solveRamps(): void {
+  readonly rampReport: { id: number; maxGrade: number; maxKink: number }[] = [];
+  private solveRamps(pad = false): void {
+    this.rampReport.length = 0;
     const g = this.g, hwys = this.edges.filter((e) => e.kind === 'highway');
     for (const e of this.edges) {
       if (e.kind !== 'ramp') continue;
-      const n = Math.ceil(e.len) + 2, T = new Float32Array(n);
+      const n = Math.ceil(e.len) + 2, V = new Float32Array(n), pin = new Uint8Array(n);
+      const ta = this.trim(e, false), tb = this.trim(e, true);
       let any = false;
-      for (let i = 0; i < n; i++) {
+      const rim0 = Math.min(n - 1, Math.round(ta)), rim1 = Math.max(0, Math.min(n - 1, Math.round(e.len - tb)));
+      for (let i = rim0; i <= rim1; i++) {
         const s = Math.min(i, e.len), q = g.pointAt(e, s);
-        let h = this.liftBase(e, s);
+        let h = -1;
         for (const o of hwys) {
           const pr = g.project(o, q.x, q.z);
-          if (pr.d < o.hw + e.hw + 0.7 && pr.s > 0.5 && pr.s < o.len - 0.5) h = Math.max(h, this.liftBase(o, pr.s));
+          if (pr.d >= o.hw + e.hw - 0.3 || pr.s <= 0.5 || pr.s >= o.len - 0.5) continue;
+          const d1 = g.pointAt(o, pr.s);
+          // Only roads running the same way share a surface; a crossing is an overpass.
+          if (Math.abs(q.dx * d1.dx + q.dz * d1.dz) < 0.85) continue;
+          h = Math.max(h, this.liftBase(o, pr.s));
         }
-        T[i] = h; if (h > 0.05) any = true;
+        if (h >= 0) { V[i] = h; pin[i] = 1; if (h > 0.05) any = true; }
+      }
+      const i0 = Math.min(n - 1, Math.round(ta)), i1 = Math.max(0, Math.min(n - 1, Math.round(e.len - tb)));
+      // A street's end is held at the street's grade (the Thruway may pass overhead: the ramp has to climb to it); a Thruway node's end takes the height there.
+      for (const [i, node] of [[i0, e.a], [i1, e.b]] as [number, number][]) {
+        if (this.fixed[node] || !pin[i] || pad) {
+          const q = g.pointAt(e, clamp(i, 0, e.len));
+          // Second round: the rim meets the pad as it was fitted to the first round's roads.
+          V[i] = pad ? Math.max(0, this.padH(g.nodes[node], q.x, q.z)) : this.liftBase(e, clamp(i, 0, e.len));
+          pin[i] = 2; if (V[i] > 0.05) any = true;
+        }
       }
       if (!any) continue;
-      const L = T.slice();
-      for (let i = 1; i < n; i++) L[i] = Math.max(L[i], L[i - 1] - RAMP_SLOPE);
-      for (let i = n - 2; i >= 0; i--) L[i] = Math.max(L[i], L[i + 1] - RAMP_SLOPE);
-      // A fixed end meets its street at grade: pin it, and let the climb start at the pad's rim (the slope bound is kept by taking the lower).
-      const ta = this.trim(e, false), tb = this.trim(e, true);
-      if (this.fixed[e.a]) for (let i = 0; i < n; i++) L[i] = Math.min(L[i], Math.max(0, i - ta) * RAMP_SLOPE);
-      if (this.fixed[e.b]) for (let i = 0; i < n; i++) L[i] = Math.min(L[i], Math.max(0, e.len - i - tb) * RAMP_SLOPE);
-      this.rampLift.set(e.id, L);
+      // Where the highway is higher or lower than the ramp can reach at RAMP_GRADE from its rim (or from the next pinned stretch),
+      // the shared stretch starts later: only the part of the carriageway truly on the highway has to match it.
+      for (const fwd of [true, false]) {
+        let prev = fwd ? i0 : i1;
+        for (let i = fwd ? i0 + 1 : i1 - 1; fwd ? i <= i1 : i >= i0; i += fwd ? 1 : -1) {
+          if (pin[i] !== 1) { if (pin[i] === 2) prev = i; continue; }
+          if (Math.abs(V[i] - V[prev]) <= RAMP_GRADE * Math.abs(i - prev)) prev = i; else pin[i] = 0;
+        }
+      }
+      // Inside the pad the ramp is flat at its rim height.
+      for (let i = 0; i < i0; i++) if (!pin[i]) { V[i] = V[i0]; pin[i] = 3; }
+      for (let i = n - 1; i > i1; i--) if (!pin[i]) { V[i] = V[i1]; pin[i] = 3; }
+      // Slope at a pin: along a run of pins its own trend; a lone end pin (a street's grade) is flat.
+      const slopeAt = (i: number): number => {
+        if (pin[i] === 2 || pin[i] === 3) { const j = i === i0 ? i0 + 1 : i1 - 1; return j >= 0 && j < n && pin[j] === 1 ? (V[j] - V[i]) / (j - i) : 0; }
+        let a = i, b = i;
+        while (a > 0 && i - a < 4 && pin[a - 1] === 1) a--;
+        while (b < n - 1 && b - i < 4 && pin[b + 1] === 1) b++;
+        return b > a ? (V[b] - V[a]) / (b - a) : 0;
+      };
+      let last = -1;
+      for (let i = 0; i < n; i++) {
+        if (!pin[i]) continue;
+        if (last >= 0 && i - last > 1) {
+          const L = i - last, v0 = V[last], v1 = V[i], m0 = slopeAt(last) * L, m1 = slopeAt(i) * L;
+          for (let k = 1; k < L; k++) {
+            const t = k / L, t2 = t * t, t3 = t2 * t;
+            V[last + k] = (2 * t3 - 3 * t2 + 1) * v0 + (t3 - 2 * t2 + t) * m0 + (-2 * t3 + 3 * t2) * v1 + (t3 - t2) * m1;
+          }
+        }
+        last = i;
+      }
+      for (let i = 0; i < n; i++) V[i] = Math.max(0, V[i]);
+      let mg = 0, mk = 0;
+      for (let i = 1; i < n; i++) mg = Math.max(mg, Math.abs(V[i] - V[i - 1]));
+      for (let i = 5; i < n; i++) mk = Math.max(mk, Math.abs((V[i] - V[i - 5]) / 5 - (V[i - 5] - V[Math.max(0, i - 10)]) / 5));
+      this.rampReport.push({ id: e.id, maxGrade: mg, maxKink: mk });
+      this.rampLift.set(e.id, V);
     }
+  }
+
+  /**
+   * A street over a steep hill face follows the ground, grade and all (Chapel Hill Rd climbed 15%). Its profile is the ground's
+   * upper envelope, smoothed: valleys are bridged by fill (the terrain is graded up to it, see grade()), crests are kept, and
+   * each end meets its street at the ground's own height. Only streets over the grade limit get one.
+   */
+  private solveProfiles(): void {
+    for (const e of this.edges) {
+      if (e.kind === 'ramp' || e.kind === 'highway' || e.deck || (this.maxLift.get(e.id) ?? 0) >= 0.3) continue;
+      const n = Math.ceil(e.len) + 2, f = new Float32Array(n);
+      let steep = 0;
+      for (let i = 0; i < n; i++) { const q = this.g.pointAt(e, Math.min(i, e.len)); f[i] = this.flat(q.x, q.z) + this.liftAt(e, Math.min(i, e.len)); if (i) steep = Math.max(steep, Math.abs(f[i] - f[i - 1])); }
+      if (steep < 0.1) continue;
+      const env = new Float32Array(n), H = new Float32Array(n), W1 = 14, W2 = 22;
+      for (let i = 0; i < n; i++) { let m = -1e9; for (let k = Math.max(0, i - W1); k <= Math.min(n - 1, i + W1); k++) m = Math.max(m, f[k]); env[i] = m; }
+      for (let i = 0; i < n; i++) { let a = 0, c = 0; for (let k = Math.max(0, i - W2); k <= Math.min(n - 1, i + W2); k++) { a += env[k]; c++; } H[i] = Math.max(f[i], a / c); }
+      // Back to the ground's own height at the ends (the pads sit on it).
+      const out = new Float32Array(n), ta = this.trim(e, false) + 6, tb = this.trim(e, true) + 6;
+      for (let i = 0; i < n; i++) out[i] = (H[i] - f[i]) * smooth(clamp((i - ta) / 24, 0, 1)) * smooth(clamp((e.len - i - tb) / 24, 0, 1));
+      this.prof.set(e.id, out);
+    }
+  }
+
+  private hwysList: RoadEdge[] | null = null;
+  private readonly nearBuf = new Map<number, [number, number]>();
+  /**
+   * Height above the plateau of edge e's surface at arc s, at the actual point (x, z). A ramp's own profile is constant across
+   * its width, but the Thruway it lies on is not (its height follows ITS arc, which runs at an angle to the ramp's), so where
+   * a ramp's carriageway is on the Thruway's the two are one surface: the Thruway's height, blended in over 1.5 m at the edge.
+   * Both the mesh and groundAt use this, so they agree.
+   */
+  surfLift(e: RoadEdge, s: number, x: number, z: number): number {
+    const h = this.liftAt(e, s);
+    if (e.kind !== 'ramp') return h;
+    const hw = this.hwysList ?? (this.hwysList = this.edges.filter((o) => o.kind === 'highway'));
+    const q = this.g.pointAt(e, clamp(s, 0, e.len));
+    for (const o of hw) {
+      const pr = this.g.project(o, x, z);
+      if (pr.d >= o.hw || pr.s <= 0.5 || pr.s >= o.len - 0.5) continue;
+      const d1 = this.g.pointAt(o, pr.s);
+      if (Math.abs(q.dx * d1.dx + q.dz * d1.dz) < 0.85) continue;
+      const ho = this.liftBase(o, pr.s);
+      if (Math.abs(ho - h) > 0.8) continue;
+      return h + (ho - h) * smooth(clamp((o.hw - pr.d) / 1.5, 0, 1));
+    }
+    return h;
   }
 
   private liftBase(e: RoadEdge, s: number): number {
@@ -309,22 +416,29 @@ export class StreetSurface {
     const fl = this.flat(x, z);
     const pads = this.padCells.get(key);
     let lo = Infinity, hi = -Infinity, best = -Infinity;
+    // The surface the asker is on: of those within a 2 m step up, the nearest its own height (not the highest: where a ramp and
+    // the Thruway overlap at different heights, a car on the ramp stays on the ramp).
     const take = (h: number): void => {
       lo = Math.min(lo, h);
-      if (h <= hint + 2 && h > best) best = h;
+      if (h <= hint + 2 && (best === -Infinity || Math.abs(h - hint) < Math.abs(best - hint))) best = h;
       hi = Math.max(hi, h);
     };
+    let padHit = false;
     if (pads) {
       for (const id of pads) {
         const n = this.g.nodes[id], d2 = (x - n.x) ** 2 + (z - n.z) ** 2, r = this.padR(n);
         if (d2 > r * r) continue;
+        padHit = true;
         if (n.control === 'roundabout' && d2 < this.islandR(n) ** 2) return { kind: 'walk', h: fl + this.padH(n, x, z) + CURB_H * 2 };
         take(fl + this.padH(n, x, z));
       }
     }
-    let walk = false;
+    let walk = false, walkL = 0;
     const segs = this.segCells.get(key);
     if (segs) {
+      // One surface per road: the nearest of its segments (on the inside of a bend a road is within reach of two stretches
+      // of itself, at heights a few tenths apart on a ramp).
+      const near = this.nearBuf; near.clear();
       for (const code of segs) {
         const e = this.edges[code >> 10], k = code & 1023, p = this.g.edgePts(e), cum = e.cum ?? [0, e.len];
         const ax = p[2 * k], az = p[2 * k + 1], bx = p[2 * k + 2], bz = p[2 * k + 3];
@@ -335,15 +449,21 @@ export class StreetSurface {
         if (d2 > lim * lim) continue;
         const s = cum[k] + t * (cum[k + 1] - cum[k]);
         if (s > this.end(e) + 0.5) continue;
+        // The pad owns the ground inside its rim (the mesh starts the carriageway there).
+        if (padHit && (s < this.trimA[code >> 10] - 0.7 || s > e.len - this.trimB[code >> 10] + 0.7)) continue;
         const d = Math.sqrt(d2);
-        if (d <= e.hw + (wk ? 0 : 0.6)) take(fl + this.liftAt(e, s));
-        else if (wk && s >= this.trim(e, false) && s <= e.len - this.trim(e, true)) walk = true;
+        if (d <= e.hw + (wk ? 0 : 0.6)) { const prev = near.get(code >> 10); if (!prev || d < prev[0]) near.set(code >> 10, [d, s]); }
+        else if (wk && s >= this.trim(e, false) && s <= e.len - this.trim(e, true)) { walk = true; walkL = this.prof.has(e.id) ? this.liftAt(e, s) : 0; }
+      }
+      for (const [ei, [, s]] of near) {
+        const e = this.edges[ei];
+        take(fl + (e.kind === 'ramp' ? this.surfLift(e, s, x, z) : this.liftAt(e, s)));
       }
     }
     // A sidewalk under an overpass is still a sidewalk: it only loses to a road at its own level.
-    if (walk && lo > fl + 1) take(fl + CURB_H);
+    if (walk && lo !== Infinity && lo > fl + 1) take(fl + walkL + CURB_H);
     if (lo !== Infinity) return { kind: 'road', h: hint === -Infinity ? lo : best > -Infinity ? best : lo };
-    if (walk) return { kind: 'walk', h: fl + CURB_H };
+    if (walk) return { kind: 'walk', h: fl + walkL + CURB_H };
     void hi;
     return { kind: null, h: 0 };
   }
@@ -372,6 +492,28 @@ export class StreetSurface {
     return false;
   }
 
+  /** Which road keeps a surface two roads share: the faster kind, then the wider, then the lower id. */
+  rank(e: RoadEdge): number {
+    return (e.kind === 'highway' ? 4 : e.kind === 'ramp' ? 3 : e.kind === 'arterial' ? 2 : 1) * 1e4 + e.hw * 100 - e.id * 0.01;
+  }
+
+  /** True when (x, z) lies on the carriageway of a road that outranks `e` at about the same height (the mesh of `e` is clipped there). */
+  outranked(x: number, z: number, e: RoadEdge, y: number): boolean {
+    const key = this.cellKey(Math.floor((x - CX0) / CELL), Math.floor((z - CZ0) / CELL)), re = this.rank(e);
+    for (const code of this.segCells.get(key) ?? []) {
+      const o = this.edges[code >> 10];
+      if (o === e || this.rank(o) <= re) continue;
+      const k = code & 1023, p = this.g.edgePts(o), cum = o.cum ?? [0, o.len];
+      const ax = p[2 * k], az = p[2 * k + 1], dx = p[2 * k + 2] - ax, dz = p[2 * k + 3] - az, l2 = dx * dx + dz * dz;
+      const t = l2 > 0 ? clamp(((x - ax) * dx + (z - az) * dz) / l2, 0, 1) : 0;
+      if ((ax + dx * t - x) ** 2 + (az + dz * t - z) ** 2 >= (o.hw - 0.03) ** 2) continue;
+      const so = cum[k] + t * (cum[k + 1] - cum[k]);
+      if (so < this.trim(o, false) || so > this.end(o) || so > o.len - this.trim(o, true)) continue;
+      if (Math.abs(this.liftAt(o, so) - y) < 0.4) return true;
+    }
+    return false;
+  }
+
   /** True within `m` m of any road's paved edge or sidewalk (for planting and props to keep clear). */
   nearRoad(x: number, z: number, m: number): boolean {
     for (const dx of [-m, 0, m]) for (const dz of [-m, 0, m]) if (this.probe(x + dx, z + dz).kind !== null) return true;
@@ -382,7 +524,7 @@ export class StreetSurface {
 
   private grade(): void {
     const w = this.w, F = 22;
-    const stamp = (x: number, z: number, C: number): void => {
+    const stamp = (x: number, z: number, C: number, L = 0): void => {
       const R = C + F;
       const i0 = Math.max(0, Math.floor((x - R - GX0) / GS)), i1 = Math.min(GNX - 1, Math.ceil((x + R - GX0) / GS));
       const j0 = Math.max(0, Math.floor((z - R - GZ0) / GS)), j1 = Math.min(GNZ - 1, Math.ceil((z + R - GZ0) / GS));
@@ -392,13 +534,14 @@ export class StreetSurface {
           const px = GX0 + i * GS, d = Math.hypot(px - x, pz - z);
           if (d >= R) continue;
           const v = d <= C ? 1 : 1 - smooth((d - C) / F), c = j * GNX + i;
-          if (v > w[c]) w[c] = v;
+          if (v > w[c] || (v === w[c] && d < this.ld[c])) { w[c] = v; this.lw[c] = L; this.ld[c] = d; }
         }
       }
     };
     for (const e of this.edges) {
       const C = e.hw + (this.walks(e) ? WALK_W : 1) + 3, end = this.end(e);
-      for (let s = 0; s <= end; s += 3) { const p = this.g.pointAt(e, s); stamp(p.x, p.z, C); }
+      const pf = this.prof.has(e.id);
+      for (let s = 0; s <= end; s += pf ? 1.5 : 3) { const p = this.g.pointAt(e, s); stamp(p.x, p.z, C, pf ? this.liftAt(e, s) : 0); }
     }
     for (const n of this.nodes) if (n.edges.length) stamp(n.x, n.z, this.padR(n) + 4);
     // The river's channel stays open.
@@ -412,7 +555,8 @@ export class StreetSurface {
     const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, c = j * GNX + i, w = this.w;
     const k = (w[c] * (1 - u) + w[c + 1] * u) * (1 - v) + (w[c + GNX] * (1 - u) + w[c + GNX + 1] * u) * v;
     if (k <= 0) return nat;
-    const fl = this.flat(x, z);
+    const L = (this.lw[c] * (1 - u) + this.lw[c + 1] * u) * (1 - v) + (this.lw[c + GNX] * (1 - u) + this.lw[c + GNX + 1] * u) * v;
+    const fl = this.flat(x, z) + L;
     return fl > nat ? nat + (fl - nat) * k : nat;
   }
 

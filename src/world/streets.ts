@@ -433,6 +433,11 @@ export class StreetGraph {
 
   /** True when (x, z) is at least `margin` m clear of every mainland road's paved edge. */
   clearOfRoads(x: number, z: number, margin: number): boolean {
+    // A roundabout's pad is a disc (ring, kerb and walk) wider than the roads that meet it.
+    for (let i = this.isle.nodes; i < this.nodes.length; i++) {
+      const n = this.nodes[i];
+      if (n.control === 'roundabout' && n.edges.length && (x - n.x) ** 2 + (z - n.z) ** 2 < (n.hx + margin) ** 2) return false;
+    }
     for (const e of this.mainEdges) {
       const b = e.id * 4;
       if (x < this.bbox[b] - margin || x > this.bbox[b + 2] + margin || z < this.bbox[b + 1] - margin || z > this.bbox[b + 3] + margin) continue;

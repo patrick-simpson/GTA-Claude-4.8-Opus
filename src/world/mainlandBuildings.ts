@@ -15,6 +15,7 @@
 //   * mainlandPlaces.ts (landmarks) draws into the same kit and calls kit.finish() last.
 
 import { RAILWAY } from './railway';
+import { obbSlices } from './obbSlices';
 import * as THREE from 'three';
 import { CAMPUS_BOXES } from './dithersPlan';
 import { PD } from './pardonsSite';
@@ -69,6 +70,12 @@ export const PX = (f: Frame, s: number, o: number): number => f.ox + f.tx * s + 
 export const PZ = (f: Frame, s: number, o: number): number => f.oz + f.tz * s + f.nz * o;
 
 /** The part of `r` between s0..s1 along side `side` and d0..d1 meters in from that side. */
+/** True when the whole outline of an axis rectangle is at least `m` clear of every mainland road. */
+function rectClearOfRoads(G: { clearOfRoads(x: number, z: number, m: number): boolean }, r: Rect, m: number): boolean {
+  for (let x = r.x0; x <= r.x1 + 0.01; x += 1) if (!G.clearOfRoads(x, r.z0, m) || !G.clearOfRoads(x, r.z1, m)) return false;
+  for (let z = r.z0; z <= r.z1 + 0.01; z += 1) if (!G.clearOfRoads(r.x0, z, m) || !G.clearOfRoads(r.x1, z, m)) return false;
+  return true;
+}
 export function cut(r: Rect, side: number, s0: number, s1: number, d0: number, d1: number): Rect {
   const f = frameOf(r, side);
   const ax = PX(f, s0, -d0), az = PZ(f, s0, -d0), bx = PX(f, s1, -d1), bz = PZ(f, s1, -d1);
@@ -926,7 +933,11 @@ class Builder {
   /** Tepid Savings & Trust: a granite temple front, four columns under a pediment, set back from the walk. */
   private bank(lot: Rect, face: number, g: Seg, y: number): void {
     const k = this.k, back = 2.6, H = 9.6, hex = 0xdcd9cf;
-    const br = cut(lot, face, g.s0, g.s1, back, back + 15), f = frameOf(br, face), w = f.len;
+    // The back wall stops short of any street (the Holding Pattern's lane runs close behind it).
+    const SG = this.game.plan.streets;
+    let dep = 15, br = cut(lot, face, g.s0, g.s1, back, back + dep);
+    while (SG && dep > 9 && !rectClearOfRoads(SG, br, 1.2)) br = cut(lot, face, g.s0, g.s1, back, back + (dep -= 0.5));
+    const f = frameOf(br, face), w = f.len;
     g.top = y + H;
     k.solid(br, y + H, y - 1);
     for (const side of [1, 2, 3]) { const sf = frameOf(br, face + side); k.plainWall(sf, 0, sf.len, y, y + H, hex, 0.95, ROW.granite, { st: WIN.sash, yb: y + 1, fh: 4, floors: 2, pitch: 3.6, seed: side }); }
@@ -1199,21 +1210,10 @@ class Builder {
     }
   }
 
-  /** Slices an oriented box into axis boxes along its length for the collision grid. */
+  /** Slices an oriented box into axis boxes that sit inside its true footprint (see obbSlices). */
   private osolid(o: Ori, top: number, base: number): void {
-    const k = this.k, nx = Math.sin(o.h), nz = Math.cos(o.h), tx = nz, tz = -nx;
-    const alongT = o.w >= o.d, long = alongT ? o.w : o.d, n = Math.max(1, Math.ceil(long / 4));
-    if (Math.min(Math.abs(nx), Math.abs(nz)) < 0.02) {
-      const cs = oriCorners(o);
-      k.solid({ x0: Math.min(cs[0], cs[2], cs[4], cs[6]), z0: Math.min(cs[1], cs[3], cs[5], cs[7]), x1: Math.max(cs[0], cs[2], cs[4], cs[6]), z1: Math.max(cs[1], cs[3], cs[5], cs[7]) }, top, base);
-      return;
-    }
-    for (let i = 0; i < n; i++) {
-      const u = ((i + 0.5) / n - 0.5) * long;
-      const sub: Ori = { cx: o.cx + (alongT ? tx : nx) * u, cz: o.cz + (alongT ? tz : nz) * u, h: o.h, w: alongT ? long / n : o.w, d: alongT ? o.d : long / n };
-      const cs = oriCorners(sub), sh = Math.min(sub.w, sub.d) * 0.14;
-      k.solid({ x0: Math.min(cs[0], cs[2], cs[4], cs[6]) + sh, z0: Math.min(cs[1], cs[3], cs[5], cs[7]) + sh, x1: Math.max(cs[0], cs[2], cs[4], cs[6]) - sh, z1: Math.max(cs[1], cs[3], cs[5], cs[7]) - sh }, top, base);
-    }
+    const k = this.k;
+    obbSlices(oriCorners(o), (x0, z0, x1, z1) => k.solid({ x0, z0, x1, z1 }, top, base));
   }
 
   /** An oriented box placed in a frame's own coordinates (s along the wall, o out from it), in flat colour. */

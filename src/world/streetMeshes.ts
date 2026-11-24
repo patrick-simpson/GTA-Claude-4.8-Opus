@@ -22,7 +22,7 @@ const PAINT = 0xefe9da, YEL = 0xe0b13a, STONE = 0xd6cfbe, CONC = 0xc4bdab, DARK 
 type V = [number, number, number];
 const UP: V = [0, 1, 0], DOWN: V = [0, -1, 0];
 
-interface Smp { s: number; x: number; z: number; rx: number; rz: number; dx: number; dz: number; lift: number }
+interface Smp { e?: RoadEdge; s: number; x: number; z: number; rx: number; rz: number; dx: number; dz: number; lift: number }
 
 /** Batches the caller turns into meshes: one per material. */
 export interface StreetBatches {
@@ -75,7 +75,7 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
       const ax = dx + ox, az = dz + oz, al = Math.hypot(ax, az);
       if (al > 1e-3) { const nx = ax / al, nz = az / al; m = 1 / Math.max(0.55, nx * dx + nz * dz); dx = nx; dz = nz; }
     }
-    return { s, x, z, rx: -dz * m, rz: dx * m, dx, dz, lift: S.liftAt(e, s) };
+    return { e: e.kind === 'ramp' ? e : undefined, s, x, z, rx: -dz * m, rz: dx * m, dx, dz, lift: S.liftAt(e, s) };
   };
   const samples = (e: RoadEdge, s0: number, s1: number, step = 6): Smp[] => {
     const cum = e.cum ?? [0, e.len];
@@ -93,7 +93,7 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
   };
   const P = (m: Smp, t: number, dy: number): V => {
     const x = m.x + m.rx * t, z = m.z + m.rz * t;
-    return [x, S.flat(x, z) + m.lift + dy, z];
+    return [x, S.flat(x, z) + (m.e ? S.surfLift(m.e, m.s, x, z) : m.lift) + dy, z];
   };
   /** A floor band from t0 to t1 (u across from u0 to u1, v along at s / vt). */
   const band = (b: Batch, sm: Smp[], t0: number, t1: number, dy: number, hex: number, u0: number, u1: number, vt: number, want = UP): void => {
@@ -154,13 +154,54 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
 
   // ── Carriageways and their paint ──────────────────────────────────────────
 
+  /**
+   * The carriageway of e from -hw to hw. Where it lies on a road that outranks it (a side street merging at a shallow angle
+   * runs on the major road's surface for a stretch) only the part off that road is drawn: one surface wins, no two coplanar
+   * meshes fighting for the pixels. The edge of the clipped part follows samples 1.5 m apart.
+   */
+  const bandRoad = (e: RoadEdge, b: Batch, sm: Smp[], hw: number, hex: number, u0: number, u1: number, vt: number): void => {
+    const cov = (m: Smp, t: number): boolean => S.outranked(m.x + m.rx * t, m.z + m.rz * t, e, m.lift);
+    const probe = (m: Smp): boolean => cov(m, -hw * 0.9) || cov(m, 0) || cov(m, hw * 0.9) || cov(m, -hw * 0.45) || cov(m, hw * 0.45);
+    // Subdivide the stretches where the road is under another.
+    const fine: Smp[] = [sm[0]];
+    for (let i = 0; i + 1 < sm.length; i++) {
+      const m = sm[i], n = sm[i + 1], mid = sampleAt(e, (m.s + n.s) / 2);
+      if (n.s - m.s > 1.6 && (probe(m) || probe(n) || probe(mid))) {
+        const k = Math.ceil((n.s - m.s) / 1.5);
+        for (let j = 1; j < k; j++) fine.push(sampleAt(e, m.s + ((n.s - m.s) * j) / k));
+      }
+      fine.push(n);
+    }
+    const free = (m: Smp): [number, number][] => {
+      const out: [number, number][] = [];
+      let a: number | null = null;
+      const N = Math.ceil((2 * hw) / 0.5);
+      for (let i = 0; i <= N; i++) {
+        const t = -hw + (2 * hw * i) / N, c = i > 0 && i < N && cov(m, t);
+        if (!c && a === null) a = t;
+        if (c && a !== null) { out.push([a, -hw + (2 * hw * (i - 1)) / N]); a = null; }
+      }
+      if (a !== null) out.push([a, hw]);
+      return out.filter(([x, y]) => y - x > 0.05);
+    };
+    const U = (t: number): number => u0 + ((t + hw) / (2 * hw)) * (u1 - u0);
+    let fm = free(fine[0]);
+    for (let i = 0; i + 1 < fine.length; i++) {
+      const m = fine[i], n = fine[i + 1], fn = free(n);
+      const all = [...fm, ...fn].sort((p, q) => p[0] - q[0]), merged: [number, number][] = [];
+      for (const r of all) { const l = merged[merged.length - 1]; if (l && r[0] <= l[1] + 0.01) l[1] = Math.max(l[1], r[1]); else merged.push([r[0], r[1]]); }
+      for (const [a, c] of merged) quad(b, P(m, a, 0.02), P(m, c, 0.02), P(n, c, 0.02), P(n, a, 0.02), hex, U(a), m.s / vt, U(c), n.s / vt, UP);
+      fm = fn;
+    }
+  };
+
   for (const e of S.edges) {
     const t0 = S.trim(e, false), t1 = S.end(e) < e.len ? S.end(e) : e.len - S.trim(e, true);
     if (t1 - t0 < 0.5) continue;
     const sm = samples(e, Math.max(0, t0 - 0.6), Math.min(S.end(e), t1 + 0.6), 6);
     const hw = e.hw, plain = e.divided || e.oneWay || e.kind === 'highway' || e.kind === 'ramp';
-    if (!plain) band(e.lanes >= 2 ? B.avenue : B.street, sm, -hw, hw, 0.02, 0xffffff, 0, 1, e.lanes >= 2 ? TILE_M.avenue : TILE_M.street);
-    else band(B.asphalt, sm, -hw, hw, 0.02, 0xffffff, -hw / TILE_M.asphalt, hw / TILE_M.asphalt, TILE_M.asphalt);
+    if (!plain) bandRoad(e, e.lanes >= 2 ? B.avenue : B.street, sm, hw, 0xffffff, 0, 1, e.lanes >= 2 ? TILE_M.avenue : TILE_M.street);
+    else bandRoad(e, B.asphalt, sm, hw, 0xffffff, -hw / TILE_M.asphalt, hw / TILE_M.asphalt, TILE_M.asphalt);
 
     if (plain && e.divided) {
       const hwy = e.kind === 'highway', mh = hwy ? 0.45 : 1.0, lw = hwy ? 3.6 : 3.4, inner = mh + 0.35;

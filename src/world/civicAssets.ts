@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Game } from '../core/game';
+import { obbSlices } from './obbSlices';
 import { assets } from '../core/assets';
 import { progress } from './progress';
 import { BRIDGE_SPANS, type Rect } from './plan';
@@ -130,15 +131,10 @@ export class Civic {
     for (const [x0, x1, z0, z1, top] of BOXES[name] ?? []) {
       p.set(x0, 0, z0).applyMatrix4(m); q.set(x1, 0, z1).applyMatrix4(m);
       if (Math.abs(tx) > 0.01 && Math.abs(tz) > 0.01) {
-        // Set at an angle: the box as strips along its depth, each the bounds of its own slice (collide.ts has only axis boxes).
-        const n = Math.max(2, Math.ceil(Math.max(x1 - x0, z1 - z0) / 4));
-        for (let i = 0; i < n; i++) {
-          const za = z0 + ((z1 - z0) * i) / n, zb = z0 + ((z1 - z0) * (i + 1)) / n;
-          let ax = 1e9, az = 1e9, bx = -1e9, bz = -1e9;
-          for (const [u, w] of [[x0, za], [x1, za], [x0, zb], [x1, zb]]) { p.set(u, 0, w).applyMatrix4(m); ax = Math.min(ax, p.x); az = Math.min(az, p.z); bx = Math.max(bx, p.x); bz = Math.max(bz, p.z); }
-          const sh = Math.min(bx - ax, bz - az) * 0.18;
-          col.addBox(ax + sh, az + sh, bx - sh, bz - sh, y + top, y - 1);
-        }
+        // Set at an angle: slices inside the true oriented footprint (collide.ts has only axis boxes).
+        const cs: number[] = [];
+        for (const [u, w] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]) { p.set(u, 0, w).applyMatrix4(m); cs.push(p.x, p.z); }
+        obbSlices(cs, (ax, az, bx, bz) => col.addBox(ax, az, bx, bz, y + top, y - 1));
         continue;
       }
       col.addBox(Math.min(p.x, q.x), Math.min(p.z, q.z), Math.max(p.x, q.x), Math.max(p.z, q.z), y + top, y - 1);
