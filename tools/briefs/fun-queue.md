@@ -77,6 +77,33 @@ boots with no errors at high, low and the phone layout; nothing gory.
     better levels of detail, side-by-side pictures before and after for each. Keep the phone and
     frame budgets (measure each).
 
+19b. TEPID FALLS MUST WORK (owner, Nov 24, BEFORE the promo): "The road and train network feels a bit
+    broken in tepid falls. Before generating the promo make sure that there are buildings where there are
+    realistically buildings in Waterville, the roads all connect, match and make sense and everything
+    works." So: (1) audit against OpenStreetMap for Waterville (roads, rail, building footprints and land
+    use, ODbL credited): every road connected (no dead ends that aren't real cul-de-sacs, no gaps, no
+    overlaps, ramps and bridges joined, lanes and signals sane), the rail line, trestle, spur and crossings
+    consistent with roads, terrain and bridges, and the train runs cleanly end to end; (2) buildings where
+    Waterville has buildings (downtown blocks full, neighbourhood density right, mills, strip, campus), none
+    on roads/rail, no empty lots where the real city is built up; (3) drive, walk and ride every road and the
+    train in tests: traffic soak, pathfinding from every node to every other, no stuck cars, police chases,
+    missions and races all reachable. Fix everything found. Then the promo.
+    OWNER'S TEST OF SUCCESS (Nov 24): "I'll know that this is successful when I can pick a business in
+    Waterville, and locate it by navigation on the map." So 19b also covers: (a) a BUSINESS DIRECTORY built
+    from OpenStreetMap POIs for Waterville (shops, restaurants, services, offices, churches, schools; ODbL,
+    credited), each given a punny game name in the style of Pardon's (never the real name), placed in the
+    building at its real location, with a sign or storefront; (b) the big map can list/search places by
+    category and name and set a waypoint with a GPS route line drawn along the streets (radar too), with
+    turn arrows; (c) fill gaps where OSM lacks POIs by marking those buildings as generic shops/offices.
+    Geometry sources allowed: OSM (ODbL), Microsoft building footprints (ODbL), USGS 3DEP / Maine LiDAR
+    (public domain) for real building heights and roof shapes, Maine GIS open data. NOT allowed: Google or
+    Apple Maps 3D/imagery (their terms forbid extracting or copying it); Mapillary (CC BY-SA) is fine as
+    visual reference for facades.
+
+19c. FAST TRAVEL (owner, Nov 24: "Add fast travel. Prioritize it."): the Calamity Courtesy Cab from the map's
+    Places panel, markers, waypoints and hub stops; fade + Form FT-1 card + warm-up at the destination; car and
+    passengers come along; fare by distance (free in kid mode); refused while wanted, in missions/races, in water.
+
 20. THE PROMO (owner, Nov 24; LAST, after everything including the quality pass): a 60-second promo that
     plays on load, "highest quality you can muster", that makes players think they are about to play an
     epic game; any key (or tap) skips straight into the game. Music: "Swing Machine" from the owner's

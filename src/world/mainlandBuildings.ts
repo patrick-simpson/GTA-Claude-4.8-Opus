@@ -17,6 +17,7 @@
 import { RAILWAY } from './railway';
 import * as THREE from 'three';
 import { CAMPUS_BOXES } from './dithersPlan';
+import { PD } from './pardonsSite';
 import type { Game } from '../core/game';
 import type { WorldPart } from '../core/api';
 import type { CityMaterials, Surface } from './materials';
@@ -372,6 +373,23 @@ export class MainKit {
       W.uv.push(0, g0, f.len * us, g0, f.len * us / 2, g0 + (g1 - g0) * Math.min(1, rise / CELL));
     }
   }
+  /** gableRoof() on the four frames of an oriented rectangle (oframes order): the ridge runs along the front wall (alongFront) or across it. */
+  ogable(fr: Frame[], y: number, rise: number, alongFront: boolean, over: number, roofHex: number, wallHex: number, gableRow: number, shade = 1, roofRow: number = ROW.shingle): void {
+    const W = this.W, [v0, v1] = mwallV(roofRow), us = 1 / (CELL * 16);
+    for (const side of alongFront ? [0, 2] : [1, 3]) {
+      const f = fr[side], half = f.depth / 2, run = half + over, k = rise / half;
+      const slope = Math.hypot(run, run * k), rows = Math.max(1, Math.round(slope / CELL));
+      this.sq(W, f, -over, f.len + over, -half, y + rise, over, y - over * k, roofHex, shade, 0, v0, (f.len + 2 * over) * us, v0 + (v1 - v0) * Math.min(1, slope / (rows * CELL)));
+      if (!this.low) this.sq(this.F, f, -over, f.len + over, 0, y, over, y - over * k, dim(wallHex, 0.8), shade * 0.8, 0, 0, 1, 1, true);
+    }
+    const [g0, g1] = mwallV(gableRow);
+    for (const side of alongFront ? [1, 3] : [0, 2]) {
+      const f = fr[side];
+      W.tri(PX(f, 0, 0), y, PZ(f, 0, 0), PX(f, f.len, 0), y, PZ(f, f.len, 0), PX(f, f.len / 2, 0), y + rise, PZ(f, f.len / 2, 0), wallHex, shade);
+      W.uv.length -= 6;
+      W.uv.push(0, g0, f.len * us, g0, f.len * us / 2, g0 + (g1 - g0) * Math.min(1, rise / CELL));
+    }
+  }
 }
 const P3 = new THREE.Vector3();
 
@@ -412,6 +430,7 @@ const RESERVED: Rect[] = STREETS_NEW ? [
   ...(RAILWAY ? RAILWAY.reserved : []),          // the railway's corridor (world/railway.ts): no lot on the track, the yard or the lead
   { x0: 176, z0: -1568, x1: 252, z1: -1196 },   // Threadbare mill yards, Water St to the river walk
   { x0: 176, z0: -1896, x1: 290, z1: -1884 },   // the walk from Front St to the footbridge
+  { x0: PD.XE - PD.SW - 8, z0: PD.LOT.z0 - 4, x1: PD.XE + 6, z1: PD.ZF + PD.SD + 6 }, // Pardon's: its lot and store (pardonsSite.ts); no footprint or gap-fill building on them
   ...CAMPUS_BOXES.map((b): Rect => ({ x0: b[0], z0: b[1], x1: b[2], z1: b[3] })), // Dithers College (dithersPlan.ts)
 ] : [];
 
@@ -1153,9 +1172,16 @@ class Builder {
 
   /** A shopfront on an oriented frame: glass bays and a door from the sheet's shop row, a fascia in a colour with the sign, sometimes an awning. */
   private oshop(f: Frame, s0: number, s1: number, y: number, HS: number, rng: RNG, blockId: number, sign?: string, awn = true): void {
-    const k = this.k, col = rng.pick(SHOPCOL), tint = blend(col, 0xffffff, 0.5), gh = Math.min(3.0, HS - 0.9), [v0, v1] = mwallV(ROW.shop, 2);
+    const k = this.k, lean = !!this.game.quality.lean, col = rng.pick(SHOPCOL), tint = blend(col, 0xffffff, 0.5), gh = Math.min(3.0, HS - 0.9), [v0, v1] = mwallV(ROW.shop, 2);
     const pw = 0.4, a = s0 + pw, b = s1 - pw, dw = 1.9, n = Math.max(1, Math.round((b - a - dw) / 2.6)), bw = (b - a - dw) / n, doorAt = rng.int(0, n);
-    const cell = (sa: number, sb: number, c: number): void => k.vq(k.W, f, sa, sb, y + 0.02, y + gh, 0.02, tint, (c + 0.01) / 16, v0, (c + 0.99) / 16, v1);
+    const cell = (sa: number, sb: number, c: number): void => {
+      k.vq(k.W, f, sa, sb, y + 0.02, y + gh, 0.02, tint, (c + 0.01) / 16, v0, (c + 0.99) / 16, v1);
+      // Storefront glazing: dark aluminium mullions at each edge, a kick plate under the glass and a head rail over it.
+      if (k.low || lean) return;
+      const al = 0x2b2f33;
+      k.vq(k.F, f, sa, sa + 0.07, y, y + gh + 0.04, 0.05, al); k.vq(k.F, f, sb - 0.07, sb, y, y + gh + 0.04, 0.05, al);
+      k.vq(k.F, f, sa, sb, y, y + 0.34, 0.045, al, 0, 0, 1, 1, 0.9); k.vq(k.F, f, sa, sb, y + gh - 0.1, y + gh + 0.04, 0.045, al);
+    };
     let s = a;
     const c0 = rng.int(0, 11);
     for (let i = 0; i <= n; i++) {
@@ -1190,6 +1216,149 @@ class Builder {
     }
   }
 
+  /** An oriented box placed in a frame's own coordinates (s along the wall, o out from it), in flat colour. */
+  private ofb(f: Frame, s0: number, s1: number, o0: number, o1: number, y0: number, y1: number, hex: number, shade = 1): void {
+    this.obox({ cx: PX(f, (s0 + s1) / 2, (o0 + o1) / 2), cz: PZ(f, (s0 + s1) / 2, (o0 + o1) / 2), h: Math.atan2(f.nx, f.nz), w: s1 - s0, d: o1 - o0 }, y0, y1, hex, shade);
+  }
+
+  /** A four-sided pyramid on an oriented square. */
+  private spire(o: Ori, y: number, h: number, hex: number, shade = 1): void {
+    const fr = this.oframes(o);
+    for (let s = 0; s < 4; s++) { const f = fr[s]; this.k.F.tri(PX(f, 0, 0), y, PZ(f, 0, 0), PX(f, f.len, 0), y, PZ(f, f.len, 0), o.cx, y + h, o.cz, hex, shade * (s === 0 ? 1 : s === 2 ? 0.8 : 0.9)); }
+  }
+
+  /** A parapet with a capped top round a flat roof, so the roof has an edge. */
+  private coping(fr: Frame[], top: number, hex: number, h = 0.5): void {
+    const k = this.k;
+    for (let s = 0; s < 4; s++) {
+      const f = fr[s];
+      k.vq(k.F, f, -0.15, f.len + 0.15, top, top + h, 0.12, hex, 0, 0, 1, 1, s === 2 ? 0.86 : 0.97);
+      k.hq(k.F, f, -0.15, f.len + 0.15, -0.2, 0.12, top + h, true, dim(hex, 1.08));
+      if (!k.low) k.vq(k.F, f, f.len + 0.15, -0.15, top, top + h, -0.2, dim(hex, 0.8));
+    }
+  }
+
+  /** Welded membrane seams across a flat roof, a line every `pitch` m, so a big roof is not one flat colour. */
+  private seams(o: Ori, fr: Frame[], top: number, hex: number, pitch: number): void {
+    const f = fr[0], n = Math.floor(o.w / pitch);
+    for (let i = 1; i < n; i++) this.k.hq(this.k.F, f, i * pitch - 0.07, i * pitch + 0.07, -o.d + 0.3, -0.3, top + 0.02, true, hex);
+  }
+
+  /**
+   * Big-box store, New England retail style: a split-face block base, EIFS above with a brand frieze, pilasters, a tower over the glazed
+   * entrance with a canopy, corrugated metal sides, dock doors on the back, and a parapet.
+   */
+  private bigBox(o: Ori, fr: Frame[], y: number, top: number, rng: RNG, qi: number, lean: boolean): void {
+    const k = this.k, f0 = fr[0], w = o.w, HS = top - y;
+    const eifs = rng.pick([0xd8d0bc, 0xe2ded2, 0xcfc6b0, 0xc4c9c7, 0xd9cfae]), brand = rng.pick([0x1f3d6e, 0x7a1f1c, 0x1d5a3a, 0xc08a1a]);
+    const block = 0xa9a396, metal = rng.pick([0xc9cdca, 0xbfc5c6, 0xd2d0c6]), ew = Math.min(14, w * 0.5), e0 = rng.chance(0.5) ? w * 0.18 : w - w * 0.18 - ew;
+    k.band(f0, 0, w, y, y + 2.2, block, ROW.granite, y, 1);
+    k.vq(k.F, f0, 0, w, y + 2.2, top, 0, eifs);
+    k.ledge(f0, 0, w, y + 2.15, y + 2.32, 0, 0.1, dim(eifs, 0.82));
+    k.vq(k.F, f0, 0, w, top - 1.45, top - 0.7, 0.04, brand);
+    k.vq(k.F, f0, 0, w, top - 2.5, top - 2.42, 0.012, dim(eifs, 0.62));
+    if (!lean) for (let x = 6; x < w - 3; x += 12) if (x < e0 - 3 || x > e0 + ew + 3) k.ledge(f0, x - 0.35, x + 0.35, y + 2.2, top, 0, 0.2, dim(eifs, 0.93));
+    // The glazed entrance, a canopy over it, two flanking piers and the tower block above with the sign on its brand panel.
+    this.oshop(f0, e0, e0 + ew, y, 5.2, rng, 101000 + qi, undefined, false);
+    k.ledge(f0, e0 - 1.5, e0 - 0.5, y, y + 5.3, 0, 0.9, dim(eifs, 1.05));
+    k.ledge(f0, e0 + ew + 0.5, e0 + ew + 1.5, y, y + 5.3, 0, 0.9, dim(eifs, 1.05));
+    k.ledge(f0, e0 - 1.5, e0 + ew + 1.5, y + 5.2, top + 2.4, 0, 0.9, dim(eifs, 1.05));
+    k.ledge(f0, e0 - 1.65, e0 + ew + 1.65, top + 2.3, top + 2.6, 0, 1.0, dim(eifs, 0.84));
+    k.vq(k.F, f0, e0 - 0.6, e0 + ew + 0.6, y + 5.45, top + 2.1, 0.93, brand);
+    k.signAt(f0, e0 + ew / 2, y + 5.65, Math.min(ew + 0.4, 10), 0.97, signKey(MAIN_SHOPS[(qi * 5) % MAIN_SHOPS.length][0]), Math.min(2, HS - 4.2));
+    if (!lean) k.ledge(f0, e0 - 0.3, e0 + ew + 0.3, y + 4.5, y + 4.72, 0.9, 3.4, 0x3a3d40);
+    // Corrugated metal on the sides and the back, dock doors along the back.
+    for (let s = 1; s < 4; s++) {
+      const f = fr[s], sh = s === 2 ? 0.86 : 0.97;
+      k.band(f, 0, f.len, y, y + 1.2, block, ROW.granite, y, sh);
+      k.band(f, 0, f.len, y + 1.2, top, metal, ROW.seam, y + 1.2, sh);
+      if (s === 2 && !lean) { const n = Math.max(1, Math.floor(f.len / 18)); for (let i = 0; i < n; i++) { const c = (i + 0.5) * f.len / n; k.piece(f, c - 1.4, 2.8, y, 3.2, 0.03, ROW.door, 7, 0xffffff, 1); k.ledge(f, c - 1.7, c + 1.7, y + 3.3, y + 3.5, 0, 0.5, 0x4a4d50); } }
+      if (s !== 2 && !lean) k.piece(f, f.len * 0.3, 1.1, y, 2.2, 0.03, ROW.door, 5, 0xffffff, 1);
+    }
+    this.coping(fr, top, dim(eifs, 0.9), 0.55);
+  }
+
+  /** A church on a footprint: brick or white clapboard, tall windows, a gabled roof and a steeple (a square tower, a louvred belfry and a spire) on the front. */
+  private oChurch(o: Ori, fr: Frame[], y: number, hm: number, rng: RNG, roofHex: number, lean: boolean): number {
+    const k = this.k, brick = rng.chance(0.4), hex = brick ? MWALL.redBrick : WHITE, wr = brick ? ROW.brick : ROW.clap, trim = brick ? 0xe6e0d2 : WHITE;
+    const w = o.w, d = o.d, eave = Math.min(8.6, Math.max(5.8, hm > 0 ? hm * 0.45 : 6.6)), top = y + eave, f0 = fr[0];
+    const dw = 0.95, door = w / 2;
+    for (let s = 0; s < 4; s++) {
+      const f = fr[s], sh = s === 0 ? 1 : s === 2 ? 0.9 : 0.95;
+      k.band(f, 0, f.len, y, y + 1.0, 0xb4b1a6, ROW.granite, y, sh);
+      k.band(f, 0, f.len, y + 1.0, top, hex, wr, y + 1.0, sh);
+      if (!k.low) { k.ledge(f, 0, f.len, y + 0.95, y + 1.08, 0, 0.1, trim); k.ledge(f, -0.1, 0.2, y + 1.0, top, 0, 0.08, trim); k.ledge(f, f.len - 0.2, f.len + 0.1, y + 1.0, top, 0, 0.08, trim); }
+      const n = Math.max(1, Math.floor((f.len - 3) / 4.2)), pitch = f.len / n;
+      for (let i = 0; i < n; i++) {
+        const c = (i + 0.5) * pitch;
+        if (s === 0 && Math.abs(c - door) < 3.4) continue;
+        const cell = (i * 5 + s * 3 + (hm | 0)) % 32;
+        if (brick) k.piece(f, c - 0.75, 1.5, y + 1.8, 3.2, 0.02, ROW.round, cell, 0xffffff, sh);
+        else k.piece(f, c - 0.7, 1.4, y + 1.8, 3.2, 0.03, ROW.sash, cell, 0xffffff, 1);
+      }
+    }
+    // The front door under the tower, with a stone step.
+    k.piece(f0, door - dw, dw * 2, y + 0.3, 2.6, 0.04, ROW.door, MWALL.doors.hall, 0x7a2a22);
+    this.ofb(f0, door - 1.6, door + 1.6, 0, 1.0, y, y + 0.3, 0xb9b6ac);
+    const alongFront = w >= d, rise = Math.max(2.8, Math.min(6.5, (alongFront ? d : w) * 0.32));
+    k.ogable(fr, top, rise, alongFront, 0.45, roofHex, hex, wr);
+    if (lean) return top;
+    const tw = w * d > 1200 ? 5.4 : 4.4, ty = top + rise * 0.7 + 3.4, bw = tw - 1.0, by = ty + 3.0, sp = 9 + (tw > 5 ? 3 : 0);
+    const tower: Ori = { cx: PX(f0, door, 0.9 - tw / 2), cz: PZ(f0, door, 0.9 - tw / 2), h: o.h, w: tw, d: tw }, tf = this.oframes(tower);
+    const belfry: Ori = { cx: tower.cx, cz: tower.cz, h: o.h, w: bw, d: bw }, bf = this.oframes(belfry);
+    for (let s = 0; s < 4; s++) {
+      const f = tf[s], b = bf[s], sh = s === 0 ? 1 : s === 2 ? 0.9 : 0.95;
+      k.band(f, 0, f.len, y, ty, hex, wr, y, sh);
+      k.ledge(f, -0.12, f.len + 0.12, ty - 0.12, ty + 0.16, 0, 0.14, trim);
+      k.band(b, 0, b.len, ty, by, hex, wr, ty, sh);
+      k.vq(k.F, b, b.len / 2 - 0.65, b.len / 2 + 0.65, ty + 0.55, ty + 2.5, 0.03, 0x24272a);
+      k.ledge(b, b.len / 2 - 0.8, b.len / 2 + 0.8, ty + 2.5, ty + 2.62, 0, 0.1, trim);
+      k.ledge(b, -0.15, b.len + 0.15, by - 0.1, by + 0.14, 0, 0.18, trim);
+      if (s === 0) { k.piece(f, tw / 2 - 0.55, 1.1, y + 7.4, 2.6, 0.03, ROW.sash, 7, 0xffffff, 1); k.piece(f, tw / 2 - 0.5, 1.0, ty - 3.2, 2.0, 0.03, ROW.sash, 11, 0xffffff, 1); }
+    }
+    this.spire(belfry, by + 0.14, sp, brick ? 0x4a4d52 : 0xf1eee6, 1);
+    k.F.cyl(belfry.cx, by + 0.14 + sp, belfry.cz, 0.05, 0.03, 1.5, 0xd8c070, 5, true);
+    return top;
+  }
+
+  /** A brick school or hall: stone base and belt courses, tall sash windows, a columned portico with a pediment, a cupola, a flagpole. */
+  private oSchool(o: Ori, fr: Frame[], y: number, hm: number, rng: RNG, lean: boolean): number {
+    const k = this.k, w = o.w, d = o.d, f0 = fr[0], FH = 4.0, fl = Math.max(2, Math.min(3, hm > 0 ? Math.round(hm / FH) : 2));
+    const hex = rng.pick([0xa5573f, 0xb0654a, 0x9c4a3a, 0xa5573f]), b0 = y + 0.9, top = b0 + fl * FH + 0.8, seed = rng.int(0, 31);
+    const st: WinStyle = { row: ROW.sash, w: 1.5, h: 2.7, sill: 0.8, own: false };
+    const pw = Math.min(10, w * 0.3), c0 = (w - pw) / 2, c1 = c0 + pw;
+    for (let s = 0; s < 4; s++) {
+      const f = fr[s], sh = s === 0 ? 1 : s === 2 ? 0.92 : 0.96;
+      k.band(f, 0, f.len, y, b0, 0xb9b6ac, ROW.granite, y, sh);
+      if (s === 0) {
+        k.facade(f, 0, c0, b0, FH, fl, hex, 1, st, 3.2, seed, 0xffffff, ROW.brick); k.facade(f, c1, w, b0, FH, fl, hex, 1, st, 3.2, seed + 3, 0xffffff, ROW.brick);
+        k.band(f, c0, c1, b0, b0 + fl * FH, hex, ROW.brick, b0, 1);
+        k.band(f, 0, w, b0 + fl * FH, top, hex, ROW.brick, b0 + fl * FH, 1);
+        k.cornice(f, 0, w, top, hex, 1);
+      } else k.plainWall(f, 0, f.len, y, top, hex, sh, ROW.brick, { st, yb: b0, fh: FH, floors: fl, pitch: 3.6, seed: seed + s, trim: 0xffffff });
+      if (!lean) for (let i = 1; i < fl; i++) k.ledge(f, -0.08, f.len + 0.08, b0 + i * FH - 0.1, b0 + i * FH + 0.1, 0, 0.1, STONE);
+      if (!lean) { k.ledge(f, -0.15, 0.4, y, top, 0, 0.12, STONE); k.ledge(f, f.len - 0.4, f.len + 0.15, y, top, 0, 0.12, STONE); }
+    }
+    // Portico: four white columns, a slab and a pediment, the double door behind, steps in front.
+    k.piece(f0, w / 2 - 1.1, 2.2, y + 0.9, 2.7, 0.04, ROW.door, MWALL.doors.hall, 0x2c4a3a);
+    k.piece(f0, w / 2 - 0.7, 1.4, b0 + FH + 0.5, 2.5, 0.04, ROW.sash, 9, 0xffffff, 1);
+    if (!lean) {
+      const pd = 3.0;
+      this.ofb(f0, c0 - 0.4, c1 + 0.4, 0, pd, y + 4.5, y + 4.85, WHITE);
+      for (let i = 0; i < 4; i++) { const s = c0 + 0.5 + i * (pw - 1) / 3, cx = PX(f0, s, pd - 0.45), cz = PZ(f0, s, pd - 0.45); k.F.cyl(cx, y + 0.3, cz, 0.26, 0.23, 4.2, 0xf1ede2, 10, true); k.game.col.addProp(cx, cz, 0.26, 4.5, 'post', false); }
+      this.ofb(f0, c0 - 0.2, c1 + 0.2, 0, pd + 0.5, y, y + 0.3, 0xb9b6ac); this.ofb(f0, c0 + 1, c1 - 1, pd + 0.5, pd + 1.2, y, y + 0.15, 0xb9b6ac);
+      k.F.tri(PX(f0, c0 - 0.4, pd), y + 4.85, PZ(f0, c0 - 0.4, pd), PX(f0, c1 + 0.4, pd), y + 4.85, PZ(f0, c1 + 0.4, pd), PX(f0, w / 2, pd), y + 6.5, PZ(f0, w / 2, pd), WHITE);
+      // The cupola on the roof, a flagpole on the lawn.
+      const cup: Ori = { cx: o.cx, cz: o.cz, h: o.h, w: 2.8, d: 2.8 };
+      this.obox(cup, top + 0.4, top + 2.6, WHITE, 1);
+      this.spire({ ...cup, w: 3.1, d: 3.1 }, top + 2.6, 3.4, 0x4a4d52);
+      const px = PX(f0, 3, pd + 3), pz = PZ(f0, 3, pd + 3);
+      k.F.cyl(px, y, pz, 0.06, 0.05, 9, 0xd8d8d4, 6, true); k.game.col.addProp(px, pz, 0.15, 8, 'post', false);
+    }
+    this.coping(fr, top, dim(hex, 0.9), 0.6);
+    return top;
+  }
+
   osm(lots: OLot[], first: number): void {
     const k = this.k, G = this.game.plan.streets, lean = !!this.game.quality.lean;
     for (const lot of lots) {
@@ -1203,12 +1372,12 @@ class Builder {
       k.at(o.cx, o.cz);
       const FH = t === 6 ? 3.6 : t === 4 || t === 5 ? 4.2 : 3.1;
       const floorsOf = (def: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, hm > 0 ? Math.round(hm / FH) : def));
-      const hex = t === 6 ? MWALL.redBrick : t === 7 ? WHITE : rng.pick(BRICKS), seed = rng.int(0, 31);
+      const hex = t === 6 ? MWALL.redBrick : rng.pick(BRICKS), seed = rng.int(0, 31);
       let top = y + 4.8, HS = 4.35, fl = 1;
-      const roofHex = rng.pick(ROOF);
+      let roofHex = rng.pick(ROOF), gabled = false;
       // The walls below the floor line hide the slope.
       const under = (): void => { for (const f of fr) k.band(f, 0, f.len, base, y, hex, ROW.granite, base, 0.9); };
-      if (t === 2 || t === 3 || t === 1 || t >= 7) {
+      if (t === 2 || t === 3 || t === 1) {
         const shop = t === 2 || t === 3;
         fl = t === 1 ? floorsOf(3, 2, 4) : t === 2 ? floorsOf(w * d > 280 ? 2 : 1, 1, 3) : t === 3 ? 1 : floorsOf(2, 1, 3);
         HS = shop ? (t === 3 ? 4.2 : 4.35) : FH;
@@ -1217,49 +1386,77 @@ class Builder {
         const f0 = fr[0];
         if (shop) {
           const units = t === 3 ? Math.max(2, Math.round(w / 7.5)) : Math.max(1, Math.round(w / 11)), uw = w / units;
-          for (let u = 0; u < units; u++) this.oshop(f0, u * uw, (u + 1) * uw, y, HS, rng, 101000 + q.i + u, undefined, true);
+          for (let u = 0; u < units; u++) this.oshop(f0, u * uw, (u + 1) * uw, y, HS, rng, 101000 + q.i + u, undefined, t !== 3);
+          if (t === 3 && !lean) {
+            // A strip mall: one canopy the length of the frontage on posts, brick piers between the units.
+            const cc = rng.pick([0x2c4a3a, 0x25395c, 0x6a2620, 0x3c3c3c]);
+            k.ledge(f0, 0, w, y + 2.7, y + 3.0, 0, 2.1, cc);
+            for (let u = 0; u <= units; u++) { k.ledge(f0, Math.max(0, u * uw - 0.25), Math.min(w, u * uw + 0.25), y, y + HS + 0.2, 0, 0.18, dim(hex, 0.92)); if (u % 2 === 0) k.F.cyl(PX(f0, Math.min(w - 0.1, Math.max(0.1, u * uw)), 2.0), y, PZ(f0, Math.min(w - 0.1, Math.max(0.1, u * uw)), 2.0), 0.07, 0.07, 2.72, 0x2b2f33, 6, false); }
+          }
           if (fl > 1) k.facade(f0, 0, w, y + HS, FH, fl - 1, hex, 1, WIN.sash, 3.3, seed);
           else k.band(f0, 0, w, y + HS, top, hex, ROW.brick, y + HS, 1);
         } else {
-          const wr = t === 7 ? ROW.clap : ROW.brick, st = t === 7 ? WIN.house : WIN.sash;
-          k.facade(f0, 0, w, y, FH, fl, hex, 1, st, t === 7 ? 3.0 : 3.3, seed, t === 7 ? WHITE : 0xffffff, wr);
+          const wr = ROW.brick, st = WIN.sash;
+          k.facade(f0, 0, w, y, FH, fl, hex, 1, st, 3.3, seed, 0xffffff, wr);
           k.band(f0, 0, w, y + fl * FH, top, hex, wr, y + fl * FH, 1);
           k.piece(f0, w / 2 - 0.55, 1.1, y, 2.3, 0.03, ROW.door, 0, 0xffffff, 1);
         }
         for (let s = 1; s < 4; s++) {
-          const f = fr[s], wr = t === 7 ? ROW.clap : ROW.brick, floors = shop ? Math.max(fl - 1, 0) : fl;
-          k.plainWall(f, 0, f.len, y, top, hex, s === 2 ? 0.92 : 0.96, wr, floors > 0 ? { st: t === 7 ? WIN.house : WIN.sash, yb: y + (shop ? HS : 0), fh: FH, floors, pitch: 3.6, seed: seed + s, trim: 0xffffff } : undefined);
+          const f = fr[s], wr = ROW.brick, floors = shop ? Math.max(fl - 1, 0) : fl;
+          k.plainWall(f, 0, f.len, y, top, hex, s === 2 ? 0.92 : 0.96, wr, floors > 0 ? { st: WIN.sash, yb: y + (shop ? HS : 0), fh: FH, floors, pitch: 3.6, seed: seed + s, trim: 0xffffff } : undefined);
         }
         k.cornice(f0, 0, w, top, hex, 1);
+        if (!lean) this.coping(fr, top, dim(hex, 0.9), 0.4);
+      } else if (t === 7) {
+        top = this.oChurch(o, fr, y, hm, rng, roofHex, lean); HS = top - y; gabled = true;
+      } else if (t >= 8) {
+        top = this.oSchool(o, fr, y, hm, rng, lean); HS = top - y;
       } else if (t === 4) {
         // Big-box store: a tall plain box, a glazed entrance under a big sign, and the car park in front.
         HS = Math.max(6.2, hm > 0 ? Math.min(hm, 11) : 8); top = y + HS; under();
-        const gh = 0xc8c6bf, f0 = fr[0], ew = Math.min(14, w * 0.5), e0 = rng.chance(0.5) ? w * 0.18 : w - w * 0.18 - ew;
-        for (let s = 0; s < 4; s++) k.band(fr[s], 0, fr[s].len, y, top, gh, ROW.brick, y, s === 2 ? 0.86 : 0.97);
-        this.oshop(f0, e0, e0 + ew, y, 5.2, rng, 101000 + q.i, undefined, false);
-        k.vq(k.F, f0, e0 - 0.8, e0 + ew + 0.8, y + 5.2, y + HS - 0.5, 0.2, rng.pick([0x1f3d6e, 0x7a1f1c, 0x1d5a3a, 0xc08a1a]));
-        k.signAt(f0, e0 + ew / 2, y + 5.45, Math.min(ew + 0.4, 10), 0.24, signKey(MAIN_SHOPS[(q.i * 5) % MAIN_SHOPS.length][0]), Math.min(1.8, HS - 5.9));
-        k.cornice(f0, 0, w, top, gh, 1, 0.5, 0.1);
-        this.parkingLot(o, f0, lean, G);
+        this.bigBox(o, fr, y, top, rng, q.i, lean);
+        roofHex = 0xb9bbb7;
+        if (!lean) this.seams(o, fr, top, 0xa3a5a2, 9);
+        this.parkingLot(o, fr[0], lean, G);
         if (!lean) this.roofPlant(o, top, rng, Math.floor(w * d / 700));
       } else if (t === 5) {
         // Industrial shed: metal-sided, loading doors along the street side, a few roof vents.
         HS = Math.max(5.5, hm > 0 ? Math.min(hm, 10) : 6.5); top = y + HS; under();
         const mh = rng.pick([0x8d9aa3, 0xb5a98a, 0x9aa59a, 0xa4a8a5]);
-        for (let s = 0; s < 4; s++) k.band(fr[s], 0, fr[s].len, y, top, mh, ROW.clap, y, s === 2 ? 0.86 : 0.97);
+        for (let s = 0; s < 4; s++) { k.band(fr[s], 0, fr[s].len, y, y + 0.9, 0xa9a396, ROW.granite, y, 1); k.band(fr[s], 0, fr[s].len, y + 0.9, top, mh, ROW.seam, y + 0.9, s === 2 ? 0.86 : 0.97); }
         for (const s of [0, 1]) { const f = fr[s], n = Math.max(1, Math.floor(f.len / 14)); for (let i = 0; i < n; i++) k.piece(f, (i + 0.5) * f.len / n - 1.4, 2.8, y, 3.2, 0.03, ROW.door, i % 2 ? 5 : 7, 0xffffff, 1); }
         k.cornice(fr[0], 0, w, top, mh, 1, 0.4, 0.08);
-        if (!lean) this.roofPlant(o, top, rng, Math.floor(w * d / 500));
+        if (!lean) { this.coping(fr, top, dim(mh, 0.85), 0.4); this.seams(o, fr, top, 0x55575a, 7); this.roofPlant(o, top, rng, Math.floor(w * d / 500)); }
       } else if (t === 6) {
         // Mill: red brick bays on every wall, five floors at most, a stair tower and a chimney on the big ones.
         fl = floorsOf(3, 2, 5); top = y + fl * FH + 0.6; under();
         for (let s = 0; s < 4; s++) { const f = fr[s]; k.facade(f, 0, f.len, y, FH, fl, hex, 1, WIN.mill, 3.4, seed + s * 3, 0xffffff, ROW.brick); }
         k.cornice(fr[0], 0, w, top, hex, 1);
         const nx = Math.sin(o.h), nz = Math.cos(o.h), tx = nz, tz = -nx;
-        if (w * d > 800 && !lean) this.obox({ cx: o.cx + nx * (d / 2 + 0.2) - tx * (w / 2 - 4), cz: o.cz + nz * (d / 2 + 0.2) - tz * (w / 2 - 4), h: o.h, w: 5, d: 5 }, base, top + 5, hex, 0.95);
-        if (w * d > 1200 && !lean) this.obox({ cx: o.cx - nx * d / 2 + tx * (w / 3), cz: o.cz - nz * d / 2 + tz * (w / 3), h: o.h, w: 3.4, d: 3.4 }, base, top + 14, dim(hex, 0.9), 0.95);
+        // Granite string course under the first floor, a coped roof with a monitor of clerestory windows along it.
+        if (!lean) {
+          for (const f of fr) k.ledge(f, -0.05, f.len + 0.05, y + FH + 0.02, y + FH + 0.2, 0, 0.1, STONE);
+          this.coping(fr, top, dim(hex, 0.9), 0.35);
+          if (w > 24) {
+            const mon: Ori = { cx: o.cx, cz: o.cz, h: o.h, w: w * 0.6, d: Math.min(6, d * 0.3) }, mf = this.oframes(mon), my = top + 1.9;
+            this.obox(mon, top, my, dim(hex, 0.95), 0.95);
+            for (const s of [0, 2]) { const f = mf[s], n = Math.floor(f.len / 2.4); for (let i = 0; i < n; i++) k.piece(f, (i + 0.5) * f.len / n - 0.55, 1.1, top + 0.3, 1.3, 0.02, ROW.sash, (seed + i * 5 + s) % 32, 0xffffff, 1); }
+          }
+        }
+        // The stair tower: brick to above the roof, arched louvres, a slate cap.
+        if (w * d > 800 && !lean) {
+          const st: Ori = { cx: o.cx + nx * (d / 2 + 0.2) - tx * (w / 2 - 4), cz: o.cz + nz * (d / 2 + 0.2) - tz * (w / 2 - 4), h: o.h, w: 5, d: 5 }, sf = this.oframes(st);
+          this.obox(st, base, top + 5, hex, 0.95);
+          for (const f of sf) { k.vq(k.F, f, f.len / 2 - 0.7, f.len / 2 + 0.7, top + 2.2, top + 4.2, 0.03, 0x24272a); k.ledge(f, -0.1, f.len + 0.1, top + 4.8, top + 5.0, 0, 0.2, STONE); }
+          this.spire({ ...st, w: 5.4, d: 5.4 }, top + 5.0, 3.6, 0x4a4d52);
+        }
+        if (w * d > 1200 && !lean) {
+          const cx = o.cx - nx * d / 2 + tx * (w / 3), cz = o.cz - nz * d / 2 + tz * (w / 3), bh = top + 14 - base;
+          k.F.cyl(cx, base, cz, 1.9, 1.15, bh, dim(hex, 0.9), 10, false, 0.95);
+          k.F.cyl(cx, top + 11, cz, 1.3, 1.3, 0.5, 0xe4ddd0, 10, false); k.F.cyl(cx, top + 13.6, cz, 1.35, 1.35, 0.5, dim(hex, 0.8), 10, true);
+        }
       }
-      k.hq(k.F, fr[0], 0, fr[0].len, -d, 0, top, true, roofHex);
+      if (!gabled) k.hq(k.F, fr[0], 0, fr[0].len, -d, 0, top, true, roofHex);
       this.osolid(o, top, base - 0.6);
       // The front wall the businesses hang their signs on.
       lot.wall = { x: fr[0].ox + fr[0].tx * w / 2, z: fr[0].oz + fr[0].tz * w / 2, nx: fr[0].nx, nz: fr[0].nz };
