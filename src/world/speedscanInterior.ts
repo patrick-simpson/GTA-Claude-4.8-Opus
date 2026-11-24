@@ -22,16 +22,20 @@ import type { Person } from '../core/api';
 import type { Box } from './collide';
 import { assets } from '../core/assets';
 import { nightBloom } from '../core/post';
+import { SpeedScanFloors, FLOORS, FLOOR_H, towerBoxes } from './speedscanFloors';
 
 const CARS = [-4.125, 4.125];
 const CAR_Z = -3.3, CAR_W = 2.6, CAR_D = 2.6, DOOR_W = 1.3, DOOR_H = 2.4, LEAF_Z = -3.24;
-const LEVELS = [
-  { y: 0.2, label: 'L', name: 'Lobby' },
-  { y: 160, label: '42', name: '42 · SpeedScan offices' },
-  { y: 322.1, label: 'R', name: 'Roof deck' },
+type Kind = 'lobby' | 'office' | 'roof' | 'floor';
+// The lifts serve eight levels, lowest first; the five 'floor' ones are built in speedscanFloors.ts.
+const LEVELS: { y: number; label: string; name: string; kind: Kind; id?: string }[] = [
+  { y: 0.2, label: 'L', name: 'Lobby', kind: 'lobby' },
+  ...FLOORS.filter((f) => f.y < 160).map((f) => ({ y: f.y, label: f.label, name: f.name, kind: 'floor' as Kind, id: f.id })),
+  { y: 160, label: '42', name: '42 · SpeedScan offices', kind: 'office' },
+  ...FLOORS.filter((f) => f.y > 160).map((f) => ({ y: f.y, label: f.label, name: f.name, kind: 'floor' as Kind, id: f.id })),
+  { y: 322.1, label: 'R', name: 'Roof deck', kind: 'roof' },
 ];
-/** The tower above the podium, for anything that flies or climbs (model frame: x0, x1, z0, z1, y0, y1). */
-const TOWER: number[][] = [[-33, 33, -36, 6, 15, 160], [-33, 33, -36, 6, 163, 190], [-29, 29, -33, 3, 190, 262], [-26, 26, -31, 1, 262, 322]];
+const OFFICE_Y = 160;
 /** Where the owner's logo goes inside (model frame): x, y, z, turn, width; the first two in the lobby, the rest on 42. */
 const LOGOS: number[][] = [
   [-19, 6.7, -13.86, 0, 9], [-18, 0.62, 0.012, 0, 3.0],
@@ -50,6 +54,7 @@ export class SpeedScanInterior {
   private office = new THREE.Group();
   private roof = new THREE.Group();
   private roofCars = new THREE.Group();
+  private floors: SpeedScanFloors | null = null;
   private standIn: THREE.Object3D | null = null;
   private logoGeo: THREE.BufferGeometry | null = null;
   private glass: THREE.MeshStandardMaterial | null = null;
@@ -83,13 +88,14 @@ export class SpeedScanInterior {
     this.lobby.name = 'speedscan-lobby'; this.office.name = 'speedscan-office'; this.roof.name = 'speedscan-roof';
     this.roof.add(this.roofCars);
     const col = game.col;
-    for (const [x0, x1, z0, z1, y0, y1] of TOWER) col.addBox(this.ox + x0, this.oz + z0, this.ox + x1, this.oz + z1, y1, y0);
+    for (const [x0, x1, z0, z1, y0, y1] of towerBoxes()) col.addBox(this.ox + x0, this.oz + z0, this.ox + x1, this.oz + z1, y1, y0);
     if (this.low || new URLSearchParams(location.search).get('hq') === '0') {
       // No interior on phones: the podium is solid where the lobby is, and so is the lantern.
       col.addBox(this.ox - 31, this.oz - 14, this.ox + 31, this.oz + 10, 20, 0);
       col.addBox(this.ox - 22, this.oz - 27, this.ox + 22, this.oz - 3, 348, 322);
       return;
     }
+    this.floors = new SpeedScanFloors(game, parent, this.ox, this.oz);
     // Lift doors: solid while mostly shut.
     this.doorBox = LEVELS.map((L) => CARS.map((cx) => col.addBox(this.ox + cx - DOOR_W / 2, this.oz + CAR_Z, this.ox + cx + DOOR_W / 2, this.oz + LEAF_Z + 0.06, L.y + DOOR_H, L.y - 0.5)));
     // ?ssint=0 leaves the furnishings out (the shell's stand-in glass stays): for timing what the interior costs.
@@ -144,7 +150,7 @@ export class SpeedScanInterior {
     const leafMat = new THREE.MeshBasicMaterial({ color: 0x9aa1a8, fog: false });
     const carG = geo.get('in_car');
     LEVELS.forEach((L, l) => {
-      const into = l === 0 ? this.lobby : l === 1 ? this.office : this.roofCars;
+      const into = L.kind === 'lobby' ? this.lobby : L.kind === 'office' ? this.office : L.kind === 'roof' ? this.roofCars : (this.floors?.groups.get(L.id!) ?? this.roofCars);
       CARS.forEach((cx, c) => {
         const m = new THREE.Matrix4().makeTranslation(this.ox + cx, L.y, this.oz + CAR_Z);
         if (carG) { const cm = new THREE.Mesh(carG, baked); cm.matrixAutoUpdate = false; cm.matrix.copy(m); into.add(cm); }
@@ -155,7 +161,7 @@ export class SpeedScanInterior {
           into.add(leaf);
           this.leaves.push({ mesh: leaf, l, c, x0, dir });
         }
-        const outZ = l === 2 ? -2.88 : -3.17;
+        const outZ = L.kind === 'roof' ? -2.88 : -3.17;
         const d1 = new THREE.Mesh(disp, dispMat); d1.position.set(this.ox + cx, L.y + DOOR_H + 0.27, this.oz + outZ); into.add(d1);
         const d2 = new THREE.Mesh(disp, dispMat); d2.position.set(this.ox + cx, L.y + DOOR_H + 0.15, this.oz + CAR_Z - 0.012); d2.rotation.y = Math.PI; into.add(d2);
       });
@@ -210,7 +216,7 @@ export class SpeedScanInterior {
     for (const [i, [x, y, z, h, kind]] of d.seats.entries()) { if (kind === 'bench' && ((i * 0.618) % 1) < 0.58) continue; const p = spawn(x, y + (kind === 'desk' ? 0.05 : 0), z, h); p.pose = 'sit'; p.bench = kind !== 'desk'; this.still.push(p); }
     for (const [x, y, z, h] of d.stands) { const p = spawn(x, y, z, h); p.pose = 'stand'; this.still.push(p); }
     d.walks.forEach((path, i) => {
-      const y = i < 3 ? LEVELS[0].y : LEVELS[1].y;
+      const y = i < 3 ? LEVELS[0].y : OFFICE_Y;
       const p = spawn(path[0][0], y, path[0][1], 0); p.pose = 'stand';
       this.people.push({ p, path, i: 0, wait: i * 2.5, y });
     });
@@ -230,22 +236,25 @@ export class SpeedScanInterior {
     this.lobby.visible = lobbyOn; this.office.visible = officeOn;
     this.roof.visible = roofDist < 900;
     this.roofCars.visible = ly > 300 && near;
+    const inFloor = this.floors ? this.floors.update(dt, lx, ly, lz) : -1;
+    const inGap = inFloor >= 0 && ly < FLOORS[inFloor].y + FLOOR_H;
     if (this.standIn) this.standIn.visible = !lobbyOn && Math.hypot(lx, lz) < 470;
     const inCar = CARS.findIndex((cx) => Math.abs(lx - cx) < CAR_W / 2 && lz < CAR_Z + 0.25 && lz > CAR_Z - CAR_D);
     let carLevel = -1;
     if (inCar >= 0) carLevel = LEVELS.findIndex((L) => ly > L.y - 0.5 && ly < L.y + 2.8);
     const closedCar = carLevel >= 0 && this.open[carLevel][inCar] < 0.02;
-    this.indoors = inLobby || inOffice || carLevel >= 0;
+    this.indoors = inLobby || inOffice || inGap || carLevel >= 0;
+    if (this.floors) this.floors.indoors = this.indoors;
     this.inside = this.indoors;
     if (!this.indoors && this.bloomOff) nightBloom.scale = 1;
     this.bloomOff = this.indoors;
-    this.cull(closedCar ? 'car' : (inLobby || inOffice) ? 'room' : 'none');
+    this.cull(closedCar ? 'car' : (inLobby || inOffice || inGap) ? 'room' : 'none');
     this.lift(dt);
     // Starting or restarting the game clears the crowd: put ours back when they have gone.
     if ((this.recheck -= dt) <= 0) {
       this.recheck = 2;
       const first = this.still[0];
-      if (this.data && g.people && (!first || !g.people.list.includes(first))) this.spawnPeople(this.data);
+      if (this.data && g.people && (!first || !g.people.list.includes(first))) { this.spawnPeople(this.data); this.floors?.respawn(); }
     }
     // From the plaza the lobby's people only within 20 m of the glass (they are most of what it costs from out there).
     this.crowdLobby = lobbyOn && (inLobby || lz < 30);
@@ -261,15 +270,17 @@ export class SpeedScanInterior {
     const px = p ? p.x - this.ox : 0, pz = p ? p.z - this.oz : 0, py = p ? p.y : -99;
     const lvl = LEVELS.findIndex((L) => py > L.y - 0.6 && py < L.y + 1.5);
     const inCar = foot && lvl >= 0 ? CARS.findIndex((cx) => Math.abs(px - cx) < CAR_W / 2 && pz < CAR_Z + 0.15 && pz > CAR_Z - CAR_D) : -1;
-    const landZ = lvl === 2 ? -3.0 : -3.2;
+    const landZ = LEVELS[lvl]?.kind === 'roof' ? -3.0 : -3.2;
     const atDoor = foot && lvl >= 0 && inCar < 0 ? CARS.findIndex((cx) => Math.abs(px - cx) < 1.3 && pz > landZ - 0.05 && pz < landZ + 2.4) : -1;
     let text: string | null = null;
     if (this.phase === 'idle') {
       if (inCar >= 0) {
         const others = LEVELS.map((_, i) => i).filter((i) => i !== lvl);
-        text = `[G] Choose a floor: ${others.map((i) => LEVELS[i].label).join(' · ')}`;
+        text = `[G] Next floor · or press 1-${LEVELS.length}: ${LEVELS.map((L, i) => `${i + 1} ${L.label}`).join('  ')}`;
         this.hold[lvl][inCar] = Math.max(this.hold[lvl][inCar], 2);
-        if (g.input.eat('interact')) { this.car = inCar; this.from = lvl; this.sel = others[0]; this.phase = 'arm'; this.t = 1.4; }
+        const dg = g.input.digit;
+        if (dg >= 1 && dg <= LEVELS.length && dg - 1 !== lvl) { g.input.digit = -1; this.car = inCar; this.from = lvl; this.sel = dg - 1; this.phase = 'arm'; this.t = 0.7; }
+        else if (g.input.eat('interact')) { this.car = inCar; this.from = lvl; this.sel = others[0]; this.phase = 'arm'; this.t = 1.6; }
       } else if (atDoor >= 0) {
         if (this.open[lvl][atDoor] < 0.5 && this.want[lvl][atDoor] === 0) {
           text = '[G] Call the lift';
@@ -277,11 +288,13 @@ export class SpeedScanInterior {
         } else this.hold[lvl][atDoor] = Math.max(this.hold[lvl][atDoor], 2);
       }
     } else if (this.phase === 'arm') {
-      text = `[G] Going to ${LEVELS[this.sel].name} · press again to change`;
+      text = `[G] Going to ${LEVELS[this.sel].name} · press again to change · or 1-${LEVELS.length}`;
+      const dg2 = g.input.digit;
+      if (dg2 >= 1 && dg2 <= LEVELS.length && dg2 - 1 !== this.from) { g.input.digit = -1; this.sel = dg2 - 1; this.t = 0.7; }
       if (inCar !== this.car || lvl !== this.from) this.phase = 'idle';
       else if (g.input.eat('interact')) {
         const others = LEVELS.map((_, i) => i).filter((i) => i !== this.from);
-        this.sel = others[(others.indexOf(this.sel) + 1) % others.length]; this.t = 1.4;
+        this.sel = others[(others.indexOf(this.sel) + 1) % others.length]; this.t = 1.6;
       } else if ((this.t -= dt) <= 0) { this.phase = 'closing'; this.want[this.from][this.car] = 0; this.hold[this.from][this.car] = 0; }
       this.hold[this.from][this.car] = Math.max(this.hold[this.from][this.car], 0.5);
     } else if (this.phase === 'closing') {
