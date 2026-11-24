@@ -12,6 +12,8 @@
 // It replaces the M1 pause card (menu.css hides it). Flat paperwork; the only
 // animation is opacity and transform.
 
+import { STREETS_NEW } from '../world/streets';
+import { trains } from '../world/train';
 import './menu.css';
 import type { Game } from '../core/game';
 import type { ThingsToDo } from '../game/index';
@@ -551,6 +553,16 @@ export class Menu {
       c.beginPath(); c.arc(px, py, 6, 0, Math.PI * 2); c.fillStyle = PEER_COLOR; c.fill();
       c.strokeStyle = BONE; c.lineWidth = 2; c.stroke(); c.strokeStyle = INK; c.lineWidth = 1; c.beginPath(); c.arc(px, py, 7.2, 0, Math.PI * 2); c.stroke();
       text(o.text, px, py - 14, 11, INK);
+    }
+
+    // The train (world/train.ts), when there is one: a small square at its cab.
+    const trn = trains.cur;
+    if (STREETS_NEW && trn && (trn.cab.x !== 0 || trn.cab.z !== 0)) {
+      const tx = X(trn.cab.x), ty = Z(trn.cab.z);
+      if (tx > -20 && ty > -20 && tx < w + 20 && ty < h + 20) {
+        c.fillStyle = BONE; c.strokeStyle = INK; c.lineWidth = 2; c.beginPath(); c.rect(tx - 6, ty - 6, 12, 12); c.fill(); c.stroke();
+        c.fillStyle = INK; c.beginPath(); c.arc(tx, ty, 2.4, 0, Math.PI * 2); c.fill();
+      }
     }
 
     // Dess.

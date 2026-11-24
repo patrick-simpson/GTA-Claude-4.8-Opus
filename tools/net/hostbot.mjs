@@ -113,7 +113,7 @@ try {
   // A pass signed by somebody else is refused.
   const other = generateKeyPairSync('ed25519').privateKey, exp = Math.floor(Date.now() / 1000) + 3600;
   const fake = `${exp}.${sign(null, Buffer.from(`port-calamity hostbot ${exp}`), other).toString('base64url')}`;
-  const res = await new Promise((r) => { const ws = new WebSocket(`ws://127.0.0.1:${MAIN}/?v=5&name=1.2&bot=${fake}`); ws.onopen = () => { ws.close(); r('opened'); }; ws.onerror = () => r('refused'); });
+  const res = await new Promise((r) => { const ws = new WebSocket(`ws://127.0.0.1:${MAIN}/?v=6&name=1.2&bot=${fake}`); ws.onopen = () => { ws.close(); r('opened'); }; ws.onerror = () => r('refused'); });
   check('a pass signed by another key is refused', res === 'refused', res);
 
   // 2. Two players.

@@ -20,6 +20,8 @@ export const WALK_W = 3.5, CURB_H = 0.16;
 /** Height an overpass carries its road above the one below, and how far each way it takes to climb there. */
 export const LIFT_H = 6.6;
 const LIFT_R = 95;
+/** Steepest a ramp may climb or sink where it meets the Thruway (11%: the Thruway's own steepest, so a ramp can match it). */
+const RAMP_SLOPE = 0.11;
 const CELL = 16, CX0 = -1040, CZ0 = -3060, CNX = 128;
 const GS = 4, GX0 = -1000, GZ0 = -3010, GNX = 512, GNZ = 548;
 
@@ -39,6 +41,8 @@ export class StreetSurface {
   readonly lift: Float32Array;
   readonly passes: Passage[] = [];
   private readonly bumps = new Map<number, Bump[]>();
+  /** Per-ramp lift samples, 1 m apart (solveRamps). */
+  private readonly rampLift = new Map<number, Float32Array>();
   private readonly fixed: Uint8Array;
   private readonly maxLift = new Map<number, number>();
   private readonly sMax = new Map<number, number>();
@@ -62,6 +66,7 @@ export class StreetSurface {
     this.lift = new Float32Array(g.nodes.length);
     this.fixed = new Uint8Array(g.nodes.length);
     this.solveLift();
+    this.solveRamps();
     for (const e of this.edges) {
       let m = 0;
       for (let s = 0; s <= e.len; s += 4) m = Math.max(m, this.liftAt(e, s));
@@ -98,8 +103,47 @@ export class StreetSurface {
   /** Height of the plateau at a point: where a road at grade lies. */
   flat(x: number, z: number): number { return MAIN_Y + hillAt(x, z); }
 
-  /** Lift above the plateau at distance s along an edge. */
+  /** Lift above the plateau at distance s along an edge (a ramp also follows the Thruway where it hugs it: solveRamps). */
   liftAt(e: RoadEdge, s: number): number {
+    const h = this.liftBase(e, s), t = this.rampLift.get(e.id);
+    if (!t) return h;
+    const f = clamp(s, 0, t.length - 1), i = Math.min(t.length - 2, Math.floor(f)), u = f - i;
+    return Math.max(h, t[i] * (1 - u) + t[i + 1] * u);
+  }
+
+  /**
+   * An exit ramp runs alongside (often on top of) the Thruway for its last stretch, and the Thruway is lifted where it
+   * crosses something: a ramp left at grade ended in a cliff against the raised carriageway (traffic stopped at the foot
+   * of it, Nov 24). Every ramp takes the Thruway's height wherever they share a carriageway, and climbs or sinks to it at
+   * no more than RAMP_SLOPE, ahead of the meeting and after it. A fixed end stays at the street's level.
+   */
+  private solveRamps(): void {
+    const g = this.g, hwys = this.edges.filter((e) => e.kind === 'highway');
+    for (const e of this.edges) {
+      if (e.kind !== 'ramp') continue;
+      const n = Math.ceil(e.len) + 2, T = new Float32Array(n);
+      let any = false;
+      for (let i = 0; i < n; i++) {
+        const s = Math.min(i, e.len), q = g.pointAt(e, s);
+        let h = this.liftBase(e, s);
+        for (const o of hwys) {
+          const pr = g.project(o, q.x, q.z);
+          if (pr.d < o.hw + e.hw - 0.5 && pr.s > 0.5 && pr.s < o.len - 0.5) h = Math.max(h, this.liftBase(o, pr.s));
+        }
+        T[i] = h; if (h > 0.05) any = true;
+      }
+      if (!any) continue;
+      const L = T.slice();
+      for (let i = 1; i < n; i++) L[i] = Math.max(L[i], L[i - 1] - RAMP_SLOPE);
+      for (let i = n - 2; i >= 0; i--) L[i] = Math.max(L[i], L[i + 1] - RAMP_SLOPE);
+      // A fixed end meets its street at grade: pin it, and let the climb start there (the slope bound is kept by taking the lower).
+      if (this.fixed[e.a]) for (let i = 0; i < n; i++) L[i] = Math.min(L[i], i * RAMP_SLOPE);
+      if (this.fixed[e.b]) for (let i = 0; i < n; i++) L[i] = Math.min(L[i], Math.max(0, e.len - i) * RAMP_SLOPE);
+      this.rampLift.set(e.id, L);
+    }
+  }
+
+  private liftBase(e: RoadEdge, s: number): number {
     // Each end's lift dies away along the edge (by the far end when that end is held at grade).
     const La = this.lift[e.a], Lb = this.lift[e.b], L = Math.max(e.len, 1e-3);
     const Ra = this.fixed[e.b] ? Math.min(LIFT_R, L) : LIFT_R, Rb = this.fixed[e.a] ? Math.min(LIFT_R, L) : LIFT_R;

@@ -86,7 +86,7 @@ run from there. The service then answers at `https://port-calamity-city.<account
 
 ## Protocol (all of it is in `src/net/protocol.ts`)
 
-Connect: `wss://<host>/?v=5&name=3.17.20` (version 5 since Nov 23: riding together; the Worker must run the same version as the pages, so a version change means a redeploy). The name is two or three integers, indexes into
+Connect: `wss://<host>/?v=6&name=3.17.20` (version 6 since Nov 24: the Tepid Falls street rebuild; 5 was riding together; the Worker must run the same version as the pages, so a version change means a redeploy). The name is two or three integers, indexes into
 the game's own word lists (part i is below `NAME_LIST_SIZES[i]`, today 40, 40 and 24). There is no hello message: a bad name, a wrong version (400), a
 disallowed Origin (403) refuse the upgrade. A full town and a resting service do NOT refuse it (a
 browser cannot read a refused upgrade): the socket opens, carries one `full` or `rest` message, and

@@ -485,7 +485,8 @@ export class ProgressWorks {
 
   /** Barriers across the mouth of every closed street, at each crossing that also has an open one. */
   private rebuildBarriers(): void {
-    const game = this.game, plan = game.plan;
+    // The new street graph (plan.streets) when there is one: its edges are polylines, angled and curved.
+    const game = this.game, plan = game.plan.streets ?? game.plan;
     if (this.barriers) {
       this.barriers.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
       this.root.remove(this.barriers);
@@ -507,14 +508,30 @@ export class ProgressWorks {
       for (const id of n.edges) {
         const e = plan.edges[id];
         if (!e.closed || e.deck) continue;
-        const away = e.horiz ? (e.a === n.id ? Math.PI / 2 : -Math.PI / 2) : (e.a === n.id ? 0 : Math.PI);
-        const dx = Math.sin(away), dz = Math.cos(away), half = (e.horiz ? n.hx : n.hz) + 6;
-        const x = n.x + dx * half, z = n.z + dz * half, y = roadY(x, z), face = away + Math.PI;
+        // The barrier stands across the street's mouth, half a junction and a bit out along its centreline.
+        let x: number, z: number, away: number;
+        const half = (e.horiz ? n.hx : n.hz) + 6, hn = Math.max(n.hx, n.hz) + 6;
+        if (e.pts && e.cum) {
+          const fromA = e.a === n.id, s0 = Math.min(hn, Math.max(2, e.len * 0.45)), at = fromA ? s0 : e.len - s0;
+          let k = 1;
+          while (k < e.cum.length - 1 && e.cum[k] < at) k++;
+          const seg = Math.hypot(e.pts[2 * k] - e.pts[2 * k - 2], e.pts[2 * k + 1] - e.pts[2 * k - 1]) || 1, t = (at - e.cum[k - 1]) / (e.cum[k] - e.cum[k - 1] || 1);
+          x = e.pts[2 * k - 2] + (e.pts[2 * k] - e.pts[2 * k - 2]) * t; z = e.pts[2 * k - 1] + (e.pts[2 * k + 1] - e.pts[2 * k - 1]) * t;
+          const tx = (e.pts[2 * k] - e.pts[2 * k - 2]) / seg, tz = (e.pts[2 * k + 1] - e.pts[2 * k - 1]) / seg;
+          away = Math.atan2(fromA ? tx : -tx, fromA ? tz : -tz);
+        } else {
+          away = e.horiz ? (e.a === n.id ? Math.PI / 2 : -Math.PI / 2) : (e.a === n.id ? 0 : Math.PI);
+          x = n.x + Math.sin(away) * half; z = n.z + Math.cos(away) * half;
+        }
+        const dx = Math.sin(away), dz = Math.cos(away), y = roadY(x, z), face = away + Math.PI;
         sawhorses(flat, x, y, z, face, e.hw * 2 - 0.4);
         this.barrierStages.push(e.stage);
-        this.barrierWalls.add(e.horiz
-          ? game.col.addBox(x - 0.3, z - e.hw, x + 0.3, z + e.hw, y + 1.15, y - 0.5)
-          : game.col.addBox(x - e.hw, z - 0.3, x + e.hw, z + 0.3, y + 1.15, y - 0.5));
+        // A wall of small boxes along the barrier (the colliders only come square to the axes).
+        const wx = Math.cos(face), wz = -Math.sin(face), cnt = Math.max(2, Math.round((e.hw * 2) / 1.5));
+        for (let q = 0; q < cnt; q++) {
+          const o = ((q + 0.5) / cnt - 0.5) * (e.hw * 2 - 0.4);
+          this.barrierWalls.add(game.col.addBoxC(x + wx * o, z + wz * o, 1.7, 1.7, y + 1.15, y - 0.5));
+        }
         // The notice stands behind the barrier, in the lane a driver would have used, facing the open street.
         const rx = -dz, rz = dx, nx = x + dx * 1.4 - rx * Math.min(3, e.hw * 0.5), nz = z + dz * 1.4 - rz * Math.min(3, e.hw * 0.5);
         for (const o of [-0.85, 0.85]) flat.box(nx + Math.cos(face) * o, y, nz - Math.sin(face) * o, 0.1, 2.5, 0.1, INK, face);

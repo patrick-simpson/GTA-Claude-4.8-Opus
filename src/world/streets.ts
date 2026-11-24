@@ -24,7 +24,7 @@
 import { RNG, clamp } from '../core/util';
 import { MAIN_SPLIT_Z, coastSD, riverX, waterDist, type MainDistrict } from './mainland';
 import { PD } from './pardonsSite';
-import { PLAN_JUNCTIONS, PLAN_ROADS, PLAN_ROUNDABOUTS, type RoadKind } from './streetData';
+import { PLAN_JUNCTIONS, PLAN_ROADS, PLAN_ROUNDABOUTS, PLAN_SIGNALS, type RoadKind } from './streetData';
 import type { ParkSpot, RoadEdge, RoadNode } from './plan';
 
 /**
@@ -303,6 +303,20 @@ export class StreetGraph {
       else if (j && (deg >= 3 || names.size > 1)) n.control = j.control === 'signal' ? 'signal' : 'stop';
       else n.control = deg >= 3 ? 'stop' : 'none';
       n.hasLight = n.control === 'signal';
+    }
+    // F. Real signals (the audit: Main/Tarnish/Bobbin and the like sat stop-controlled): an OSM-signalled junction that joins an
+    //    arterial and has no ramp or highway becomes a signal, unless another signal is already within 30 m.
+    const sig = this.nodes.filter((n, id) => id >= n0 && n.control === 'signal');
+    for (let id = n0; id < this.nodes.length; id++) {
+      const n = this.nodes[id];
+      if (n.control !== 'stop' || n.edges.length < 3) continue;
+      const es = n.edges.map((eid) => this.edges[eid]);
+      if (es.some((e) => e.kind === 'ramp' || e.kind === 'highway') || !es.some((e) => e.kind === 'arterial')) continue;
+      let near = false;
+      for (let k = 0; k < PLAN_SIGNALS.length; k += 2) if (Math.hypot(PLAN_SIGNALS[k] - n.x, PLAN_SIGNALS[k + 1] - n.z) < 22) { near = true; break; }
+      if (es.filter((e) => e.kind === 'arterial').length >= 3) near = true;
+      if (!near || sig.some((o) => Math.hypot(o.x - n.x, o.z - n.z) < 30)) continue;
+      n.control = 'signal'; n.hasLight = true; sig.push(n);
     }
   }
 

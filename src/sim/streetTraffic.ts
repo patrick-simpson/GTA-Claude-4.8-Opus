@@ -389,6 +389,11 @@ export class StreetDrivers {
     if (q) { const i = q.indexOf(d); if (i >= 0) q.splice(i, 1); }
   }
 
+  /** What drivers arriving along `e` at node `nodeId` see, `ahead` seconds from now (for people crossing that road's mouth). */
+  lightFor(e: RoadEdge, nodeId: number, ahead = 0): 'green' | 'yellow' | 'red' {
+    return signalState(this.G.nodes[nodeId], this.phaseB[this.ai(e, nodeId)] === 1, this.host.game.signalTime + ahead);
+  }
+
   private sig(n: RoadNode, e: RoadEdge): 'green' | 'yellow' | 'red' {
     return signalState(n, this.phaseB[this.ai(e, n.id)] === 1, this.host.game.signalTime);
   }
@@ -658,6 +663,8 @@ export class StreetDrivers {
     const ax = cx - v.x, az = cz - v.z, al = Math.hypot(ax, az) || 1;
     const fx = r.path ? ax / al : sh, fz = r.path ? az / al : ch;
     for (const o of d.near) {
+      // A car on the overpass is no obstacle to one on the road under it (and the other way round).
+      if (Math.abs(o.y - v.y) > 3) continue;
       const ox = o.x - v.x, oz = o.z - v.z;
       const lf = ox * fx + oz * fz;
       if (lf <= 0 || lf > reach) continue;

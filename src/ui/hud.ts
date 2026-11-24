@@ -18,6 +18,7 @@ import { COAST, DAM_Z, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MZS, RAIL, RIVER_HW
 import { progress } from '../world/progress';
 import { STREETS_NEW } from '../world/streets';
 import { ARROW, distText, type Guidance } from '../game/nav';
+import { trains } from '../world/train';
 
 import { PEER_COLOR } from '../net/names';
 /** Pardon's entrance (world) and the store's red: the radar badge, and the map's in menu.ts. */
@@ -225,6 +226,8 @@ export function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   // The railway, and the footbridge to Lesser Tepid.
   c.setLineDash([12, 5]);
   road(RAIL.x0, RAIL.z, RAIL.x1, RAIL.z, 3.4, INK, 'butt');
+  // The spur to the north-east: off the main line at x 470 in a quarter circle of 60 m, then straight north to z -2430.
+  if (STREETS_NEW) { c.lineCap = 'butt'; c.strokeStyle = INK; c.lineWidth = 3.4; c.beginPath(); c.moveTo(470, RAIL.z); c.arc(470, -2210, 60, Math.PI / 2, 0, true); c.lineTo(530, -2430); c.stroke(); }
   c.setLineDash([]);
   if (!S) road(FOOTBRIDGE.x0 - 70, FOOTBRIDGE_Z, FOOTBRIDGE.x1 + 270, FOOTBRIDGE_Z, 2.2, INK, 'butt');
   road(FOOTBRIDGE.x0, FOOTBRIDGE_Z, FOOTBRIDGE.x1, FOOTBRIDGE_Z, 5, INK, 'butt');
@@ -510,6 +513,14 @@ class Radar {
       for (let i = 2; i < rt.length; i += 2) c.lineTo((rt[i] - x) * k, (rt[i + 1] - z) * k);
       c.strokeStyle = INK; c.lineWidth = Math.max(4, H * 0.075); c.stroke();
       c.strokeStyle = MUSTARD; c.lineWidth = Math.max(2.5, H * 0.045); c.stroke();
+    }
+    // The train, when there is one: a small square where its cab is.
+    const tr = trains.cur;
+    if (STREETS_NEW && tr && (tr.cab.x !== 0 || tr.cab.z !== 0)) {
+      const k = rf / viewR, tx = (tr.cab.x - x) * k, tz = (tr.cab.z - z) * k, q = Math.max(3, H * 0.04);
+      c.fillStyle = BONE; c.strokeStyle = INK; c.lineWidth = Math.max(1.4, q * 0.45);
+      c.beginPath(); c.rect(tx - q, tz - q, q * 2, q * 2); c.fill(); c.stroke();
+      c.fillStyle = INK; c.beginPath(); c.arc(tx, tz, q * 0.4, 0, TAU); c.fill();
     }
     c.restore();
 
@@ -899,6 +910,7 @@ export class Hud implements HudApi {
   private airT = 0;
   private airX = 0;
   private airZ = 0;
+  private airNoteAt = -1e9;
   private sunkV: Vehicle | null = null;
   private hops = 0;
 
@@ -910,7 +922,6 @@ export class Hud implements HudApi {
   private toasts: Toast[] = [];
   private serial = 4070;
   private nameT = 0;
-  private airNoteAt = -1e9;
   private keysT = 0;
 
   private resized = true;

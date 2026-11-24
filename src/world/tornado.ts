@@ -26,6 +26,7 @@
 //
 // Test hook: `__storm.tornado.start()` (at the player) or `.start(x, z)`; `.stop()`.
 
+import { STREETS_NEW } from './streets';
 import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { Vehicle, WorldPart, Person } from '../core/api';
@@ -59,10 +60,10 @@ const PLACES: Place[] = [
   { name: 'Flounder Field', x: -480, z: -70 },
   { name: 'the suburbs', x: -150, z: -330 },
   { name: 'the container yard', x: 445, z: 290 },
-  { name: 'the rail yard in Tepid Falls', x: -100, z: -1950 },
+  { name: STREETS_NEW ? 'the railway in Tepid Falls' : 'the rail yard in Tepid Falls', x: -100, z: STREETS_NEW ? -2150 : -1950 },
   { name: 'Lesser Tepid', x: 525, z: -1350 },
-  { name: 'the Exits', x: -640, z: -1300 },
-  { name: 'Main Street, Tepid Falls', x: -30, z: -1500 },
+  { name: 'the Exits', x: STREETS_NEW ? -745 : -640, z: STREETS_NEW ? -1290 : -1300 },
+  { name: 'Main Street, Tepid Falls', x: STREETS_NEW ? 70 : -30, z: STREETS_NEW ? -1850 : -1500 },
 ];
 
 interface Event {

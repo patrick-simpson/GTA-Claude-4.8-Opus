@@ -57,7 +57,11 @@ const SHOPS: Record<District, boolean> = {
 };
 
 /** A bench to sit on or a bus stop to wait at. */
-interface Spot { prop: Prop; side: number; bench: boolean; n: number }
+interface Spot {
+  prop: Prop; side: number; bench: boolean; n: number;
+  /** New streets: the spot is on an edge's sidewalk. ix, iz point away from the road, tx, tz run along it, sd is the side (+1 left of a -> b). */
+  ix?: number; iz?: number; tx?: number; tz?: number; sd?: number;
+}
 
 /** A moving vehicle, with the trigonometry done once for everybody. */
 export interface Mover {
@@ -94,6 +98,8 @@ export interface Walker extends RoadPed {
   /** The far side of a crossing: block, side and distance along it. */
   nb: Block | null; nside: number; nt: number;
   node: RoadNode | null; crossH: boolean; cs: number;
+  /** New streets: the signalled junction being crossed at and the roads whose mouths the way crosses (must all be at red). */
+  cnode: RoadNode | null; ced: RoadEdge[];
   /** Crosses when the road is empty, whatever the light says. */
   jay: boolean;
   spot: Spot | null;
@@ -134,6 +140,8 @@ export class Peds {
   private readonly blocks: Block[];
   private readonly usable: boolean[] = [];
   private readonly spots: Spot[][] = [];
+  /** New streets: benches and bus-stop posts by the edge whose sidewalk they stand on. */
+  private readonly espots = new Map<number, Spot[]>();
   private nearBlocks: Block[] = [];
   /** New streets: the edges with a sidewalk near the player (the mainland's people walk these, not the old blocks). */
   private nearEdges: RoadEdge[] = [];
@@ -186,6 +194,22 @@ export class Peds {
     game.col.forProps(0, 0, 1300, file);
     // Tepid Falls' benches, north of where the first sweep stops.
     game.col.forProps(-60, -1920, 618, file);
+    // The new streets: the same furniture, filed under the edge (and side) it stands beside.
+    const sgr = this.sg;
+    if (sgr) {
+      game.col.forProps(60, -2000, 1100, (pr) => {
+        if ((pr.kind !== 'bench' || pr.r > 0.6) && pr.kind !== 'post') return;
+        const ne = sgr.nearestEdge(pr.x, pr.z, (e) => e.id >= sgr.isle.edges && this.kindWalks(e)).edge;
+        if (!ne) return;
+        const s = sgr.project(ne, pr.x, pr.z).s, c = sgr.pointAt(ne, s), ox = -c.dz, oz = c.dx;
+        const lat = (pr.x - c.x) * ox + (pr.z - c.z) * oz, a = Math.abs(lat);
+        if (a < ne.hw - 0.2 || a > ne.hw + 3.2 || s < 6 || s > ne.len - 6) return;
+        const sd = lat >= 0 ? 1 : -1;
+        let l = this.espots.get(ne.id);
+        if (!l) { l = []; this.espots.set(ne.id, l); }
+        l.push({ prop: pr, side: 0, bench: pr.kind === 'bench', n: 0, ix: ox * sd, iz: oz * sd, tx: c.dx, tz: c.dz, sd });
+      });
+    }
 
     const den = clamp(game.quality.density, 0.4, 1);
     const nW = Math.round(WALKERS * den), nS = Math.round(STROLLERS * den);
@@ -194,7 +218,7 @@ export class Peds {
         p: game.people.spawn(0, 0, 0), active: false, pier: i >= nW, block: this.blocks[0], side: 0, t: 0, dir: rng.sign(), inset: 2,
         // A few amble, a few stride.
         pace: rng.chance(0.2) ? rng.range(0.9, 1.15) : rng.chance(0.25) ? rng.range(1.6, 1.95) : rng.range(1.2, 1.6),
-        mode: WALK, timer: 0, tx: 0, tz: 0, nb: null, nside: 0, nt: 0, node: null, crossH: false, cs: 1.5,
+        mode: WALK, timer: 0, tx: 0, tz: 0, nb: null, nside: 0, nt: 0, node: null, crossH: false, cs: 1.5, cnode: null, ced: [],
         jay: rng.chance(0.14), spot: null, face: 0, flee: 0, hurry: 0, hard: false,
         ax: 0, az: 0, asideX: 0, asideZ: 0, asideT: 0, stuck: 0, sideT: 0, sideS: 1,
         cool: rng.range(4, 40), scan: rng.next() * 0.5, cars: [], inRoad: false, hitCool: 0,
@@ -446,9 +470,9 @@ export class Peds {
           if (s.bench) {
             w.mode = SIT; this.stats.sits++; p.bench = true;
             // The sit pose is the driving one, hips at foot level and a little ahead of the feet: lift it onto the slats and back against the rail.
-            p.x = s.prop.x - IN_X[s.side] * 0.22; p.z = s.prop.z - IN_Z[s.side] * 0.22; p.y = groundAt(p.x, p.z) + 0.42;
-            w.face = INWARD[s.side]; w.cool = rng.range(10, day ? 30 : 16);
-          } else { w.mode = IDLE; w.face = INWARD[s.side] + Math.PI; w.cool = rng.range(9, 24); }
+            p.x = s.prop.x - (s.ix ?? IN_X[s.side]) * 0.22; p.z = s.prop.z - (s.iz ?? IN_Z[s.side]) * 0.22; p.y = groundAt(p.x, p.z) + 0.42;
+            w.face = s.ix !== undefined ? Math.atan2(s.ix, s.iz!) : INWARD[s.side]; w.cool = rng.range(10, day ? 30 : 16);
+          } else { w.mode = IDLE; w.face = (s.ix !== undefined ? Math.atan2(s.ix, s.iz!) : INWARD[s.side]) + Math.PI; w.cool = rng.range(9, 24); }
           break;
         }
         default: {
@@ -762,6 +786,9 @@ export class Peds {
 
   // ── Sidewalks of the new streets ───────────────────────────────────────────
 
+  /** The kinds of road with a sidewalk (whatever stage the street is open at). */
+  private kindWalks(e: RoadEdge): boolean { return !e.deck && e.kind !== 'highway' && e.kind !== 'ramp' && e.kind !== 'bridge'; }
+
   /** An edge people can walk beside: a street, not a highway, a ramp or the bridge deck, and not behind barriers. */
   private walkable(e: RoadEdge): boolean {
     return !e.deck && !e.closed && e.kind !== 'highway' && e.kind !== 'ramp' && e.kind !== 'bridge' && e.len > 22;
@@ -863,6 +890,7 @@ export class Peds {
     // Does the straight way over cut across any road leaving the junction?
     const pad = Math.max(node.hx, node.hz, node.ring ?? 0) + 3;
     let cross = false;
+    const crossed: RoadEdge[] = [];
     for (const id of node.edges) {
       const f = sg.edges[id];
       if (f.deck) continue;
@@ -871,12 +899,13 @@ export class Peds {
       const den = (bx - ax) * (dz - cz) - (bz - az) * (dx - cx);
       if (Math.abs(den) < 1e-9) continue;
       const t = ((cx - ax) * (dz - cz) - (cz - az) * (dx - cx)) / den, u = ((cx - ax) * (bz - az) - (cz - az) * (bx - ax)) / den;
-      if (t > 0.02 && t < 0.98 && u > 0 && u < 1) { cross = true; break; }
+      if (t > 0.02 && t < 0.98 && u > 0 && u < 1) { cross = true; crossed.push(f); }
     }
     const dir2 = fromA ? 1 : -1;
     if (!cross) { w.e = c; w.es = s2; w.dir = dir2; w.sd = best; return; }
     w.pe = c; w.ps = s2; w.pdir = dir2; w.psd = best; w.px = tx; w.pz = tz;
     w.tx = p.x; w.tz = p.z; w.node = null; w.nb = null;
+    w.cnode = node.hasLight ? node : null; w.ced = crossed;
     w.mode = KERB; w.timer = 0;
   }
 
@@ -914,6 +943,16 @@ export class Peds {
     return false;
   }
 
+  private railsCache: { lightFor(e: RoadEdge, nodeId: number, ahead?: number): 'green' | 'yellow' | 'red' } | null | undefined;
+  /** The new streets' drivers (they own the signal phases), found once. */
+  private railsOf(): { lightFor(e: RoadEdge, nodeId: number, ahead?: number): 'green' | 'yellow' | 'red' } | null {
+    if (this.railsCache === undefined) {
+      const sys = this.game.systems.find((q) => (q as unknown as { traffic?: unknown }).traffic) as unknown as { traffic: { rails: { lightFor(e: RoadEdge, nodeId: number, ahead?: number): 'green' | 'yellow' | 'red' } | null } } | undefined;
+      this.railsCache = sys ? sys.traffic.rails : undefined;
+    }
+    return this.railsCache ?? null;
+  }
+
   /** Waiting at the kerb: is this the moment? Sets the pace needed to make it over in time. */
   private mayCross(w: Walker): boolean {
     const g = this.game, p = w.p, node = w.node;
@@ -921,6 +960,21 @@ export class Peds {
     const fx = this.qx, fz = this.qz, mx = (p.x + fx) / 2, mz = (p.z + fz) / 2;
     const dist = Math.hypot(fx - p.x, fz - p.z);
     w.cs = Math.max(w.pace, 1.4);
+    // The new streets: walk while every road whose mouth the way crosses is held at red, and the red will last the trip.
+    if (w.pe && w.cnode && w.ced.length) {
+      const rails = this.railsOf(), cn = w.cnode;
+      if (rails) {
+        const red = (ahead: number): boolean => w.ced.every((f) => rails.lightFor(f, cn.id, ahead) === 'red');
+        if (red(0) && !this.moving(mx, mz, 9, 3.5)) {
+          for (const v of [w.cs, 2.5]) {
+            const need = dist / v + 0.5;
+            if (red(need) && red(need * 0.5)) { w.cs = v; return true; }
+          }
+        }
+        if (w.jay && w.timer > 1.5 && !this.moving(mx, mz, 30, 1.5)) { w.cs = 2.1; this.stats.jaywalks++; return true; }
+        return false;
+      }
+    }
     if (node && node.hasLight) {
       // Walk while the traffic being crossed is held at red, and only if the red will last the trip.
       if (g.world.signal(node.id, w.crossH) === 'red' && !this.moving(mx, mz, 9, 3.5)) {
@@ -977,7 +1031,7 @@ export class Peds {
       if (rng.chance(0.04)) { w.mode = IDLE; w.timer = 0; w.face = w.inset > 0 ? Math.PI / 2 : -Math.PI / 2; w.cool = rng.range(5, 14); }
       return;
     }
-    if (w.e) return;
+    if (w.e) { this.edgeErrand(w); return; }
     const b = w.block;
     for (const s of this.spots[b.id]) {
       if (s.side !== w.side || !s.prop.alive || s.n >= (s.bench ? 1 : 3)) continue;
@@ -996,6 +1050,27 @@ export class Peds {
   }
 
   // ── Cars ───────────────────────────────────────────────────────────────────
+
+  /** New streets: a bench or bus stop beside the way, or a shop window on Main St, for a walker on an edge's sidewalk. */
+  private edgeErrand(w: Walker): void {
+    const rng = this.rng, p = w.p, e = w.e!;
+    for (const s of this.espots.get(e.id) ?? []) {
+      if (s.sd !== w.sd || !s.prop.alive || s.n >= (s.bench ? 1 : 3)) continue;
+      const dx = s.prop.x - p.x, dz = s.prop.z - p.z;
+      if (dx * dx + dz * dz > 30 || (dx * Math.sin(p.h) + dz * Math.cos(p.h)) < 0 || !rng.chance(s.bench ? 0.3 : 0.18)) continue;
+      w.spot = s; s.n++;
+      w.mode = GOTO; w.timer = 0;
+      const off = s.bench ? 0.62 : 1.15, al = s.bench ? 0 : rng.range(-1.6, 1.6);
+      w.tx = s.prop.x + s.ix! * off + s.tx! * al; w.tz = s.prop.z + s.iz! * off + s.tz! * al;
+      return;
+    }
+    // A shop window: where the street is lined with shops (Main St and the square), standing square to the glass.
+    const d = this.sg!.districtAt(p.x, p.z);
+    if ((d === 'main' || d === 'square') && e.kind !== 'highway' && rng.chance(0.014)) {
+      const c = this.sg!.pointAt(e, clamp(w.es, 0, e.len));
+      w.mode = IDLE; w.timer = 0; w.face = Math.atan2(-c.dz * w.sd, c.dx * w.sd); w.cool = rng.range(4, 9);
+    }
+  }
 
   /** Everything a walker does about moving vehicles: get knocked down, run, step aside, hurry up. */
   private traffic(w: Walker): void {

@@ -161,7 +161,18 @@ export class Activities {
         }
       }
       if (!ok || cps.length < 3) return;
-      if (r.ml && plan.streets) { cps.length = 0; cps.push(...NEW_LOOP.map((p) => ({ ...p }))); }
+      if (r.ml && plan.streets) {
+        // The new streets: the loop's checkpoints, and the pieces of the new graph between them (so it opens with its own streets).
+        const sg = plan.streets;
+        cps.length = 0; cps.push(...NEW_LOOP.map((p) => ({ ...p }))); edges.length = 0;
+        for (let k = 0; k + 1 < NEW_LOOP.length; k++) {
+          const na = sg.nearestNode(NEW_LOOP[k].x, NEW_LOOP[k].z), nb = sg.nearestNode(NEW_LOOP[k + 1].x, NEW_LOOP[k + 1].z), path = sg.findPath(na.id, nb.id, 9);
+          for (let i = 0; i + 1 < path.length; i++) {
+            const id = sg.nodes[path[i]].edges.find((q) => { const ed = sg.edges[q]; return (ed.a === path[i] && ed.b === path[i + 1]) || (ed.a === path[i + 1] && ed.b === path[i]); });
+            if (id !== undefined && !edges.includes(id)) edges.push(id);
+          }
+        }
+      }
       const loop = Math.hypot(cps[0].x - cps[cps.length - 1].x, cps[0].z - cps[cps.length - 1].z) < 1;
       this.races.push({ name: r.name, par: r.ml && plan.streets ? 92 : r.par, start: cps[0], cps: cps.slice(1), laps: loop ? r.laps ?? 1 : 1, loop, edges, idx });
     });
@@ -225,7 +236,7 @@ export class Activities {
 
   /** A street corner on the player's side of the water, between `lo` and `hi` meters off by road. Null if the town has none. */
   private corner(from: Pt, lo: number, hi: number): { at: Pt; len: number } | null {
-    const plan = this.game.plan, a = plan.nearestNode(from.x, from.z);
+    const plan = this.game.plan.streets ?? this.game.plan, a = plan.nearestNode(from.x, from.z);
     const pool: RoadNode[] = [];
     for (const n of plan.nodes) {
       const d = Math.hypot(n.x - from.x, n.z - from.z);

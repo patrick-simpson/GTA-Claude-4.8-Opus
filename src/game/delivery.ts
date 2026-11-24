@@ -339,8 +339,10 @@ export class Delivery {
   /** n delivery points at the curb of open streets, 120 m or more from the depot and 60 m from each other. */
   private pickDrops(d: Depot, n: number): Pt[] {
     const plan = this.game.plan, lands = this.mainlandOpen() ? [0, 1] : [d.land];
+    // The new mainland streets (plan.streets) replace the old grid's mainland edges; the island's come first in both lists.
+    const sg = plan.streets, edges = (sg ?? plan).edges;
     const pool: RoadEdge[] = [];
-    for (const e of plan.edges) {
+    for (const e of edges) {
       if (e.closed || e.deck || e.len < 50 || !lands.includes(e.land)) continue;
       if (e.kind && /bridge|highway|freeway|ramp|interstate|thruway/i.test(String(e.kind))) continue;
       pool.push(e);
@@ -354,7 +356,7 @@ export class Delivery {
       const across = e.land !== d.land;
       if (across && other >= wantOther) continue;
       if (!across && out.length - other >= n - wantOther && other < wantOther) continue;
-      const s = 22 + Math.random() * (e.len - 44), q = edgeAt(plan.nodes, e, s), side = Math.random() < 0.5 ? -1 : 1, o = laneOff(e.hw);
+      const s = 22 + Math.random() * (e.len - 44), q = sg && e.id >= sg.isle.edges ? (() => { const c = sg.pointAt(e, s); return { x: c.x, z: c.z, tx: c.dx, tz: c.dz }; })() : edgeAt(plan.nodes, e, s), side = Math.random() < 0.5 ? -1 : 1, o = laneOff(e.hw);
       const x = q.x - q.tz * side * o, z = q.z + q.tx * side * o;
       const dd = Math.hypot(x - d.at.x, z - d.at.z);
       if (dd < 120 || (!across && dd > 900)) continue;

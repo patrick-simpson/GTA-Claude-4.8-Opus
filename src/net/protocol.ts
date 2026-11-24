@@ -21,7 +21,10 @@
 // says so (mode Passenger, `vehicle` = the driver's id, `color` = the seat) and two small Event frames (Ride, Seats) carry
 // the getting in and out. An older page would draw a passenger standing in the road and, as a driver, never let them out,
 // so the number went up: the Worker must be redeployed with this file (the home computer updates itself).
-export const PROTOCOL_VERSION = 5;
+// Version 6 (Nov 24, the Tepid Falls street rebuild: world/streets.ts): the mainland's streets and kerb places changed, so every number
+// that points at one (the Parked frame's place index, a job's or a tow's kerb place, the ?stage= road openings) means something else.
+// A v5 page would park cars on streets that no longer exist for the others, so the number went up: redeploy the Worker AND the home host.
+export const PROTOCOL_VERSION = 6;
 
 // ---- limits and rates (the service enforces the limits; the client should respect the rates) ----
 

@@ -107,7 +107,7 @@ export class Racing {
 
   private get me(): number { return this.link ? this.link.me() : 0; }
   private nameOf(id: number): string { return this.link ? this.link.nameOf(id) : 'You'; }
-  private routeOk(r: RaceDef): boolean { return r.edges.every((e) => !this.game.plan.edges[e]?.closed); }
+  private routeOk(r: RaceDef): boolean { return r.edges.every((e) => !(this.game.plan.streets ?? this.game.plan).edges[e]?.closed); }
   private send(m: Partial<RaceWire> & { kind: number }): void {
     if (!this.link) return;
     this.link.send({ caller: this.caller, route: this.route ? this.route.idx : 0, laps: this.laps, secs: 0, ms: 0, lap: 0, count: 0, how: 0, ids: [], ...m });
