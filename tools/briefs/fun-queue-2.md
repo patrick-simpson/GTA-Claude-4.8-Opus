@@ -17,7 +17,7 @@ Status: [ ] todo, [x] done (commit), [~] skipped/changed (why)
 
 FINISH WHAT'S HALF-DONE
 [x] 1. Johnson Pond's water visible from Cherry Tree St (lower the bank or add a lookout).
-[ ] 2. Smooth the last two exit 130 ramp ends that still give cars a hop (ramps 359/361).
+[x] 2. Smooth the last two exit 130 ramp ends that still give cars a hop (ramps 359/361).
 [ ] 3. Ease Chapel Hill's grade, or add a switchback.
 [ ] 4. Re-shoot the trailer's tornado shot so the funnel reads clearly.
 [ ] 5. Unique hero models for churches, schools and civic halls (steeples, clock towers).

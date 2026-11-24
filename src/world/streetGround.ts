@@ -115,11 +115,13 @@ export class StreetSurface {
     this.padGx = new Float32Array(g.nodes.length);
     this.padGz = new Float32Array(g.nodes.length);
     for (const n of this.nodes) if (n.edges.length > 0) this.fitPad(n);
+    this.fitShared();
     // The ramps' rims take the pads' heights, and the pads are fitted again to the roads that result.
     this.rampLift.clear();
     this.solveRamps(true);
     this.padLift.set(this.lift); this.padGx.fill(0); this.padGz.fill(0);
     for (const n of this.nodes) if (n.edges.length > 0) this.fitPad(n);
+    this.fitShared();
     this.index();
     this.buildJunctions();
     this.clipStrips();
@@ -349,12 +351,19 @@ export class StreetSurface {
       const atB = e.b === n.id && e.a !== n.id, s = clamp(atB ? e.len - this.trim(e, true) : this.trim(e, false), 0, e.len), q = g.pointAt(e, s);
       // The rim is a line across the road's width, all at one height: three points hold the pad level across it.
       const v = this.liftAt(e, s);
-      for (const k of [-0.8, 0, 0.8]) pts.push([q.x - q.dz * k * e.hw - n.x, q.z + q.dx * k * e.hw - n.z, v]);
+      // The Thruway's own deck is the surface at its junctions (its ramps meet it and follow it): its rim counts three times over.
+      for (let w = 0; w < (e.kind === 'highway' ? 3 : 1); w++) for (const k of [-0.8, 0, 0.8]) pts.push([q.x - q.dz * k * e.hw - n.x, q.z + q.dx * k * e.hw - n.z, v]);
     }
     if (pts.length === 0) return;
     let lo = Infinity, hi = -Infinity;
     for (const p of pts) { lo = Math.min(lo, p[2]); hi = Math.max(hi, p[2]); }
     if (hi - lo < 0.02 && Math.abs(hi - this.lift[n.id]) < 0.02) return;
+    const x = this.plane(pts);
+    if (x) { this.padLift[n.id] = x[0]; this.padGx[n.id] = x[1]; this.padGz[n.id] = x[2]; }
+  }
+
+  /** Least-squares plane (L0, gx, gz) through points [dx, dz, height] (a little ridge on the tilt), or null if degenerate. */
+  private plane(pts: [number, number, number][]): [number, number, number] | null {
     // Normal equations for (L0, gx, gz), then Gaussian elimination.
     const mu = 2, A = [[0, 0, 0], [0, mu, 0], [0, 0, mu]], b = [0, 0, 0];
     for (const [dx, dz, v] of pts) {
@@ -365,12 +374,42 @@ export class StreetSurface {
       let m = i;
       for (let k = i + 1; k < 3; k++) if (Math.abs(A[k][i]) > Math.abs(A[m][i])) m = k;
       [A[i], A[m]] = [A[m], A[i]]; [b[i], b[m]] = [b[m], b[i]];
-      if (Math.abs(A[i][i]) < 1e-9) return;
+      if (Math.abs(A[i][i]) < 1e-9) return null;
       for (let k = i + 1; k < 3; k++) { const f = A[k][i] / A[i][i]; for (let j = i; j < 3; j++) A[k][j] -= f * A[i][j]; b[k] -= f * b[i]; }
     }
     const x = [0, 0, 0];
     for (let i = 2; i >= 0; i--) { let v = b[i]; for (let j = i + 1; j < 3; j++) v -= A[i][j] * x[j]; x[i] = v / A[i][i]; }
-    this.padLift[n.id] = x[0]; this.padGx[n.id] = x[1]; this.padGz[n.id] = x[2];
+    return [x[0], x[1], x[2]];
+  }
+
+  /**
+   * Pads on the Thruway that overlap (exit 130's two ramp junctions are 7.6 m apart, their rims 12.6 m out) would otherwise be
+   * two planes at different heights and tilts over the same asphalt: a car on the overlap steps between them, and a ramp's rim
+   * sits a few tenths off the deck. Each such cluster shares one plane, fitted to every rim of every road in it.
+   */
+  private fitShared(): void {
+    const g = this.g, hn = this.nodes.filter((n) => n.edges.some((id) => g.edges[id].kind === 'highway' && this.edges.includes(g.edges[id])));
+    const seen = new Set<number>();
+    for (const n0 of hn) {
+      if (seen.has(n0.id)) continue;
+      const cl = [n0]; seen.add(n0.id);
+      for (let i = 0; i < cl.length; i++) for (const m of hn) if (!seen.has(m.id) && Math.hypot(m.x - cl[i].x, m.z - cl[i].z) < this.padR(m) + this.padR(cl[i])) { seen.add(m.id); cl.push(m); }
+      if (cl.length < 2) continue;
+      const cx = cl.reduce((a, n) => a + n.x, 0) / cl.length, cz = cl.reduce((a, n) => a + n.z, 0) / cl.length, pts: [number, number, number][] = [], done = new Set<string>();
+      for (const n of cl) for (const id of n.edges) {
+        const e = g.edges[id];
+        // (A road lying wholly inside the cluster has no rim of its own: the shared pad is its surface.)
+        if (!this.edges.includes(e) || (cl.includes(g.nodes[e.a]) && cl.includes(g.nodes[e.b]))) continue;
+        const atB = e.b === n.id && e.a !== n.id, s = clamp(atB ? e.len - this.trim(e, true) : this.trim(e, false), 0, e.len), q = g.pointAt(e, s), key = id + (atB ? 'b' : 'a');
+        if (done.has(key)) continue;
+        done.add(key);
+        const v = this.liftAt(e, s);
+        for (let w = 0; w < (e.kind === 'highway' ? 3 : 1); w++) for (const k of [-0.8, 0, 0.8]) pts.push([q.x - q.dz * k * e.hw - cx, q.z + q.dx * k * e.hw - cz, v]);
+      }
+      const x = this.plane(pts);
+      if (!x) continue;
+      for (const n of cl) { this.padLift[n.id] = x[0] + x[1] * (n.x - cx) + x[2] * (n.z - cz); this.padGx[n.id] = x[1]; this.padGz[n.id] = x[2]; }
+    }
   }
 
   /** Height of a node's pad above the plateau at (x, z). */
@@ -438,7 +477,7 @@ export class StreetSurface {
           if (pr.d >= o.hw + e.hw - 0.3 || pr.s <= 0.5 || pr.s >= o.len - 0.5) continue;
           const d1 = g.pointAt(o, pr.s);
           // Only roads running the same way share a surface; a crossing is an overpass.
-          if (Math.abs(q.dx * d1.dx + q.dz * d1.dz) < 0.85) continue;
+          if (Math.abs(q.dx * d1.dx + q.dz * d1.dz) < 0.85 && !this.leaves(e, o, i)) continue;
           h = Math.max(h, this.liftBase(o, pr.s));
         }
         if (h >= 0) { V[i] = h; pin[i] = 1; if (h > 0.05) any = true; }
@@ -532,14 +571,23 @@ export class StreetSurface {
     const q = this.g.pointAt(e, clamp(s, 0, e.len));
     for (const o of hw) {
       const pr = this.g.project(o, x, z);
-      if (pr.d >= o.hw || pr.s <= 0.5 || pr.s >= o.len - 0.5) continue;
+      // (The highway's own surface reaches 0.6 m past its half-width: the ramp holds its height there, then eases off over 1.5 m.)
+      if (pr.d >= o.hw + 2.1 || pr.s <= 0.5 || pr.s >= o.len - 0.5) continue;
       const d1 = this.g.pointAt(o, pr.s);
-      if (Math.abs(q.dx * d1.dx + q.dz * d1.dz) < 0.85) continue;
+      if (Math.abs(q.dx * d1.dx + q.dz * d1.dz) < 0.85 && !this.leaves(e, o, s)) continue;
       const ho = this.liftBase(o, pr.s);
       if (Math.abs(ho - h) > 0.8) continue;
-      return h + (ho - h) * smooth(clamp((o.hw - pr.d) / 1.5, 0, 1));
+      return h + (ho - h) * smooth(clamp((o.hw + 2.1 - pr.d) / 1.5, 0, 1));
     }
     return h;
+  }
+
+  /**
+   * True within 30 m of the node where ramp e starts (or ends) on the end of highway o: there it turns away from the highway (at
+   * the Thruway's cut end it even doubles back) while still on its carriageway, so it is one surface with it whatever its heading.
+   */
+  private leaves(e: RoadEdge, o: RoadEdge, s: number): boolean {
+    return ((o.a === e.a || o.b === e.a) && s < 30) || ((o.a === e.b || o.b === e.b) && s > e.len - 30);
   }
 
   private liftBase(e: RoadEdge, s: number): number {
