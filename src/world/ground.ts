@@ -1361,7 +1361,9 @@ class Ground implements WorldPart {
 
   private streetLamps(): void {
     const plan = this.plan;
-    for (const [x, z, h] of this.newLamps) if (!keepOutLamp(x, z) && this.claim(x, z, 0.6)) this.lamp(x, z, h);
+    // Never in a carriageway or on a junction's pad (roadqa: a lamp of one street stood in a side street's lane).
+    const surf = streetSurface();
+    for (const [x, z, h] of this.newLamps) if (!keepOutLamp(x, z) && !(surf && surf.probe(x, z).kind === 'road') && this.claim(x, z, 0.6)) this.lamp(x, z, h);
     for (const e of plan.edges) {
       if (e.deck || (e.land && this.newPlan)) continue;
       const A = plan.nodes[e.a], B = plan.nodes[e.b];

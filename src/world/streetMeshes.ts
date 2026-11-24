@@ -176,7 +176,21 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
         const mm = samples(e, m0, m1, 5);
         if (hwy) rail(mm, -0.3, 0.3, 0.85, (_m, p) => p[1] - 0.1, true, e);
         else {
-          band(B.grass, mm, -mh, mh, CURB_H + 0.02, 0xffffff, -mh / TILE_M.grass, mh / TILE_M.grass, TILE_M.grass);
+          // Over the river the strip is concrete (a bridge has no soil for grass).
+          const over = (m: Smp): boolean => inRiver(m.x, m.z, 30) && mainlandTerrain(m.x, m.z) < S.flat(m.x, m.z) - 1.0;
+          let run: Smp[] = [], rb = false;
+          const flushM = (): void => {
+            if (run.length >= 2) {
+              if (rb) band(B.concrete, run, -mh, mh, CURB_H + 0.02, CONC, 0, 1, 1);
+              else band(B.grass, run, -mh, mh, CURB_H + 0.02, 0xffffff, -mh / TILE_M.grass, mh / TILE_M.grass, TILE_M.grass);
+            }
+          };
+          for (const m of mm) {
+            const o = over(m);
+            if (run.length && o !== rb) { const last = run[run.length - 1]; flushM(); run = [last]; }
+            rb = o; run.push(m);
+          }
+          flushM();
           for (const sg of [-1, 1]) wall(B.curb, mm, sg * mh, (_m, p) => p[1], (_m, p) => p[1] + CURB_H + 0.02, sg, STONE, 0.8);
         }
       }
@@ -207,7 +221,10 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
       }
       for (let s = w0 + 8, k = e.id; s < w1 - 8; s += 34, k++) {
         const m = sampleAt(e, s), sg = k % 2 ? 1 : -1, off = sg * (hw + 0.65);
-        B.lamps.push([m.x + m.rx * off, m.z + m.rz * off, Math.atan2(-m.rx * sg, -m.rz * sg)]);
+        const lx = m.x + m.rx * off, lz = m.z + m.rz * off;
+        // Not where another road runs or merges (a side street's lanes, a junction's pad).
+        if (S.covered(lx, lz, e) || S.covered(lx - m.rx * sg * 0.5, lz - m.rz * sg * 0.5, e)) continue;
+        B.lamps.push([lx, lz, Math.atan2(-m.rx * sg, -m.rz * sg)]);
       }
     }
   }
@@ -221,10 +238,10 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
   const wu = (p: V, t: number): [number, number] => [p[0] / t, p[2] / t];
   for (const n of S.nodes) {
     if (n.edges.length === 0) continue;
-    const r = S.padR(n), lift = S.padLift[n.id], N = 28;
+    const r = S.padR(n), N = 28;
     const ring = (rad: number, dy: number, k: number): V => {
       const a = (k / N) * Math.PI * 2, x = n.x + Math.cos(a) * rad, z = n.z + Math.sin(a) * rad;
-      return [x, S.flat(x, z) + lift + dy, z];
+      return [x, S.flat(x, z) + S.padH(n, x, z) + dy, z];
     };
     const T = TILE_M.asphalt;
     if (n.control === 'roundabout') {
@@ -251,7 +268,7 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
       triUV(B.asphalt, c0, a, b, 0xffffff, wu(c0, T), wu(a, T), wu(b, T));
     }
     if (n.edges.length >= 3 && n.id % 3 === 0) {
-      const mx = n.x + r * 0.3, mz = n.z - r * 0.2, y = S.flat(mx, mz) + lift + 0.04;
+      const mx = n.x + r * 0.3, mz = n.z - r * 0.2, y = S.flat(mx, mz) + S.padH(n, mx, mz) + 0.04;
       quad(B.marks, [mx - 0.5, y, mz - 0.5], [mx + 0.5, y, mz - 0.5], [mx + 0.5, y, mz + 0.5], [mx - 0.5, y, mz + 0.5], 0xffffff, R.manhole.u0, R.manhole.v0, R.manhole.u1, R.manhole.v1, UP);
     }
     if (n.edges.length < 2) continue;
@@ -265,7 +282,9 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
       let gap = C.ang - A.ang;
       if (gap <= 0) gap += Math.PI * 2;
       if (!S.walks(A.e) || !S.walks(C.e) || gap > (200 * Math.PI) / 180) continue;
-      const sa = A.m.rx * C.ox + A.m.rz * C.oz > 0 ? 1 : -1, sc = C.m.rx * A.ox + C.m.rz * A.oz > 0 ? 1 : -1;
+      // Each road's kerb on the side facing into the gap: by the gap's bisector (the other road's direction is no guide when the gap is a straight 180 degrees, a T's far side, and put a raised strip across a side road's mouth).
+      const bx = Math.cos(A.ang + gap / 2), bz = Math.sin(A.ang + gap / 2);
+      const sa = A.m.rx * bx + A.m.rz * bz > 0 ? 1 : -1, sc = C.m.rx * bx + C.m.rz * bz > 0 ? 1 : -1;
       const KA = P(A.m, sa * A.e.hw, CURB_H), OA = P(A.m, sa * (A.e.hw + WALK_W), CURB_H);
       const KC = P(C.m, sc * C.e.hw, CURB_H), OC = P(C.m, sc * (C.e.hw + WALK_W), CURB_H);
       if (Math.hypot(KA[0] - KC[0], KA[2] - KC[2]) > 40) continue;

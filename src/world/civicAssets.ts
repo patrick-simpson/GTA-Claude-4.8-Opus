@@ -30,9 +30,7 @@ export const CIVIC_ON = typeof location === 'undefined' || new URLSearchParams(l
 /** Where the fixed civic buildings stand (world meters; the model's front-left corner and its frontage). */
 // New streets (tepid-streets unit 4): the hall north of Quorum Square, now east of Main St at Bobbin St (real City Hall and
 // Castonguay Square at Main x Common St); the post office at the north end of downtown between Tuition Ave and Front St (the
-// real federal building), facing west; Our Lady on Tarnish St (real Silver St), facing the street, set square to it.
-const TARNISH = { x: -155.8, z: -1312, ux: 0.487, uz: -0.873 };
-const LADY_N = { x: -TARNISH.uz, z: TARNISH.ux };
+// real federal building), facing west; Our Lady beside Gumdrop St, facing it, set square to it.
 export const CIVIC = {
   /** Postponement Hall: front wall on z = -1518 facing south over the square, x 0..40, 24 m deep. */
   hall: STREETS_NEW ? { x0: 111, z: -1839.5, W: 40, D: 24 } : { x0: 0, z: -1518, W: 40, D: 24 },
@@ -40,11 +38,12 @@ export const CIVIC = {
   dlo: STREETS_NEW ? { x: 203, z0: -2247, W: 30, D: 22 } : { x: -49, z0: -1414, W: 30, D: 22 },
   /** Our Lady of Perpetual Hesitation: front on z = -1412 facing south onto Quorum St, x -110..-88, 34 m deep. */
   lady: { x0: -110, z: -1412, W: 22, D: 34 },
-  /** New streets: Our Lady's front-left corner, frontage direction t and front normal n (toward Tarnish St, 14 m off its centreline). */
-  ladyNew: {
-    x: TARNISH.x + LADY_N.x * 14 + LADY_N.z * 11, z: TARNISH.z + LADY_N.z * 14 - LADY_N.x * 11,
-    tx: -LADY_N.z, tz: LADY_N.x, nx: -LADY_N.x, nz: -LADY_N.z,
-  },
+  /**
+   * New streets: Our Lady's front-left corner, frontage direction t and front normal n. She stands on open ground north of the
+   * Tin Plate St / Gumdrop St junction facing Gumdrop St 14 m ahead (her old place, 14 m off Tarnish St, had those two streets
+   * running through her nave: roadqa found it by driving; the spot was searched for clear of every road, building and the river).
+   */
+  ladyNew: { x: -140.8, z: -1243, tx: 0.5, tz: -0.866, nx: 0.866, nz: 0.5 },
   /** The lots given over to Our Lady and the post office: Lower Main's builder leaves them alone. */
   block: (STREETS_NEW ? { x0: 1e6, z0: 1e6, x1: 1e6 + 1, z1: 1e6 + 1 } : { x0: -120, z0: -1449, x1: -43, z1: -1409 }) as Rect,
   /** The churches on The Stacks' lots: frontage and depth each needs, and its setback from the street. */

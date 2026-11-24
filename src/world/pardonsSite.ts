@@ -20,7 +20,7 @@ export const PD = {
   /** The grid cells the store takes over (no other builder puts lots on them). */
   CELLS: [[0, 7], [0, 8]] as [number, number][],
   /** The lot (world): inside the block's sidewalks, north of the store's front walk. */
-  LOT: { x0: -686.5, x1: -599.5, z0: -1281.5, z1: -1164 },
+  LOT: { x0: -686.5, x1: -599.5, z0: -1280.3, z1: -1164 },
 };
 
 export const pdWorld = (x: number, z: number): [number, number] => [PD.XE - x, PD.ZF - z];

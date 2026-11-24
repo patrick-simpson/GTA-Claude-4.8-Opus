@@ -41,6 +41,9 @@ export class StreetSurface {
   readonly lift: Float32Array;
   /** Height of each junction pad above the plateau: the node's lift; a roundabout on a grade (the Thruway's last stretch at exit 130) is raised to the highest road meeting it at the rim (else a cliff). */
   readonly padLift: Float32Array;
+  /** Tilt of each junction pad (m of rise per m east / south of the node): a pad on a grade is a plane through where its roads meet the rim, not a step. */
+  readonly padGx: Float32Array;
+  readonly padGz: Float32Array;
   readonly passes: Passage[] = [];
   private readonly bumps = new Map<number, Bump[]>();
   /** Per-ramp lift samples, 1 m apart (solveRamps). */
@@ -48,6 +51,9 @@ export class StreetSurface {
   private readonly fixed: Uint8Array;
   private readonly maxLift = new Map<number, number>();
   private readonly sMax = new Map<number, number>();
+  /** Trim at each end of each surface edge (by index into `edges`): the pad owns the ground inside it. */
+  private trimA = new Float32Array(0);
+  private trimB = new Float32Array(0);
   private readonly segCells = new Map<number, number[]>();
   private readonly padCells = new Map<number, number[]>();
   private readonly w = new Float32Array(GNX * GNZ);
@@ -75,17 +81,52 @@ export class StreetSurface {
       this.maxLift.set(e.id, Math.max(m, this.liftAt(e, e.len)));
     }
     this.padLift = Float32Array.from(this.lift);
-    for (const n of this.nodes) {
-      if (n.edges.length === 0 || this.fixed[n.id] || n.control !== 'roundabout') continue;
-      for (const id of n.edges) {
-        const e = g.edges[id];
-        if (!this.edges.includes(e)) continue;
-        const atB = e.b === n.id && e.a !== n.id, s = atB ? e.len - this.trim(e, true) : this.trim(e, false);
-        this.padLift[n.id] = Math.max(this.padLift[n.id], this.liftAt(e, clamp(s, 0, e.len)));
-      }
-    }
+    this.padGx = new Float32Array(g.nodes.length);
+    this.padGz = new Float32Array(g.nodes.length);
+    for (const n of this.nodes) if (n.edges.length > 0) this.fitPad(n);
     this.index();
     this.grade();
+  }
+
+/**
+   * A pad sits on a plane fitted (least squares, a little ridge on the tilt) to the heights its roads have where they meet
+   * the rim, so a junction on a grade (the Thruway's exit roundabouts and the exits' signals) has no step at any mouth.
+   */
+  private fitPad(n: RoadNode): void {
+    const g = this.g, pts: [number, number, number][] = [];
+    for (const id of n.edges) {
+      const e = g.edges[id];
+      if (!this.edges.includes(e)) continue;
+      const atB = e.b === n.id && e.a !== n.id, s = clamp(atB ? e.len - this.trim(e, true) : this.trim(e, false), 0, e.len), q = g.pointAt(e, s);
+      // The rim is a line across the road's width, all at one height: three points hold the pad level across it.
+      const v = this.liftAt(e, s);
+      for (const k of [-0.8, 0, 0.8]) pts.push([q.x - q.dz * k * e.hw - n.x, q.z + q.dx * k * e.hw - n.z, v]);
+    }
+    if (pts.length === 0) return;
+    let lo = Infinity, hi = -Infinity;
+    for (const p of pts) { lo = Math.min(lo, p[2]); hi = Math.max(hi, p[2]); }
+    if (hi - lo < 0.02 && Math.abs(hi - this.lift[n.id]) < 0.02) return;
+    // Normal equations for (L0, gx, gz), then Gaussian elimination.
+    const mu = 2, A = [[0, 0, 0], [0, mu, 0], [0, 0, mu]], b = [0, 0, 0];
+    for (const [dx, dz, v] of pts) {
+      const r = [1, dx, dz];
+      for (let i = 0; i < 3; i++) { b[i] += r[i] * v; for (let j = 0; j < 3; j++) A[i][j] += r[i] * r[j]; }
+    }
+    for (let i = 0; i < 3; i++) {
+      let m = i;
+      for (let k = i + 1; k < 3; k++) if (Math.abs(A[k][i]) > Math.abs(A[m][i])) m = k;
+      [A[i], A[m]] = [A[m], A[i]]; [b[i], b[m]] = [b[m], b[i]];
+      if (Math.abs(A[i][i]) < 1e-9) return;
+      for (let k = i + 1; k < 3; k++) { const f = A[k][i] / A[i][i]; for (let j = i; j < 3; j++) A[k][j] -= f * A[i][j]; b[k] -= f * b[i]; }
+    }
+    const x = [0, 0, 0];
+    for (let i = 2; i >= 0; i--) { let v = b[i]; for (let j = i + 1; j < 3; j++) v -= A[i][j] * x[j]; x[i] = v / A[i][i]; }
+    this.padLift[n.id] = x[0]; this.padGx[n.id] = x[1]; this.padGz[n.id] = x[2];
+  }
+
+  /** Height of a node's pad above the plateau at (x, z). */
+  padH(n: RoadNode, x: number, z: number): number {
+    return this.padLift[n.id] + this.padGx[n.id] * (x - n.x) + this.padGz[n.id] * (z - n.z);
   }
 
   // ── Shapes ──────────────────────────────────────────────────────────────────
@@ -148,9 +189,10 @@ export class StreetSurface {
       const L = T.slice();
       for (let i = 1; i < n; i++) L[i] = Math.max(L[i], L[i - 1] - RAMP_SLOPE);
       for (let i = n - 2; i >= 0; i--) L[i] = Math.max(L[i], L[i + 1] - RAMP_SLOPE);
-      // A fixed end meets its street at grade: pin it, and let the climb start there (the slope bound is kept by taking the lower).
-      if (this.fixed[e.a]) for (let i = 0; i < n; i++) L[i] = Math.min(L[i], i * RAMP_SLOPE);
-      if (this.fixed[e.b]) for (let i = 0; i < n; i++) L[i] = Math.min(L[i], Math.max(0, e.len - i) * RAMP_SLOPE);
+      // A fixed end meets its street at grade: pin it, and let the climb start at the pad's rim (the slope bound is kept by taking the lower).
+      const ta = this.trim(e, false), tb = this.trim(e, true);
+      if (this.fixed[e.a]) for (let i = 0; i < n; i++) L[i] = Math.min(L[i], Math.max(0, i - ta) * RAMP_SLOPE);
+      if (this.fixed[e.b]) for (let i = 0; i < n; i++) L[i] = Math.min(L[i], Math.max(0, e.len - i - tb) * RAMP_SLOPE);
       this.rampLift.set(e.id, L);
     }
   }
@@ -227,6 +269,8 @@ export class StreetSurface {
   private cellKey(cx: number, cz: number): number { return cz * CNX + cx; }
 
   private index(): void {
+    this.trimA = Float32Array.from(this.edges, (e) => this.trim(e, false));
+    this.trimB = Float32Array.from(this.edges, (e) => this.trim(e, true));
     this.edges.forEach((e, i) => {
       const p = this.g.edgePts(e), r = e.hw + WALK_W + 1;
       for (let k = 0; k + 3 < p.length; k += 2) {
@@ -274,8 +318,8 @@ export class StreetSurface {
       for (const id of pads) {
         const n = this.g.nodes[id], d2 = (x - n.x) ** 2 + (z - n.z) ** 2, r = this.padR(n);
         if (d2 > r * r) continue;
-        if (n.control === 'roundabout' && d2 < this.islandR(n) ** 2) return { kind: 'walk', h: fl + this.padLift[id] + CURB_H * 2 };
-        take(fl + this.padLift[id]);
+        if (n.control === 'roundabout' && d2 < this.islandR(n) ** 2) return { kind: 'walk', h: fl + this.padH(n, x, z) + CURB_H * 2 };
+        take(fl + this.padH(n, x, z));
       }
     }
     let walk = false;
