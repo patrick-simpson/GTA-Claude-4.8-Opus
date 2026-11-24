@@ -11,11 +11,14 @@ import type { WorldPart } from '../core/api';
 import type { Game } from '../core/game';
 import type { CityMaterials } from './materials';
 import { groundAt } from './plan';
+import { loadHeroes, setHeroNight, type HeroSpec } from './dithersHero';
+import { buildCampusProps } from './dithersProps';
 import { CAMPUS_BUILDINGS, CAMPUS_DRIVES, CAMPUS_FIELDS, CAMPUS_LOTS, CAMPUS_PATHS, CAMPUS_POND, CAMPUS_TRACK } from './dithersPlan';
 
 // ── Atlas of wall cells ──────────────────────────────────────────────────────────────────────────────────────────────────
-// One cell is one bay of one storey. Columns: 0 Georgian brick+sash, 1 flat brick ribbon, 2 glass, 3 museum, 4 arena, 5 plant, 6 concrete, 7 door bay.
-const CELL = 128, NCELL = 8;
+// One cell is one bay of one storey. Columns: 0 Georgian brick+sash, 1 flat brick ribbon, 2 glass, 3 museum, 4 arena, 5 plant, 6 concrete, 7 door bay,
+// 8 tall arched brick window (the chapel), 9 the museum pavilions' glass wall.
+const CELL = 128, NCELL = 10;
 function atlas(): { map: THREE.CanvasTexture; glow: THREE.CanvasTexture } {
   const mk = (): [HTMLCanvasElement, CanvasRenderingContext2D] => { const c = document.createElement('canvas'); c.width = CELL * NCELL; c.height = CELL; return [c, c.getContext('2d')!]; };
   const [ca, a] = mk(), [cg, g] = mk();
@@ -66,6 +69,26 @@ function atlas(): { map: THREE.CanvasTexture; glow: THREE.CanvasTexture } {
   a.fillStyle = '#f1ede2'; a.fillRect(7 * CELL + 30, 34, 68, 94); a.fillRect(7 * CELL + 24, 26, 80, 8);
   a.fillStyle = '#243a30'; a.fillRect(7 * CELL + 40, 52, 48, 76);
   a.fillStyle = '#26303c'; a.fillRect(7 * CELL + 40, 38, 48, 12); g.fillStyle = '#ffd68a'; g.fillRect(7 * CELL + 40, 38, 48, 12);
+  // 8: tall round-headed window in brick (chapel), white surround
+  {
+    const x0 = 8 * CELL; brick(x0, '#8f3b2f');
+    const arch = (cx: number, top: number, bot: number, hw: number, ctx: CanvasRenderingContext2D, col: string): void => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(cx - hw, bot); ctx.lineTo(cx - hw, top + hw); ctx.arc(cx, top + hw, hw, Math.PI, 0); ctx.lineTo(cx + hw, bot); ctx.closePath(); ctx.fill(); };
+    arch(x0 + 64, 8, 124, 25, a, '#f1ede2'); arch(x0 + 64, 13, 124, 19, a, '#26303c'); arch(x0 + 64, 13, 124, 19, g, '#ffd68a');
+    a.fillStyle = '#f1ede2'; g.fillStyle = '#000';
+    for (const [rx, ry, rw, rh] of [[x0 + 63, 13, 2, 111], [x0 + 45, 70, 38, 2], [x0 + 45, 92, 38, 2], [x0 + 45, 48, 38, 2]]) { a.fillRect(rx, ry, rw, rh); g.fillRect(rx, ry, rw, rh); }
+    a.fillRect(x0 + 36, 124, 56, 4);
+  }
+  // 9: museum glass pavilion wall: sky-tinted panes, thin steel mullions, a pale stone sill
+  {
+    const x0 = 9 * CELL, gr = a.createLinearGradient(0, 0, 0, CELL);
+    gr.addColorStop(0, '#a9c6da'); gr.addColorStop(0.5, '#6f93ad'); gr.addColorStop(1, '#3e5a70');
+    a.fillStyle = gr; a.fillRect(x0, 0, CELL, CELL);
+    a.fillStyle = 'rgba(255,255,255,0.22)'; a.beginPath(); a.moveTo(x0 + 10, 0); a.lineTo(x0 + 46, 0); a.lineTo(x0 + 14, CELL); a.lineTo(x0 - 22, CELL); a.fill();
+    a.fillStyle = '#dcd6c6'; a.fillRect(x0, CELL - 10, CELL, 10); a.fillRect(x0, 0, CELL, 4);
+    a.fillStyle = '#4a545c'; for (let i = 0; i <= 4; i++) a.fillRect(x0 + i * 32 - (i === 4 ? 2 : 0), 4, 2, CELL - 14);
+    a.fillRect(x0, 54, CELL, 2);
+    g.fillStyle = '#ffe6b0'; g.fillRect(x0, 6, CELL, CELL - 18); g.fillStyle = '#000'; for (let i = 0; i <= 4; i++) g.fillRect(x0 + i * 32 - (i === 4 ? 2 : 0), 4, 2, CELL - 14); g.fillRect(x0, 54, CELL, 2);
+  }
   const mkTex = (c: HTMLCanvasElement, srgb: boolean): THREE.CanvasTexture => {
     const t = new THREE.CanvasTexture(c); t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     t.anisotropy = 4; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; return t;
@@ -138,7 +161,7 @@ class Campus {
   }
 
   /** Walls of one rectangle: plinth, wall bays by storey (atlas cell `cell`), cornice. */
-  walls(r: R5, style: number, floors: number, fh: number, yLow: number, yF: number, shade: number, doors: number[]): number {
+  walls(r: R5, style: number, floors: number, fh: number, yLow: number, yF: number, shade: number, doors: number[], cellOv = -1): number {
     const bay = BAY[style], cell = style, hw = r.w / 2, hd = r.d / 2;
     const cor: [number, number][] = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]];
     for (let i = 0; i < 4; i++) {
@@ -152,7 +175,7 @@ class Campus {
       for (let f = 0; f < floors; f++) for (let k = 0; k < nb; k++) {
         const y0 = yF + 0.5 + f * fh, y1 = y0 + fh;
         const door = f === 0 && style === 0 && doors.includes(i) && k === Math.floor(nb / 2);
-        const c = door ? 7 : cell;
+        const c = door ? 7 : cellOv >= 0 ? cellOv : cell;
         this.W.quad(pw(k, y0), pw(k + 1, y0), pw(k + 1, y1), pw(k, y1), 0xffffff, sideOut, [c / NCELL + 0.002, 0.995, (c + 1) / NCELL - 0.002, 0.005], shade);
       }
     }
@@ -354,6 +377,7 @@ export function buildDithersCampus(game: Game, mats: CityMaterials, parent: THRE
 
   // ── Buildings ──
   const sizeOf = (st: number, fl: number): number => (st === 4 ? 12 : st === 6 ? 3.5 : fl * FH[st] + 0.5);
+  const standIns: THREE.Mesh[] = [], heroes: HeroSpec[] = [];
   let seed = 11; const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   for (const [style, floors, flags, , rects] of CAMPUS_BUILDINGS) {
     const R: R5[] = [];
@@ -361,6 +385,9 @@ export function buildDithersCampus(game: Game, mats: CityMaterials, parent: THRE
     if (!R.length) continue;
     const shade = 0.9 + rnd() * 0.18;
     let yTop0 = 0;
+    // The library and the chapel are Blender models (dithersHero.ts); the code-built massing stands in until they load.
+    const hero = flags & 3 ? { W: C.W, F: C.F, yF: -1e9 } : null;
+    if (hero) { C.W = new Buf(); C.F = new Buf(); }
     for (let ri = 0; ri < R.length; ri++) {
       const r = R[ri];
       let yHi = -1e9, yLo = 1e9;
@@ -377,7 +404,8 @@ export function buildDithersCampus(game: Game, mats: CityMaterials, parent: THRE
       }
       const h = (flags & 2) && ri === 0 ? 9.5 : FH[style];
       const fl = (flags & 2) && ri === 0 ? 1 : style === 4 ? 1 : floors;
-      const yF = yHi + 0.2, yT = C.walls(r, style, fl, h, yLo, yF, shade, ri === 0 && (flags & 8) ? [3] : []);
+      const yF = yHi + 0.2, yT = C.walls(r, style, fl, h, yLo, yF, shade, ri === 0 && (flags & 8) ? [3] : [], (flags & 2) ? 8 : style === 3 && ri > 0 ? 9 : -1);
+      if (hero && ri === 0) hero.yF = yF;
       if (ri === 0) yTop0 = yT;
       const lowRise = Math.min(r.w, r.d) < 3.2;
       if (style === 0 && !lowRise) C.gable(r, yT, Math.max(2, Math.min(r.w, r.d) * 0.3));
@@ -393,6 +421,12 @@ export function buildDithersCampus(game: Game, mats: CityMaterials, parent: THRE
       }
     }
     void yTop0; void sizeOf;
+    if (hero) {
+      for (const m of [C.W.mesh(wallMat, true, true), C.F.mesh(solidMat, true, true)]) if (m) { standIns.push(m); grp.add(m); }
+      C.W = hero.W; C.F = hero.F;
+      const r0 = R[0], c0 = Math.cos(r0.a), s0 = Math.sin(r0.a);
+      heroes.push(flags & 1 ? { name: 'library', x: r0.cx, y: hero.yF, z: r0.cz, yaw: -r0.a } : { name: 'chapel', x: r0.cx, y: hero.yF, z: r0.cz, yaw: Math.atan2(-c0, -s0) });
+    }
   }
 
   // ── Johnson Pond: a still sheet at the mean of its bank, with a dark bank skirt where the hill falls away ──
@@ -418,9 +452,16 @@ export function buildDithersCampus(game: Game, mats: CityMaterials, parent: THRE
   for (const m of meshes) if (m) grp.add(m);
   game.col.allBoxes.length;
   void pip;
+  const envNow = (): THREE.Texture | null => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null;
+  const props = buildCampusProps(game, grp, envNow());
+  loadHeroes(game, grp, heroes, envNow).then((ok) => {
+    if (!ok) return;
+    for (const m of standIns) { grp.remove(m); m.geometry.dispose(); }
+    standIns.length = 0;
+  }).catch(() => { /* the code-built massing stays */ });
 
   return {
-    setNight(): void { wallMat.emissiveIntensity = mats.facade[1].emissiveIntensity; },
+    setNight(n: number): void { wallMat.emissiveIntensity = mats.facade[1].emissiveIntensity; setHeroNight(n); props.setNight(n); },
     update(): void { const e = (mats.flat as THREE.MeshStandardMaterial).envMap ?? null; if (wallMat.envMap !== e) { wallMat.envMap = e; solidMat.envMap = e; waterMat.envMap = e; } },
   };
 }
