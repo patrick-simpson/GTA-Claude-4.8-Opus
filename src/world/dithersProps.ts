@@ -7,6 +7,7 @@ import type { Game } from '../core/game';
 import { groundAt, streetSurface } from './plan';
 import { EXTRA } from './floraAssets';
 import { CAMPUS_BUILDINGS, CAMPUS_DRIVES, CAMPUS_FIELDS, CAMPUS_PATHS, campusFree } from './dithersPlan';
+import { LOOKOUT } from './dithersPond';
 
 /** True when (x, z) is more than m metres from every street's carriageway and sidewalk (the current graph, so no lamp, bench or tree stands in a road). */
 const offRoad = (x: number, z: number, m: number): boolean => !streetSurface()?.nearRoad(x, z, m);
@@ -169,6 +170,19 @@ export function buildCampusProps(game: Game, parent: THREE.Object3D, env: THREE.
     for (const sx of [-0.75, 0.75]) { g.box(sx, 0.23, 0, 0.08, 0.46, 0.5, iron); g.box(sx, 0.62, -0.24, 0.08, 0.8, 0.07, iron); }
     const im = new THREE.InstancedMesh(g.geometry(), std({ vertexColors: true, roughness: 0.75 }), benchM.length);
     benchM.forEach((m, i) => im.setMatrixAt(i, m)); im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); put(im);
+  }
+
+  // -- Johnson Pond's lookout (dithersPond.ts LOOKOUT): a bench facing the water and a railing on the water side of the pad --
+  {
+    const L = LOOKOUT, gy = groundAt(L.x, L.z), g = new G(), wood = 0x8a5a36, iron = 0x24302a, rx = L.x + L.hx - 0.2;
+    g.frame(L.x - 0.6, gy, L.z, Math.PI / 2);
+    g.box(0, 0.46, 0, 1.7, 0.07, 0.5, wood); g.box(0, 0.8, -0.24, 1.7, 0.42, 0.06, wood);
+    for (const sx of [-0.75, 0.75]) { g.box(sx, 0.23, 0, 0.08, 0.46, 0.5, iron); g.box(sx, 0.62, -0.24, 0.08, 0.8, 0.07, iron); }
+    g.frame(0, gy, 0, 0);
+    const z0 = L.z - L.hz - 0.4, z1 = L.z + L.hz + 0.4;
+    for (let z = z0; z <= z1 + 0.01; z += (z1 - z0) / 6) g.box(rx, 0.55, z, 0.1, 1.1, 0.1, iron);
+    g.box(rx, 1.05, L.z, 0.08, 0.08, z1 - z0, wood); g.box(rx, 0.62, L.z, 0.05, 0.05, z1 - z0, iron);
+    put(new THREE.Mesh(g.geometry(), std({ vertexColors: true, roughness: 0.75 })), true);
   }
 
   // ── Lawn maples (core of the campus), kept 5 m from every building and 3.6 m from the walks and drives ──

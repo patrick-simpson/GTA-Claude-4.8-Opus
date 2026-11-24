@@ -33,6 +33,19 @@ export const POND_BANK = 17;
 /** Everything the basin touches lies inside this box. Its sides are on the terrain mesh's 8 m lattice (ground.ts mainTerrain), which draws the inside finer. */
 export const POND_BOX = { x0: -584, z0: -2544, x1: -488, z1: -2440 };
 
+/**
+ * The lookout: a gravel pad on a low knoll between Cherry Tree St's sidewalk and the water, a metre above the walk so
+ * a standing player looks over the bank to the pond (the road's own sidewalk stands higher than a driver's eye, and the
+ * hill hides the water from it).
+ * dithersProps.ts puts a bench and a railing on it.
+ */
+export const LOOKOUT = { x: -570.5, z: -2475, hx: 2, hz: 4, blend: 6, y: 11.6 };
+/** How much of the knoll stands at (x, z): 1 on the flat pad, 0 beyond the blend. */
+export function lookoutW(x: number, z: number): number {
+  const L = LOOKOUT, d = Math.hypot(Math.max(Math.abs(x - L.x) - L.hx, 0), Math.max(Math.abs(z - L.z) - L.hz, 0));
+  return 1 - smooth(d / L.blend);
+}
+
 /** Signed distance to the shoreline: negative in the water. */
 export function pondSD(x: number, z: number): number {
   const p = POND_SHORE;
@@ -69,13 +82,15 @@ function distances(): Float32Array {
   return sdGrid;
 }
 
+const lookoutLift = (x: number, z: number, g: number, sd: number): number => g + lookoutW(x, z) * smooth(sd / 2) * (LOOKOUT.y - g);
+
 function build(hill: (x: number, z: number) => number): void {
   const sds = distances();
   delta = new Float32Array((NX + 1) * (NZ + 1));
   for (let j = 0; j <= NZ; j++) for (let i = 0; i <= NX; i++) {
     const x = POND_BOX.x0 + i * POND_STEP, z = POND_BOX.z0 + j * POND_STEP, sd = sds[j * (NX + 1) + i], nat = hill(x, z);
     // Nothing changes on the box's own edge, whatever the numbers say.
-    delta[j * (NX + 1) + i] = i === 0 || j === 0 || i === NX || j === NZ ? 0 : shaped(sd, nat) - nat;
+    delta[j * (NX + 1) + i] = i === 0 || j === 0 || i === NX || j === NZ ? 0 : lookoutLift(x, z, shaped(sd, nat), sd) - nat;
   }
 }
 

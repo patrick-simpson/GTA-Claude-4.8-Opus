@@ -12,6 +12,7 @@
 //              groundAt() takes a hint (the caller's own height) and picks the surface just below it.
 
 import { clamp, smooth } from '../core/util';
+import { lookoutW } from './dithersPond';
 import { MAIN_Y, RIVER_HW, hillAt, mainlandTerrain, naturalTerrain, riverX, waterDist } from './mainland';
 import type { Overpass, StreetGraph } from './streets';
 import type { RoadEdge, RoadNode } from './plan';
@@ -830,6 +831,7 @@ export class StreetSurface {
   graded(x: number, z: number, nat: number): number {
     const fx = (x - GX0) / GS, fz = (z - GZ0) / GS;
     if (fx < 0 || fz < 0 || fx >= GNX - 1 || fz >= GNZ - 1) return nat;
+    if (lookoutW(x, z) > 0.001) return nat; // Johnson Pond's lookout is shaped on purpose: the road's fill must not raise it back
     const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, c = j * GNX + i, w = this.w;
     const k = (w[c] * (1 - u) + w[c + 1] * u) * (1 - v) + (w[c + GNX] * (1 - u) + w[c + GNX + 1] * u) * v;
     if (k <= 0) return nat;

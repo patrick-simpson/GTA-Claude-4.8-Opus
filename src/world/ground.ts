@@ -31,7 +31,7 @@ import {
   COAST, DAM_Z, EXTRA_LOTS, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MAIN_SPLIT_Z, MAIN_Y, MXS, MZS, POND_Y, RAIL, RAIL_TRESTLE,
   RIVER_HW, RIVER_MOUTH, ROAD_BRIDGE, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, hillAt, mainlandTerrain, riverLevel, riverX, waterDist,
 } from './mainland';
-import { POND_BOX, POND_LEVEL, POND_STEP, pondNear } from './dithersPond';
+import { POND_BOX, POND_LEVEL, POND_STEP, lookoutW, pondNear } from './dithersPond';
 import type { Box } from './collide';
 import { sawhorses } from './progress';
 import { SWELL_GLSL, seaClock } from './sea';
@@ -1850,7 +1850,7 @@ class Ground implements WorldPart {
     // The pond's patch: the same ground at POND_STEP, its rim on the big grid's own edges so no crack opens between them.
     const PS = POND_STEP, PX = (pb.x1 - pb.x0) / PS, PZ = (pb.z1 - pb.z0) / PS, PW = PX + 1;
     const pp = new Float32Array(PW * (PZ + 1) * 3), pc = new Float32Array(pp.length), pu = new Float32Array(PW * (PZ + 1) * 2), ps = new Float32Array(PW * (PZ + 1));
-    const mud = new THREE.Color(0x857b62), silt = new THREE.Color(0x3f4638), turf = new THREE.Color(0x7f9659);
+    const mud = new THREE.Color(0x857b62), silt = new THREE.Color(0x3f4638), turf = new THREE.Color(0x7f9659), gravel = new THREE.Color(0xa8a290);
     const onGrid = (x: number, z: number): number => {
       // Linear along the big grid's edge the point lies on.
       const fx = (x - X0) / STEP, fz = (z - Z0) / STEP, i0 = Math.floor(fx), j0 = Math.floor(fz), u = fx - i0, w = fz - j0;
@@ -1868,6 +1868,7 @@ class Ground implements WorldPart {
       if (sd < 11) c.lerp(turf, 0.55 * smooth((11 - sd) / 6));
       if (sd < 1.5) c.lerp(mud, 0.85 * smooth((1.5 - sd) / 1.4));
       if (sd < -0.4) c.lerp(silt, smooth((-0.4 - sd) / 2.5));
+      { const lw = lookoutW(x, z); if (lw > 0.02) c.lerp(gravel, 0.9 * smooth(Math.min(1, lw * 1.6))); } // the lookout's gravel pad
       pc[q * 3] = c.r; pc[q * 3 + 1] = c.g; pc[q * 3 + 2] = c.b;
       if (i < PX && j < PZ) pi.push(q + PW, q + PW + 1, q + 1, q + PW, q + 1, q);
     }
