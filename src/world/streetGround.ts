@@ -28,6 +28,24 @@ const GS = 4, GX0 = -1000, GZ0 = -3010, GNX = 512, GNZ = 548;
 export interface Bump { s: number; flat: number; h: number }
 /** An overpass the surfaces honour: the upper edge's arc position and how long its open span is. */
 export interface Passage { o: Overpass; upper: RoadEdge; lower: RoadEdge; s: number; half: number }
+/** One road's end at a junction: `m` is its mouth (arc distance from the node where the road's own strip begins). */
+export interface JArm { e: RoadEdge; atB: boolean; i: number; ang: number; ox: number; oz: number; bx: number; bz: number; hw: number; t: number; m: number; wk: boolean; thru: boolean }
+/**
+ * The kerb between two neighbouring arms: `kerb` runs from arm a's mouth round the corner to arm c's mouth (flat x,z), `back`
+ * is the back of the sidewalk, point for point. `walk`: a raised sidewalk fills the strip between them. `fillet`: a rounded
+ * return of radius r (else a straight join or the outside of a bend).
+ */
+export interface JCorner { a: JArm; c: JArm; gap: number; walk: boolean; fillet: boolean; r: number; ua: number; uc: number; kerb: number[]; back: number[] }
+/** A strip of raised sidewalk in a junction, between a kerb line and the line at its back (point for point). */
+export interface JStrip { kerb: number[]; back: number[] }
+/** A junction's shape: `poly` is the asphalt's outline (the corners' kerbs end to end; the mouths close it), filled as a fan from the node. */
+export interface Junction { n: RoadNode; r: number; poly: number[]; arms: JArm[]; corners: JCorner[]; strips: JStrip[] }
+/** Mound in a roundabout's island: height over the island's kerb at the fractions MOUND_F of its radius. */
+const MOUND_F = [0, 0.3, 0.6, 0.86, 1], MOUND_H = [1.15, 1.0, 0.52, 0.08, 0];
+const inTri = (x: number, z: number, ax: number, az: number, bx: number, bz: number, cx: number, cz: number): boolean => {
+  const d1 = (x - bx) * (az - bz) - (ax - bx) * (z - bz), d2 = (x - cx) * (bz - cz) - (bx - cx) * (z - cz), d3 = (x - ax) * (cz - az) - (cx - ax) * (z - az);
+  return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
+};
 
 const lf = (d: number, flat: number): number => (d <= flat ? 1 : d >= flat + LIFT_R ? 0 : 1 - smooth((d - flat) / LIFT_R));
 /** True in the Muddle River's channel (never graded: roads cross it on decks). */
@@ -58,6 +76,12 @@ export class StreetSurface {
   private trimB = new Float32Array(0);
   private readonly segCells = new Map<number, number[]>();
   private readonly padCells = new Map<number, number[]>();
+  /** Junction shapes (every node where two or more roads meet), by node id and by lookup cell. */
+  readonly juncs = new Map<number, Junction>();
+  private readonly juncCells = new Map<number, Junction[]>();
+  private mouthA = new Float32Array(0);
+  private mouthB = new Float32Array(0);
+  private readonly edgeIdx = new Map<number, number>();
   private readonly w = new Float32Array(GNX * GNZ);
   /** Height the grading target stands above the plateau (a hill road's fill), same grid as w. */
   private readonly lw = new Float32Array(GNX * GNZ);
@@ -96,8 +120,221 @@ export class StreetSurface {
     this.padLift.set(this.lift); this.padGx.fill(0); this.padGz.fill(0);
     for (const n of this.nodes) if (n.edges.length > 0) this.fitPad(n);
     this.index();
+    this.buildJunctions();
+    this.clipStrips();
     this.grade();
   }
+
+  // ── Junction shapes ─────────────────────────────────────────────────────────
+
+  /** Where a road's own strip (carriageway, sidewalks, paint) begins: beyond the junction's kerb returns. */
+  mouth(e: RoadEdge, atB: boolean): number {
+    const i = this.edgeIdx.get(e.id);
+    return i === undefined ? this.trim(e, atB) : atB ? this.mouthB[i] : this.mouthA[i];
+  }
+  /** True where a road runs straight on through a node with nothing to stop it (a join in one road, the Thruway past a ramp): its lines carry through. */
+  through(e: RoadEdge, atB: boolean): boolean {
+    const j = this.juncs.get(atB ? e.b : e.a);
+    return j ? j.arms.some((a) => a.e === e && a.atB === atB && a.thru) : false;
+  }
+
+  /** A point on arm a's kerb line (side +1: toward growing angle), u metres out from the node, `off` from the centreline. */
+  kerbPt(a: JArm, side: number, u: number, off = a.hw): [number, number] {
+    const s = clamp(a.atB ? a.e.len - u : u, 0, a.e.len), q = this.g.pointAt(a.e, s), k = (a.atB ? -1 : 1) * side * off;
+    return [q.x - q.dz * k, q.z + q.dx * k];
+  }
+
+  private buildJunctions(): void {
+    const g = this.g, TAU = Math.PI * 2;
+    this.edges.forEach((e, i) => this.edgeIdx.set(e.id, i));
+    this.mouthA = Float32Array.from(this.trimA); this.mouthB = Float32Array.from(this.trimB);
+    const fast = (e: RoadEdge): boolean => e.kind === 'highway' || e.kind === 'ramp';
+    for (const n of this.nodes) {
+      const arms: JArm[] = [], seen = new Set<number>();
+      for (const id of n.edges) {
+        const e = g.edges[id], i = this.edgeIdx.get(id);
+        if (i === undefined) continue;
+        for (const atB of e.a === e.b ? [false, true] : [e.b === n.id]) {
+          if (seen.has(id * 2 + (atB ? 1 : 0))) continue;
+          seen.add(id * 2 + (atB ? 1 : 0));
+          const t = atB ? this.trimB[i] : this.trimA[i], q = g.pointAt(e, clamp(atB ? e.len - t : t, 0, e.len)), sg = atB ? -1 : 1;
+          const ox = q.dx * sg, oz = q.dz * sg;
+          arms.push({ e, atB, i, ang: Math.atan2(oz, ox), ox, oz, bx: q.x - ox * t, bz: q.z - oz * t, hw: e.hw, t, m: t, wk: this.walks(e), thru: false });
+        }
+      }
+      if (arms.length < 2) continue;
+      arms.sort((a, b) => a.ang - b.ang);
+      const rb = n.control === 'roundabout', ctl = n.control === 'signal' || n.control === 'stop', R = this.padR(n);
+      if (!rb) {
+        for (const a of arms) {
+          const p = arms.find((b) => b !== a && b.e.kind === a.e.kind && b.e.divided === a.e.divided && b.e.lanes === a.e.lanes && a.ox * b.ox + a.oz * b.oz < -0.94);
+          // A plain join, or the Thruway past slip ramps (every other arm leaves along it): nothing crosses, so the paint runs on.
+          a.thru = !!p && ((arms.length === 2 && !ctl) || (fast(a.e) && arms.every((o) => o === a || o === p || Math.max(o.ox * a.ox + o.oz * a.oz, o.ox * p.ox + o.oz * p.oz) > 0.82)));
+        }
+      }
+      const half = (a: JArm): number => Math.max(a.t, Math.min(this.end(a.e), a.e.len) / 2 - 0.3);
+      // First the returns' sizes (they set each arm's mouth), then the kerb lines.
+      const cs: (JCorner & { X: [number, number]; bis: [number, number] })[] = [];
+      for (let k = 0; k < arms.length; k++) {
+        const a = arms[k], c = arms[(k + 1) % arms.length];
+        let gap = c.ang - a.ang;
+        if (gap <= 1e-6) gap += TAU;
+        const co = { a, c, gap, walk: a.wk && c.wk && (rb || gap > 2.88), fillet: false, r: 0, ua: a.t, uc: c.t, kerb: [] as number[], back: [] as number[], X: [0, 0] as [number, number], bis: [0, 0] as [number, number] };
+        cs.push(co);
+        if (rb || gap < 0.44 || gap > 2.88) continue;
+        // Kerb lines: a's on its +side, c's on its -side; they cross at X.
+        const pax = a.bx - a.oz * a.hw, paz = a.bz + a.ox * a.hw, pcx = c.bx + c.oz * c.hw, pcz = c.bz - c.ox * c.hw;
+        const det = a.ox * c.oz - a.oz * c.ox, dx = pcx - pax, dz = pcz - paz;
+        const uX = (dx * c.oz - dz * c.ox) / det, vX = (dx * a.oz - dz * a.ox) / det;
+        const tmax = Math.min(9, half(a) - uX, half(c) - vX), th = Math.tan(gap / 2);
+        if (tmax < 0.8 || uX < -2 || vX < -2) continue;
+        const want = ctl ? 3.5 : fast(a.e) || fast(c.e) ? 8 : a.e.kind === 'arterial' && c.e.kind === 'arterial' ? 6.5 : a.e.kind === 'arterial' || c.e.kind === 'arterial' ? 5.5 : 4.5;
+        co.r = Math.min(want, tmax * th); co.fillet = true; co.walk = a.wk && c.wk;
+        co.X = [pax + a.ox * uX, paz + a.oz * uX];
+        const bl = Math.hypot(a.ox + c.ox, a.oz + c.oz) || 1;
+        co.bis = [(a.ox + c.ox) / bl, (a.oz + c.oz) / bl];
+        if (n.control === 'signal') {
+          // The signal for arm c stands on this corner (streetSignals.ts: 1.2 m back from the rim, 0.9 m off the kerb line): the
+          // return is tightened until the pole is on the sidewalk, not in the asphalt.
+          const back = R + 1.2, px = c.bx + c.ox * back + c.oz * (c.hw + 0.9), pz = c.bz + c.oz * back - c.ox * (c.hw + 0.9), sh = Math.sin(gap / 2);
+          for (let k = 0; k < 9 && co.r > 0.7; k++) {
+            const cx = co.X[0] + co.bis[0] * (co.r / sh), cz = co.X[1] + co.bis[1] * (co.r / sh);
+            if (back >= vX + co.r / th - 0.1 || Math.hypot(px - cx, pz - cz) <= co.r - 0.35) break;
+            co.r = Math.max(0.7, co.r * 0.8);
+          }
+        }
+        co.ua = uX + co.r / th; co.uc = vX + co.r / th;
+        a.m = Math.max(a.m, co.ua); c.m = Math.max(c.m, co.uc);
+      }
+      const poly: number[] = [];
+      let far = R;
+      for (const co of cs) {
+        const { a, c, gap } = co, K = co.kerb, B = co.back;
+        const put = (p: [number, number], q: [number, number]): void => { K.push(p[0], p[1]); B.push(q[0], q[1]); };
+        put(this.kerbPt(a, 1, a.m), this.kerbPt(a, 1, a.m, a.hw + WALK_W));
+        if (rb) {
+          const a0 = a.ang + Math.asin(Math.min(1, a.hw / R)), a1 = a.ang + gap - Math.asin(Math.min(1, c.hw / R));
+          const N = a1 > a0 ? Math.max(1, Math.ceil((a1 - a0) / 0.2244)) : 0;
+          for (let i = 0; i <= N && a1 > a0; i++) { const t = a0 + ((a1 - a0) * i) / N, cx = Math.cos(t), sz = Math.sin(t); put([n.x + cx * R, n.z + sz * R], [n.x + cx * (R + WALK_W), n.z + sz * (R + WALK_W)]); }
+        } else if (co.fillet) {
+          const sh = Math.sin(gap / 2), th = Math.tan(gap / 2), r = co.r, T = r / th, [bx, bz] = co.bis;
+          const cx = co.X[0] + bx * (r / sh), cz = co.X[1] + bz * (r / sh);
+          const ta: [number, number] = [co.X[0] + a.ox * T, co.X[1] + a.oz * T], tc: [number, number] = [co.X[0] + c.ox * T, co.X[1] + c.oz * T];
+          const rbk = r - WALK_W, xb: [number, number] = [co.X[0] + bx * (WALK_W / sh), co.X[1] + bz * (WALK_W / sh)];
+          const a0 = Math.atan2(ta[1] - cz, ta[0] - cx);
+          let da = Math.atan2(tc[1] - cz, tc[0] - cx) - a0;
+          while (da > Math.PI) da -= TAU;
+          while (da < -Math.PI) da += TAU;
+          const N = Math.max(2, Math.ceil(Math.abs(da) / 0.3));
+          for (let i = 0; i <= N; i++) {
+            const t = a0 + (da * i) / N, ux = Math.cos(t), uz = Math.sin(t);
+            put([cx + ux * r, cz + uz * r], rbk > 0.25 ? [cx + ux * rbk, cz + uz * rbk] : xb);
+          }
+        } else if (gap > 2.88) {
+          // Straight on, or the outside of a bend: round the node at the roads' own half-widths.
+          const sw = gap - Math.PI, N = sw > 0.09 ? Math.max(1, Math.ceil(sw / 0.35)) : -1;
+          for (let i = 0; i <= N; i++) {
+            const f = i / Math.max(1, N), t = a.ang + Math.PI / 2 + sw * f, hw = a.hw + (c.hw - a.hw) * f, cx = Math.cos(t), sz = Math.sin(t);
+            put([n.x + cx * hw, n.z + sz * hw], [n.x + cx * (hw + WALK_W), n.z + sz * (hw + WALK_W)]);
+          }
+        }
+        put(this.kerbPt(c, -1, c.m), this.kerbPt(c, -1, c.m, c.hw + WALK_W));
+        for (let i = 0; i < K.length; i += 2) { poly.push(K[i], K[i + 1]); far = Math.max(far, Math.hypot(B[i] - n.x, B[i + 1] - n.z), Math.hypot(K[i] - n.x, K[i + 1] - n.z)); }
+      }
+      for (const a of arms) { if (a.atB) this.mouthB[a.i] = a.m; else this.mouthA[a.i] = a.m; }
+      const j: Junction = { n, r: far + 0.5, poly, arms, corners: cs, strips: [] };
+      this.juncs.set(n.id, j);
+      for (const co of cs) {
+        if (co.walk) { j.strips.push(co); continue; }
+        // A road with a sidewalk keeps it up to the return where its neighbour has none to join (a ramp, the Thruway).
+        for (const [arm, side, u0] of [[co.a, 1, co.ua], [co.c, -1, co.uc]] as [JArm, number, number][]) {
+          if (!arm.wk || arm.m - u0 < 0.5) continue;
+          const K: number[] = [], Bk: number[] = [], N = Math.ceil((arm.m - u0) / 2.5);
+          for (let i = N; i >= 0; i--) {
+            const u = u0 + ((arm.m - u0) * i) / N, k = this.kerbPt(arm, side, u, arm.hw + 0.02), b = this.kerbPt(arm, side, u, arm.hw + WALK_W);
+            // From the mouth inward, as far as it stays off the junction's asphalt and the other roads' lanes.
+            if (this.inJunc(j, (k[0] * 3 + b[0]) / 4, (k[1] * 3 + b[1]) / 4) || arms.some((o) => o.e !== arm.e && (g.project(o.e, k[0], k[1]).d < o.hw + 0.3 || g.project(o.e, b[0], b[1]).d < o.hw + 0.3))) break;
+            K.push(k[0], k[1]); Bk.push(b[0], b[1]);
+          }
+          if (K.length >= 4) j.strips.push({ kerb: K, back: Bk });
+        }
+      }
+      for (let cx = Math.floor((n.x - j.r - CX0) / CELL); cx <= Math.floor((n.x + j.r - CX0) / CELL); cx++) {
+        for (let cz = Math.floor((n.z - j.r - CZ0) / CELL); cz <= Math.floor((n.z + j.r - CZ0) / CELL); cz++) {
+          const key = this.cellKey(cx, cz);
+          let a = this.juncCells.get(key);
+          if (!a) { a = []; this.juncCells.set(key, a); }
+          a.push(j);
+        }
+      }
+    }
+  }
+
+  /** A junction's sidewalk strips stop where another road's asphalt lies (the next junction's corner, a street passing close by). */
+  private clipStrips(): void {
+    const paved = (x: number, z: number): boolean => {
+      const key = this.cellKey(Math.floor((x - CX0) / CELL), Math.floor((z - CZ0) / CELL));
+      for (const j of this.juncCells.get(key) ?? []) if ((x - j.n.x) ** 2 + (z - j.n.z) ** 2 < j.r * j.r && this.inJunc(j, x, z)) return true;
+      for (const code of this.segCells.get(key) ?? []) {
+        const o = this.edges[code >> 10], k = code & 1023, p = this.g.edgePts(o);
+        const ax = p[2 * k], az = p[2 * k + 1], dx = p[2 * k + 2] - ax, dz = p[2 * k + 3] - az, l2 = dx * dx + dz * dz;
+        const t = l2 > 0 ? clamp(((x - ax) * dx + (z - az) * dz) / l2, 0, 1) : 0;
+        if ((ax + dx * t - x) ** 2 + (az + dz * t - z) ** 2 < (o.hw - 0.15) ** 2 && (this.maxLift.get(o.id) ?? 0) < 0.3) return true;
+      }
+      return false;
+    };
+    for (const j of this.juncs.values()) {
+      const out: JStrip[] = [];
+      for (const st of j.strips) {
+        const K = st.kerb, B = st.back;
+        let k2: number[] = [], b2: number[] = [];
+        const flush = (): void => { if (k2.length >= 4) out.push({ kerb: k2, back: b2 }); k2 = []; b2 = []; };
+        for (let i = 0; i + 3 < K.length; i += 2) {
+          const kx = (K[i] + K[i + 2]) / 2, kz = (K[i + 1] + K[i + 3]) / 2, bx = (B[i] + B[i + 2]) / 2, bz = (B[i + 1] + B[i + 3]) / 2;
+          if (paved(kx * 0.85 + bx * 0.15, kz * 0.85 + bz * 0.15) || paved((kx + bx) / 2, (kz + bz) / 2) || paved(kx * 0.15 + bx * 0.85, kz * 0.15 + bz * 0.85)) { flush(); continue; }
+          if (!k2.length) { k2.push(K[i], K[i + 1]); b2.push(B[i], B[i + 1]); }
+          k2.push(K[i + 2], K[i + 3]); b2.push(B[i + 2], B[i + 3]);
+        }
+        flush();
+      }
+      j.strips = out;
+    }
+  }
+
+  /** True on a junction's asphalt (the fan the mesh draws). */
+  inJunc(j: Junction, x: number, z: number): boolean {
+    const p = j.poly, n = j.n, L = p.length;
+    for (let i = 0; i < L; i += 2) if (inTri(x, z, n.x, n.z, p[i], p[i + 1], p[(i + 2) % L], p[(i + 3) % L])) return true;
+    return false;
+  }
+  /** True on a junction's corner sidewalk (the strip between a corner's kerb and its back). */
+  private inCorner(co: JStrip, x: number, z: number): boolean {
+    const K = co.kerb, B = co.back;
+    for (let i = 0; i + 3 < K.length; i += 2) {
+      if (inTri(x, z, K[i], K[i + 1], B[i], B[i + 1], B[i + 2], B[i + 3]) || inTri(x, z, K[i], K[i + 1], B[i + 2], B[i + 3], K[i + 2], K[i + 3])) return true;
+    }
+    return false;
+  }
+  /** Height above the plateau anywhere on a junction: the pad's plane inside its rim, the nearest road's own height beyond it. */
+  juncH(j: Junction, x: number, z: number): number {
+    const n = j.n, r = this.padR(n);
+    if ((x - n.x) ** 2 + (z - n.z) ** 2 <= (r + (n.control === 'roundabout' ? 0.8 : 0.02)) ** 2) return this.padH(n, x, z);
+    let bd = Infinity, h = this.padH(n, x, z);
+    for (const a of j.arms) {
+      const pr = this.g.project(a.e, x, z), d = pr.d - a.hw;
+      if (d < bd) { bd = d; h = a.e.kind === 'ramp' ? this.surfLift(a.e, pr.s, x, z) : this.liftAt(a.e, pr.s); }
+    }
+    return h;
+  }
+  /** Height of a roundabout's island above its pad, d metres from the centre: a kerb, then a planted mound. */
+  islandH(n: RoadNode, d: number): number {
+    const f = clamp(d / Math.max(1, this.islandR(n) - 0.8), 0, 1);
+    let k = 0;
+    while (k < MOUND_F.length - 2 && MOUND_F[k + 1] < f) k++;
+    return CURB_H * 2 + MOUND_H[k] + ((MOUND_H[k + 1] - MOUND_H[k]) * (f - MOUND_F[k])) / (MOUND_F[k + 1] - MOUND_F[k]);
+  }
+  /** Radii of the island's rings (the mesh draws these, so it and islandH agree). */
+  islandRings(n: RoadNode): number[] { const r = this.islandR(n); return [...MOUND_F.map((f) => f * Math.max(1, r - 0.8)), r]; }
 
 /**
    * A pad sits on a plane fitted (least squares, a little ridge on the tilt) to the heights its roads have where they meet
@@ -428,8 +665,11 @@ export class StreetSurface {
       for (const id of pads) {
         const n = this.g.nodes[id], d2 = (x - n.x) ** 2 + (z - n.z) ** 2, r = this.padR(n);
         if (d2 > r * r) continue;
+        // The pad is the junction's asphalt: where the rim pokes past a kerb, the kerb wins.
+        const jn = this.juncs.get(id);
+        if (jn && !this.inJunc(jn, x, z)) continue;
         padHit = true;
-        if (n.control === 'roundabout' && d2 < this.islandR(n) ** 2) return { kind: 'walk', h: fl + this.padH(n, x, z) + CURB_H * 2 };
+        if (n.control === 'roundabout' && d2 < this.islandR(n) ** 2) return { kind: 'walk', h: fl + this.padH(n, x, z) + this.islandH(n, Math.sqrt(d2)) };
         take(fl + this.padH(n, x, z));
       }
     }
@@ -453,11 +693,32 @@ export class StreetSurface {
         if (padHit && (s < this.trimA[code >> 10] - 0.7 || s > e.len - this.trimB[code >> 10] + 0.7)) continue;
         const d = Math.sqrt(d2);
         if (d <= e.hw + (wk ? 0 : 0.6)) { const prev = near.get(code >> 10); if (!prev || d < prev[0]) near.set(code >> 10, [d, s]); }
-        else if (wk && s >= this.trim(e, false) && s <= e.len - this.trim(e, true)) { walk = true; walkL = this.prof.has(e.id) ? this.liftAt(e, s) : 0; }
+        else if (wk && s >= this.mouthA[code >> 10] && s <= e.len - this.mouthB[code >> 10]) { walk = true; walkL = this.prof.has(e.id) ? this.liftAt(e, s) : 0; }
       }
       for (const [ei, [, s]] of near) {
         const e = this.edges[ei];
         take(fl + (e.kind === 'ramp' ? this.surfLift(e, s, x, z) : this.liftAt(e, s)));
+      }
+    }
+    // Off every carriageway and pad: a junction's rounded corner is asphalt outside the roads' own widths, and its sidewalk wraps round it.
+    if (lo === Infinity || lo > fl + 1) {
+      const js = this.juncCells.get(key);
+      if (js) {
+        let on = false;
+        for (const j of js) {
+          if ((x - j.n.x) ** 2 + (z - j.n.z) ** 2 > j.r * j.r || !this.inJunc(j, x, z)) continue;
+          const h = this.juncH(j, x, z);
+          // Under an overpass the junction below is the ground; a junction up at the span's own height is the span.
+          if (lo === Infinity || h < lo - fl - 1) take(fl + h);
+          on = true;
+          break;
+        }
+        if (!on && !walk) {
+          for (const j of js) {
+            if (walk || (x - j.n.x) ** 2 + (z - j.n.z) ** 2 > j.r * j.r) continue;
+            for (const st of j.strips) if (this.inCorner(st, x, z)) { walk = true; walkL = this.juncH(j, x, z); break; }
+          }
+        }
       }
     }
     // A sidewalk under an overpass is still a sidewalk: it only loses to a road at its own level.
@@ -481,6 +742,8 @@ export class StreetSurface {
       const n = this.g.nodes[id], r = this.padR(n);
       if (n.edges.length >= 3 && (x - n.x) ** 2 + (z - n.z) ** 2 < r * r) return true;
     }
+    // A junction's asphalt reaches past the roads' own widths at its kerb returns: nothing is planted or stood there either.
+    for (const j of this.juncCells.get(key) ?? []) if ((x - j.n.x) ** 2 + (z - j.n.z) ** 2 < j.r * j.r && this.inJunc(j, x, z)) return true;
     for (const code of this.segCells.get(key) ?? []) {
       const o = this.edges[code >> 10];
       if (o === e) continue;
@@ -490,6 +753,21 @@ export class StreetSurface {
       if ((ax + dx * t - x) ** 2 + (az + dz * t - z) ** 2 < (o.hw - 0.2) ** 2) return true;
     }
     return false;
+  }
+
+  /** True when no other road's carriageway comes within m metres (up to 4) of (x, z), and no junction reaches it. */
+  clearOf(x: number, z: number, e: RoadEdge, m: number): boolean {
+    const key = this.cellKey(Math.floor((x - CX0) / CELL), Math.floor((z - CZ0) / CELL));
+    for (const j of this.juncCells.get(key) ?? []) if ((x - j.n.x) ** 2 + (z - j.n.z) ** 2 < (j.r + m) ** 2) return false;
+    for (const code of this.segCells.get(key) ?? []) {
+      const o = this.edges[code >> 10];
+      if (o === e) continue;
+      const k = code & 1023, p = this.g.edgePts(o);
+      const ax = p[2 * k], az = p[2 * k + 1], dx = p[2 * k + 2] - ax, dz = p[2 * k + 3] - az, l2 = dx * dx + dz * dz;
+      const t = l2 > 0 ? clamp(((x - ax) * dx + (z - az) * dz) / l2, 0, 1) : 0;
+      if ((ax + dx * t - x) ** 2 + (az + dz * t - z) ** 2 < (o.hw + m) ** 2) return false;
+    }
+    return true;
   }
 
   /** Which road keeps a surface two roads share: the faster kind, then the wider, then the lower id. */

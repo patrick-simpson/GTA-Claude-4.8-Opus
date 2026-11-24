@@ -15,14 +15,15 @@ import { clamp } from '../core/util';
 import { MARKS, TILE_M } from './textures';
 import type { CityMaterials } from './materials';
 import { CURB_H, StreetSurface, WALK_W, inRiver } from './streetGround';
+import type { Junction } from './streetGround';
 import { mainlandTerrain } from './mainland';
-import type { RoadEdge, RoadNode } from './plan';
+import type { RoadEdge } from './plan';
 
-const PAINT = 0xefe9da, YEL = 0xe0b13a, STONE = 0xd6cfbe, CONC = 0xc4bdab, DARK = 0x16181a;
+const PAINT = 0xefe9da, YEL = 0xe0b13a, STONE = 0xd6cfbe, CONC = 0xc4bdab, DARK = 0x16181a, STEEL = 0xa7acb0, APRON = 0xc9a892;
 type V = [number, number, number];
 const UP: V = [0, 1, 0], DOWN: V = [0, -1, 0];
 
-interface Smp { e?: RoadEdge; s: number; x: number; z: number; rx: number; rz: number; dx: number; dz: number; lift: number }
+interface Smp { e?: RoadEdge; j?: Junction; s: number; x: number; z: number; rx: number; rz: number; dx: number; dz: number; lift: number }
 
 /** Batches the caller turns into meshes: one per material. */
 export interface StreetBatches {
@@ -53,6 +54,14 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
     grass: new Batch(), curb: new Batch(), concrete: new Batch(), lamps: [],
   };
   const tm = MARKS.tileM;
+  /** Phones (the governor's lean preset) get the plain versions: no rail posts or backs, no signs, coarser rings. */
+  const simple = mats.quality.lean === true;
+  const wu = (p: V, t: number): [number, number] => [p[0] / t, p[2] / t];
+  /** An upward quad a-b-c-d with world-space UVs (the asphalt and sidewalk textures tile by position, so pieces join without a seam). */
+  const wquad = (b: Batch, a: V, bb: V, c: V, d: V, t: number): void => {
+    triUV(b, a, bb, c, 0xffffff, wu(a, t), wu(bb, t), wu(c, t));
+    triUV(b, a, c, d, 0xffffff, wu(a, t), wu(c, t), wu(d, t));
+  };
   const R = {
     line: mats.tex.marks.rect('line'), solid: mats.tex.marks.rect('solid'), cross: mats.tex.marks.rect('crosswalk'),
     stop: mats.tex.marks.rect('stopline'), arrow: mats.tex.marks.rect('arrow'), manhole: mats.tex.marks.rect('manhole'),
@@ -75,7 +84,8 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
       const ax = dx + ox, az = dz + oz, al = Math.hypot(ax, az);
       if (al > 1e-3) { const nx = ax / al, nz = az / al; m = 1 / Math.max(0.55, nx * dx + nz * dz); dx = nx; dz = nz; }
     }
-    return { e: e.kind === 'ramp' ? e : undefined, s, x, z, rx: -dz * m, rz: dx * m, dx, dz, lift: S.liftAt(e, s) };
+    const j = s < S.mouth(e, false) - 0.01 ? S.juncs.get(e.a) : s > e.len - S.mouth(e, true) + 0.01 ? S.juncs.get(e.b) : undefined;
+    return { e: e.kind === 'ramp' ? e : undefined, j, s, x, z, rx: -dz * m, rz: dx * m, dx, dz, lift: S.liftAt(e, s) };
   };
   const samples = (e: RoadEdge, s0: number, s1: number, step = 6): Smp[] => {
     const cum = e.cum ?? [0, e.len];
@@ -93,7 +103,7 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
   };
   const P = (m: Smp, t: number, dy: number): V => {
     const x = m.x + m.rx * t, z = m.z + m.rz * t;
-    return [x, S.flat(x, z) + (m.e ? S.surfLift(m.e, m.s, x, z) : m.lift) + dy, z];
+    return [x, S.flat(x, z) + (m.j ? S.juncH(m.j, x, z) : m.e ? S.surfLift(m.e, m.s, x, z) : m.lift) + dy, z];
   };
   /** A floor band from t0 to t1 (u across from u0 to u1, v along at s / vt). */
   const band = (b: Batch, sm: Smp[], t0: number, t1: number, dy: number, hex: number, u0: number, u1: number, vt: number, want = UP): void => {
@@ -103,13 +113,15 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
     }
   };
   /** A painted line along the road at t (width w), solid or dashed. */
-  const line = (e: RoadEdge, s0: number, s1: number, t: number, w: number, hex: number, dash: boolean, dy = 0.03): void => {
+  const line = (e: RoadEdge, s0: number, s1: number, t: number, w: number, hex: number, dash: boolean, dy = 0.03, skip?: (x: number, z: number) => boolean): void => {
+    if (s1 - s0 < 0.3) return;
     const runs: [number, number][] = [];
     if (dash) for (let s = s0 + 1; s + 3 <= s1; s += 9) runs.push([s, s + 3]); else runs.push([s0, s1]);
     for (const [a, c] of runs) {
-      const sm = samples(e, a, c, 6);
+      const sm = samples(e, a, c, skip ? 2.5 : 6);
       for (let i = 0; i + 1 < sm.length; i++) {
         const m = sm[i], n = sm[i + 1], r = dash ? R.line : R.solid;
+        if (skip && (skip(m.x + m.rx * t, m.z + m.rz * t) || skip(n.x + n.rx * t, n.z + n.rz * t))) continue;
         quad(B.marks, P(m, t - w / 2, dy), P(n, t - w / 2, dy), P(n, t + w / 2, dy), P(m, t + w / 2, dy), hex, m.s / tm, r.v0, n.s / tm, r.v1, UP);
       }
     }
@@ -123,7 +135,7 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
     }
   };
   /** A low wall (barrier or parapet) as a box along the road from t0 to t1, top `h` above the road; collision too. */
-  const rail = (sm0: Smp[], t0: number, t1: number, h: number, bot: (m: Smp, p: V) => number, hard: boolean, e?: RoadEdge): void => {
+  const rail = (sm0: Smp[], t0: number, t1: number, h: number, bot: (m: Smp, p: V) => number, hard: boolean, e?: RoadEdge, steel = false): void => {
     // Broken wherever it would stand on another road (a ramp merging, a junction): drawn in the runs between.
     if (e) {
       const tc = (t0 + t1) / 2;
@@ -136,15 +148,26 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
     }
     const sm = sm0;
     const top = (m: Smp, p: V): number => p[1] + h;
-    wall(B.concrete, sm, t0, bot, top, -1, CONC, 0.8);
-    wall(B.concrete, sm, t1, bot, top, 1, CONC, 0.9);
-    band(B.concrete, sm, t0, t1, h, CONC, 0, 1, 1);
+    if (steel) {
+      // A W-beam guard rail: the beam's faces and top, a post every other sample.
+      const side = Math.abs(t0) < Math.abs(t1) ? -1 : 1, tin = side < 0 ? t0 : t1, tout = side < 0 ? t1 : t0;
+      wall(B.curb, sm, tin, bot, top, Math.sign(tin) * -1, STEEL, 0.95);
+      band(B.curb, sm, t0, t1, h, STEEL, 0, 1, 1);
+      if (!simple) {
+        wall(B.curb, sm, tout, bot, top, Math.sign(tin), STEEL, 0.7);
+        for (let i = 0; i < sm.length; i += 2) { const p = P(sm[i], (t0 + t1) / 2, 0); B.curb.box(p[0], p[1] - 0.1, p[2], 0.13, bot(sm[i], p) - p[1] + 0.12, 0.16, 0x7b8084, Math.atan2(sm[i].dx, sm[i].dz), 4, 0.8); }
+      }
+    } else {
+      wall(B.concrete, sm, t0, bot, top, -1, CONC, 0.8);
+      wall(B.concrete, sm, t1, bot, top, 1, CONC, 0.9);
+      band(B.concrete, sm, t0, t1, h, CONC, 0, 1, 1);
+    }
     if (!hard) return;
     const tc = (t0 + t1) / 2, sz = Math.max(0.5, t1 - t0);
     for (let i = 0; i + 1 < sm.length; i++) {
       const m = sm[i], n = sm[i + 1], L = n.s - m.s, k = Math.max(1, Math.ceil(L / 1.4));
       for (let j = 0; j < k; j++) {
-        const f = (j + 0.5) / k, x = m.x + (n.x - m.x) * f + m.rx * tc, z = m.z + (n.z - m.z) * f + m.rz * tc;
+        const f = (j + 0.5) / k, x = m.x + (n.x - m.x) * f + (m.rx + (n.rx - m.rx) * f) * tc, z = m.z + (n.z - m.z) * f + (m.rz + (n.rz - m.rz) * f) * tc;
         const y = S.flat(x, z) + m.lift + (n.lift - m.lift) * f;
         col.addBoxC(x, z, sz + 0.5, sz + 0.5, y + h, bot(m, [x, y, z]) - 0.3);
       }
@@ -190,15 +213,33 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
       const m = fine[i], n = fine[i + 1], fn = free(n);
       const all = [...fm, ...fn].sort((p, q) => p[0] - q[0]), merged: [number, number][] = [];
       for (const r of all) { const l = merged[merged.length - 1]; if (l && r[0] <= l[1] + 0.01) l[1] = Math.max(l[1], r[1]); else merged.push([r[0], r[1]]); }
-      for (const [a, c] of merged) quad(b, P(m, a, 0.02), P(m, c, 0.02), P(n, c, 0.02), P(n, a, 0.02), hex, U(a), m.s / vt, U(c), n.s / vt, UP);
+      for (const [a, c] of merged) {
+        if (b === B.asphalt) wquad(b, P(m, a, 0.02), P(m, c, 0.02), P(n, c, 0.02), P(n, a, 0.02), TILE_M.asphalt);
+        else quad(b, P(m, a, 0.02), P(m, c, 0.02), P(n, c, 0.02), P(n, a, 0.02), hex, U(a), m.s / vt, U(c), n.s / vt, UP);
+      }
       fm = fn;
     }
   };
 
   for (const e of S.edges) {
-    const t0 = S.trim(e, false), t1 = S.end(e) < e.len ? S.end(e) : e.len - S.trim(e, true);
+    const t0 = S.mouth(e, false), t1 = S.end(e) < e.len ? S.end(e) : e.len - S.mouth(e, true);
     if (t1 - t0 < 0.5) continue;
-    const sm = samples(e, Math.max(0, t0 - 0.6), Math.min(S.end(e), t1 + 0.6), 6);
+    const sm = samples(e, t0, t1, 6);
+    // Where the road runs straight on through a node (a join, the Thruway past a ramp) its paint and median carry through.
+    // Elsewhere it runs to the junction's rim as the crosswalks and stop lines expect, not just to the kerb returns' ends.
+    const whole = S.end(e) >= e.len;
+    const l0 = S.through(e, false) ? 0 : Math.min(t0, S.trim(e, false)), l1 = !whole ? t1 : S.through(e, true) ? e.len : Math.max(t1, e.len - S.trim(e, true));
+    const ja = S.juncs.get(e.a), jb = S.juncs.get(e.b);
+    const onArm = (x: number, z: number): boolean => {
+      for (const j of [ja, jb]) if (j && (x - j.n.x) ** 2 + (z - j.n.z) ** 2 < j.r * j.r) for (const a of j.arms) if (a.e !== e && g.project(a.e, x, z).d < a.hw + 0.4) return true;
+      return false;
+    };
+    /** A line the whole way; `edge` lines stop where another road's lanes join in the through stretch. */
+    const through = (t: number, w: number, hex: number, dash: boolean, edge: boolean): void => {
+      void edge;
+      if (dash) { line(e, t0 + 2, t1 - 2, t, w, hex, true); if (S.through(e, false)) line(e, l0 + 0.5, t0 + 2, t, w, hex, true); if (whole && S.through(e, true)) line(e, t1 - 2, l1 - 0.5, t, w, hex, true); return; }
+      line(e, l0, t0, t, w, hex, false, 0.03, onArm); line(e, t0, t1, t, w, hex, false); line(e, t1, l1, t, w, hex, false, 0.03, onArm);
+    };
     const hw = e.hw, plain = e.divided || e.oneWay || e.kind === 'highway' || e.kind === 'ramp';
     // A house street carries no paint: the double yellow and the edge lines are for the roads that go somewhere.
     const bare = !plain && e.kind === 'local' && e.lanes < 2;
@@ -210,15 +251,16 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
       const hwy = e.kind === 'highway', mh = hwy ? 0.45 : 1.0, lw = hwy ? 3.6 : 3.4, inner = mh + 0.35;
       const outer = Math.min(inner + lw * e.lanes, hw - 0.5);
       for (const sg of [-1, 1]) {
-        line(e, t0, t1, sg * inner, 0.15, YEL, false);
-        for (let k = 1; k < e.lanes; k++) line(e, t0 + 2, t1 - 2, sg * (inner + lw * k), 0.13, PAINT, true);
-        line(e, t0, t1, sg * outer, 0.15, PAINT, false);
+        through(sg * inner, 0.15, YEL, false, false);
+        for (let k = 1; k < e.lanes; k++) through(sg * (inner + lw * k), 0.13, PAINT, true, false);
+        through(sg * outer, 0.15, PAINT, false, true);
       }
       // The median: the Thruway's concrete barrier, a curbed strip of grass on the boulevards.
-      const m0 = t0 + (hwy ? 2 : 7), m1 = t1 - (hwy ? 2 : 7);
-      if (m1 - m0 > 4) {
+      const join = (atB: boolean): boolean => S.through(e, atB) && (atB ? jb : ja)?.arms.length === 2;
+      const m0 = join(false) ? 0 : Math.min(t0, S.trim(e, false)) + (hwy ? 2 : 7), m1 = !whole ? t1 - 7 : join(true) ? e.len : Math.max(t1, e.len - S.trim(e, true)) - (hwy ? 2 : 7);
+      if (m1 - m0 > (hwy ? 4 : 14)) {
         const mm = samples(e, m0, m1, 5);
-        if (hwy) rail(mm, -0.3, 0.3, 0.85, (_m, p) => p[1] - 0.1, true, e);
+        if (hwy) rail(mm, -0.3, 0.3, 0.85, (_m, p) => p[1] - 0.1, true);
         else {
           // Over the river the strip is concrete (a bridge has no soil for grass).
           const over = (m: Smp): boolean => inRiver(m.x, m.z, 30) && mainlandTerrain(m.x, m.z) < S.flat(m.x, m.z) - 1.0;
@@ -240,10 +282,10 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
       }
     } else if (plain) {
       // One-way: edge lines (yellow on the left), lane lines, and an arrow every forty-odd metres.
-      line(e, t0, t1, -(hw - 0.45), 0.15, YEL, false);
-      line(e, t0, t1, hw - 0.45, 0.15, PAINT, false);
+      through(-(hw - 0.45), 0.15, YEL, false, true);
+      through(hw - 0.45, 0.15, PAINT, false, true);
       const lw = (2 * hw - 0.9) / Math.max(1, e.lanes);
-      for (let k = 1; k < e.lanes; k++) line(e, t0 + 2, t1 - 2, -(hw - 0.45) + lw * k, 0.13, PAINT, true);
+      for (let k = 1; k < e.lanes; k++) through(-(hw - 0.45) + lw * k, 0.13, PAINT, true, false);
       for (let s = t0 + 12; s + 4 < t1 - 8; s += 44) {
         for (let k = 0; k < Math.max(1, e.lanes); k++) {
           const tc = -(hw - 0.45) + lw * (k + 0.5), m = sampleAt(e, s), n = sampleAt(e, s + 3.4);
@@ -255,13 +297,31 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
     // Sidewalks with their curbs, both sides; lamps along them.
     if (S.walks(e)) {
       const w0 = t0, w1 = t1;
-      const ws = samples(e, w0, w1, 6);
       const T = TILE_M.sidewalk;
+      // Not where another road's asphalt lies (a street merging at a shallow angle, the next junction's corner): the strip stops and starts again.
+      const paved = (m: Smp, t: number): boolean => { const x = m.x + m.rx * t, z = m.z + m.rz * t, pr = S.probe(x, z); return pr.kind === 'road' && pr.h < S.flat(x, z) + m.lift + 1; };
       for (const sg of [-1, 1]) {
         const a = sg * hw, c = sg * (hw + WALK_W);
-        band(B.sidewalk, ws, Math.min(a, c), Math.max(a, c), CURB_H, 0xffffff, Math.min(a, c) / T, Math.max(a, c) / T, T);
-        wall(B.curb, ws, a, (_m, p) => p[1] - 0.05, (_m, p) => p[1] + CURB_H, -sg, STONE, 0.78);
-        wall(B.curb, ws, c, (_m, p) => Math.min(p[1] - 0.25, mainlandTerrain(p[0], p[2]) - 0.1), (_m, p) => p[1] + CURB_H, sg, STONE, 0.7);
+        const free = (m: Smp): boolean => !paved(m, sg * (hw + 0.4)) && !paved(m, sg * (hw + WALK_W - 0.4)) && !paved(m, sg * (hw + WALK_W / 2));
+        const base = samples(e, w0, w1, 6), ws: Smp[] = [], ok: boolean[] = [];
+        for (let i = 0; i < base.length; i++) {
+          ws.push(base[i]); ok.push(free(base[i]));
+          if (i + 1 < base.length && base[i + 1].s - base[i].s > 1.6 && (!ok[ok.length - 1] || !free(base[i + 1]))) {
+            const k = Math.ceil((base[i + 1].s - base[i].s) / 1.5);
+            for (let q = 1; q < k; q++) { const m = sampleAt(e, base[i].s + ((base[i + 1].s - base[i].s) * q) / k); ws.push(m); ok.push(free(m)); }
+          }
+        }
+        let run: Smp[] = [];
+        const flushW = (): void => {
+          if (run.length >= 2) {
+            for (let i = 0; i + 1 < run.length; i++) wquad(B.sidewalk, P(run[i], a, CURB_H), P(run[i], c, CURB_H), P(run[i + 1], c, CURB_H), P(run[i + 1], a, CURB_H), T);
+            wall(B.curb, run, a, (_m, p) => p[1] - 0.05, (_m, p) => p[1] + CURB_H, -sg, STONE, 0.78);
+            wall(B.curb, run, c, (_m, p) => Math.min(p[1] - 0.25, mainlandTerrain(p[0], p[2]) - 0.1), (_m, p) => p[1] + CURB_H, sg, STONE, 0.7);
+          }
+          run = [];
+        };
+        for (let i = 0; i < ws.length; i++) { if (ok[i]) run.push(ws[i]); else flushW(); }
+        flushW();
       }
       for (let s = w0 + 8, k = e.id; s < w1 - 8; s += 34, k++) {
         const m = sampleAt(e, s), sg = k % 2 ? 1 : -1, off = sg * (hw + 0.65);
@@ -275,84 +335,180 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
 
   // ── Junctions ──────────────────────────────────────────────────────────────
 
-  const out = (e: RoadEdge, n: RoadNode): { m: Smp; ox: number; oz: number; s: number } => {
-    const atB = e.b === n.id && !(e.a === n.id), s = atB ? e.len - S.trim(e, true) : S.trim(e, false), m = sampleAt(e, clamp(s, 0, e.len));
-    return { m, ox: atB ? -m.dx : m.dx, oz: atB ? -m.dz : m.dz, s };
-  };
-  const wu = (p: V, t: number): [number, number] => [p[0] / t, p[2] / t];
+  const JP = (j: Junction, x: number, z: number, dy: number): V => [x, S.flat(x, z) + S.juncH(j, x, z) + dy, z];
+  const TA = TILE_M.asphalt, TW = TILE_M.sidewalk;
   for (const n of S.nodes) {
     if (n.edges.length === 0) continue;
-    const r = S.padR(n), N = 28;
+    const r = S.padR(n), j = S.juncs.get(n.id);
+    const rb = n.control === 'roundabout', N = simple ? 16 : 28;
     const ring = (rad: number, dy: number, k: number): V => {
       const a = (k / N) * Math.PI * 2, x = n.x + Math.cos(a) * rad, z = n.z + Math.sin(a) * rad;
       return [x, S.flat(x, z) + S.padH(n, x, z) + dy, z];
     };
-    const T = TILE_M.asphalt;
-    if (n.control === 'roundabout') {
-      const ri = S.islandR(n);
+    if (!j) {
+      // A dead end: a round end to the road.
+      const c0 = ring(0, 0.025, 0);
+      for (let k = 0; k < N; k++) { const a = ring(r, 0.025, k), b = ring(r, 0.025, k + 1); triUV(B.asphalt, c0, a, b, 0xffffff, wu(c0, TA), wu(a, TA), wu(b, TA)); }
+      continue;
+    }
+    // The asphalt: one polygon out to every arm's mouth, a fan from the node (from the island's edge on a roundabout), in rings
+    // where the ground under it is not one plane (a pad on a grade, the hill).
+    const p = j.poly, L = p.length / 2, ri = rb ? S.islandR(n) : 0;
+    const at = (x: number, z: number, f: number): V => {
+      const d = Math.hypot(x - n.x, z - n.z) || 1, g0 = Math.min(1, ri / d), k = g0 + (1 - g0) * f;
+      return JP(j, n.x + (x - n.x) * k, n.z + (z - n.z) * k, 0.025);
+    };
+    let rings = rb ? 2 : 1;
+    if (!rb) {
+      const o = at(n.x, n.z, 0);
+      for (let i = 0; i < L && rings === 1; i++) {
+        const q = at(p[2 * i], p[2 * i + 1], 1), mid = at(p[2 * i], p[2 * i + 1], 0.5);
+        if (Math.abs(mid[1] - (o[1] + q[1]) / 2) > 0.02) rings = 3;
+      }
+    }
+    for (let i = 0; i < L; i++) {
+      const ax = p[2 * i], az = p[2 * i + 1], bx = p[(2 * i + 2) % (2 * L)], bz = p[(2 * i + 3) % (2 * L)];
+      const sl = Math.hypot(bx - ax, bz - az);
+      if (sl < 0.02) continue;
+      const segs = rings > 1 ? Math.max(1, Math.ceil(sl / 4)) : 1;
+      for (let q = 0; q < segs; q++) {
+        const x0 = ax + ((bx - ax) * q) / segs, z0 = az + ((bz - az) * q) / segs, x1 = ax + ((bx - ax) * (q + 1)) / segs, z1 = az + ((bz - az) * (q + 1)) / segs;
+        for (let k = 0; k < rings; k++) {
+          const a0 = at(x0, z0, k / rings), b0 = at(x1, z1, k / rings), a1 = at(x0, z0, (k + 1) / rings), b1 = at(x1, z1, (k + 1) / rings);
+          if (k === 0 && !rb) triUV(B.asphalt, a0, a1, b1, 0xffffff, wu(a0, TA), wu(a1, TA), wu(b1, TA));
+          else wquad(B.asphalt, a0, a1, b1, b0, TA);
+        }
+      }
+    }
+    // The corners: the sidewalk wraps round each kerb return, with its kerb face and the wall at its back.
+    for (const co of j.strips) {
+      const K = co.kerb, Bk = co.back;
+      for (let i = 0; i + 3 < K.length; i += 2) {
+        const k0 = JP(j, K[i], K[i + 1], CURB_H), k1 = JP(j, K[i + 2], K[i + 3], CURB_H), b0 = JP(j, Bk[i], Bk[i + 1], CURB_H), b1 = JP(j, Bk[i + 2], Bk[i + 3], CURB_H);
+        const kl = Math.hypot(k1[0] - k0[0], k1[2] - k0[2]), bl = Math.hypot(b1[0] - b0[0], b1[2] - b0[2]);
+        if (kl < 0.02 && bl < 0.02) continue;
+        triUV(B.sidewalk, k0, b0, b1, 0xffffff, wu(k0, TW), wu(b0, TW), wu(b1, TW));
+        triUV(B.sidewalk, k0, b1, k1, 0xffffff, wu(k0, TW), wu(b1, TW), wu(k1, TW));
+        const mx = (k0[0] + k1[0]) / 2, mz = (k0[2] + k1[2]) / 2, ox = (b0[0] + b1[0]) / 2 - mx, oz = (b0[2] + b1[2]) / 2 - mz;
+        if (kl > 0.02) quad(B.curb, [k0[0], k0[1] - CURB_H - 0.05, k0[2]], [k1[0], k1[1] - CURB_H - 0.05, k1[2]], k1, k0, STONE, 0, 0, 1, 1, [-ox, 0, -oz], 0.78);
+        if (bl > 0.02) {
+          const lo0 = Math.min(b0[1] - CURB_H - 0.25, mainlandTerrain(b0[0], b0[2]) - 0.1), lo1 = Math.min(b1[1] - CURB_H - 0.25, mainlandTerrain(b1[0], b1[2]) - 0.1);
+          quad(B.curb, [b0[0], lo0, b0[2]], [b1[0], lo1, b1[2]], b1, b0, STONE, 0, 0, 1, 1, [ox, 0, oz], 0.7);
+        }
+      }
+    }
+    if (rb) {
+      // The island: a kerb, grass rising to a low mound, a truck apron round it and its edge line.
+      const rr = S.islandRings(n), top = (rad: number, k: number): V => ring(rad, S.islandH(n, rad), k);
       for (let k = 0; k < N; k++) {
-        const a = ring(ri, 0.03, k), b = ring(ri, 0.03, k + 1), c = ring(r, 0.03, k + 1), d = ring(r, 0.03, k);
-        triUV(B.asphalt, a, b, c, 0xffffff, wu(a, T), wu(b, T), wu(c, T));
-        triUV(B.asphalt, a, c, d, 0xffffff, wu(a, T), wu(c, T), wu(d, T));
-        // The island: a curb ring and a grass top.
-        const ia = ring(ri, 0, k), ib = ring(ri, 0, k + 1), top = 2 * CURB_H;
-        quad(B.curb, ia, ib, [ib[0], ib[1] + top, ib[2]], [ia[0], ia[1] + top, ia[2]], STONE, 0, 0, 1, 1, [ia[0] - n.x, 0, ia[2] - n.z], 0.8);
-        const ca = ring(0, top, 0), ga = ring(ri, top, k), gb = ring(ri, top, k + 1);
-        triUV(B.grass, ca, ga, gb, 0xffffff, wu(ca, TILE_M.grass), wu(ga, TILE_M.grass), wu(gb, TILE_M.grass));
-        // Lines: the island's edge, and a dashed give-way line round the outside.
-        const la = ring(ri + 0.35, 0.05, k), lb = ring(ri + 0.35, 0.05, k + 1), lc = ring(ri + 0.5, 0.05, k + 1), ld = ring(ri + 0.5, 0.05, k);
-        quad(B.marks, la, lb, lc, ld, PAINT, 0, R.solid.v0, 0.1, R.solid.v1, UP);
+        const ia = ring(ri, 0, k), ib = ring(ri, 0, k + 1), ta = top(ri, k), tb = top(ri, k + 1);
+        quad(B.curb, ia, ib, tb, ta, STONE, 0, 0, 1, 1, [ia[0] - n.x, 0, ia[2] - n.z], 0.8);
+        for (let q = 0; q + 1 < rr.length; q++) {
+          const a0 = top(rr[q], k), b0 = top(rr[q], k + 1), a1 = top(rr[q + 1], k), b1 = top(rr[q + 1], k + 1);
+          if (q === 0) triUV(B.grass, a0, a1, b1, 0xffffff, wu(a0, TILE_M.grass), wu(a1, TILE_M.grass), wu(b1, TILE_M.grass));
+          else wquad(B.grass, a0, a1, b1, b0, TILE_M.grass);
+        }
+        const w = Math.min(1.6, (r - ri) * 0.2);
+        quad(B.concrete, ring(ri, 0.04, k), ring(ri, 0.04, k + 1), ring(ri + w, 0.04, k + 1), ring(ri + w, 0.04, k), APRON, 0, 0, 1, 1, UP);
+        quad(B.marks, ring(ri + w, 0.05, k), ring(ri + w, 0.05, k + 1), ring(ri + w + 0.15, 0.05, k + 1), ring(ri + w + 0.15, 0.05, k), PAINT, 0, R.solid.v0, 0.1, R.solid.v1, UP);
+        quad(B.marks, ring(r - 0.55, 0.05, k), ring(r - 0.55, 0.05, k + 1), ring(r - 0.4, 0.05, k + 1), ring(r - 0.4, 0.05, k), PAINT, 0, R.solid.v0, 0.1, R.solid.v1, UP);
+      }
+      for (const a of j.arms) {
+        // A give-way line of blocks across each way in, and a chevron board on the island facing it.
+        const e = a.e, dir = a.atB ? -1 : 1, s = a.atB ? e.len - a.m : a.m, hw = e.hw;
+        if (!(e.oneWay && !a.atB)) {
+          const lo = e.oneWay ? -hw + 0.4 : a.atB ? (e.divided ? 1.1 : 0.2) : -hw + 0.4, hi = e.oneWay ? hw - 0.4 : a.atB ? hw - 0.4 : e.divided ? -1.1 : -0.2;
+          const m = sampleAt(e, Math.min(s + dir * 0.4, s + dir * 0.9)), k = sampleAt(e, Math.max(s + dir * 0.4, s + dir * 0.9));
+          for (let t = lo; t + 0.6 <= hi; t += 1.1) quad(B.marks, P(m, t, 0.045), P(k, t, 0.045), P(k, t + 0.6, 0.045), P(m, t + 0.6, 0.045), PAINT, 0, R.solid.v0, 0.1, R.solid.v1, UP);
+        }
+        if (simple) continue;
+        const cx = n.x + a.ox * (ri - 1.3), cz = n.z + a.oz * (ri - 1.3), y = S.flat(cx, cz) + S.padH(n, cx, cz) + S.islandH(n, ri - 1.3);
+        const rx = a.oz, rz = -a.ox, W = 1.5, fx = cx + a.ox * 0.06, fz = cz + a.oz * 0.06;
+        const bp = (u: number, v: number, f = 0): V => [(f ? fx : cx) + rx * u, y + v, (f ? fz : cz) + rz * u];
+        quad(B.curb, bp(-W, 0.75), bp(W, 0.75), bp(W, 1.45), bp(-W, 1.45), 0x1b1c1e, 0, 0, 1, 1, [a.ox, 0, a.oz], 1);
+        quad(B.curb, bp(-W, 0.75), bp(W, 0.75), bp(W, 1.45), bp(-W, 1.45), 0x55595c, 0, 0, 1, 1, [-a.ox, 0, -a.oz], 0.8);
+        for (const u of [-W + 0.15, W - 0.15]) B.curb.box(cx + rx * u, y - 0.2, cz + rz * u, 0.1, 0.95, 0.1, 0x7b8084, 0, 4, 0.8);
+        for (let q = 0; q < 4; q++) {
+          const u0 = -W + 0.2 + q * 0.7, d = 0.3, t = 0.26;
+          quad(B.curb, bp(u0, 1.38, 1), bp(u0 + t, 1.38, 1), bp(u0 + d + t, 1.1, 1), bp(u0 + d, 1.1, 1), YEL, 0, 0, 1, 1, [a.ox, 0, a.oz], 1);
+          quad(B.curb, bp(u0 + d, 1.1, 1), bp(u0 + d + t, 1.1, 1), bp(u0 + t, 0.82, 1), bp(u0, 0.82, 1), YEL, 0, 0, 1, 1, [a.ox, 0, a.oz], 1);
+        }
       }
       continue;
     }
-    // A plain pad (a disc) under the junction, a manhole now and then.
-    const c0 = ring(0, 0.025, 0);
-    for (let k = 0; k < N; k++) {
-      const a = ring(r, 0.025, k), b = ring(r, 0.025, k + 1);
-      triUV(B.asphalt, c0, a, b, 0xffffff, wu(c0, T), wu(a, T), wu(b, T));
-    }
-    if (n.edges.length >= 3 && n.id % 3 === 0) {
-      const mx = n.x + r * 0.3, mz = n.z - r * 0.2, y = S.flat(mx, mz) + S.padH(n, mx, mz) + 0.04;
+    if (j.arms.length >= 3 && n.id % 3 === 0) {
+      const mx = n.x + r * 0.3, mz = n.z - r * 0.2, y = JP(j, mx, mz, 0.04)[1];
       quad(B.marks, [mx - 0.5, y, mz - 0.5], [mx + 0.5, y, mz - 0.5], [mx + 0.5, y, mz + 0.5], [mx - 0.5, y, mz + 0.5], 0xffffff, R.manhole.u0, R.manhole.v0, R.manhole.u1, R.manhole.v1, UP);
     }
-    if (n.edges.length < 2) continue;
-    const ends = n.edges.map((id) => g.edges[id]).filter((e) => S.edges.includes(e)).map((e) => ({ e, ...out(e, n), ang: 0 }));
-    for (const q of ends) q.ang = Math.atan2(q.oz, q.ox);
-    ends.sort((a, b) => a.ang - b.ang);
-    // Corners between neighbouring sidewalks, and crosswalks / stop lines on each street into a controlled junction.
-    for (let i = 0; i < ends.length; i++) {
-      const A = ends[i], C = ends[(i + 1) % ends.length];
-      if (ends.length < 2 || A === C) break;
-      let gap = C.ang - A.ang;
-      if (gap <= 0) gap += Math.PI * 2;
-      if (!S.walks(A.e) || !S.walks(C.e) || gap > (200 * Math.PI) / 180) continue;
-      // Each road's kerb on the side facing into the gap: by the gap's bisector (the other road's direction is no guide when the gap is a straight 180 degrees, a T's far side, and put a raised strip across a side road's mouth).
-      const bx = Math.cos(A.ang + gap / 2), bz = Math.sin(A.ang + gap / 2);
-      const sa = A.m.rx * bx + A.m.rz * bz > 0 ? 1 : -1, sc = C.m.rx * bx + C.m.rz * bz > 0 ? 1 : -1;
-      const KA = P(A.m, sa * A.e.hw, CURB_H), OA = P(A.m, sa * (A.e.hw + WALK_W), CURB_H);
-      const KC = P(C.m, sc * C.e.hw, CURB_H), OC = P(C.m, sc * (C.e.hw + WALK_W), CURB_H);
-      if (Math.hypot(KA[0] - KC[0], KA[2] - KC[2]) > 40) continue;
-      const Tw = TILE_M.sidewalk;
-      triUV(B.sidewalk, KA, OA, OC, 0xffffff, wu(KA, Tw), wu(OA, Tw), wu(OC, Tw));
-      triUV(B.sidewalk, KA, OC, KC, 0xffffff, wu(KA, Tw), wu(OC, Tw), wu(KC, Tw));
-      const kb: V = [KA[0], KA[1] - CURB_H - 0.05, KA[2]], kd: V = [KC[0], KC[1] - CURB_H - 0.05, KC[2]];
-      quad(B.curb, kb, kd, KC, KA, STONE, 0, 0, 1, 1, [n.x - (KA[0] + KC[0]) / 2, 0, n.z - (KA[2] + KC[2]) / 2], 0.78);
-    }
     if (n.control !== 'signal' && n.control !== 'stop') continue;
-    for (const q of ends) {
-      const e = q.e;
-      if (!S.walks(e)) continue;
-      const atB = e.b === n.id, dir = atB ? -1 : 1, hw = e.hw;
+    // Crosswalks and stop lines, where the traffic and the signals expect them (a fixed distance back from the node).
+    const partner = (a: typeof j.arms[0]): boolean => j.arms.some((b) => b !== a && (b.e.road ?? b.e.name) === (a.e.road ?? a.e.name) && a.ox * b.ox + a.oz * b.oz < -0.8);
+    const minor = j.arms.some((a) => !partner(a));
+    for (const a of j.arms) {
+      const e = a.e, atB = a.atB, dir = atB ? -1 : 1, hw = e.hw, s = atB ? e.len - a.t : a.t;
+      if (!a.wk || e.len - a.t - S.trim(e, !atB) < 9) continue;
       if (n.control === 'signal') {
-        const s0 = q.s, s1 = q.s + dir * 3;
-        const m = sampleAt(e, Math.min(s0, s1)), k = sampleAt(e, Math.max(s0, s1));
-        quad(B.marks, P(m, -hw, 0.04), P(m, hw, 0.04), P(k, hw, 0.04), P(k, -hw, 0.04), PAINT, -hw / tm, R.cross.v0, hw / tm, R.cross.v1, UP);
-      }
+        const m = sampleAt(e, Math.min(s, s + dir * 3)), k = sampleAt(e, Math.max(s, s + dir * 3)), w = hw + 0.5;
+        quad(B.marks, P(m, -w, 0.04), P(m, w, 0.04), P(k, w, 0.04), P(k, -w, 0.04), PAINT, -w / tm, R.cross.v0, w / tm, R.cross.v1, UP);
+      } else if (minor && partner(a)) continue;
       // Inbound traffic: on the left of a -> b near a, on the right near b. A one-way street only arrives at b.
       if (e.oneWay && !atB) continue;
-      const sl = q.s + dir * (n.control === 'signal' ? 3.6 : 0.8), m = sampleAt(e, Math.min(sl, sl + dir * 0.5)), k = sampleAt(e, Math.max(sl, sl + dir * 0.5));
+      const sl = s + dir * (n.control === 'signal' ? 3.6 : 0.8), m = sampleAt(e, Math.min(sl, sl + dir * 0.5)), k = sampleAt(e, Math.max(sl, sl + dir * 0.5));
       const lo = e.oneWay ? -hw + 0.3 : atB ? (e.divided ? 1.1 : 0.2) : -hw + 0.3, hi = e.oneWay ? hw - 0.3 : atB ? hw - 0.3 : e.divided ? -1.1 : -0.2;
       quad(B.marks, P(m, lo, 0.04), P(k, lo, 0.04), P(k, hi, 0.04), P(m, hi, 0.04), PAINT, 0, R.stop.v0, (hi - lo) / tm, R.stop.v1, UP);
+    }
+  }
+
+  // ── Gores ──────────────────────────────────────────────────────────────────
+
+  // Where a ramp parts from the Thruway at the Thruway's own height, the wedge between their edge lines is hatched with chevron
+  // bars and paved out to the nose (each road's own strip stops at its width).
+  const hwys = S.edges.filter((e) => e.kind === 'highway');
+  const lineT = (e: RoadEdge): number => (e.divided ? Math.min(0.8 + 3.6 * e.lanes, e.hw - 0.5) : e.hw - 0.45);
+  for (const e of S.edges) {
+    if (e.kind !== 'ramp') continue;
+    let prev: [V, V] | null = null, k = 0;
+    for (let s = 1; s < e.len - 1; s += 1.1, k++) {
+      const m = sampleAt(e, s);
+      let best: { o: RoadEdge; s: number; d: number } | null = null;
+      for (const o of hwys) { const pr = g.project(o, m.x, m.z); if (pr.s > 0.5 && pr.s < o.len - 0.5 && pr.d < o.hw + e.hw + 3 && (!best || pr.d < best.d)) best = { o, s: pr.s, d: pr.d }; }
+      if (!best) { prev = null; continue; }
+      const o = best.o, mo = sampleAt(o, best.s);
+      // The ramp's side toward the Thruway, the Thruway's side toward the ramp.
+      const sr = (mo.x - m.x) * m.rx + (mo.z - m.z) * m.rz > 0 ? 1 : -1, so = (m.x - mo.x) * mo.rx + (m.z - mo.z) * mo.rz > 0 ? 1 : -1;
+      const pa = P(m, sr * (e.hw - 0.45), 0.045), pr = g.project(o, pa[0], pa[2]);
+      const w = pr.d - lineT(o), kg = pr.d - o.hw - 0.45;
+      if (Math.abs(m.dx * mo.dx + m.dz * mo.dz) < 0.8 || w < 0.35 || kg > 1.25 || Math.abs(m.lift - S.liftAt(o, pr.s)) > 0.25 || pr.s < 2 || pr.s > o.len - 2) { prev = null; continue; }
+      const m2 = sampleAt(o, pr.s), ka = P(m, sr * (e.hw - 0.05), 0.02), kc = P(m2, so * (o.hw - 0.05), 0.02);
+      if (prev && kg > -0.1) wquad(B.asphalt, prev[0], prev[1], kc, ka, TA);
+      prev = [ka, kc];
+      if (k % 3 !== 0) continue;
+      const fwd = m.dx * mo.dx + m.dz * mo.dz > 0 ? 1 : -1, n2 = sampleAt(e, Math.min(e.len, s + 0.5)), o1 = sampleAt(o, clamp(pr.s + fwd * 1.4, 0, o.len)), o2 = sampleAt(o, clamp(pr.s + fwd * 1.9, 0, o.len));
+      quad(B.marks, pa, P(n2, sr * (e.hw - 0.45), 0.045), P(o2, so * lineT(o), 0.045), P(o1, so * lineT(o), 0.045), PAINT, 0, R.solid.v0, 0.1, R.solid.v1, UP);
+    }
+  }
+
+  // ── The Thruway's and the ramps' shoulders and guard rails ───────────────────
+
+  for (const e of S.edges) {
+    if (e.kind !== 'highway' && e.kind !== 'ramp') continue;
+    const t0 = S.mouth(e, false) + 3, t1 = e.len - S.mouth(e, true) - 3;
+    if (t1 - t0 < 8) continue;
+    const sm = samples(e, t0, t1, 4);
+    for (const sg of [-1, 1]) {
+      const ti = sg * (e.hw + 0.62), to = sg * (e.hw + 0.76);
+      // At grade only (a raised stretch has its parapets), and clear of every other road and junction.
+      const free = (m: Smp): boolean => m.lift <= 0.25 && S.clearOf(m.x + m.rx * to, m.z + m.rz * to, e, 3.5);
+      let run: Smp[] = [];
+      const flushG = (): void => {
+        if (run.length >= 3) {
+          for (let i = 0; i + 1 < run.length; i++) wquad(B.asphalt, P(run[i], sg * (e.hw - 0.05), 0.02), P(run[i], sg * (e.hw + 0.6), 0.02), P(run[i + 1], sg * (e.hw + 0.6), 0.02), P(run[i + 1], sg * (e.hw - 0.05), 0.02), TA);
+          rail(run, Math.min(ti, to), Math.max(ti, to), 0.74, (_m, q) => q[1] + 0.42, true, undefined, true);
+        }
+        run = [];
+      };
+      for (const m of sm) { if (free(m)) run.push(m); else flushG(); }
+      flushG();
     }
   }
 
@@ -372,7 +528,12 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
           // The open span: deck edge, underside and parapets; walls close the embankment either side.
           const under = (_m: Smp, p: V): number => p[1] - 1.3;
           for (const sg of [-1, 1]) rail(run, sg > 0 ? e.hw : -W, sg > 0 ? W : -e.hw, 1.0, under, true, e);
-          band(B.concrete, run, -W, W, -1.3, CONC, 0, 1, 1, DOWN);
+          band(B.concrete, run, -W, W, -1.3, 0x55534d, 0, 1, 1, DOWN);
+          // Plate girders under the deck: the span reads as a bridge from below, not as a pale slab against the sky.
+          for (const f of simple ? [] : [-0.75, -0.25, 0.25, 0.75]) {
+            for (const sd of [-1, 1]) wall(B.concrete, run, f * W + sd * 0.15, (_m, p) => p[1] - 2.1, (_m, p) => p[1] - 1.3, sd, 0x4b4f52, sd > 0 ? 0.8 : 0.65);
+            band(B.concrete, run, f * W - 0.15, f * W + 0.15, -2.1, 0x3d4043, 0, 1, 1, DOWN);
+          }
           for (const m of [run[0], run[run.length - 1]]) {
             const a = P(m, -W, 0), b = P(m, W, 0);
             const ga = mainlandTerrain(a[0], a[2]) - 0.3, gb = mainlandTerrain(b[0], b[2]) - 0.3;
