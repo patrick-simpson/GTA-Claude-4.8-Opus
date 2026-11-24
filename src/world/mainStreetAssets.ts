@@ -105,16 +105,39 @@ export function buildingMaterial(level: number, maps: BrickMaps, night: { value:
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
   if (level < 2 && maps.bc && maps.bn) { m.map = maps.bc; m.normalMap = maps.bn; m.normalScale.set(0.9, 0.9); }
   if (level === 0 && maps.ao) { maps.ao.wrapS = maps.ao.wrapT = THREE.ClampToEdgeWrapping; maps.ao.channel = 1; m.aoMap = maps.ao; }
+  // Night. Every window used to burn at one level, bright enough for the bloom to wash each shopfront to a flat cream
+  // panel. Now a shopfront (the ground floor) is lit as a room: its glow is its own painted interior, under the bloom's
+  // bar, so the stock still shows. Upstairs each room decides for itself, by where it is: four in ten have a lamp on, two
+  // more the blue of a screen, the rest are dark. The fascia over a shopfront (Main St only) takes a wash from above,
+  // as from the lamps over a sign board, so the names read at night.
+  const fascia = key === 'mainst' ? '1.0' : '0.0';
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uNight = night;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vRoom;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+      {
+        vec4 rw = vec4( transformed, 1.0 );
+        #ifdef USE_INSTANCING
+          rw = instanceMatrix * rw;
+        #endif
+        rw = modelMatrix * rw;
+        vRoom = vec2( fract( sin( dot( floor( vec3( rw.x / 3.1, transformed.y / 3.4, rw.z / 3.1 ) ), vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 ), transformed.y );
+      }`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uNight;')
+      .replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying vec2 vRoom;')
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       #ifdef USE_COLOR_ALPHA
       {
         float a = vColor.a;
         float lit = ( a > 0.01 && a < 0.99 ) ? smoothstep( 0.42, 0.5, a ) : 0.0;
-        totalEmissiveRadiance += uNight * lit * vec3( 1.0, 0.72, 0.42 ) * ( 0.35 + diffuseColor.rgb * 2.5 );
+        float shop = 1.0 - smoothstep( 3.3, 3.9, vRoom.y );
+        float room = vRoom.x < 0.4 ? 1.0 : vRoom.x < 0.6 ? 0.3 : 0.035;
+        vec3 lamp = vRoom.x < 0.4 ? vec3( 1.0, 0.72, 0.42 ) : vec3( 0.55, 0.7, 1.0 );
+        totalEmissiveRadiance += uNight * lit * mix( room, 0.9, shop ) * mix( lamp, vec3( 1.0, 0.78, 0.52 ), shop ) * ( 0.05 + diffuseColor.rgb * mix( 1.5, 1.1, shop ) );
+        // The sign band: whatever is painted there, lit from above.
+        float band = ${fascia} * smoothstep( 3.25, 3.5, vRoom.y ) * ( 1.0 - smoothstep( 4.35, 4.7, vRoom.y ) ) * step( a, 0.01 );
+        totalEmissiveRadiance += uNight * band * vec3( 1.0, 0.86, 0.66 ) * diffuseColor.rgb * 0.5;
       }
       #endif`);
   };

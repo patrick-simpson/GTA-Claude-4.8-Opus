@@ -17,6 +17,7 @@
 //   - Across the river, south of a tributary: Lesser Tepid, reached on foot only.
 
 import { smooth } from '../core/util';
+import { POND_LEVEL, pondDelta, pondNear } from './dithersPond';
 
 export interface MRect { x0: number; z0: number; x1: number; z1: number }
 
@@ -115,7 +116,15 @@ export const DAM_Z = -1570;
 export const POND_Y = 0.4;
 /** Height of the water's surface at a point on the mainland (the pond, or sea level). For swimming and sinking code to adopt. */
 export const waterLevelAt = (x: number, z: number): number =>
-  z < DAM_Z && x > 230 && x < 450 && Math.abs(x - riverX(z)) < RIVER_HW + 8 ? POND_Y : -0.8;
+  z < DAM_Z && x > 230 && x < 450 && Math.abs(x - riverX(z)) < RIVER_HW + 8 ? riverLevel(z)
+    : NEW && pondNear(x, z) < 1 ? POND_LEVEL : -0.8;
+/**
+ * The river's own surface above the dam. New streets: the land runs on north to the sea, and so does the river; over its
+ * last hundred metres the pond's level eases down to the sea's.
+ */
+export const RIVER_MOUTH = { z0: -2975, z1: -2890 };
+export const riverLevel = (z: number): number =>
+  !NEW || z >= RIVER_MOUTH.z1 ? POND_Y : -0.75 + (POND_Y + 0.75) * smooth((z - RIVER_MOUTH.z0) / (RIVER_MOUTH.z1 - RIVER_MOUTH.z0));
 /** The tributary (Sidle Brook) that cuts Lesser Tepid off from the far bank's streets: Z of its centerline at X. */
 export const tribZ = (x: number): number => -1530 + 14 * Math.sin((x - 400) / 160);
 export const TRIB_HW = 12;
@@ -217,6 +226,9 @@ export function mainlandTerrain(x: number, z: number): number {
   return mainlandTerrainRaw(x, z);
 }
 
+/** Dithers Hill before Johnson Pond's basin is cut into it (dithersPond.ts). */
+const bareHill = (x: number, z: number): number => MAIN_Y + hillAt(x, z);
+
 export function naturalTerrain(x: number, z: number): number {
   // The town itself: flat, or the hill. Nothing else reaches in here, so skip the coast's arctangent.
   if (z < -1072 && z > -2068 && ((x > -712 && x < 178) || (x > 462 && x < 588 && z < -1612))) {
@@ -229,7 +241,7 @@ export function naturalTerrain(x: number, z: number): number {
     h = sd < 40 ? -3.4 * smooth((sd + 26) / 66) : -3.4 - Math.min((sd - 40) * 0.06, 6);
   } else h = sd > -56 ? MAIN_Y * smooth((-26 - sd) / 30) : MAIN_Y;
   // New streets: the hill stands north of the flat town box above.
-  if (NEW && h >= MAIN_Y - 0.01) h += hillAt(x, z);
+  if (NEW && h >= MAIN_Y - 0.01) h += hillAt(x, z) + pondDelta(x, z, bareHill);
   if (h > -3.4) {
     const d = waterDist(x, z);
     if (d < BANK) h = Math.min(h, d <= -10 ? -3.4 : MAIN_Y - (MAIN_Y + 3.4) * smooth((BANK - d) / (BANK + 10)));

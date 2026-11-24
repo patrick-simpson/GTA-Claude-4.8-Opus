@@ -28,6 +28,8 @@ const SC = {
   strip: { land: 1, time: 13, at: [-640, -1200, 3.14] },
   north: { land: 1, time: 13, at: [100, -2450, 0] },
   hood2: { land: 1, time: 13, at: [-240, -1850, -1.86 + 3.14] },
+  campus: { land: 1, time: 13, at: [-420, -2440, 0.7] },
+  river: { land: 1, time: 13, at: [232, -1800, 1.57] },
 }[name];
 const query = ['q=' + (opt.q ?? 'high'), 'save=0', 'net=0', (typeof opt.query === 'string' && /xmas=/.test(opt.query) ? '' : 'xmas=0'), SC.land ? 'bridge=8&stage=4' : '', typeof opt.query === 'string' ? opt.query : ''].filter(Boolean).join('&');
 const server = await createServer({ root: ROOT, logLevel: 'error', clearScreen: false, optimizeDeps: { noDiscovery: true, include: [] },

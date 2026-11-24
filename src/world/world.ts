@@ -44,7 +44,8 @@ export class World implements WorldApi {
     const tex = await makeTextures(g.quality);
     this.mats = makeMaterials(tex, g.quality);
     await step(0.2, 'Pouring streets');
-    this.parts.push(buildGround(g, this.mats, this.group));
+    const ground = buildGround(g, this.mats, this.group);
+    this.parts.push(ground);
     this.boxMarks.push(g.col.allBoxes.length);
     await step(0.5, 'Raising the skyline');
     this.parts.push(buildBuildings(g, this.mats, this.group));
@@ -63,6 +64,8 @@ export class World implements WorldApi {
     this.boxMarks.push(g.col.allBoxes.length);
     // Dithers College (world/dithersCampus.ts): the campus after the real Mayflower Hill, new streets only.
     if (CAMPUS_NEW) { this.parts.push(buildDithersCampus(g, this.mats, this.group)); this.boxMarks.push(g.col.allBoxes.length); }
+    // New streets: the woods go in last, round every wall that now stands (ground.ts dressTown).
+    ground.dressTown();
     // Fireworks over Pelican Pier (fx/fireworks.ts): the Saturday and holiday show, and the stall on the pier.
     const fireworks = new Fireworks(g, this.group);
     this.parts.push(fireworks);

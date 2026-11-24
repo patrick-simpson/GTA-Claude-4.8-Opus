@@ -90,7 +90,8 @@ function civicMaterial(level: number, maps: { bc: THREE.Texture | null; bn: THRE
         float a = vColor.a;
         float lit = ( a > 0.01 && a < 0.99 ) ? smoothstep( 0.42, 0.5, a ) : 0.0;
         if ( a > 0.55 && a < 0.65 ) lit *= 0.22;      // clock dials (alpha 0.6): lit from behind, not a lamp
-        totalEmissiveRadiance += uNight * lit * vec3( 1.0, 0.72, 0.42 ) * ( 0.35 + diffuseColor.rgb * 2.5 );
+        // Under the bloom's bar, as mainStreetAssets.ts lights its rooms now: a lit window shows what is painted in it.
+        totalEmissiveRadiance += uNight * lit * vec3( 1.0, 0.72, 0.42 ) * ( 0.06 + diffuseColor.rgb * 1.3 );
       }
       {
         float sa = vColor.a;

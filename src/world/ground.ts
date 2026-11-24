@@ -29,8 +29,10 @@ import {
 import { buildStreetMeshes } from './streetMeshes';
 import {
   COAST, DAM_Z, EXTRA_LOTS, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MAIN_SPLIT_Z, MAIN_Y, MXS, MZS, POND_Y, RAIL, RAIL_TRESTLE,
-  RIVER_HW, ROAD_BRIDGE, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, hillAt, mainlandTerrain, riverX, waterDist,
+  RIVER_HW, RIVER_MOUTH, ROAD_BRIDGE, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, hillAt, mainlandTerrain, riverLevel, riverX, waterDist,
 } from './mainland';
+import { POND_BOX, POND_LEVEL, POND_STEP, pondNear } from './dithersPond';
+import type { Box } from './collide';
 import { sawhorses } from './progress';
 import { SWELL_GLSL, seaClock } from './sea';
 import { flip, sendRange } from '../core/flip';
@@ -38,7 +40,8 @@ import { CUT_FAR, CUT_NEAR, CUT_VERTEX, PropField, loadProps } from './propAsset
 import { RIVER_ON } from './riverfrontAssets';
 import { campusFree } from './dithersPlan';
 import { PD } from './pardonsSite';
-import { buildingNear, primeBuildingMask } from './mainlandBuildings';
+import { buildingNear, mainlandLots, primeBuildingMask } from './mainlandBuildings';
+import { WALK_W } from './streetGround';
 
 // Palette (see PLAN.md).
 const INK = 0x1e2b44, BONE = 0xf2e8cf, VERM = 0xe4572e, MUST = 0xf0a202, TEAL = 0x2a9d8f;
@@ -132,7 +135,7 @@ function keepOut(x: number, z: number): boolean {
     if (railNear(x, z, 5)) return true;
     // Under the new street plan: its roads and sidewalks instead of the old grid's.
     const surf = streetSurface();
-    if (surf) return surf.nearRoad(x, z, 3) || waterDist(x, z) < 3 || !campusFree(x, z, 2) || buildingNear(x, z, 1.5) || inPardons(x, z, 2); // Dithers College: no trees in its halls or pond
+    if (surf) return surf.nearRoad(x, z, 3) || waterDist(x, z) < 3 || pondNear(x, z) < 2.5 || !campusFree(x, z, 2) || buildingNear(x, z, 1.5) || inPardons(x, z, 2); // Dithers College: no trees in its halls or pond
     if (Math.abs(x - BRIDGE.x) < BRIDGE.hw + 5 && z > MZS[MZS.length - 1] + 5) return true;
     if (Math.abs(z - FOOTBRIDGE_Z) < 3.5 && x > MXS[8] && x < 660) return true;
     if (Math.abs(x - MXS[0]) < AVE_HW + 3 && z < MZS[0]) return true;
@@ -494,6 +497,16 @@ const TOWN_B: Rect = { x0: MXS[9] - 6, z0: MZS[0] - 6, x1: MXS[10] + 6, z1: MZS[
 const inTown = (x: number, z: number, m: number): boolean =>
   (x > TOWN_A.x0 - m && x < TOWN_A.x1 + m && z > TOWN_A.z0 - m && z < TOWN_A.z1 + m)
   || (x > TOWN_B.x0 - m && x < TOWN_B.x1 + m && z > TOWN_B.z0 - m && z < TOWN_B.z1 + m);
+/**
+ * New streets: built places that are not lots (the square, the hall's forecourt, the Holding Pattern, the Dead Letter
+ * Office, Our Lady, the depot, the mill yards, the walk to the footbridge). The same rectangles as mainlandBuildings.ts
+ * RESERVED, which does not export them: the woods keep out.
+ */
+const TOWN_SITES: Rect[] = [
+  { x0: 103, z0: -1839, x1: 159.5, z1: -1776.5 }, { x0: 109, z0: -1866, x1: 153, z1: -1837.5 }, { x0: 15, z0: -1935, x1: 48, z1: -1772 },
+  { x0: 200, z0: -2250, x1: 228, z1: -2214 }, { x0: -153, z0: -1320, x1: -104, z1: -1274 }, { x0: 222, z0: -1768, x1: 262, z1: -1664 },
+  { x0: 176, z0: -1568, x1: 252, z1: -1196 }, { x0: 176, z0: -1896, x1: 290, z1: -1884 },
+];
 const inExtraLot = (x: number, z: number, m: number): boolean =>
   EXTRA_LOTS.some((l) => x > l.rect.x0 - m && x < l.rect.x1 + m && z > l.rect.z0 - m && z < l.rect.z1 + m);
 const onHill = (x0: number, z0: number, x1: number, z1: number): boolean =>
@@ -587,6 +600,17 @@ float mainWaterDist(vec2 p) {
 }
 `;
 
+/** The colour of the mainland's fresh water (river, mill pond, lake, stream, the college pond), in the river's shader and the sea's. deep: 0 shallows .. 1 channel. */
+const FRESH_GLSL = /* glsl */ `
+vec3 freshCol(float deep, float night) {
+  vec3 shallow = mix(vec3(0.118, 0.142, 0.082), vec3(0.010, 0.016, 0.017), night);
+  vec3 channel = mix(vec3(0.020, 0.040, 0.036), vec3(0.003, 0.005, 0.008), night);
+  return mix(shallow, channel, clamp(deep, 0.0, 1.0));
+}
+// What still fresh water mirrors is the sky overhead, bluer and darker than the haze on the horizon.
+const vec3 FRESH_SKY = vec3(0.50, 0.64, 0.84);
+`;
+
 const RIVER_VERT = /* glsl */ `
 attribute float aEdge, aFoam;
 varying vec3 vW;
@@ -615,6 +639,7 @@ vec2 slope(vec2 uv) {
   float h = texture2D(uNoise, uv).r;
   return vec2(texture2D(uNoise, uv + vec2(E, 0.0)).r - h, texture2D(uNoise, uv + vec2(0.0, E)).r - h);
 }
+${FRESH_GLSL}
 void main() {
   vec2 p = vW.xz;
   float t = uTime;
@@ -624,18 +649,19 @@ void main() {
   vec2 g = slope(vec2(p.x / 41.0, p.y / 41.0 - t * 0.03)) + slope(vec2(p.x / 15.0 + 0.3, p.y / 15.0 - t * 0.085)) * 0.6;
   float near = 1.0 - smoothstep(70.0, 460.0, dist);
   vec3 N = normalize(vec3(-g.x * 22.0 * near, 1.0, -g.y * 22.0 * near));
-  // A river is browner and greener than the sea, and darker in the channel.
-  vec3 col = mix(mix(uShallow, uShallowN, uNight), mix(uDeep, uDeepN, uNight), 0.3 + 0.45 * vEdge) * vec3(0.8, 0.92, 0.74);
+  // Fresh water in Maine is tea, not turquoise: peat brown over the shallows, near black-green in the channel.
+  vec3 col = freshCol(0.2 + 0.7 * vEdge, uNight);
   col *= 1.0 + clamp((dot(N, uLight) - uLight.y) * 1.5, -0.22, 0.3) * near;
   #ifdef USE_FOG
-    vec3 sky = mix(fogColor, mix(uShallow, uShallowN, uNight) * 1.1, 0.3) * (1.0 - 0.55 * uNight);
+    vec3 sky = fogColor * FRESH_SKY * (1.0 - 0.55 * uNight);
   #else
     vec3 sky = vec3(0.8, 0.88, 0.9);
   #endif
+  // Dark water is a mirror at a low angle: most of what a river shows from its bank is the sky.
   float fres = pow(1.0 - max(dot(normalize(mix(vec3(0.0, 1.0, 0.0), N, 0.4)), V), 0.0), 3.0);
-  col = mix(col, sky, fres * 0.42);
+  col = mix(col, sky, 0.04 + fres * 0.6);
   vec3 H = normalize(uLight + V);
-  col += uGlint * smoothstep(0.2, 0.85, pow(max(dot(N, H), 0.0), 240.0));
+  col += uGlint * 0.7 * smoothstep(0.25, 0.9, pow(max(dot(N, H), 0.0), 420.0));
   // White water: streaks stretched along the fall and running down it.
   float n1 = texture2D(uNoise, vec2(p.x / 7.0, p.y / 30.0 - t * 0.5)).r;
   float n2 = texture2D(uNoise, vec2(p.x / 2.3, p.y / 12.0 - t * 0.9)).g;
@@ -699,6 +725,7 @@ float islandSD(vec2 p) {
 }
 ${MAIN_SD}
 ${SWELL_GLSL}
+${FRESH_GLSL}
 const float E = 1.0 / 256.0;
 vec2 slope(vec2 uv) {
   float h = texture2D(uNoise, uv).r;
@@ -708,11 +735,12 @@ void main() {
   vec2 p = vW.xz;
   float sd = islandSD(p);
   // riv: 1 in the mainland's fresh water, where the surface runs downstream and no surf rolls in.
-  float riv = 0.0;
+  float riv = 0.0, csM = 0.0;
   if (p.y < ${F1(MAIN_SPLIT_Z)}) {
     float cs = mainCoastSD(p), wd = -mainWaterDist(p) - 4.2;
     riv = step(cs, wd);
     sd = max(cs, wd);
+    csM = cs;
   }
   if (sd < -30.0) discard;
   vec3 toCam = cameraPosition - vW;
@@ -731,6 +759,9 @@ void main() {
 
   float off = smoothstep(-8.0, 190.0, sd);
   vec3 col = mix(mix(uShallow, uShallowN, uNight), mix(uDeep, uDeepN, uNight), pow(off, 0.62));
+  // The river below the dam, the stream and the lake are the river's colour, easing into the sea's at their mouths.
+  float fresh = riv * smoothstep(-40.0, -110.0, csM);
+  col = mix(col, freshCol(smoothstep(-4.0, 14.0, sd), uNight), fresh);
   // Wave faces turned to the light are a shade brighter, the far faces a shade darker.
   col *= 1.0 + clamp((dot(N, uLight) - uLight.y) * 1.5, -0.22, 0.3) * near;
 
@@ -740,8 +771,11 @@ void main() {
   #else
     vec3 sky = vec3(0.8, 0.88, 0.9);
   #endif
+  #ifdef USE_FOG
+    sky = mix(sky, fogColor * FRESH_SKY * (1.0 - 0.55 * uNight), fresh);
+  #endif
   float fres = pow(1.0 - max(dot(normalize(mix(vec3(0.0, 1.0, 0.0), N, 0.4)), V), 0.0), 3.0);
-  col = mix(col, sky, fres * 0.38);
+  col = mix(col, sky, mix(fres * 0.38, 0.04 + fres * 0.6, fresh));
 
   vec3 H = normalize(uLight + V);
   float spec = pow(max(dot(N, H), 0.0), 240.0);
@@ -918,6 +952,15 @@ class Ground implements WorldPart {
   /** The new street plan (streets.ts) is on: the old mainland grid's surfaces, signals, lamps and furniture are not drawn. */
   private readonly newPlan = streetSurface() !== null;
   private newLamps: [number, number, number][] = [];
+  /** The stand-in trees (blobs on trunks), retired when the models arrive. */
+  private standIns: Inst[] = [];
+  /** New streets: the mainland's woods wait for dressTown(), and the tree models wait for them. */
+  private townDone = false;
+  private floraWait: FloraFile | null = null;
+  /** New streets: the middle of every house lot, in 20 m cells, so no tree is planted where a house may stand. */
+  private lotCells = new Map<number, { cx: number; cz: number; fx: number; fz: number; hw: number; hd: number }[]>();
+  private hillsU: { uBase: THREE.IUniform } | null = null;
+  private concreteMat: THREE.Material | null = null;
   private pools = new Batch();
   private halos: number[] = [];
 
@@ -944,6 +987,7 @@ class Ground implements WorldPart {
     this.trunks = new Inst(trunkGeo(), flat, REGION);
     this.blobs = new Inst(blobGeo(), flat, REGION);
     this.palms = new Inst(palmGeo(), mats.flatDouble, REGION);
+    this.standIns = [this.trunks, this.blobs, this.palms];
     this.propMat = propMaterial(mats);
     this.propFar = propMaterial(mats, CUT_FAR); this.propNear = propMaterial(mats, CUT_NEAR);
     this.lamps = new Inst(lampGeo(), this.propFar, REGION);
@@ -954,6 +998,7 @@ class Ground implements WorldPart {
     this.terrain();
     this.mainTerrain();
     this.sea();
+    this.hills();
     this.mainWater();
     this.surfaces();
     if (streetSurface()) this.newStreets(); else this.mainSurfaces();
@@ -963,6 +1008,7 @@ class Ground implements WorldPart {
     this.streetLamps();
     this.furniture();
     primeBuildingMask(this.game.plan); // the footprint buildings (mainlandBuildings.ts) are decided now so no tree stands in one
+    this.primeLots();
     this.trees();
     this.finish();
 
@@ -1012,11 +1058,13 @@ class Ground implements WorldPart {
 
   /** The tree models have arrived: draw them and retire the stand-ins. Collision never changes. */
   private plantFlora(geo: FloraFile): void {
+    // New streets: the town's woods are planted last (dressTown); the models wait for them so one field holds every tree.
+    if (this.newPlan && !this.townDone) { this.floraWait = geo; return; }
     const p = this.planted;
     // Whatever places.ts asked for (courtyard trees and planting) joins the same field.
     const all: Planting = { kind: p.kind.concat(EXTRA.kind), m: p.m.concat(EXTRA.m), c: p.c.concat(EXTRA.c) };
     this.field = new TreeField(this.root, geo, all, this.game.quality.drawDist);
-    for (const inst of [this.trunks, this.blobs, this.palms]) for (const m of inst.meshes) { this.root.remove(m); m.dispose(); }
+    for (const inst of this.standIns) for (const m of inst.meshes) { this.root.remove(m); m.dispose(); }
     this.planted = { kind: [], m: [], c: [] };
     this.field.update(this.game.camera);
   }
@@ -1185,6 +1233,69 @@ class Ground implements WorldPart {
     this.root.add(m);
   }
 
+  /**
+   * New streets: the country beyond the water. Three ridges of wooded hills west, north and east of the mainland, each
+   * hazier than the one in front. They stand kilometres past the far plane, so the vertex shader draws each along its
+   * own true line of sight at a distance the camera can hold: the angles are right from anywhere, and they slide against
+   * the town as hills that far away should. One mesh, 720 triangles, no texture.
+   */
+  private hills(): void {
+    if (!this.newPlan) return;
+    const pos: number[] = [], haze: number[] = [], idx: number[] = [];
+    const ridge = (dist: number, h: number, hz: number, seed: number, pull: number): void => {
+      const N = 120, base = pos.length / 3;
+      for (let i = 0; i <= N; i++) {
+        const a = Math.PI * (0.9 + 1.2 * (i / N)), x = COAST.cx + Math.cos(a) * dist, z = COAST.cz + Math.sin(a) * dist;
+        const taper = smooth(Math.min(i, N - i) / 16);
+        const y = h * taper * (0.3 + 0.7 * noise2(i * 0.13 + seed * 7.3, seed * 3.1)) + h * taper * (0.3 * (noise2(i * 0.47 + seed, 9.1 + seed) - 0.5) + 0.12 * (noise2(i * 1.3 + seed, 4.7) - 0.5));
+        pos.push(x, -60, z, x, y, z); haze.push(hz + 0.1, pull, hz, pull);
+        if (i < N) { const q = base + i * 2; idx.push(q, q + 2, q + 1, q + 1, q + 2, q + 3); }
+      }
+    };
+    ridge(5600, 560, 0.9, 1, 1); ridge(4700, 400, 0.82, 2, 0.985); ridge(3900, 250, 0.72, 3, 0.97);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('aHaze', new THREE.Float32BufferAttribute(haze, 2));
+    g.setIndex(idx);
+    this.hillsU = { uBase: { value: new THREE.Color(0x2f4034) } };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uNight: this.seaU.uNight, uBase: this.hillsU.uBase },
+      fog: true, side: THREE.DoubleSide,
+      vertexShader: /* glsl */ `
+        attribute vec2 aHaze;
+        varying float vHaze;
+        void main() {
+          vHaze = aHaze.x;
+          vec3 d = position - cameraPosition;
+          vec3 p = cameraPosition + d * ( 3500.0 * aHaze.y / max( length( d.xz ), 1.0 ) );
+          gl_Position = projectionMatrix * viewMatrix * vec4( p, 1.0 );
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform vec3 uBase;
+        uniform float uNight;
+        varying float vHaze;
+        #include <common>
+        #include <fog_pars_fragment>
+        void main() {
+          #ifdef USE_FOG
+            vec3 air = fogColor;
+          #else
+            vec3 air = vec3( 0.8, 0.86, 0.9 );
+          #endif
+          // Distance turns hills the colour of the air, and bluer first.
+          vec3 col = mix( uBase * ( 1.0 - 0.9 * uNight ), air * vec3( 0.86, 0.93, 1.04 ), clamp( vHaze, 0.0, 1.0 ) );
+          gl_FragColor = vec4( col, 1.0 );
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+    });
+    const m = new THREE.Mesh(g, mat);
+    m.name = 'far-hills';
+    m.matrixAutoUpdate = false;
+    m.frustumCulled = false;
+    this.root.add(m);
+  }
+
   // ── Streets, paint and blocks ──────────────────────────────────────────────
 
   private surfaces(): void {
@@ -1282,6 +1393,7 @@ class Ground implements WorldPart {
     this.mesh(surf.asphalt, mats.asphalt);
     this.mesh(surf.cobble, mats.cobble);
     this.mesh(surf.wood, mats.wood);
+    this.roadWear(marks, false);
     this.mesh(marks, mats.marks);
   }
 
@@ -1514,7 +1626,7 @@ class Ground implements WorldPart {
   }
 
   private furniture(): void {
-    const rng = new RNG(7310), col = this.game.col;
+    const rng = new RNG(7310);
     for (const b of this.plan.blocks) {
       if (b.land && this.newPlan) continue;
       const [odds, fill] = FURN_MIX[b.district];
@@ -1530,21 +1642,54 @@ class Ground implements WorldPart {
           if (kind === POST && (busStop || !avenue)) kind = BIN;
           if (!keep) continue;
           const [x, z] = at(s, STRIP);
-          const [pk, pr, ph, breakable] = FURN[kind];
+          const pr = FURN[kind][1];
           // The bench claims its full length even though it collides as less.
           if (keepOut(x, z) || !this.claim(x, z, (kind === BENCH ? 0.75 : pr) + 0.5)) continue;
           if (kind === POST) busStop = true;
-          const y = groundAt(x, z);
-          xf(x, y, z, inward + turn);
-          const i = this.furn[kind].add(x, z, kind === NEWS ? tint : 0xffffff);
-          const slot = this.slotProp.length;
-          this.slotKind.push(kind); this.slotIdx.push(i);
-          const fp = col.addProp(x, z, pr, y + ph, pk, breakable, slot);
-          fp.hard = kind === BENCH;
-          this.slotProp.push(fp);
+          this.putFurn(kind, x, z, inward + turn, tint);
         }
       });
     }
+    // New streets: the same kit along Tepid Falls' sidewalks, at the kerb. Thick where shopfronts stand behind the walk
+    // (Main St downtown, and any street with a footprint building at the back of its sidewalk), thin on house streets:
+    // a hydrant, a mailbox, the odd bin.
+    const surf = streetSurface(), G = this.plan.streets;
+    if (!surf || !G) return;
+    const rn = new RNG(7321);
+    for (const e of surf.edges) {
+      if (!surf.walks(e) || e.deck) continue;
+      const s0 = surf.trim(e, false) + 6, s1 = e.len - surf.trim(e, true) - 6;
+      for (const sg of [-1, 1]) {
+        let busStop = false;
+        for (let s = s0 + rn.range(0, 8); s < s1; s += rn.range(7, 13)) {
+          const p = G.pointAt(e, s), nx = -p.dz * sg, nz = p.dx * sg;
+          const x = p.x + nx * (e.hw + STRIP), z = p.z + nz * (e.hw + STRIP);
+          const roll = rn.next(), tint = rn.pick(NEWS_COLORS), turn = rn.range(-0.12, 0.12);
+          const shops = (e.name === 'Main St' && z > -2070 && z < -1635) || buildingNear(p.x + nx * (e.hw + WALK_W + 2.5), p.z + nz * (e.hw + WALK_W + 2.5), 2.5);
+          const [odds, fill] = FURN_MIX[shops ? 'main' : 'stacks'];
+          let pick = rn.next() * odds.reduce((a, v) => a + v, 0), kind = 0;
+          while (kind < odds.length - 1 && pick > odds[kind]) pick -= odds[kind++];
+          if (roll > fill * this.den * (shops ? 1 : 0.5)) continue;
+          if (kind === POST && (busStop || e.kind !== 'arterial')) kind = BIN;
+          if (keepOutLamp(x, z) || !G.clearOfRoads(x, z, 0.4) || surf.covered(x, z, e) || !this.claim(x, z, (kind === BENCH ? 0.75 : FURN[kind][1]) + 0.5)) continue;
+          if (kind === POST) busStop = true;
+          this.putFurn(kind, x, z, Math.atan2(nx, nz) + turn, tint);
+        }
+      }
+    }
+  }
+
+  /** Stand one piece of street furniture, with its collision and its slot (so a hit can knock it away). */
+  private putFurn(kind: number, x: number, z: number, h: number, tint: number): void {
+    const [pk, pr, ph, breakable] = FURN[kind];
+    const y = groundAt(x, z);
+    xf(x, y, z, h);
+    const i = this.furn[kind].add(x, z, kind === NEWS ? tint : 0xffffff);
+    const slot = this.slotProp.length;
+    this.slotKind.push(kind); this.slotIdx.push(i);
+    const fp = this.game.col.addProp(x, z, pr, y + ph, pk, breakable, slot);
+    fp.hard = kind === BENCH;
+    this.slotProp.push(fp);
   }
 
   // ── Trees ──────────────────────────────────────────────────────────────────
@@ -1640,6 +1785,24 @@ class Ground implements WorldPart {
       [2, 0x9fbda0], [26, 0x4f8d86], [80, 0x1c4458],
     ] as [number, number][]).map(([d, hex]) => [d, new THREE.Color(hex)]);
     const dry = new THREE.Color(0xb7b377), lush = new THREE.Color(0x859b5f), bank = new THREE.Color(0x8d8468), bed = new THREE.Color(0x4a5f58), c = new THREE.Color();
+    /** The ground's colour at a point, left in c; returns how sandy it is. */
+    const shade = (x: number, z: number, sd: number, wd: number): number => {
+      const n = noise2(x * 0.028 + 9, z * 0.028), n2 = noise2(x * 0.09, z * 0.09 + 31);
+      // The bluff is grass and the sand starts at its foot: the island's inland bands, squeezed into the thirty meters above the beach.
+      const base = sd + (n - 0.5) * 10;
+      const s = base > -13 ? base : -13 + (base + 13) * 2.4;
+      let k = 0;
+      while (k < stops.length - 2 && s > stops[k + 1][0]) k++;
+      const a = stops[k], b = stops[k + 1];
+      c.copy(a[1]).lerp(b[1], smooth((s - a[0]) / (b[0] - a[0])));
+      if (s < -60) c.lerp(n2 > 0.5 ? dry : lush, Math.abs(n2 - 0.5) * 1.3 * smooth((-60 - s) / 20));
+      let sand = clamp((s + 66) / 12, 0, 1) * (1 - clamp(base / 6, 0, 1));
+      // Riverbanks: earth and stone down to the water, dark silt under it. The line wanders (new streets), so no bank is ruled.
+      const we = this.newPlan ? wd + (n - 0.5) * 9 + (n2 - 0.5) * 5 : wd;
+      if (we < 24) { const t = smooth((24 - we) / 20); c.lerp(wd < 0.5 ? bed : bank, t * 0.85); sand *= 1 - t; }
+      c.multiplyScalar(0.94 + 0.12 * n2);
+      return sand;
+    };
     let v = 0;
     for (let j = 0; j <= NZ; j++) {
       for (let i = 0; i <= NX; i++, v++) {
@@ -1647,22 +1810,12 @@ class Ground implements WorldPart {
         sds[v] = Math.max(sd, -wd);
         pos[v * 3] = x; pos[v * 3 + 1] = mainlandTerrain(x, z) - 0.06; pos[v * 3 + 2] = z;
         uv[v * 2] = x / TILE_M.sand; uv[v * 2 + 1] = z / TILE_M.sand;
-        const n = noise2(x * 0.028 + 9, z * 0.028), n2 = noise2(x * 0.09, z * 0.09 + 31);
-        // The bluff is grass and the sand starts at its foot: the island's inland bands, squeezed into the thirty meters above the beach.
-        const base = sd + (n - 0.5) * 10;
-        const s = base > -13 ? base : -13 + (base + 13) * 2.4;
-        let k = 0;
-        while (k < stops.length - 2 && s > stops[k + 1][0]) k++;
-        const a = stops[k], b = stops[k + 1];
-        c.copy(a[1]).lerp(b[1], smooth((s - a[0]) / (b[0] - a[0])));
-        if (s < -60) c.lerp(n2 > 0.5 ? dry : lush, Math.abs(n2 - 0.5) * 1.3 * smooth((-60 - s) / 20));
-        sandy[v] = clamp((s + 66) / 12, 0, 1) * (1 - clamp(base / 6, 0, 1));
-        // Riverbanks: earth and stone down to the water, dark silt under it.
-        if (wd < 24) { const t = smooth((24 - wd) / 20); c.lerp(wd < 0.5 ? bed : bank, t * 0.85); sandy[v] *= 1 - t; }
-        const g = 0.94 + 0.12 * n2;
-        col[v * 3] = c.r * g; col[v * 3 + 1] = c.g * g; col[v * 3 + 2] = c.b * g;
+        sandy[v] = shade(x, z, sd, wd);
+        col[v * 3] = c.r; col[v * 3 + 1] = c.g; col[v * 3 + 2] = c.b;
       }
     }
+    // Johnson Pond's basin (dithersPond.ts) is finer than this grid can hold: its box is left out here and drawn at 2 m below.
+    const pb = this.newPlan ? POND_BOX : null;
     const bands: number[][] = [];
     for (let k = 0; k < BANDS; k++) bands.push([]);
     const all: number[] = [];
@@ -1671,6 +1824,7 @@ class Ground implements WorldPart {
       for (let i = 0; i < NX; i++) {
         const x = X0 + i * STEP, z = Z0 + j * STEP;
         if (!this.newPlan && (inside(TOWN_A, x, z) || inside(TOWN_B, x, z))) continue;
+        if (pb && x >= pb.x0 && x < pb.x1 && z >= pb.z0 && z < pb.z1) continue;
         const a = j * W + i, b = a + 1, d = a + W, e = d + 1;
         if (Math.min(sds[a], sds[b], sds[d], sds[e]) > 70) continue;
         all.push(d, e, b, d, b, a);
@@ -1702,6 +1856,42 @@ class Ground implements WorldPart {
       this.root.add(m);
       this.mainOnly.push(m);
     }
+    if (!pb) return;
+    // The pond's patch: the same ground at POND_STEP, its rim on the big grid's own edges so no crack opens between them.
+    const PS = POND_STEP, PX = (pb.x1 - pb.x0) / PS, PZ = (pb.z1 - pb.z0) / PS, PW = PX + 1;
+    const pp = new Float32Array(PW * (PZ + 1) * 3), pc = new Float32Array(pp.length), pu = new Float32Array(PW * (PZ + 1) * 2), ps = new Float32Array(PW * (PZ + 1));
+    const mud = new THREE.Color(0x857b62), silt = new THREE.Color(0x3f4638), turf = new THREE.Color(0x7f9659);
+    const onGrid = (x: number, z: number): number => {
+      // Linear along the big grid's edge the point lies on.
+      const fx = (x - X0) / STEP, fz = (z - Z0) / STEP, i0 = Math.floor(fx), j0 = Math.floor(fz), u = fx - i0, w = fz - j0;
+      if (u < 1e-6) return mainlandTerrain(x, Z0 + j0 * STEP) * (1 - w) + mainlandTerrain(x, Z0 + (j0 + 1) * STEP) * w;
+      return mainlandTerrain(X0 + i0 * STEP, z) * (1 - u) + mainlandTerrain(X0 + (i0 + 1) * STEP, z) * u;
+    };
+    const pi: number[] = [];
+    for (let j = 0, q = 0; j <= PZ; j++) for (let i = 0; i <= PX; i++, q++) {
+      const x = pb.x0 + i * PS, z = pb.z0 + j * PS, rim = i === 0 || j === 0 || i === PX || j === PZ;
+      pp[q * 3] = x; pp[q * 3 + 1] = (rim ? onGrid(x, z) : mainlandTerrain(x, z)) - 0.06; pp[q * 3 + 2] = z;
+      pu[q * 2] = x / TILE_M.sand; pu[q * 2 + 1] = z / TILE_M.sand;
+      shade(x, z, -500, 1e9);
+      // A mown bank round the water, wet earth at its edge, silt under it.
+      const sd = pondNear(x, z) + (noise2(x * 0.21, z * 0.21 + 5) - 0.5) * 1.6;
+      if (sd < 11) c.lerp(turf, 0.55 * smooth((11 - sd) / 6));
+      if (sd < 1.5) c.lerp(mud, 0.85 * smooth((1.5 - sd) / 1.4));
+      if (sd < -0.4) c.lerp(silt, smooth((-0.4 - sd) / 2.5));
+      pc[q * 3] = c.r; pc[q * 3 + 1] = c.g; pc[q * 3 + 2] = c.b;
+      if (i < PX && j < PZ) pi.push(q + PW, q + PW + 1, q + 1, q + PW, q + 1, q);
+    }
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.BufferAttribute(pp, 3)); pg.setAttribute('color', new THREE.BufferAttribute(pc, 3));
+    pg.setAttribute('uv', new THREE.BufferAttribute(pu, 2)); pg.setAttribute('aSand', new THREE.BufferAttribute(ps, 1));
+    pg.setIndex(pi);
+    pg.computeVertexNormals();
+    const pm = new THREE.Mesh(pg, mat);
+    pm.receiveShadow = true;
+    pm.matrixAutoUpdate = false;
+    pm.name = 'pond-basin';
+    this.root.add(pm);
+    this.mainOnly.push(pm);
   }
 
   /** The mill pond above Threadbare Dam, the sheet of water over its crest, and the foam below. */
@@ -1716,8 +1906,12 @@ class Ground implements WorldPart {
     const strip = (a: number, b: number): void => { idx.push(a, b, a + 1, a + 1, b, b + 1, a + 1, b + 1, a + 2, a + 2, b + 1, b + 2); };
     const zc = DAM_Z - 1.5;
     let prev = -1;
-    for (let z = -2528; ; z += 12) {
-      const r = row(Math.min(z, zc), POND_Y, RIVER_HW + 8, 0, 1, 0);
+    // New streets: the land and the river's trench run on north to the sea (the old map stopped at z -2528), and the
+    // water with them. At the mouth the pond's level eases down to the sea's over a riffle, and the sheet fades into the sea.
+    for (let z = this.newPlan ? RIVER_MOUTH.z0 - 13 : -2528; ; z += 12) {
+      const zz = Math.min(z, zc), mouth = this.newPlan ? smooth((zz - RIVER_MOUTH.z0 + 13) / 36) : 1;
+      const riffle = this.newPlan ? 0.3 * smooth((zz - RIVER_MOUTH.z0) / 25) * smooth((RIVER_MOUTH.z1 + 20 - zz) / 40) : 0;
+      const r = row(zz, riverLevel(zz), RIVER_HW + 8, 0, mouth, riffle);
       if (prev >= 0) strip(prev, r);
       prev = r;
       if (z >= zc) break;
@@ -1727,6 +1921,25 @@ class Ground implements WorldPart {
     // Below the falls only the white is drawn (edge 0), over the tidal river the sea shader already paints.
     const a0 = row(DAM_Z + 7, WATER_Y + 0.06, RIVER_HW + 2, 0, 0, 1), a1 = row(DAM_Z + 22, WATER_Y + 0.05, RIVER_HW + 2, 0, 0, 0.6), a2 = row(DAM_Z + 52, WATER_Y + 0.04, RIVER_HW + 2, 0, 0, 0);
     strip(a0, a1); strip(a1, a2);
+    // Johnson Pond (dithersPond.ts): the same still, dark water, a flat sheet that thins to nothing where the bank comes up through it.
+    if (this.newPlan) {
+      const b = POND_BOX, S = POND_STEP, nx = (b.x1 - b.x0) / S, nz = (b.z1 - b.z0) / S, at = new Map<number, number>();
+      const vert = (i: number, j: number): number => {
+        const key = j * (nx + 1) + i;
+        let q = at.get(key);
+        if (q === undefined) {
+          const x = b.x0 + i * S, z = b.z0 + j * S;
+          q = pos.length / 3; at.set(key, q);
+          pos.push(x, POND_LEVEL, z); edge.push(clamp((1.4 - pondNear(x, z)) / 9, 0, 1)); foam.push(0);
+        }
+        return q;
+      };
+      for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+        if (pondNear(b.x0 + (i + 0.5) * S, b.z0 + (j + 0.5) * S) > 2.6) continue;
+        const q0 = vert(i, j), q1 = vert(i + 1, j), q2 = vert(i, j + 1), q3 = vert(i + 1, j + 1);
+        idx.push(q0, q2, q1, q1, q2, q3);
+      }
+    }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('aEdge', new THREE.Float32BufferAttribute(edge, 1));
@@ -1741,6 +1954,96 @@ class Ground implements WorldPart {
     this.far(m, -1);
   }
 
+  /**
+   * Repairs in the roads: cut-and-fill patches and long cracks as stamps from the marks atlas, laid along every street by
+   * the dice, each its own size, place and heading, and patches of two ages (newer and darker, older and paler). The
+   * road texture's tile used to carry one of each, which repeated every twelve metres through both towns.
+   */
+  private roadWear(marks: Batch, land: boolean): void {
+    const plan = this.plan, rng = new RNG(land ? 4417 : 4409), surf = streetSurface();
+    const patch = this.mats.tex.marks.rect('patch'), crack = this.mats.tex.marks.rect('crack');
+    const stamp = (x: number, z: number, h: number, hw: number, hl: number, r: { u0: number; v0: number; u1: number; v1: number }, hex: number, y: (x: number, z: number) => number): void => {
+      const fx = Math.sin(h), fz = Math.cos(h), rx = -fz, rz = fx;
+      const X = (t: number, n: number): number => x + rx * t + fx * n, Z = (t: number, n: number): number => z + rz * t + fz * n;
+      marks.quad(X(-hw, -hl), y(X(-hw, -hl), Z(-hw, -hl)), Z(-hw, -hl), X(hw, -hl), y(X(hw, -hl), Z(hw, -hl)), Z(hw, -hl),
+        X(hw, hl), y(X(hw, hl), Z(hw, hl)), Z(hw, hl), X(-hw, hl), y(X(-hw, hl), Z(-hw, hl)), Z(-hw, hl), hex, r.u0, r.v0, r.u1, r.v1);
+    };
+    const one = (x: number, z: number, along: number, room: number, y: (x: number, z: number) => number): void => {
+      const kind = rng.next(), size = rng.next(), turn = rng.range(-0.12, 0.12), age = rng.next(), flip = rng.chance(0.5) ? Math.PI : 0;
+      if (kind < 0.52) {
+        // A trench cut across or along the lane, filled and sealed.
+        const across = rng.chance(0.4), hw = Math.min(room, 0.7 + size * 1.1), hl = 0.9 + size * 1.6;
+        stamp(x, z, along + (across ? Math.PI / 2 : 0) + turn * 0.3, hw, Math.min(hl, across ? room : 9), patch, age < 0.6 ? 0x15130f : 0xd9d3c4, y);
+      } else {
+        // Frost cracks a road across its lanes; now and then one wanders along a wheel path instead. (The stamp's crack runs along u.)
+        const lengthways = age < 0.3;
+        stamp(x, z, along + (lengthways ? Math.PI / 2 : 0) + turn * 2 + flip, lengthways ? 1.6 + size * 2.2 : Math.min(room, 1.0 + size * 1.2), 0.35 + size * 0.4, crack, 0x100f0d, y);
+      }
+    };
+    if (!land) {
+      for (const e of plan.edges) {
+        if (e.land || e.deck) continue;
+        const A = plan.nodes[e.a], B = plan.nodes[e.b], s0 = (e.horiz ? A.hx : A.hz) + 7, s1 = e.len - (e.horiz ? B.hx : B.hz) - 7;
+        for (let s = s0 + rng.range(0, 30); s < s1; s += rng.range(16, 44)) {
+          const off = rng.range(-1, 1) * (e.hw - 2.2);
+          one(e.horiz ? A.x + s : A.x + off, e.horiz ? A.z + off : A.z + s, e.horiz ? Math.PI / 2 : 0, 1.9, () => 0);
+        }
+      }
+      return;
+    }
+    const G = plan.streets;
+    if (!surf || !G) return;
+    const y = (x: number, z: number): number => groundAt(x, z);
+    for (const e of surf.edges) {
+      if (e.deck) continue;
+      const s0 = surf.trim(e, false) + 6, s1 = e.len - surf.trim(e, true) - 6;
+      for (let s = s0 + rng.range(0, 30); s < s1; s += rng.range(16, 44)) {
+        const p = G.pointAt(e, s), off = rng.range(-1, 1) * Math.max(0, e.hw - 2.4), x = p.x - p.dz * off, z = p.z + p.dx * off;
+        // Not where another road crosses over or under (the stamp would lie on the wrong one), and not on a bridge over water.
+        if (surf.covered(x, z, e) || waterDist(x, z) < 2) { rng.next(); rng.next(); rng.next(); rng.next(); rng.next(); continue; }
+        one(x, z, Math.atan2(p.dx, p.dz), Math.min(1.9, e.hw - Math.abs(off) - 0.4), y);
+      }
+    }
+  }
+
+  /**
+   * Poured concrete for the roads' structures (retaining walls, abutments, parapets, the bridge): the flat paint with what
+   * a real wall carries worked out from where each pixel is in the world, so it needs no texture coordinates from the
+   * builder: formwork joints every 2.4 m along and 1.2 m up, the weather's dark streaks down the face, and broad mottling.
+   */
+  private concrete(): THREE.Material {
+    if (this.concreteMat) return this.concreteMat;
+    const m = this.mats.flat.clone();
+    const noise = this.mats.tex.noise;
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uCnNoise = { value: noise };
+      sh.vertexShader = 'varying vec3 vCw;\nvarying vec3 vCn;\n' + sh.vertexShader
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vCw = ( modelMatrix * vec4( position, 1.0 ) ).xyz; vCn = mat3( modelMatrix ) * normal;');
+      sh.fragmentShader = 'uniform sampler2D uCnNoise;\nvarying vec3 vCw;\nvarying vec3 vCn;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        {
+          vec3 an = abs( normalize( vCn ) );
+          float along = an.x > an.z ? vCw.z : vCw.x;
+          bool flatTop = an.y > 0.6;
+          vec2 cuv = flatTop ? vCw.xz : vec2( along, vCw.y );
+          float n1 = texture2D( uCnNoise, cuv / 9.3 ).r, n2 = texture2D( uCnNoise, cuv / 2.1 ).g;
+          float tone = 0.9 + 0.26 * ( n1 - 0.5 ) + 0.14 * ( n2 - 0.5 );
+          if ( ! flatTop ) {
+            // Formwork: a joint where two boards met, thin enough to fade out before it can shimmer.
+            float px = max( fwidth( along ), fwidth( vCw.y ) );
+            float jx = abs( fract( along / 2.4 + 0.5 ) - 0.5 ) * 2.4, jy = abs( fract( vCw.y / 1.22 + 0.5 ) - 0.5 ) * 1.22;
+            float lw = max( 0.018, px );
+            float joint = ( 1.0 - smoothstep( lw, lw * 2.2, min( jx, jy ) ) ) * clamp( 0.03 / px, 0.0, 1.0 );
+            // Rain carries dirt down the face in streaks, and the foot of a wall is the darkest of it.
+            float streak = smoothstep( 0.52, 0.86, texture2D( uCnNoise, vec2( along / 3.1, vCw.y / 23.0 ) ).r ) * ( 0.55 + 0.45 * n2 );
+            tone *= ( 1.0 - 0.2 * joint ) * ( 1.0 - 0.2 * streak );
+          }
+          diffuseColor.rgb *= tone * mix( vec3( 1.0, 0.99, 0.97 ), vec3( 0.92, 0.95, 0.96 ), n1 );
+        }`);
+    };
+    this.concreteMat = m;
+    return m;
+  }
+
   /** The new street plan's roads, sidewalks, junctions, overpasses, bridge and culverts (streetMeshes.ts). */
   private newStreets(): void {
     const surf = streetSurface()!, mats = this.mats;
@@ -1751,7 +2054,8 @@ class Ground implements WorldPart {
     this.meshM(b.grass, mats.grass);
     this.meshM(b.sidewalk, mats.sidewalk);
     this.meshM(b.curb, mats.flat);
-    this.meshM(b.concrete, mats.flat, 0, this.game.quality.shadows);
+    this.meshM(b.concrete, this.concrete(), 0, this.game.quality.shadows);
+    this.roadWear(b.marks, true);
     this.meshM(b.marks, mats.marks);
     this.newLamps = b.lamps;
   }
@@ -1994,6 +2298,31 @@ class Ground implements WorldPart {
         this.tree(sq ? (alt < 0.75 ? 'elm' : 'sugarmaple') : alt < 0.25 ? 'pine' : alt < 0.45 ? 'birch' : alt < 0.7 ? 'sugarmaple' : 'redoak', px, pz, rng);
       }
     }
+    // New streets: a tree at the kerb every fifteen metres or so on every street with a sidewalk, in the walk itself (the
+    // public way is the one strip nothing is ever built on): elms and maples on the main roads, maples with the odd birch
+    // and oak on the house streets. The woods are dressTown()'s.
+    const surf = streetSurface(), G = plan.streets;
+    if (surf && G) {
+      const rs = new RNG(9141);
+      for (const e of surf.edges) {
+        if (!surf.walks(e) || e.deck) continue;
+        const main = e.kind === 'arterial', gap = main ? 17 : 15;
+        const s0 = surf.trim(e, false) + 7, s1 = e.len - surf.trim(e, true) - 7;
+        for (const sg of [-1, 1]) for (let s = s0 + (sg > 0 ? gap * 0.5 : 0); s < s1; s += gap) {
+          const j = rs.range(-2, 2), keep = rs.next() < (main ? 0.8 : 0.72) && rs.next() < den, alt = rs.next();
+          if (!keep) continue;
+          const p = G.pointAt(e, clamp(s + j, s0, s1)), off = e.hw + STRIP + 0.3;
+          const x = p.x - p.dz * sg * off, z = p.z + p.dx * sg * off;
+          if (keepOutLamp(x, z) || !G.clearOfRoads(x, z, 0.5) || surf.covered(x, z, e) || !this.claim(x, z, 1.7)) continue;
+          // Where shopfronts stand at the back of the walk the trees are young ones, and every other spot is left open:
+          // a full crown would stand in the windows and signs.
+          const shops = (e.name === 'Main St' && z > -2070 && z < -1635) || buildingNear(p.x - p.dz * sg * (e.hw + WALK_W + 2.5), p.z + p.dx * sg * (e.hw + WALK_W + 2.5), 2.5);
+          if (shops) { if (alt < 0.45) this.tree(alt < 0.1 ? 'birch' : 'sugarmaple', x, z, rs, 0.58); continue; }
+          this.tree(main ? (alt < 0.5 ? 'elm' : alt < 0.9 ? 'sugarmaple' : 'redoak') : alt < 0.12 ? 'birch' : alt > 0.88 ? 'redoak' : 'sugarmaple', x, z, rs);
+        }
+      }
+      return;
+    }
     for (let x = -950; x < 1000; x += 24) for (let z = this.newPlan ? -2950 : -2510; z < -1000; z += 24) {
       const px = x + rng.range(0, 19), pz = z + rng.range(0, 19), roll = rng.next(), alt = rng.next();
       if (inTown(px, pz, 9)) continue;
@@ -2004,9 +2333,144 @@ class Ground implements WorldPart {
     }
   }
 
-  private tree(sp: Species, x: number, z: number, rng: RNG): void {
+  private primeLots(): void {
+    if (!this.plan.streets) return;
+    for (const l of mainlandLots(this.plan)) {
+      // (buildingNear() has the footprint buildings, by their walls.)
+      if (l.ori && l.osm && l.osm.t !== 0) continue;
+      const r = l.rect, o = l.ori ?? { cx: (r.x0 + r.x1) / 2, cz: (r.z0 + r.z1) / 2, h: 0, w: r.x1 - r.x0, d: r.z1 - r.z0 };
+      const c = { cx: o.cx, cz: o.cz, fx: Math.sin(o.h), fz: Math.cos(o.h), hw: o.w / 2 - 2, hd: o.d / 2 - 2 };
+      if (c.hw <= 0 || c.hd <= 0) continue;
+      const rad = Math.hypot(o.w, o.d) / 2;
+      for (let cx = Math.floor((o.cx - rad) / 20); cx <= Math.floor((o.cx + rad) / 20); cx++) for (let cz = Math.floor((o.cz - rad) / 20); cz <= Math.floor((o.cz + rad) / 20); cz++) {
+        const k = cx * 4096 + cz;
+        let a = this.lotCells.get(k);
+        if (!a) this.lotCells.set(k, (a = []));
+        a.push(c);
+      }
+    }
+  }
+
+  /** True in the middle of a house lot (all but its outer two metres): where the house may be. */
+  private inLotCore(x: number, z: number): boolean {
+    const a = this.lotCells.get(Math.floor(x / 20) * 4096 + Math.floor(z / 20));
+    if (!a) return false;
+    for (const o of a) {
+      const ex = x - o.cx, ez = z - o.cz;
+      if (Math.abs(ex * o.fz - ez * o.fx) < o.hw && Math.abs(ex * o.fx + ez * o.fz) < o.hd) return true;
+    }
+    return false;
+  }
+
+  /**
+   * New streets: what can only be planted once every builder has put its walls up (world.ts calls this last): the woods.
+   * Thick in the countryside, in clumps behind the houses wherever the streets leave a gap, a tree line along the rim of
+   * the land, and the riverside walk above the dam with its benches. Nothing within reach of a wall, a road, a lot's
+   * middle, the rails, the campus or the water.
+   */
+  dressTown(): void {
+    if (!this.newPlan || this.townDone) return;
+    this.townDone = true;
+    const G = this.plan.streets!, col = this.game.col, rng = new RNG(9151), lean = this.game.quality.name === 'low' || this.game.quality.lean === true;
+    const den = this.den * (lean ? 0.6 : 1);
+    this.trunks = new Inst(trunkGeo(), this.mats.flat, REGION);
+    this.blobs = new Inst(blobGeo(), this.mats.flat, REGION);
+    const first = this.stood.length;
+    const blocked = (x: number, z: number, r: number): boolean => {
+      const g = groundAt(x, z);
+      let hit = false;
+      col.forBoxes(x, z, r, (b: Box) => { if (b.y0 < g + 5 && b.y1 > g + 0.4 && x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) hit = true; });
+      return hit;
+    };
+    const site = (x: number, z: number): boolean => TOWN_SITES.some((q) => x > q.x0 - 3 && x < q.x1 + 3 && z > q.z0 - 3 && z < q.z1 + 3);
+    const STEP = 13;
+    for (let x = -950; x < 1000; x += STEP) for (let z = -2975; z < -1000; z += STEP) {
+      const px = x + rng.range(0, STEP - 2.5), pz = z + rng.range(0, STEP - 2.5), roll = rng.next(), alt = rng.next();
+      const cs = coastSD(px, pz);
+      if (cs > -36 || waterDist(px, pz) < 7) continue;
+      const wild = G.clearOfRoads(px, pz, 55);
+      // Woods stand in stands: thick where the noise says, open meadow or lawn between. In town the stands are the
+      // unbuilt backs of the blocks; the single trees of yards and streets are other hands' work.
+      let want = wild ? 0.06 + 0.94 * smooth(noise2(px * 0.014 + 3, pz * 0.014 + 11) * 2.8 - 0.95)
+        : 0.02 + 0.9 * smooth(noise2(px * 0.034 + 7, pz * 0.034) * 3.4 - 1.55);
+      // The rim of the land carries a tree line: from the streets, the town ends in woods and not at a haze line.
+      if (cs > -125) want = Math.max(want, 0.8);
+      if (roll > want * den) continue;
+      if (!G.clearOfRoads(px, pz, 8) || keepOut(px, pz) || inExtraLot(px, pz, 4) || this.inLotCore(px, pz) || buildingNear(px, pz, 4) || site(px, pz) || blocked(px, pz, 2.6)) continue;
+      this.tree(wild || cs > -125
+        ? (alt < 0.3 ? 'pine' : alt < 0.5 ? 'spruce' : alt < 0.68 ? 'birch' : alt < 0.86 ? 'sugarmaple' : 'redoak')
+        : (alt < 0.42 ? 'sugarmaple' : alt < 0.62 ? 'redoak' : alt < 0.76 ? 'birch' : alt < 0.86 ? 'elm' : alt < 0.95 ? 'pine' : 'spruce'), px, pz, rng);
+    }
+
+    // The river walk: a stone-dust path along the top of the west bank from the railway down to the dam, benches facing the water.
+    const path = new Batch(), benches = new Inst(benchGeo(), this.propFar, REGION);
+    const wx = (z: number): number => riverX(z) - RIVER_HW - 27;
+    const open = (x: number, z: number): boolean => !railNear(x, z, 5) && streetSurface()!.probe(x, z).kind === null && !blocked(x, z, 2) && !site(x, z) && campusFree(x, z, 1);
+    let run = 0;
+    for (let z = -2120; z < DAM_Z - 22; z += 3) {
+      const xa = wx(z), xb = wx(z + 3);
+      if (!open(xa, z) || !open(xb, z + 3)) { run = 0; continue; }
+      const tx = xb - xa, tl = Math.hypot(tx, 3), nx = (3 / tl) * 1.3, nz = (-tx / tl) * 1.3;
+      const Y = (x: number, zz: number): number => groundAt(x, zz) + 0.05;
+      path.quad(xa + nx, Y(xa + nx, z + nz), z + nz, xa - nx, Y(xa - nx, z - nz), z - nz, xb - nx, Y(xb - nx, z + 3 - nz), z + 3 - nz, xb + nx, Y(xb + nx, z + 3 + nz), z + 3 + nz,
+        0xcfc7b4, (xa - nx) / TILE_M.sand, (z - nz) / TILE_M.sand, (xb + nx) / TILE_M.sand, (z + 3 + nz) / TILE_M.sand);
+      run += 3;
+      if (run % 42 === 21) {
+        // A bench on the town side of the path, looking over it at the river.
+        const bx = xa - 2.4, y = groundAt(bx, z);
+        if (open(bx, z)) {
+          xf(bx, y, z, Math.PI / 2);
+          benches.add(bx, z);
+          col.addProp(bx, z, 0.5, y + 0.9, 'bench', false).hard = true;
+        }
+      }
+    }
+    if (!path.empty) { const m = new THREE.Mesh(path.toGeometry(), this.mats.sand); m.receiveShadow = true; m.visible = this.mainShown; this.far(m); }
+    benches.build(this.root, false);
+    for (const m of benches.meshes) { m.visible = this.mainShown; this.mainOnly.push(m); }
+    this.hideFar(benches.meshes, 150);
+
+    // Ferns and fallen leaves under what was just planted.
+    if (!lean) {
+      const cover = new Cover(REGION);
+      this.litter(cover, new RNG(3331), first);
+      this.hideFar(cover.build(this.root), 160);
+    }
+    for (const inst of [this.trunks, this.blobs]) {
+      inst.build(this.root, true);
+      for (const m of inst.meshes) { m.visible = this.mainShown; this.mainOnly.push(m); }
+      this.standIns.push(inst);
+    }
+    if (this.floraWait) { const geo = this.floraWait; this.floraWait = null; this.plantFlora(geo); }
+  }
+
+  /** Under the mainland's trees from `from` on: ferns in the shade of the woods, and what the hardwoods have dropped. */
+  private litter(cover: Cover, rc: RNG, from: number): void {
+    const gy = (x: number, z: number): number => groundAt(x, z) - 0.05, G = this.plan.streets;
+    for (let i = from; i < this.stood.length; i++) {
+      const [sp, x, z] = this.stood[i];
+      if (z > MAIN_SPLIT_Z) continue;
+      const wild = G ? G.clearOfRoads(x, z, 25) : !inTown(x, z, 3);
+      // Ferns in the shade of the woods.
+      if (wild) for (let k = rc.int(1, 4); k > 0; k--) {
+        const a = rc.range(0, TAU), r = rc.range(1.2, 4.2), px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+        if (waterDist(px, pz) < 3) continue;
+        cover.tuft(px, gy(px, pz), pz, CELL.fern, rc.range(0.9, 1.4), rc.range(0.55, 0.85), rc.range(0, TAU), rc.range(0.8, 1.05), 3);
+      }
+      // It is October under the hardwoods: what they have dropped lies where it fell, on grass, sidewalk and gutter alike.
+      if (sp === 'sugarmaple' || sp === 'birch' || sp === 'redoak' || sp === 'elm') {
+        for (let k = rc.int(4, 8); k > 0; k--) {
+          const a = rc.range(0, TAU), r = rc.range(0.4, 4.6), px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+          if (waterDist(px, pz) < 2) continue;
+          cover.flat(px, groundAt(px, pz) + 0.035, pz, CELL.fallen, rc.range(0.9, 1.7), rc.range(0, TAU), rc.range(0.8, 1.05));
+        }
+      }
+    }
+  }
+
+  private tree(sp: Species, x: number, z: number, rng: RNG, size = 1): void {
     // Sunk a hand's width so no trunk hovers over the terrain's six-centimeter drop.
-    const y = groundAt(x, z) - 0.1, k0 = rng.range(0.85, 1.18), leaf = LEAF[sp], [shape, big] = SHAPE[sp], k = k0 * big;
+    const y = groundAt(x, z) - 0.1, k0 = rng.range(0.85, 1.18) * size, leaf = LEAF[sp], [shape, big] = SHAPE[sp], k = k0 * big;
     const fall = FALL[sp], turned = (): number => (fall && rng.chance(FALL_SHARE) ? rng.pick(fall) : rng.pick(leaf));
     this.stood.push([sp, x, z]);
     let tint = -1;
@@ -2051,7 +2515,7 @@ class Ground implements WorldPart {
       blob(0, th + 1.2 * k, 0, 2.1 * k, 1.7 * k, rng.pick(leaf));
       blob(ax * 0.9, th + 2.2 * k, az * 0.9, 1.5 * k, 1.3 * k, rng.pick(leaf));
     } else if (shape === 'maple') {
-      th = rng.range(2.5, 3.3) * big; tr = 0.25 * big;
+      th = rng.range(2.5, 3.3) * big * size; tr = 0.25 * big * Math.sqrt(size);
       // One island maple in seven has turned early, mustard or rust, top to bottom. On the mainland it is fall for half of them.
       const early = rng.chance(0.14);
       const hex = sp === 'maple' ? (early ? leaf[rng.int(3, 4)] : leaf[rng.int(0, 2)]) : sp === 'cherry' ? leaf[rng.int(0, 2)] : turned();
@@ -2091,10 +2555,32 @@ class Ground implements WorldPart {
           float sdS = shoreSD( vShore ) + 2.2 * sin( vShore.x * 0.09 + vShore.y * 0.05 ) + 1.3 * sin( vShore.y * 0.21 - vShore.x * 0.13 );
           float wetS = smoothstep( -15.5, -9.0, sdS ) * vSand;
           diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 0.6, 0.55, 0.48 ), wetS );`;
+    // The mainland's ground is this one mesh, and inland it is grass, not sand: there the lawn texture's own blades and
+    // mottling stand in for the sand's ripples (as detail about its mean, so the vertex colours keep the palette), and the
+    // sand's relief is let go. The island's scrub is left as it was.
+    const turf = this.mats.tex.grass, tone = this.mats.tex.noise;
     m.onBeforeCompile = (sh) => {
+      sh.uniforms.uTurf = { value: turf };
+      sh.uniforms.uTurfTone = { value: tone };
       sh.vertexShader = 'attribute float aSand;\nvarying float vSand;\nvarying vec2 vShore;\n'
         + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vSand = aSand; vShore = position.xz;');
-      sh.fragmentShader = 'varying float vSand;\nvarying vec2 vShore;\n' + SHORE_SD + sh.fragmentShader
+      sh.fragmentShader = 'uniform sampler2D uTurf, uTurfTone;\nvarying float vSand;\nvarying vec2 vShore;\n' + SHORE_SD + sh.fragmentShader
+        .replace('#include <map_fragment>', `
+          float turfK = ( 1.0 - vSand ) * step( vShore.y, ${F1(MAIN_SPLIT_Z)} );
+          #ifdef USE_MAP
+            vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+            if ( turfK > 0.004 ) {
+              vec3 tMean = max( textureLod( uTurf, vShore / ${F1(TILE_M.grass)}, 9.0 ).rgb, vec3( 0.02 ) );
+              // (The blades are for near ground: from the air an 8 m tile is a pattern, so it eases out with distance.)
+              vec3 tNear = mix( vec3( 1.0 ), texture2D( uTurf, vShore / ${F1(TILE_M.grass)} ).rgb / tMean, 0.9 - 0.75 * smoothstep( 50.0, 240.0, length( vViewPosition ) ) );
+              // Broad dry and lush patches (the lawns' own recipe, toneGrass), so a field is never one flat green from the air.
+              float ta = texture2D( uTurfTone, vShore / 131.0 ).r, tb = texture2D( uTurfTone, vShore / 37.0 ).g;
+              float tk = clamp( 0.5 + ( ta - 0.5 ) * 2.2 + ( tb - 0.5 ) * 1.2, 0.0, 1.0 );
+              sampledDiffuseColor.rgb = mix( sampledDiffuseColor.rgb, tNear * 0.86 * mix( vec3( 1.1, 1.03, 0.8 ), vec3( 0.8, 0.93, 0.84 ), tk ), turfK );
+            }
+            diffuseColor *= sampledDiffuseColor;
+          #endif`)
+        .replace('#include <normal_fragment_maps>', 'vec3 tN0 = normal;\n#include <normal_fragment_maps>\n  normal = normalize( mix( normal, tN0, 0.85 * turfK ) );')
         .replace('#include <color_fragment>', `#include <color_fragment>
           float sLum = dot( diffuseColor.rgb, vec3( 0.3, 0.55, 0.15 ) );
           diffuseColor.rgb = mix( diffuseColor.rgb, sLum * mix( vec3( 0.92, 1.0, 0.72 ), vec3( 1.13, 1.0, 0.8 ), vSand ), 0.3 + 0.42 * vSand );
@@ -2191,9 +2677,12 @@ class Ground implements WorldPart {
     }
     // The mainland's rough grass: the countryside, the riverbanks, the bluff. Drawn after the island's so its dice are untouched.
     const rm = new RNG(3311);
-    for (let i = 0; i < 16000 * den; i++) {
-      const x = rm.range(-950, 1000), z = rm.range(-2400, -1000), roll = rm.next();
-      if (inTown(x, z, 3) || keepOut(x, z) || coastSD(x, z) > -30 || inExtraLot(x, z, 0)) continue;
+    const GS = this.plan.streets, zTop = this.newPlan ? -2960 : -2400, more = this.newPlan ? 1.4 : 1;
+    // (New streets: rough grass grows where nobody mows, which is thirty metres from any road.)
+    const mown = (x: number, z: number): boolean => (GS ? !GS.clearOfRoads(x, z, 30) : inTown(x, z, 3));
+    for (let i = 0; i < 16000 * den * more; i++) {
+      const x = rm.range(-950, 1000), z = rm.range(zTop, -1000), roll = rm.next();
+      if (mown(x, z) || keepOut(x, z) || coastSD(x, z) > -30 || inExtraLot(x, z, 0)) continue;
       if (noise2(x * 0.045, z * 0.045 + 7) < 0.42 || roll > 0.7) continue;
       grass(x, z, 1.25);
       if (roll < 0.03) {
@@ -2231,28 +2720,26 @@ class Ground implements WorldPart {
       for (let i = 0; i < 24000 / sparse; i++) {
         if (i & 1) bank(rc.range(-870, -740), rc.range(STREAM_Z0, -1010)); else bank(rc.range(300, 480), rc.range(-1600, -1470));
       }
-      for (const [sp, x, z] of this.stood) {
-        if (z > MAIN_SPLIT_Z) continue;
-        const wild = !inTown(x, z, 3);
-        // Ferns in the shade of the woods.
-        if (wild) for (let k = rc.int(1, 4); k > 0; k--) {
-          const a = rc.range(0, TAU), r = rc.range(1.2, 4.2), px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-          if (waterDist(px, pz) < 3) continue;
-          cover.tuft(px, gy(px, pz), pz, CELL.fern, rc.range(0.9, 1.4), rc.range(0.55, 0.85), rc.range(0, TAU), rc.range(0.8, 1.05), 3);
-        }
-        // It is October under the hardwoods: what they have dropped lies where it fell, on grass, sidewalk and gutter alike.
-        if (sp === 'sugarmaple' || sp === 'birch' || sp === 'redoak' || sp === 'elm') {
-          for (let k = rc.int(4, 8); k > 0; k--) {
-            const a = rc.range(0, TAU), r = rc.range(0.4, 4.6), px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-            if (waterDist(px, pz) < 2) continue;
-            cover.flat(px, groundAt(px, pz) + 0.035, pz, CELL.fallen, rc.range(0.9, 1.7), rc.range(0, TAU), rc.range(0.8, 1.05));
-          }
+      if (this.newPlan) {
+        // Above the dam the pond stands a little up the bank: reeds in its shallows, both sides, to the river's mouth.
+        const up = (x: number, z: number): void => {
+          const g = gy(x, z), lv = riverLevel(z);
+          if (g < lv - 0.5 || g > lv + 0.6 || noise2(x * 0.07, z * 0.07 + 4) < 0.42 || railNear(x, z, 4) || streetSurface()?.nearRoad(x, z, 3)) return;
+          reeds(x, z, g);
+        };
+        for (let z = RIVER_MOUTH.z0 + 30; z < DAM_Z - 14; z += 1.1 * sparse) for (const side of [-1, 1]) up(riverX(z) + side * (RIVER_HW + rc.range(2.5, 7.5)), z + rc.range(-0.6, 0.6));
+        // Johnson Pond: stands of reed round the shore, open bank between them.
+        for (let i = 0; i < 2600 / sparse; i++) {
+          const x = rc.range(POND_BOX.x0, POND_BOX.x1), z = rc.range(POND_BOX.z0, POND_BOX.z1), sd = pondNear(x, z);
+          if (sd < -1.3 || sd > 0.9 || noise2(x * 0.13 + 9, z * 0.13) < 0.5) continue;
+          reeds(x, z, gy(x, z));
         }
       }
+      this.litter(cover, rc, 0);
       // Wildflowers in the mainland's meadows, in drifts.
-      for (let i = 0; i < 5000 * den; i++) {
-        const x = rc.range(-950, 1000), z = rc.range(-2400, -1000);
-        if (inTown(x, z, 3) || keepOut(x, z) || coastSD(x, z) > -30 || inExtraLot(x, z, 0) || noise2(x * 0.03 + 21, z * 0.03) < 0.62) continue;
+      for (let i = 0; i < 5000 * den * more; i++) {
+        const x = rc.range(-950, 1000), z = rc.range(zTop, -1000);
+        if (mown(x, z) || keepOut(x, z) || coastSD(x, z) > -30 || inExtraLot(x, z, 0) || noise2(x * 0.03 + 21, z * 0.03) < 0.62) continue;
         cover.tuft(x, gy(x, z), z, CELL.flowers, rc.range(0.6, 0.9), rc.range(0.45, 0.7), rc.range(0, TAU), 1);
       }
       this.hideFar(cover.build(this.root), 160);
@@ -2304,6 +2791,22 @@ class Ground implements WorldPart {
       const z = DAM_Z + RM.range(7, 34), s = RM.range(0.8, 2.1);
       rock(riverX(z) + RM.range(-33, 33), WATER_Y - 0.25 + RM.range(-0.2, 0.2), z, s);
     }
+    if (this.newPlan) {
+      // The pond above the dam: stone along the waterline of both banks, so no bank meets the water on a ruled line. And a
+      // few round Johnson Pond.
+      const RU = new RNG(3322);
+      for (let i = 0; i < 1700; i++) {
+        const z = RU.range(RIVER_MOUTH.z0 + 20, DAM_Z - 5), x = riverX(z) + RU.sign() * (RIVER_HW + RU.range(1.5, 8.5)), big = RU.chance(0.12);
+        const s = RU.range(0.35, 1.0) * (big ? 1.9 : 1), g = mainlandTerrain(x, z), lv = riverLevel(z);
+        if (g > lv + 1.2 || g < lv - 1.1 || railNear(x, z, 3)) continue;
+        rock(x, g - s * 0.25, z, s);
+      }
+      for (let i = 0; i < 2200; i++) {
+        const x = RU.range(POND_BOX.x0, POND_BOX.x1), z = RU.range(POND_BOX.z0, POND_BOX.z1), sd = pondNear(x, z), s = RU.range(0.22, 0.6);
+        if (sd < -0.7 || sd > 1.3 || RU.next() > 0.5) continue;
+        rock(x, mainlandTerrain(x, z) - s * 0.3, z, s);
+      }
+    }
     rocks.build(this.root, false);
     logs.build(this.root, false);
     this.hideFar(rocks.meshes, 420); this.hideFar(logs.meshes, 200);
@@ -2320,6 +2823,8 @@ class Ground implements WorldPart {
     const env = (this.mats.flat as THREE.MeshStandardMaterial).envMap;
     for (const pm of [this.propMat, this.propFar, this.propNear] as THREE.MeshStandardMaterial[]) if (pm !== this.mats.flatDouble && pm.envMap !== env) pm.envMap = env;
     if (this.sandMat && this.sandMat.envMap !== env) this.sandMat.envMap = env;
+    const cm = this.concreteMat as THREE.MeshStandardMaterial | null;
+    if (cm && cm.envMap !== env) cm.envMap = env;
     const cp = this.game.camera.getWorldPosition(P);
     for (const n of this.nearOnly) n.o.visible = cp.distanceTo(n.c) - n.r < n.lim;
     // The mainland's coast is at about z = -980: beyond fog range of it, none of the far shore is drawn.
@@ -2370,6 +2875,6 @@ class Ground implements WorldPart {
   }
 }
 
-export function buildGround(game: Game, mats: CityMaterials, parent: THREE.Group): WorldPart {
+export function buildGround(game: Game, mats: CityMaterials, parent: THREE.Group): WorldPart & { dressTown(): void } {
   return new Ground(game, mats, parent);
 }

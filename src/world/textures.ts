@@ -612,7 +612,7 @@ function asphaltBase(c: Ctx, w: number, h: number, nz: Noise, seed: number): RNG
 }
 
 /** Patches of newer asphalt, hairline cracks and tar-sealed ones. `pxm` = pixels per meter. */
-function asphaltWear(c: Ctx, w: number, h: number, r: RNG, pxm: number, patches: number, cracks: number, rc: Ctx | null = null): void {
+function asphaltWear(c: Ctx, w: number, h: number, r: RNG, pxm: number, patches: number, cracks: number, rc: Ctx | null = null, seal = true): void {
   c.lineCap = 'round'; c.lineJoin = 'round';
   if (rc) { rc.lineCap = 'round'; rc.lineJoin = 'round'; }
   for (let i = 0; i < patches; i++) {
@@ -628,8 +628,8 @@ function asphaltWear(c: Ctx, w: number, h: number, r: RNG, pxm: number, patches:
     });
   }
   for (let i = 0; i < cracks; i++) {
-    const sealed = i % 3 === 0;
-    const pts = crackPath(r, r.next() * w, r.next() * h, r.range(0, TAU_), r.int(7, 16), pxm * 0.28);
+    const sealed = seal && i % 3 === 0;
+    const pts = crackPath(r, r.next() * w, r.next() * h, r.range(0, TAU_), seal ? r.int(7, 16) : r.int(4, 8), pxm * (seal ? 0.28 : 0.2));
     c.strokeStyle = ink(sealed ? 0.42 : 0.34); c.lineWidth = Math.max(1, pxm * (sealed ? 0.045 : 0.014));
     wrapped(c, w, h, () => strokePts(c, pts));
     if (rc && sealed) { rc.strokeStyle = grey(84); rc.lineWidth = Math.max(2.5, pxm * 0.05); wrapped(rc, w, h, () => strokePts(rc, pts)); }
@@ -684,7 +684,9 @@ function roadCanvas(nz: Noise, seed: number, widthM: number, W: number, lanes: n
       rc.fillStyle = g; rc.fillRect(x - rad, y - rad, rad * 2, rad * 2);
     }, false, true);
   }
-  asphaltWear(c, W, H, r, px, 3, 7, rc);
+  // No repair patch and no tar-sealed crack in the tile: one of each every twelve metres down every street in two towns
+  // is a pattern, not wear. They are stamps now (MARK_PX patch and crack; ground.ts roadWear), and the tile keeps hairlines.
+  asphaltWear(c, W, H, r, px, 0, 4, rc, false);
 
   // Paint goes on its own layer so it can be worn through before it lands on the asphalt.
   const [pv, p] = canvas(W, H);
@@ -710,7 +712,7 @@ function asphaltCanvas(nz: Noise): HTMLCanvasElement {
   const [cv, c] = canvas(512, 512);
   const r = asphaltBase(c, 512, 512, nz, 31);
   const [rv, rc] = roughSheet(512, 512, nz, 232);
-  asphaltWear(c, 512, 512, r, 512 / TILE_M.asphalt, 2, 5, rc);
+  asphaltWear(c, 512, 512, r, 512 / TILE_M.asphalt, 0, 3, rc, false);
   EXTRA.set(cv, { rough: rv });
   return cv;
 }
@@ -737,6 +739,9 @@ const MARK_PX: Record<string, [number, number, number, number]> = {
   hatch: [0, 446, 1024, 160], solid: [0, 622, 1024, 16],
   arrow: [8, 656, 150, 360], arrowTurn: [170, 656, 190, 360], duckXing: [372, 656, 200, 200],
   manhole: [584, 656, 136, 136], drain: [732, 656, 150, 76], stain: [584, 804, 200, 200], stop: [796, 744, 220, 272],
+  // Road repairs, as stamps (ground.ts roadWear lays them by the road, never twice the same way): a cut-and-fill patch
+  // and a long crack, both drawn in white so the vertex colour makes them newer (dark) or older (pale) than the road.
+  patch: [372, 866, 200, 150], crack: [892, 656, 124, 80],
 };
 function marksCanvas(nz: Noise): HTMLCanvasElement {
   const S = 1024, [cv, c] = canvas(S, S), W = '#ffffff';
@@ -780,6 +785,17 @@ function marksCanvas(nz: Noise): HTMLCanvasElement {
   at('drain', (w, h) => {
     c.fillStyle = '#3d3f42'; c.fillRect(0, 0, w, h);
     c.fillStyle = '#17191c'; for (let i = 0; i < 7; i++) c.fillRect(12 + i * 19, 10, 9, h - 20);
+  });
+  at('patch', (w, h) => {
+    c.fillStyle = 'rgba(255,255,255,0.3)'; c.fillRect(5, 5, w - 10, h - 10);
+    c.strokeStyle = 'rgba(255,255,255,0.62)'; c.lineWidth = 3; c.lineJoin = 'round'; c.strokeRect(6, 6, w - 12, h - 12);
+  });
+  at('crack', (w, h) => {
+    const r = new RNG(57), pts = crackPath(r, 5, h * 0.5, 0, 13, (w - 10) / 13);
+    // Kept inside the stamp: the walk wanders, the frame does not.
+    for (let i = 1; i < pts.length; i += 2) pts[i] = Math.max(5, Math.min(h - 5, h * 0.5 + (pts[i] - h * 0.5) * 0.55));
+    for (let i = 0; i < pts.length; i += 2) pts[i] = Math.max(4, Math.min(w - 4, pts[i]));
+    c.strokeStyle = 'rgba(255,255,255,0.85)'; c.lineWidth = 2.2; c.lineCap = 'round'; c.lineJoin = 'round'; strokePts(c, pts);
   });
   at('stain', (w, h) => {
     const r = new RNG(91);

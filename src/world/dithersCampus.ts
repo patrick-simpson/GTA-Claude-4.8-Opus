@@ -3,24 +3,29 @@
 //
 // Procedural massing, no models: every building is its footprint rectangles, wall bays that carry a painted brick-and-sash
 // cell from one small atlas (windows glow at night), a white cornice, a slate gable or flat roof, and for the landmarks a
-// white portico, cupola, the library's clock tower or the chapel's spire. Quad paths, drives, car parks, pitches, the
-// track and Johnson Pond are draped on the terrain. All walls, roofs and trim are ONE mesh and all ground cover is one
-// more, so the whole campus is two draw calls (plus the pond) and culls as one.
+// white portico, cupola, the library's clock tower or the chapel's spire. Quad paths, drives, car parks, pitches and the
+// track are draped on the terrain in the town's own ground materials (asphalt, concrete walk, turf, paint), cut off
+// wherever a public road or its sidewalk runs, and kept out of Johnson Pond (dithersPond.ts; ground.ts draws its basin
+// and water). All walls, roofs and trim are ONE mesh; the ground cover is one mesh a material.
 import * as THREE from 'three';
 import type { WorldPart } from '../core/api';
 import type { Game } from '../core/game';
 import type { CityMaterials } from './materials';
-import { groundAt } from './plan';
+import { groundAt, streetSurface } from './plan';
+import { TILE_M } from './textures';
+import { pondNear } from './dithersPond';
 import { loadHeroes, setHeroNight, type HeroSpec } from './dithersHero';
 import { buildCampusProps } from './dithersProps';
-import { CAMPUS_BUILDINGS, CAMPUS_DRIVES, CAMPUS_FIELDS, CAMPUS_LOTS, CAMPUS_PATHS, CAMPUS_POND, CAMPUS_TRACK } from './dithersPlan';
+import { CAMPUS_BUILDINGS, CAMPUS_DRIVES, CAMPUS_FIELDS, CAMPUS_LOTS, CAMPUS_PATHS, CAMPUS_TRACK } from './dithersPlan';
 
 // ── Atlas of wall cells ──────────────────────────────────────────────────────────────────────────────────────────────────
 // One cell is one bay of one storey. Columns: 0 Georgian brick+sash, 1 flat brick ribbon, 2 glass, 3 museum, 4 arena, 5 plant, 6 concrete, 7 door bay,
 // 8 tall arched brick window (the chapel), 9 the museum pavilions' glass wall.
-const CELL = 128, NCELL = 10;
+// Rows: the same walls three times over, with the windows' night glow lit (0), dim behind a blind (1) and dark (2): each
+// bay of each storey picks one by a hash of where it is, so a hall at night is a scatter of lit rooms and not a lantern.
+const CELL = 128, NCELL = 10, NROW = 3;
 function atlas(): { map: THREE.CanvasTexture; glow: THREE.CanvasTexture } {
-  const mk = (): [HTMLCanvasElement, CanvasRenderingContext2D] => { const c = document.createElement('canvas'); c.width = CELL * NCELL; c.height = CELL; return [c, c.getContext('2d')!]; };
+  const mk = (): [HTMLCanvasElement, CanvasRenderingContext2D] => { const c = document.createElement('canvas'); c.width = CELL * NCELL; c.height = CELL * NROW; return [c, c.getContext('2d')!]; };
   const [ca, a] = mk(), [cg, g] = mk();
   g.fillStyle = '#000'; g.fillRect(0, 0, ca.width, ca.height);
   let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -89,6 +94,18 @@ function atlas(): { map: THREE.CanvasTexture; glow: THREE.CanvasTexture } {
     a.fillRect(x0, 54, CELL, 2);
     g.fillStyle = '#ffe6b0'; g.fillRect(x0, 6, CELL, CELL - 18); g.fillStyle = '#000'; for (let i = 0; i <= 4; i++) g.fillRect(x0 + i * 32 - (i === 4 ? 2 : 0), 4, 2, CELL - 14); g.fillRect(x0, 54, CELL, 2);
   }
+  // A lit room is not an even panel: brighter under the lamp, a blind or a curtain across part of it.
+  for (let k = 0; k < NCELL; k++) {
+    const x0 = k * CELL, gr = g.createLinearGradient(0, 0, 0, CELL);
+    gr.addColorStop(0, 'rgba(0,0,0,0.05)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.3)'); gr.addColorStop(1, 'rgba(0,0,0,0.62)');
+    g.globalCompositeOperation = 'multiply'; g.fillStyle = gr; g.fillRect(x0, 0, CELL, CELL);
+    g.fillStyle = 'rgba(40,24,8,0.5)'; g.fillRect(x0 + 20 + ((k * 37) % 50), 0, 26, CELL);
+    g.globalCompositeOperation = 'source-over';
+  }
+  // Rows 1 and 2: the walls again; the glow once more at a third of the light and cooler (a screen, a hall light), then not at all.
+  a.drawImage(ca, 0, 0, ca.width, CELL, 0, CELL, ca.width, CELL); a.drawImage(ca, 0, 0, ca.width, CELL, 0, 2 * CELL, ca.width, CELL);
+  g.globalAlpha = 0.34; g.drawImage(cg, 0, 0, cg.width, CELL, 0, CELL, cg.width, CELL); g.globalAlpha = 1;
+  g.globalCompositeOperation = 'multiply'; g.fillStyle = '#a9c4ff'; g.fillRect(0, CELL, cg.width, CELL); g.globalCompositeOperation = 'source-over';
   const mkTex = (c: HTMLCanvasElement, srgb: boolean): THREE.CanvasTexture => {
     const t = new THREE.CanvasTexture(c); t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     t.anisotropy = 4; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; return t;
@@ -115,8 +132,10 @@ class Buf {
     this.tri(a, b, c, col, [u0, v0], [u1, v0], [u1, v1], shade, out);
     this.tri(a, c, d, col, [u0, v0], [u1, v1], [u0, v1], shade, out);
   }
-  mesh(mat: THREE.Material, cast: boolean, receive: boolean): THREE.Mesh | null {
+  /** `tile`: metres a repeat for a ground material; the texture coordinates are then the world's (x, z) / tile, like every other ground mesh's. */
+  mesh(mat: THREE.Material, cast: boolean, receive: boolean, tile = 0): THREE.Mesh | null {
     if (!this.p.length) return null;
+    if (tile > 0) for (let i = 0; i < this.p.length / 3; i++) { this.u[i * 2] = this.p[i * 3] / tile; this.u[i * 2 + 1] = this.p[i * 3 + 2] / tile; }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.u, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
@@ -161,7 +180,7 @@ class Campus {
   }
 
   /** Walls of one rectangle: plinth, wall bays by storey (atlas cell `cell`), cornice. */
-  walls(r: R5, style: number, floors: number, fh: number, yLow: number, yF: number, shade: number, doors: number[], cellOv = -1): number {
+  walls(r: R5, style: number, floors: number, fh: number, yLow: number, yF: number, shade: number, doors: number[], cellOv = -1, lit = 0.3): number {
     const bay = BAY[style], cell = style, hw = r.w / 2, hd = r.d / 2;
     const cor: [number, number][] = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]];
     for (let i = 0; i < 4; i++) {
@@ -176,7 +195,10 @@ class Campus {
         const y0 = yF + 0.5 + f * fh, y1 = y0 + fh;
         const door = f === 0 && style === 0 && doors.includes(i) && k === Math.floor(nb / 2);
         const c = door ? 7 : cellOv >= 0 ? cellOv : cell;
-        this.W.quad(pw(k, y0), pw(k + 1, y0), pw(k + 1, y1), pw(k, y1), 0xffffff, sideOut, [c / NCELL + 0.002, 0.995, (c + 1) / NCELL - 0.002, 0.005], shade);
+        // Which rooms have a light on: by where the bay is, so it never changes. Doors and the chapel's windows always glow.
+        const p0 = pw(k + 0.5, y0), hsh = Math.abs(Math.sin(p0[0] * 12.9898 + p0[2] * 78.233 + y0 * 37.719) * 43758.5453) % 1;
+        const row = door || c === 8 ? 0 : hsh < lit ? 0 : hsh < lit * 1.6 ? 1 : 2, v1 = 1 - row / NROW, v0 = 1 - (row + 1) / NROW;
+        this.W.quad(pw(k, y0), pw(k + 1, y0), pw(k + 1, y1), pw(k, y1), 0xffffff, sideOut, [c / NCELL + 0.002, v1 - 0.004, (c + 1) / NCELL - 0.002, v0 + 0.004], shade);
       }
     }
     const yT = yF + 0.5 + floors * fh;
@@ -259,7 +281,12 @@ class Campus {
 
 // ── Terrain drape ────────────────────────────────────────────────────────────────────────────────────────────────────────
 const up = [0, 1, 0];
-function ribbon(B: Buf, pts: number[], w: number, dy: number, col: number, closed = false): void {
+/** True where the campus may not paint: on a public road or its sidewalk (the town's own surface is there), or in the pond. */
+function taken(x: number, z: number): boolean {
+  const surf = streetSurface();
+  return (surf !== null && surf.probe(x, z).kind !== null) || pondNear(x, z) < 1.2;
+}
+function ribbon(B: Buf, pts: number[], w: number, dy: number, col: number, closed = false, clip = true): void {
   const P: [number, number][] = [];
   for (let i = 0; i < pts.length; i += 2) P.push([pts[i], pts[i + 1]]);
   if (closed) P.push(P[0]);
@@ -276,7 +303,11 @@ function ribbon(B: Buf, pts: number[], w: number, dy: number, col: number, close
     const lx = D[i][0] - tz * w / 2, lz = D[i][1] + tx * w / 2, rx = D[i][0] + tz * w / 2, rz = D[i][1] - tx * w / 2;
     L.push([lx, groundAt(lx, lz) + dy, lz]); Rr.push([rx, groundAt(rx, rz) + dy, rz]);
   }
-  for (let i = 0; i < D.length - 1; i++) B.quad(L[i], Rr[i], Rr[i + 1], L[i + 1], col, up);
+  for (let i = 0; i < D.length - 1; i++) {
+    // A path or drive stops at the kerb: nothing of it is laid over a carriageway or the walk beside it.
+    if (clip && (taken((D[i][0] + D[i + 1][0]) / 2, (D[i][1] + D[i + 1][1]) / 2) || taken(L[i][0], L[i][2]) || taken(Rr[i][0], Rr[i][2]) || taken(L[i + 1][0], L[i + 1][2]) || taken(Rr[i + 1][0], Rr[i + 1][2]))) continue;
+    B.quad(L[i], Rr[i], Rr[i + 1], L[i + 1], col, up);
+  }
 }
 
 function pip(x: number, z: number, p: number[]): boolean {
@@ -300,6 +331,7 @@ function polygon(B: Buf, p: number[], dy: number, col: number, max = 7, yFix?: n
       else { const m = [(c[0] + a[0]) / 2, (c[1] + a[1]) / 2]; emit(a, b, m, depth + 1); emit(m, b, c, depth + 1); }
       return;
     }
+    if (taken((a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3)) return;
     B.tri([a[0], Y(a[0], a[1]), a[1]], [b[0], Y(b[0], b[1]), b[1]], [c[0], Y(c[0], c[1]), c[1]], col, [0, 0], [0, 0], [0, 0], 1, up);
   };
   for (const t of tris) emit([pts[t[0]].x, pts[t[0]].y], [pts[t[1]].x, pts[t[1]].y], [pts[t[2]].x, pts[t[2]].y], 0);
@@ -309,7 +341,29 @@ function polygon(B: Buf, p: number[], dy: number, col: number, max = 7, yFix?: n
 function gridRect(B: Buf, cx: number, cz: number, w: number, d: number, a: number, dy: number, cell: number, f: (i: number, j: number) => number): void {
   const nx = Math.max(1, Math.ceil(w / cell)), nz = Math.max(1, Math.ceil(d / cell)), c = Math.cos(a), s = Math.sin(a);
   const V = (i: number, j: number): number[] => { const lx = -w / 2 + (w * i) / nx, lz = -d / 2 + (d * j) / nz, x = cx + lx * c - lz * s, z = cz + lx * s + lz * c; return [x, groundAt(x, z) + dy, z]; };
-  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) B.quad(V(i, j), V(i + 1, j), V(i + 1, j + 1), V(i, j + 1), f(i, j), up);
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+    const m = V(i + 0.5, j + 0.5);
+    if (!taken(m[0], m[2])) B.quad(V(i, j), V(i + 1, j), V(i + 1, j + 1), V(i, j + 1), f(i, j), up);
+  }
+}
+
+/** Parking bays for a car park: double rows square to its longest side, wherever a whole stall fits inside it. */
+function bays(B: Buf, lot: number[], dy: number): void {
+  let bl = 0, ux = 1, uz = 0;
+  for (let i = 0; i < lot.length; i += 2) { const j = (i + 2) % lot.length, dx = lot[j] - lot[i], dz = lot[j + 1] - lot[i + 1], l = Math.hypot(dx, dz); if (l > bl) { bl = l; ux = dx / l; uz = dz / l; } }
+  let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
+  for (let i = 0; i < lot.length; i += 2) { const u = lot[i] * ux + lot[i + 1] * uz, v = -lot[i] * uz + lot[i + 1] * ux; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+  const at = (u: number, v: number): [number, number] => [u * ux - v * uz, u * uz + v * ux];
+  const free = (u: number, v: number): boolean => { const [x, z] = at(u, v); return pip(x, z, lot) && !taken(x, z); };
+  const PAINT = 0xe9e6da, DEEP = 5.2, WIDE = 2.7;
+  // Rows: stalls either side of a spine, an aisle between rows.
+  for (let v = v0 + DEEP + 1.2; v < v1 - DEEP - 1; v += DEEP * 2 + 7) {
+    for (let u = u0 + 1.5; u < u1 - 1; u += WIDE) {
+      if (!free(u, v - DEEP) || !free(u, v + DEEP) || !free(u, v) || !free(u + WIDE, v) || !free(u - WIDE, v)) continue;
+      ribbon(B, [...at(u, v - DEEP), ...at(u, v + DEEP)], 0.12, dy, PAINT, false, false);
+      ribbon(B, [...at(u - WIDE / 2, v), ...at(u + WIDE / 2, v)], 0.12, dy, PAINT, false, false);
+    }
+  }
 }
 
 function outline(B: Buf, cx: number, cz: number, w: number, d: number, a: number, dy: number, col: number, lw = 0.16): void {
@@ -339,40 +393,47 @@ export function buildDithersCampus(game: Game, mats: CityMaterials, parent: THRE
   wallMat.map = tex.map; wallMat.emissiveMap = tex.glow; wallMat.vertexColors = true; wallMat.roughnessMap = null; wallMat.metalnessMap = null; wallMat.normalMap = null;
   wallMat.roughness = 0.85; wallMat.metalness = 0;
   const solidMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0 });
-  const groundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const env = (mats.flat as THREE.MeshStandardMaterial).envMap ?? null;
   wallMat.envMap = env; solidMat.envMap = env; solidMat.envMapIntensity = 0.5;
 
   // ── Ground cover first (it sits under the buildings) ──
-  for (const lot of CAMPUS_LOTS) { polygon(C.G, lot, 0.07, 0x4b4c4e); }
-  for (const dr of CAMPUS_DRIVES) ribbon(C.G, dr, 5.2, 0.08, 0x4b4c4e);
-  for (const p of CAMPUS_PATHS) ribbon(C.G, p, 2.2, 0.1, 0x9c6f58);
-  const grass = [0x5f9a47, 0x6aa650];
+  // Five layers, each in a material the town already has, so the campus weathers, wets and snows over with it:
+  // G asphalt (car parks, drives, the courts' and the track's base), P concrete walks, T mown turf, D bare earth, L paint.
+  const P = new Buf(), T = new Buf(), D = new Buf(), L = new Buf();
+  const PAINT = 0xe9e6da;
+  for (const lot of CAMPUS_LOTS) { polygon(C.G, lot, 0.07, 0xd9d6d0); bays(L, lot, 0.09); }
+  for (const dr of CAMPUS_DRIVES) ribbon(C.G, dr, 5.2, 0.08, 0xe2dfd8);
+  // Walks: poured concrete gone a little warm, the odd darker slab run (by path, so a walk is one colour end to end).
+  CAMPUS_PATHS.forEach((p, k) => ribbon(P, p, 2.2, 0.1, [0xe6dfd0, 0xdcd4c4, 0xd2cbbd][k % 3]));
+  // Turf: the town's grass, mown in bands a shade apart. No pitch is greener than the lawn it lies in.
+  const grass = [0xf2f6e6, 0xdfe6cf];
   for (const [sport, cx, cz, w, d, a] of CAMPUS_FIELDS) {
     if (sport === 5) {
-      gridRect(C.G, cx, cz, w, d, a, 0.06, 6, () => 0x3f7a62);
+      // Tennis: painted asphalt, a dull green apron and slate-blue courts.
+      gridRect(C.G, cx, cz, w, d, a, 0.06, 6, () => 0x8fae93);
       for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) {
         const cw = w / 3 - 1.2, cd = d / 2 - 1.2, [x, z] = rot({ cx, cz, w, d, a }, -w / 2 + (i + 0.5) * (w / 3), -d / 2 + (j + 0.5) * (d / 2));
-        outline(C.G, x, z, cw, cd, a, 0.12, 0xf2f0e6, 0.12); gridRect(C.G, x, z, cw, cd, a, 0.09, 6, () => 0x4d8fa8);
-        outline(C.G, x, z, cw, cd, a, 0.14, 0xf2f0e6, 0.12);
+        gridRect(C.G, x, z, cw, cd, a, 0.09, 6, () => 0x8aa3b8);
+        outline(L, x, z, cw, cd, a, 0.11, PAINT, 0.1);
       }
       continue;
     }
-    gridRect(C.G, cx, cz, w, d, a, 0.06, 5, (i) => grass[i & 1]);
-    outline(C.G, cx, cz, w - 1, d - 1, a, 0.12, 0xf2f0e6, 0.18);
-    if (sport === 2 || sport === 3) { const [hx, hz] = rot({ cx, cz, w, d, a }, -w * 0.3, 0); gridRect(C.G, hx, hz, 12, 12, a + Math.PI / 4, 0.1, 4, () => 0xa8794e); }
-    else { ribbon(C.G, [...rot({ cx, cz, w, d, a }, 0, -d / 2 + 0.5), ...rot({ cx, cz, w, d, a }, 0, d / 2 - 0.5)], 0.14, 0.13, 0xf2f0e6); }
+    gridRect(T, cx, cz, w, d, a, 0.06, 5, (i) => grass[i & 1]);
+    outline(L, cx, cz, w - 1, d - 1, a, 0.09, PAINT, 0.14);
+    if (sport === 2 || sport === 3) { const [hx, hz] = rot({ cx, cz, w, d, a }, -w * 0.3, 0); gridRect(D, hx, hz, 12, 12, a + Math.PI / 4, 0.09, 4, () => 0xcaa581); }
+    else { ribbon(L, [...rot({ cx, cz, w, d, a }, 0, -d / 2 + 0.5), ...rot({ cx, cz, w, d, a }, 0, d / 2 - 0.5)], 0.12, 0.09, PAINT); }
   }
   {
-    const T = CAMPUS_TRACK, c = Math.cos(T.a), s = Math.sin(T.a), loop = (r: number): number[] => {
+    const K = CAMPUS_TRACK, c = Math.cos(K.a), s = Math.sin(K.a), loop = (r: number): number[] => {
       const pts: number[] = [];
-      for (let i = 0; i < 48; i++) { const side = i < 24 ? 1 : -1, k = ((i % 24) / 23) * Math.PI, u = side * (T.straight / 2 + Math.sin(k) * r), v = -side * Math.cos(k) * r; pts.push(T.cx + u * c - v * s, T.cz + u * s + v * c); }
+      for (let i = 0; i < 48; i++) { const side = i < 24 ? 1 : -1, k = ((i % 24) / 23) * Math.PI, u = side * (K.straight / 2 + Math.sin(k) * r), v = -side * Math.cos(k) * r; pts.push(K.cx + u * c - v * s, K.cz + u * s + v * c); }
       return pts;
     };
-    polygon(C.G, [...loop(T.r_in - 0.5), ...loop(T.r_in - 0.5).slice(0, 2)], 0.05, 0x6aa650, 6);
-    const mid = T.r_in + (T.lanes * T.lane_w) / 2;
-    ribbon(C.G, loop(mid), T.lanes * T.lane_w + 0.3, 0.1, 0xb4523c, true);
-    for (let k = 0; k <= T.lanes; k++) ribbon(C.G, loop(T.r_in + k * T.lane_w), 0.1, 0.14, 0xf2f0e6, true);
+    polygon(T, [...loop(K.r_in - 0.5), ...loop(K.r_in - 0.5).slice(0, 2)], 0.05, 0xe9efda, 6);
+    const mid = K.r_in + (K.lanes * K.lane_w) / 2;
+    // The track: rubber crumb over asphalt, brick red gone dusty.
+    ribbon(C.G, loop(mid), K.lanes * K.lane_w + 0.3, 0.1, 0xc98672, true);
+    for (let k = 0; k <= K.lanes; k++) ribbon(L, loop(K.r_in + k * K.lane_w), 0.08, 0.12, PAINT, true);
   }
 
   // ── Buildings ──
@@ -404,7 +465,7 @@ export function buildDithersCampus(game: Game, mats: CityMaterials, parent: THRE
       }
       const h = (flags & 2) && ri === 0 ? 9.5 : FH[style];
       const fl = (flags & 2) && ri === 0 ? 1 : style === 4 ? 1 : floors;
-      const yF = yHi + 0.2, yT = C.walls(r, style, fl, h, yLo, yF, shade, ri === 0 && (flags & 8) ? [3] : [], (flags & 2) ? 8 : style === 3 && ri > 0 ? 9 : -1);
+      const yF = yHi + 0.2, yT = C.walls(r, style, fl, h, yLo, yF, shade, ri === 0 && (flags & 8) ? [3] : [], (flags & 2) ? 8 : style === 3 && ri > 0 ? 9 : -1, [0.34, 0.26, 0.2, 0.12, 0.3, 0.2, 0][style]);
       if (hero && ri === 0) hero.yF = yF;
       if (ri === 0) yTop0 = yT;
       const lowRise = Math.min(r.w, r.d) < 3.2;
@@ -429,29 +490,13 @@ export function buildDithersCampus(game: Game, mats: CityMaterials, parent: THRE
     }
   }
 
-  // ── Johnson Pond: a still sheet at the mean of its bank, with a dark bank skirt where the hill falls away ──
-  const pond = CAMPUS_POND; let sum = 0, n = 0, hi = -1e9;
-  for (let i = 0; i < pond.length; i += 2) { const g = groundAt(pond[i], pond[i + 1]); sum += g; n++; hi = Math.max(hi, g); }
-  let pcx = 0, pcz = 0;
-  for (let i = 0; i < pond.length; i += 2) { pcx += pond[i] / (pond.length / 2); pcz += pond[i + 1] / (pond.length / 2); }
-  const hs: number[] = [];
-  for (let i = 0; i < pond.length; i += 2) hs.push(groundAt(pond[i], pond[i + 1]));
-  hs.sort((a, b) => a - b);
-  const pondY = hs[Math.floor(hs.length * 0.8)] - 0.05; void hi; void sum; void n;
-  const water = new Buf();
-  polygon(water, pond, 0, 0x447689, 9, pondY);
-  for (let i = 0; i < pond.length; i += 2) {
-    const j = (i + 2) % pond.length, ay = groundAt(pond[i], pond[i + 1]), by = groundAt(pond[j], pond[j + 1]);
-    if (ay > pondY + 0.05 && by > pondY + 0.05) continue;
-    const top = pondY + 0.02;
-    C.F.quad([pond[i], Math.min(ay, top) - 0.2, pond[i + 1]], [pond[j], Math.min(by, top) - 0.2, pond[j + 1]], [pond[j], top, pond[j + 1]], [pond[i], top, pond[i + 1]], 0x5a4a38, [pond[i] - pcx, 0, pond[i + 1] - pcz]);
-  }
-  const waterMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.0, envMap: env, envMapIntensity: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-
-  const meshes = [C.W.mesh(wallMat, true, true), C.F.mesh(solidMat, true, true), C.G.mesh(groundMat, false, true), water.mesh(waterMat, false, true)];
+  // Johnson Pond is dithersPond.ts's: the basin is in the terrain itself and ground.ts draws the water.
+  const meshes = [
+    C.W.mesh(wallMat, true, true), C.F.mesh(solidMat, true, true),
+    C.G.mesh(mats.asphalt, false, true, TILE_M.asphalt), P.mesh(mats.sidewalk, false, true, TILE_M.sidewalk),
+    T.mesh(mats.grass, false, true, TILE_M.grass), D.mesh(mats.sand, false, true, TILE_M.sand), L.mesh(mats.decal, false, true),
+  ];
   for (const m of meshes) if (m) grp.add(m);
-  game.col.allBoxes.length;
-  void pip;
   const envNow = (): THREE.Texture | null => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null;
   const props = buildCampusProps(game, grp, envNow());
   loadHeroes(game, grp, heroes, envNow).then((ok) => {
@@ -462,6 +507,6 @@ export function buildDithersCampus(game: Game, mats: CityMaterials, parent: THRE
 
   return {
     setNight(n: number): void { wallMat.emissiveIntensity = mats.facade[1].emissiveIntensity; setHeroNight(n); props.setNight(n); },
-    update(): void { const e = (mats.flat as THREE.MeshStandardMaterial).envMap ?? null; if (wallMat.envMap !== e) { wallMat.envMap = e; solidMat.envMap = e; waterMat.envMap = e; } },
+    update(): void { const e = (mats.flat as THREE.MeshStandardMaterial).envMap ?? null; if (wallMat.envMap !== e) { wallMat.envMap = e; solidMat.envMap = e; } },
   };
 }

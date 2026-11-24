@@ -520,7 +520,9 @@ function keepStack(x: number, z: number, block: number): boolean {
   const south = z > -1640 && x < 120, west = x < 20 && z < -1640 && z > -2060 && x > -700;
   if (!south && !west) return true;
   const h = Math.imul(Math.round(x * 7) ^ Math.imul(Math.round(z * 13), 2654435761) ^ block, 2246822519) >>> 0;
-  return (h % 1000) / 1000 < 0.25;
+  // (Was a quarter: OpenStreetMap has simply not traced these streets' houses. The real South End and West End are built
+  // up lot after lot, so most lots keep their house and the gaps are the exception.)
+  return (h % 1000) / 1000 < 0.8;
 }
 
 let LOTS: OLot[] | null = null;

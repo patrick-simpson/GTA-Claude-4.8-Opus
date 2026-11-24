@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Game } from '../core/game';
 import { groundAt, streetSurface } from './plan';
+import { EXTRA } from './floraAssets';
 import { CAMPUS_BUILDINGS, CAMPUS_DRIVES, CAMPUS_FIELDS, CAMPUS_PATHS, campusFree } from './dithersPlan';
 
 /** True when (x, z) is more than m metres from every street's carriageway and sidewalk (the current graph, so no lamp, bench or tree stands in a road). */
@@ -173,7 +174,8 @@ export function buildCampusProps(game: Game, parent: THREE.Object3D, env: THREE.
   // ── Lawn maples (core of the campus), kept 5 m from every building and 3.6 m from the walks and drives ──
   {
     const spots: THREE.Matrix4[] = [], cols: THREE.Color[] = [];
-    const hues = [0x4f8a3a, 0x5a9a40, 0x6fa043, 0xd6a43a, 0xc8642a, 0xa83a2a, 0x4f8a3a];
+    // The town's own maples: its greens, and what they turn in the fall (ground.ts LEAF and FALL).
+    const hues = [0x5f8f48, 0x6f9c4e, 0x528243, 0x5f8f48, 0xe07a28, 0xd9542a, 0xe6a030, 0xc23e2a];
     const step = 17 / Math.sqrt(scale);
     for (let x = -575; x < -330; x += step) for (let z = -2565; z < -2185; z += step) {
       const px = x + (rnd() - 0.5) * step * 0.8, pz = z + (rnd() - 0.5) * step * 0.8;
@@ -182,7 +184,18 @@ export function buildCampusProps(game: Game, parent: THREE.Object3D, env: THREE.
       spots.push(new THREE.Matrix4().compose(new THREE.Vector3(px, groundAt(px, pz) - 0.1, pz), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6.28), new THREE.Vector3(s, s * (0.9 + rnd() * 0.3), s)));
       cols.push(new THREE.Color(hues[Math.floor(rnd() * hues.length)]).offsetHSL((rnd() - 0.5) * 0.02, 0, (rnd() - 0.5) * 0.06));
     }
-    if (spots.length) {
+    // With the tree models (not on phones, not with ?flora=0) these are the town's sugar maples and red oaks, drawn by the
+    // ground's one tree field (floraAssets.ts EXTRA): the code-built crowns below are only the phones' stand-in.
+    const models = game.quality.name !== 'low' && new URLSearchParams(location.search).get('flora') !== '0';
+    if (models) {
+      spots.forEach((m, i) => {
+        EXTRA.kind.push(i % 4 === 3 ? 'redoak' : 'sugarmaple');
+        const e = m.elements;
+        // (The stand-in is drawn small: the model at the same matrix would be a sapling.)
+        for (let k = 0; k < 16; k++) EXTRA.m.push(k < 12 ? e[k] * 1.45 : e[k]);
+        EXTRA.c.push(cols[i].r * 1.2, cols[i].g * 1.2, cols[i].b * 1.2);
+      });
+    } else if (spots.length) {
       const lobe = (dx: number, dy: number, dz: number, r: number): THREE.BufferGeometry => {
         const ico = new THREE.IcosahedronGeometry(r, 1); const pos = ico.getAttribute('position');
         for (let i = 0; i < pos.count; i++) { const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), k = 1 + 0.16 * Math.sin(x * 2.1 + z * 1.7 + y * 2.9); pos.setXYZ(i, x * k * 1.1 + dx, y * k * 0.85 + dy, z * k * 1.1 + dz); }

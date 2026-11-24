@@ -200,7 +200,10 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
     if (t1 - t0 < 0.5) continue;
     const sm = samples(e, Math.max(0, t0 - 0.6), Math.min(S.end(e), t1 + 0.6), 6);
     const hw = e.hw, plain = e.divided || e.oneWay || e.kind === 'highway' || e.kind === 'ramp';
-    if (!plain) bandRoad(e, e.lanes >= 2 ? B.avenue : B.street, sm, hw, 0xffffff, 0, 1, e.lanes >= 2 ? TILE_M.avenue : TILE_M.street);
+    // A house street carries no paint: the double yellow and the edge lines are for the roads that go somewhere.
+    const bare = !plain && e.kind === 'local' && e.lanes < 2;
+    if (bare) bandRoad(e, B.asphalt, sm, hw, 0xffffff, -hw / TILE_M.asphalt, hw / TILE_M.asphalt, TILE_M.asphalt);
+    else if (!plain) bandRoad(e, e.lanes >= 2 ? B.avenue : B.street, sm, hw, 0xffffff, 0, 1, e.lanes >= 2 ? TILE_M.avenue : TILE_M.street);
     else bandRoad(e, B.asphalt, sm, hw, 0xffffff, -hw / TILE_M.asphalt, hw / TILE_M.asphalt, TILE_M.asphalt);
 
     if (plain && e.divided) {
@@ -425,7 +428,8 @@ export function buildStreetMeshes(S: StreetSurface, mats: CityMaterials, col: Ga
       const ps = samples(e, p0, p1, 3);
       const base = (_m: Smp, p: V): number => p[1] - 1.2;
       if (ps.length >= 2) for (const sg of [-1, 1]) rail(ps, sg > 0 ? W - 0.4 : -W, sg > 0 ? W : -W + 0.4, 1.15, base, true, e);
-      for (const sg of [-1, 1]) wall(B.concrete, sm, sg * W, base, (_m, p) => p[1] + CURB_H, sg, CONC, 0.8);
+      // The deck's edge is a plate girder: weathered steel, not more concrete.
+      for (const sg of [-1, 1]) wall(B.concrete, sm, sg * W, base, (_m, p) => p[1] + CURB_H, sg, 0x4b4f52, 0.8);
       for (let s = s0 + 8; s < s1 - 4; s += 24) {
         const m = sampleAt(e, s);
         for (const k of [-0.55, 0.55]) {
