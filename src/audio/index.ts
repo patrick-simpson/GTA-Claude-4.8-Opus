@@ -17,6 +17,7 @@ import { WorldSounds } from './world';
 import { TroubleSounds } from './trouble';
 import { UiSounds } from './ui';
 import { Radio } from './radio';
+import { Voices } from './voices';
 
 export interface AudioPart { update(dt: number): void }
 
@@ -38,6 +39,8 @@ export class GameAudio {
   trouble: TroubleSounds | null = null;
   ui: UiSounds | null = null;
   radio: Radio | null = null;
+  /** Spoken lines in the world: police megaphones, townsfolk barks (the radio's are Radio.voice). */
+  voices: Voices | null = null;
   private paused = false;
   private sleepAt = 0;
   private sleepTimer = 0;
@@ -75,8 +78,9 @@ export class GameAudio {
     const trouble = new TroubleSounds(core, g);
     const ui = new UiSounds(core, g, (s) => this.hold(s), () => world.gerald());
     const radio = new Radio(core, g);
-    this.cars = cars; this.world = world; this.trouble = trouble; this.ui = ui; this.radio = radio;
-    this.parts = [cars, world, trouble, ui, radio];
+    const voices = new Voices(core, g);
+    this.cars = cars; this.world = world; this.trouble = trouble; this.ui = ui; this.radio = radio; this.voices = voices;
+    this.parts = [cars, world, trouble, ui, radio, voices];
     // She may already be at the wheel (a restored save, or a first key press that was the throttle).
     const v = g.player.vehicle;
     if (v) { cars.engine.setKind(v.spec.kind); cars.engine.start(); }

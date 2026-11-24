@@ -25,6 +25,7 @@ import { progress } from '../world/progress';
 import { mulberry, type AudioCore } from './audio';
 import { hiss, ping, thud } from './sfx';
 import { ClaudeFM, CLAUDE_FM_CALL } from './claudefm';
+import { RadioVoice } from './voices';
 
 // ── Harmony ──────────────────────────────────────────────────────────────────
 
@@ -455,6 +456,8 @@ function drum(core: AudioCore, kit: Station['kit'], out: AudioNode, t: number, i
 /** A station playing: its channels, and the pump that keeps a quarter of a second of notes scheduled. */
 export class StationPlayer {
   readonly out: GainNode;
+  /** The DJ talks over the song: voices.ts pulls this down while they do. */
+  readonly duck: GainNode;
   private readonly ch: Record<'drums' | 'bass' | 'stab' | 'pad' | 'lead' | 'lead2', GainNode>;
   private readonly src: AudioScheduledSourceNode[] = [];
   private bar = 0; private barT = 0; private idx = 0;
@@ -475,8 +478,9 @@ export class StationPlayer {
     chain(c.filter('lowpass', st.am ? 3400 : 7200, 0.7));
     if (st.am) chain(c.filter('peaking', 1400, 0.8, 5));
     tail.connect(this.out);
-    this.out.connect(dest);
-    const send = c.gain(st.wet); this.out.connect(send); send.connect(c.reverbFor('music'));
+    this.duck = c.gain(1);
+    this.out.connect(this.duck); this.duck.connect(dest);
+    const send = c.gain(st.wet); this.duck.connect(send); send.connect(c.reverbFor('music'));
     const mk = (level: number, pan: number): GainNode => { const g = c.gain(level), p = c.ctx.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(sum); return g; };
     this.ch = { drums: mk(st.mix.drums, 0), bass: mk(st.mix.bass, 0), stab: mk(st.mix.stab, -0.3), pad: mk(st.mix.pad, 0.25), lead: mk(st.mix.lead, 0.08), lead2: mk(st.mix.lead2, -0.15) };
     if (st.trem) {
@@ -570,6 +574,7 @@ export class Radio {
 
   constructor(private readonly core: AudioCore, private readonly game: Game) {
     this.station = Math.min(save.data.settings.station, this.count() - 1);
+    this.voice = new RadioVoice(core);
     this.fm = new ClaudeFM((why) => {
       console.warn('Claude FM unavailable: ' + why);
       // Silently over to the first generated station, with a word on the HUD; never in the way of the game.
@@ -605,6 +610,8 @@ export class Radio {
     this.show();
   }
   private tuneAt = 0;
+  /** The DJs, idents and adverts between songs (voices.ts). */
+  readonly voice: RadioVoice;
 
   /**
    * How long a station has been on the air, in seconds. All of them were broadcasting before she turned up, each
@@ -629,7 +636,7 @@ export class Radio {
     this.wasIn = inCar;
     if (this.station >= this.count()) this.station = -1;
     const want = inCar && this.station > 0 && save.data.settings.volMusic > 0;
-    if (!want) { if (this.player) { this.player.stop(t); this.player = null; } return; }
+    if (!want) { if (this.player) { this.player.stop(t); this.player = null; } this.voice.tick(null, 0, 1); return; }
     if (!this.player) {
       if (t < this.tuneAt) return;
       const st = STATIONS[this.station - 1];
@@ -637,5 +644,6 @@ export class Radio {
       this.player.start(t + 0.03, this.clock(this.station - 1));
     }
     this.player.pump(t);
+    this.voice.tick(this.player, this.clock(this.station - 1), SONG_BARS * barSeconds(this.player.st));
   }
 }

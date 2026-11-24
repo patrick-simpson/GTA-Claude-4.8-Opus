@@ -795,6 +795,7 @@ export class Derby {
     const src = core.burst('pink', t, len), bp = core.filter('bandpass', 700 + Math.random() * 300, 0.6), gn = core.gain(0);
     src.connect(bp); bp.connect(gn); gn.connect(core.bus.sfx);
     core.env(gn.gain, t, 0.25, 0.22 * k * Math.max(0.2, 1 - d / 200), len);
+    this.game.audio.voices?.cheer(DERBY.x, DERBY.z);
   }
 
   private pa(text: string, force = false): void {
