@@ -395,7 +395,7 @@ export class Net {
     o.t = Math.floor(now) & 0xffff;
     // (In the pause menu: the others draw a sign over this player and leave them be. Stage 4, step 5.)
     // (Photo mode, fx/photo.ts, stops the simulation like a pause, and says so.)
-    o.flags = this.game.state === 'paused' || this.game.photo?.open ? PlayerFlag.Paused : 0;
+    o.flags = this.game.state === 'paused' || this.game.photo?.open || this.game.spectate?.on ? PlayerFlag.Paused : 0;
     const ride = this.ride.riding, rv = p.riding;
     if (ride && rv && !v) {
       // A passenger (ride.ts): whose car and which seat. Where they are follows from the car on every screen.
@@ -476,7 +476,7 @@ export class Net {
     if (now - this.perfAt >= PERF_INTERVAL_MS) {
       const g = this.game;
       // (Hidden or paused: the game loop is stopped, and a host that simulates nothing freezes everybody's traffic.)
-      const ms = document.hidden || g.state === 'paused' || g.photo?.open ? PERF_CANNOT_HOST_MS : g.gov.ms > 0 ? g.gov.ms : 1000 / Math.max(1, g.fps);
+      const ms = document.hidden || g.state === 'paused' || g.photo?.open || g.spectate?.on ? PERF_CANNOT_HOST_MS : g.gov.ms > 0 ? g.gov.ms : 1000 / Math.max(1, g.fps);
       if (c.send(encodeMsg({ t: 'perf', ms: Math.round(ms * 10) / 10 }))) this.perfAt = this.anyAt = now;
     }
     if (now - this.anyAt >= KEEPALIVE_MS && c.send(KEEPALIVE_FRAME)) this.anyAt = now;

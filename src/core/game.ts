@@ -35,6 +35,7 @@ import { Net } from '../net/index';
 import { Emotes } from '../game/emotes';
 import { Leaderboard } from '../game/leaderboard';
 import { Photo } from '../fx/photo';
+import { Spectate } from '../fx/spectate';
 
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
@@ -68,6 +69,8 @@ export class Game {
   cam!: CameraRig;
   /** Photo mode (fx/photo.ts): while open it has the frame instead of the simulation. */
   photo!: Photo;
+  /** Spectating (fx/spectate.ts): watch another player; it sets the lens after the camera rig. */
+  spectate!: Spectate;
   hud!: Hud;
   touchUI!: TouchUI;
   private cheats!: Cheats;
@@ -202,6 +205,7 @@ export class Game {
     this.systems.push((this.emotes = new Emotes(this)));
     this.systems.push(new Leaderboard(this)); // fun queue item 15: the town leaderboard (billboards, menu, town facts)
     this.photo = new Photo(this);
+    this.spectate = new Spectate(this);
     // Shader programs compiled in the background before they are first drawn (core/warmup.ts).
     this.systems.push((this.warmup = new ShaderWarmup(this)));
     // Last: it listens to what everything above did this frame.
@@ -323,6 +327,7 @@ export class Game {
       for (const s of this.systems) s.update(dt);
     }
     this.cam.update(running ? dt : 0);
+    this.spectate?.update(dt);
     if (running) {
       this.sky.update(dt);
       const n = this.sky.night;
