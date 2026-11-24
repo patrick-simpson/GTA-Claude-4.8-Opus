@@ -15,6 +15,7 @@
 //   * mainlandPlaces.ts (landmarks) draws into the same kit and calls kit.finish() last.
 
 import * as THREE from 'three';
+import { CAMPUS_BOXES } from './dithersPlan';
 import type { Game } from '../core/game';
 import type { WorldPart } from '../core/api';
 import type { CityMaterials, Surface } from './materials';
@@ -406,7 +407,7 @@ const RESERVED: Rect[] = STREETS_NEW ? [
   { x0: 136, z0: -2160, x1: 205, z1: -2126 },   // the depot and water tower by the line
   { x0: 176, z0: -1568, x1: 252, z1: -1196 },   // Threadbare mill yards, Water St to the river walk
   { x0: 176, z0: -1896, x1: 290, z1: -1884 },   // the walk from Front St to the footbridge
-  { x0: -520, z0: -2475, x1: -410, z1: -2370 }, // the old college buildings on the moved hill
+  ...CAMPUS_BOXES.map((b): Rect => ({ x0: b[0], z0: b[1], x1: b[2], z1: b[3] })), // Dithers College (dithersPlan.ts)
 ] : [];
 
 const hitsR = (a: Rect, b: Rect, m = 0): boolean => a.x0 < b.x1 + m && a.x1 > b.x0 - m && a.z0 < b.z1 + m && a.z1 > b.z0 - m;

@@ -29,6 +29,7 @@ import { holiday, type HolidayPick } from '../world/holiday';
 import { autoPresetIfKnown } from '../core/governor';
 import { kid } from '../core/kid';
 import { VOICE_CREDIT } from '../audio/voices';
+import { MAP_CREDIT } from '../core/credits';
 import { PEER_COLOR } from '../net/names';
 import { PARDONS_AT, PARDONS_RED } from './hud';
 import { Wardrobe } from './wardrobe';
@@ -658,6 +659,7 @@ export class Menu {
     ${this.nameRow()}
     <p class="mn-note">${how}${stale ? ` A change of preset rebuilds the world, so <b>${want}</b> takes effect when the page is reloaded: <button type="button" class="mn-link" data-set="reload">save and reload now</button>` : ''}</p>
     <p class="mn-note">${VOICE_CREDIT}</p>
+    <p class="mn-note">${MAP_CREDIT}</p>
   </div>
   <div class="mn-sec">
     <h3>Form C-3 · Sound</h3>

@@ -13,6 +13,8 @@ import { buildLandmarks } from './landmarks';
 import { buildPlaces } from './places';
 import { buildMainlandBuildings } from './mainlandBuildings';
 import { buildMainlandPlaces } from './mainlandPlaces';
+import { buildDithersCampus } from './dithersCampus';
+import { STREETS_NEW as CAMPUS_NEW } from './streets';
 import { signalState } from './signals';
 import { Fireworks } from '../fx/fireworks';
 import { Launchers } from './launchers';
@@ -59,6 +61,8 @@ export class World implements WorldApi {
     await step(0.98, 'Postponing the opera');
     this.parts.push(buildMainlandPlaces(g.plan.mainlandLots, g.plan.lots.length));
     this.boxMarks.push(g.col.allBoxes.length);
+    // Dithers College (world/dithersCampus.ts): the campus after the real Mayflower Hill, new streets only.
+    if (CAMPUS_NEW) { this.parts.push(buildDithersCampus(g, this.mats, this.group)); this.boxMarks.push(g.col.allBoxes.length); }
     // Fireworks over Pelican Pier (fx/fireworks.ts): the Saturday and holiday show, and the stall on the pier.
     const fireworks = new Fireworks(g, this.group);
     this.parts.push(fireworks);

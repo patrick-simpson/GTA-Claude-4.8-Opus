@@ -545,7 +545,7 @@ export function buildMainlandPlaces(lots: Lot[], first: number): WorldPart {
   square(k);
   opera(k);
   footbridge(k);
-  college(k);
+  if (!STREETS_NEW) college(k); // new streets: world/dithersCampus.ts builds the campus
   depot(k);
   thruway(k, lots, first);
   fort(k);

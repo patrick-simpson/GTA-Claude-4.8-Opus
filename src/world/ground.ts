@@ -35,6 +35,7 @@ import { SWELL_GLSL, seaClock } from './sea';
 import { flip, sendRange } from '../core/flip';
 import { CUT_FAR, CUT_NEAR, CUT_VERTEX, PropField, loadProps } from './propAssets';
 import { RIVER_ON } from './riverfrontAssets';
+import { campusFree } from './dithersPlan';
 
 // Palette (see PLAN.md).
 const INK = 0x1e2b44, BONE = 0xf2e8cf, VERM = 0xe4572e, MUST = 0xf0a202, TEAL = 0x2a9d8f;
@@ -124,7 +125,7 @@ function keepOut(x: number, z: number): boolean {
     if (Math.abs(z - RAIL.z) < 5.5 && x > RAIL.x0 - 4 && x < RAIL.x1 + 4) return true;
     // Under the new street plan: its roads and sidewalks instead of the old grid's.
     const surf = streetSurface();
-    if (surf) return surf.nearRoad(x, z, 3) || waterDist(x, z) < 3;
+    if (surf) return surf.nearRoad(x, z, 3) || waterDist(x, z) < 3 || !campusFree(x, z, 2); // Dithers College: no trees in its halls or pond
     if (Math.abs(x - BRIDGE.x) < BRIDGE.hw + 5 && z > MZS[MZS.length - 1] + 5) return true;
     if (Math.abs(z - FOOTBRIDGE_Z) < 3.5 && x > MXS[8] && x < 660) return true;
     if (Math.abs(x - MXS[0]) < AVE_HW + 3 && z < MZS[0]) return true;
