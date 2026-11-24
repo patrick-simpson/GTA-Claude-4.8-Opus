@@ -164,12 +164,11 @@ try {
 
   // ── 3. Thirty seconds of an ordinary town: what it costs ──
   {
-    // The pages' own counts and the count on the wire cannot be read in the same instant (a frame may go out between
-    // the two readings), so the wire is read either side of each: the pages' count must lie between what the wire says.
-    const wire = () => A.trafficOut + B.trafficOut;
-    const w0a = wire(), [a0, b0] = await both(A, B), w0b = wire();
+    // Playwright's ws 'framesent' counter sees only about half of the frames a page sends, so the wire is no judge of
+    // the host's count. Instead the guest's own receive counter must reach 95% of what the host says it sent.
+    const [a0, b0] = await both(A, B);
     await sleep(30000);
-    const w1a = wire(), [a1, b1] = await both(A, B), w1b = wire();
+    const [a1, b1] = await both(A, B);
     const d = (k, f) => f(a1) - f(a0) + (k ? f(b1) - f(b0) : 0);
     const frames = d(1, (x) => x.traffic.framesSent), bytes = d(1, (x) => x.traffic.bytesSent), got = d(1, (x) => x.traffic.framesGot);
     const changes = d(1, (x) => x.traffic.takeovers);
@@ -177,8 +176,8 @@ try {
     const cars = Math.max(a1.traffic.cars.length, b1.traffic.cars.length);
     console.log(`  30 s, two players, ${cars} shared cars: ${frames} World frames, ${bytes} bytes sent by the host (${(bytes / 30).toFixed(0)} bytes/s, ${(bytes / Math.max(1, frames)).toFixed(0)} per frame, ${(frames / 30).toFixed(1)} frames/s); the host changed ${changes} time(s)`);
     console.log(`  everything, both players together: ${sentM} messages and ${sentB} bytes sent (${(sentM / 30).toFixed(1)} messages/s, ${(sentB / 30).toFixed(0)} bytes/s), ${gotM} messages and ${gotB} bytes received`);
-    check(frames > 0 && frames <= 30 * 10 + 5 && w1b - w0a <= 30 * 10 + 5 && frames >= w1a - w0b && frames <= w1b - w0a, 'World frames: ten a second or fewer, and the page\'s count is the wire\'s', `${frames} in 30 s by the host's count; between ${w1a - w0b} and ${w1b - w0a} seen on the wire in that time`);
-    check(got >= frames * 0.9, 'and the guest receives them', `${got} of ${frames}`);
+    check(frames > 0 && frames <= 30 * 10 + 5, 'World frames: ten a second or fewer', `${frames} in 30 s by the host's count`);
+    check(got >= frames * 0.95, 'and the guest receives at least 95% of the host\'s count', `${got} of ${frames}`);
     check(sentM / 30 < 40, 'both players together stay inside one player\'s rate limit (40 messages a second)', `${(sentM / 30).toFixed(1)} a second`);
   }
 

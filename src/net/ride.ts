@@ -17,7 +17,7 @@
 
 import type { Game } from '../core/game';
 import type { Vehicle } from '../core/api';
-import { PASSENGER_SEATS } from '../ent/vehicleSpecs';
+import { PASSENGER_SEATS, isBoatKind } from '../ent/vehicleSpecs';
 import { seatSpot } from '../ent/occupants';
 import { PlayerEvent, PlayerMode, RIDE_OUT, SeatsWhy, decodeRide, decodeSeats, encodeRide, encodeSeats } from './protocol';
 import type { Connection } from './conn';
@@ -142,11 +142,13 @@ export class TownRide {
   /** The car of another player within reach with a seat free, and whose it is. */
   private near(): Remote | null {
     const g = this.game, p = g.player, per = p.person;
-    if (g.state !== 'play' || p.vehicle || p.riding || p.swimming || p.health <= 0 || p.goingTo) return null;
+    if (g.state !== 'play' || p.vehicle || p.riding || p.health <= 0 || p.goingTo) return null;
     let best: Remote | null = null, bd = REACH;
     for (const r of this.remotes.values()) {
       const v = r.vehicle;
       if (!v || r.mode !== PlayerMode.Driving || v.wreck || v.sunk || r.paused) continue;
+      // Boats too (a swimmer beside one may climb in); a car is not for a swimmer.
+      if (p.swimming && !isBoatKind(v.spec.kind)) continue;
       const dx = per.x - v.x, dz = per.z - v.z, far = REACH + v.hl + v.hw;
       if (dx * dx + dz * dz > far * far || Math.abs(v.y - per.y) > 2.5) continue;
       const s = Math.sin(v.h), c = Math.cos(v.h);

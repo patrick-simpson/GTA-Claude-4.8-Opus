@@ -404,7 +404,7 @@ export function readDmgTail(buf: ArrayBuffer, out: Uint8Array): boolean {
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Chat: 21 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21 } as const;
 // Emote (4 bytes): [kind, id, 15, emote id] (game/emotes.ts EMOTES; 0 = stopped). Sent when a player starts or stops one,
 // and again every few seconds while a looping one runs, for anybody who arrives. Relayed unread by the service; a page
 // that does not know code 15 hands it to the weapons code, which ignores codes it does not know: no new version.
@@ -1956,4 +1956,67 @@ export function decodeDerby(buf: ArrayBuffer): DerbyMsg | null {
   const m: DerbyMsg = { id: u[1], kind: u[3], caller: u[4], a: u[5], b: u[6], c: d.getUint16(7, true), ms: d.getUint32(9, true), bytes: [] };
   for (let i = 0; i < u[13] && DERBY_HEADER + i < buf.byteLength; i++) m.bytes.push(u[DERBY_HEADER + i]);
   return m;
+}
+
+// ---- Owed items, Nov 24: shared fireworks and the shared loose duck (net/extras.ts) ----
+//
+// Two more Event codes, relayed unread by the service on main and backup alike (still protocol v5, no redeploy).
+// Fireworks (19), 13 bytes: "I lit a shell here" (fx/fireworks.ts lightOne, key L), so every screen flies the same shell:
+//   0 kind  1 id  2 PlayerEvent.Fireworks  3 type u8 (index into fireworks.ts TYPES)  4 x u16  6 z u16 (TRAFFIC grid)
+//   8 y i16 (cm)  10 burst height u8 (m)  11 colours u8 (low nibble c1, high nibble c2)  12 scale u8 (x100)
+export const FIREWORK_BYTES = 13;
+export interface FireworkMsg { id: number; type: number; x: number; y: number; z: number; h: number; c1: number; c2: number; scale: number }
+export function encodeFirework(m: Omit<FireworkMsg, 'id'>): ArrayBuffer {
+  const buf = makeFrame(Frame.Event, FIREWORK_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, PlayerEvent.Fireworks); d.setUint8(3, m.type & 0xff);
+  d.setUint16(4, clampU16((m.x - TRAFFIC_X0) / TRAFFIC_STEP), true);
+  d.setUint16(6, clampU16((m.z - TRAFFIC_Z0) / TRAFFIC_STEP), true);
+  d.setInt16(8, clampI16(m.y * 100), true);
+  d.setUint8(10, Math.max(0, Math.min(255, Math.round(m.h))));
+  d.setUint8(11, (m.c1 & 15) | ((m.c2 & 15) << 4));
+  d.setUint8(12, Math.max(0, Math.min(255, Math.round(m.scale * 100))));
+  return buf;
+}
+export function decodeFirework(buf: ArrayBuffer): FireworkMsg | null {
+  if (buf.byteLength < FIREWORK_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.Event || d.getUint8(2) !== PlayerEvent.Fireworks) return null;
+  const c = d.getUint8(11);
+  return {
+    id: d.getUint8(1), type: d.getUint8(3), x: d.getUint16(4, true) * TRAFFIC_STEP + TRAFFIC_X0, z: d.getUint16(6, true) * TRAFFIC_STEP + TRAFFIC_Z0,
+    y: d.getInt16(8, true) / 100, h: d.getUint8(10), c1: c & 15, c2: c >> 4, scale: d.getUint8(12) / 100,
+  };
+}
+
+// Duck (20), 18 bytes, the loose duck (world/duckLoose.ts). The HOST owns where it has been pushed to; every screen
+// computes the same drift path from the town clock, and these frames carry the offset from that path.
+//   0 kind  1 id  2 PlayerEvent.Duck  3 sub  4 seed u16 (which spell: the low 16 bits of the path seed)
+//   State (the host, 4 a second while it moves, one every 2 s while it rests): 6 ox i16 (x0.05 m)  8 oz  10 vx i16 (cm/s)
+//     12 vz  14 spin i16 (x1/1000 rad/s)  16 yaw offset i16 (x1/1000 rad)
+//   Push (a guest, "my boat has shoved it", sums of the last tenth of a second; the host applies it): 6 dvx i16 (cm/s)
+//     8 dvz  10 dpx i16 (cm, how far it was moved aside)  12 dpz  14 dspin i16 (x1/1000)
+//   Home (whoever pushed it into the ring): no more bytes; the others tie it up and pay whoever pushed it.
+export const DuckSub = { State: 1, Push: 2, Home: 3 } as const;
+export const DUCK_BYTES = 18;
+export interface DuckMsg { id: number; sub: number; seed: number; a: number; b: number; c: number; d: number; e: number; f: number }
+const DUCK_SCALE = [0.05, 0.05, 0.01, 0.01, 0.001, 0.001] as const;
+const DUCK_PUSH_SCALE = [0.01, 0.01, 0.01, 0.01, 0.001, 0] as const;
+export function encodeDuck(sub: number, seed: number, v: readonly number[] = []): ArrayBuffer {
+  const buf = makeFrame(Frame.Event, DUCK_BYTES - FRAME_HEADER_BYTES);
+  const d = new DataView(buf);
+  d.setUint8(2, PlayerEvent.Duck); d.setUint8(3, sub); d.setUint16(4, seed & 0xffff, true);
+  const sc = sub === DuckSub.Push ? DUCK_PUSH_SCALE : DUCK_SCALE;
+  for (let i = 0; i < 6; i++) d.setInt16(6 + i * 2, sc[i] ? clampI16((v[i] ?? 0) / sc[i]) : 0, true);
+  return buf;
+}
+export function decodeDuck(buf: ArrayBuffer): DuckMsg | null {
+  if (buf.byteLength < DUCK_BYTES) return null;
+  const d = new DataView(buf);
+  if (d.getUint8(0) !== Frame.Event || d.getUint8(2) !== PlayerEvent.Duck) return null;
+  const sub = d.getUint8(3);
+  if (sub < 1 || sub > 3) return null;
+  const sc = sub === DuckSub.Push ? DUCK_PUSH_SCALE : DUCK_SCALE;
+  const n = (i: number): number => d.getInt16(6 + i * 2, true) * sc[i];
+  return { id: d.getUint8(1), sub, seed: d.getUint16(4, true), a: n(0), b: n(1), c: n(2), d: n(3), e: n(4), f: n(5) };
 }

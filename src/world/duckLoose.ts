@@ -13,8 +13,9 @@
 // Pushing: boats (Player.boats) and cars ram it. Each hit trades momentum (the duck is heavier than a speedboat and far
 // heavier than a jet ski), sets it spinning from the off-centre part of the blow and tips it over, and it glides on and
 // slows in the water. That is a local offset on top of the shared path. Alone in town the offset stays where it is put;
-// in a shared town it relaxes back to the path over about 45 s, because nobody else can see it (the lead's note in the
-// report says what to send so pushes are shared). The duck never goes onto land or into a wall.
+// in a shared town the HOST owns it (net/extras.ts, Event code 20): it sends where the duck has been pushed to, a guest's
+// shove is applied on the guest's screen at once and sent to the host, which applies it too; every guest eases onto the
+// host's duck. The duck never goes onto land or into a wall.
 //
 // Home: a glowing ring on the water at the mooring while it is out. Pushed inside it, the duck re-moors: fireworks
 // (fx/fireworks.ts launch), a toast and a stamp, a few hundred dollars split among the people who pushed it in the last
@@ -91,6 +92,11 @@ export class DuckLoose implements WorldPart {
   private retT = 0; private retX = 0; private retZ = 0;
   private honkT = 20;
   private lastPush = -1e9;
+  /** Shared town: the path's seed (which spell), when the host last sent its state, and a guest's shoves not yet sent. */
+  private seed = 0;
+  private sendT = 0;
+  private readonly pend = [0, 0, 0, 0, 0];
+  private pendT = 0;
   private now = 0;
   private hitCool = 0;
   private readonly blip: Blip = { x: DUCK_HOME.x, z: DUCK_HOME.z, kind: 'job', label: 'D' };
@@ -121,6 +127,7 @@ export class DuckLoose implements WorldPart {
     this.ring.visible = false;
     this.ring.renderOrder = 2;
     parent.add(this.ring);
+    (game as unknown as { duckLoose?: DuckLoose }).duckLoose = this;
     (window as unknown as { __duck: unknown }).__duck = {
       loose: (): void => { this.forcedT0 = this.clock(); this.returnedCycle = -1; },
       info: (): Record<string, unknown> => ({ ...this.stats }),
@@ -211,7 +218,8 @@ export class DuckLoose implements WorldPart {
     if (this.retT > 0) phase = 'return';
     if (phase !== 'moored' && phase !== 'return' && key !== this.pathKey) {
       this.pathKey = key;
-      this.buildPath(k === -2 ? Math.round(t0) * 7 + 3 : k * 7919 + 101);
+      this.seed = k === -2 ? Math.round(t0) * 7 + 3 : k * 7919 + 101;
+      this.buildPath(this.seed);
       this.ox = this.oz = this.ovx = this.ovz = 0;
       this.yawOff = 0; this.spin = 0;
     }
@@ -246,6 +254,7 @@ export class DuckLoose implements WorldPart {
     } else {
       this.pathAt(tau, at);
       this.push(dt, at, phase);
+      this.netTick(dt);
       x = at.x + this.ox; z = at.z + this.oz;
     }
 
@@ -312,8 +321,51 @@ export class DuckLoose implements WorldPart {
     }
   }
 
-  private returned(k: number, x: number, z: number, credit: boolean): void {
+  /** The host: say where the duck is pushed to, four times a second while it moves and every two seconds at rest. */
+  private netTick(dt: number): void {
+    const ex = this.game.net?.extras;
+    if (!ex || !ex.hosting) return;
+    this.sendT -= dt;
+    if (this.sendT > 0) return;
+    const moving = Math.abs(this.ovx) + Math.abs(this.ovz) > 0.03 || Math.abs(this.spin) > 0.02;
+    this.sendT = moving ? 0.25 : 2;
+    if (!moving && Math.abs(this.ox) + Math.abs(this.oz) < 0.01 && Math.abs(this.yawOff) < 0.01) return;
+    ex.duckState(this.seed, [this.ox, this.oz, this.ovx, this.ovz, this.spin, this.yawOff]);
+  }
+
+  private get pushable(): boolean { return this.retT <= 0 && (this.lastPhase === 'loose' || this.lastPhase === 'homeward'); }
+
+  /** A guest: the host's duck (net/extras.ts). Ease this screen's offset onto it; a long way off snaps. */
+  netState(seed: number, ox: number, oz: number, vx: number, vz: number, spin: number, yaw: number): void {
+    if (!this.pushable || (seed & 0xffff) !== (this.seed & 0xffff)) return;
+    const far = Math.hypot(ox - this.ox, oz - this.oz) > 4;
+    const k = far ? 1 : 0.5;
+    this.ox += (ox - this.ox) * k; this.oz += (oz - this.oz) * k;
+    this.ovx += (vx - this.ovx) * k; this.ovz += (vz - this.ovz) * k;
+    this.spin += (spin - this.spin) * k;
+    let dy = (yaw - this.yawOff) % (Math.PI * 2);
+    if (dy > Math.PI) dy -= Math.PI * 2; else if (dy < -Math.PI) dy += Math.PI * 2;
+    this.yawOff += dy * k;
+  }
+
+  /** The host: a guest's vehicle has shoved the duck. */
+  netPush(seed: number, dvx: number, dvz: number, dpx: number, dpz: number, dspin: number): void {
+    if (!this.pushable || (seed & 0xffff) !== (this.seed & 0xffff)) return;
+    this.ox += dpx; this.oz += dpz; this.ovx += dvx; this.ovz += dvz;
+    this.spin = Math.max(-1.6, Math.min(1.6, this.spin + dspin));
+    this.tvx += dvz * 0.5; this.tvz -= dvx * 0.5;
+    this.sendT = 0;
+  }
+
+  /** Somebody pushed it into the ring: it is home here too, and whoever pushed it here is paid as well. */
+  netHome(seed: number): void {
+    if (!this.pushable || (seed & 0xffff) !== (this.seed & 0xffff)) return;
+    this.returned(this.stats.cycle, DUCK.x, DUCK.z, this.now - this.lastPush < PUSH_WINDOW, true);
+  }
+
+  private returned(k: number, x: number, z: number, credit: boolean, fromNet = false): void {
     const g = this.game;
+    if (!fromNet) g.net?.extras.duckHome(this.seed);
     this.returnedCycle = k;
     this.retT = 4; this.retX = x; this.retZ = z;
     this.ox = this.oz = this.ovx = this.ovz = 0;
@@ -353,11 +405,13 @@ export class DuckLoose implements WorldPart {
     // The water slows it; in a shared town, the local push walks itself back to the shared path.
     const drag = Math.exp(-dt * 0.32);
     this.ovx *= drag; this.ovz *= drag;
-    const shared = (g.net?.count ?? 0) > 1;
-    if (shared || phase === 'homeward') {
-      const k = Math.exp(-dt / (phase === 'homeward' ? 20 : 45));
+    // On its own way home the push wears off (every screen the same); otherwise it stays where it was put.
+    if (phase === 'homeward') {
+      const k = Math.exp(-dt / 20);
       this.ox *= k; this.oz *= k;
     }
+    const ox0 = this.ox, oz0 = this.oz, ovx0 = this.ovx, ovz0 = this.ovz, spin0 = this.spin;
+    let mineHit = false;
     const px = this.ox, pz = this.oz;
     this.ox += this.ovx * dt; this.oz += this.ovz * dt;
 
@@ -392,6 +446,7 @@ export class DuckLoose implements WorldPart {
       const vn = rvx * nx + rvz * nz;
       // Separate: the duck gives way more than the hull does.
       const sd = md / (mb + md);
+      if (v === g.player.vehicle) mineHit = true;
       this.ox += nx * depth * (1 - sd) + nx * depth * 0.25; this.oz += nz * depth * (1 - sd) + nz * depth * 0.25;
       v.x -= nx * depth * sd; v.z -= nz * depth * sd;
       if (vn <= 0) continue;
@@ -411,6 +466,18 @@ export class DuckLoose implements WorldPart {
         g.emit('duck', { x: cx, z: cz });
         if (mine && save.bump('duckRammed') === 1) g.hud.toast('It moves. Slowly. Keep pushing it toward the glowing ring.', 5);
       }
+    }
+
+    // A guest tells the host what its own vehicle has done to the duck (the host applies the same shove).
+    if (mineHit && g.net?.extras.guest) {
+      const q = this.pend;
+      q[0] += this.ovx - ovx0; q[1] += this.ovz - ovz0; q[2] += this.ox - ox0; q[3] += this.oz - oz0; q[4] += this.spin - spin0;
+      if (this.pendT <= 0) this.pendT = 0.1;
+    }
+    if (this.pendT > 0 && (this.pendT -= dt) <= 0) {
+      const q = this.pend;
+      if (q.some((n) => Math.abs(n) > 1e-4)) g.net?.extras.duckPush(this.seed, q);
+      q.fill(0);
     }
 
     // On foot (swimming, or on the pier edge): the duck shoulders her aside.

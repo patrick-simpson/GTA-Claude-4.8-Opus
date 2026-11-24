@@ -13,11 +13,12 @@
 //
 // Pool bodies are marked `occupant`: weapons pass them by (a car's driver is the car's, as before this change).
 
+import * as THREE from 'three';
 import type { Look, Person, Vehicle } from '../core/api';
 import type { Game } from '../core/game';
 import { RNG } from '../core/util';
 import { PlayerMode } from '../net/protocol';
-import { CUSHION, PASSENGER_SEATS, SEAT_BACK, type VehicleKind } from './vehicleSpecs';
+import { CUSHION, PASSENGER_SEATS, SEAT_BACK, isBoatKind, type VehicleKind } from './vehicleSpecs';
 
 /** Cars nearer the camera than this get their occupants drawn, meters. */
 export const OCC_R = 40;
@@ -25,6 +26,7 @@ export const OCC_R = 40;
 const POOL = 12;
 
 const spot = { x: 0, z: 0 };
+const boatSeat = new THREE.Vector3();
 
 /** Seat height above the car's road level for a kind: the cushion under the sitter's hips. */
 function cushion(kind: VehicleKind): number { return CUSHION[kind]; }
@@ -45,6 +47,13 @@ function place(v: Vehicle, across: number, along: number, up: number, out: { x: 
 export function seatSpot(v: Vehicle, i: number, out: { x: number; y: number; z: number }): boolean {
   const seat = PASSENGER_SEATS[v.spec.kind][i];
   if (!seat) return false;
+  if (isBoatKind(v.spec.kind)) {
+    // A boat (ent/boat.ts) knows its own seats, turned with the hull as it pitches and rolls; seat 0 is the helm.
+    const b = v as unknown as { seatPos(i: number, o: THREE.Vector3): THREE.Vector3 };
+    b.seatPos(i + 1, boatSeat);
+    out.x = boatSeat.x; out.y = boatSeat.y; out.z = boatSeat.z;
+    return true;
+  }
   place(v, seat[0], seat[1], seat[2], out);
   return true;
 }

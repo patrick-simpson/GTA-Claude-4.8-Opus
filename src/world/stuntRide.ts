@@ -397,6 +397,7 @@ export class StuntRide {
     (el.children[3] as HTMLElement).textContent = foot;
     el.classList.toggle('live', live);
     el.classList.add('on');
+    el.dataset.t = String(performance.now());
     this.cardT = Math.max(live ? 0 : this.cardT, secs);
   }
 

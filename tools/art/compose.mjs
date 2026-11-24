@@ -39,7 +39,7 @@ export const POSTERS = [
   ['po-fair', 'CHRISTMAS FAIR', TEAL, ['Cocoa, wreaths,', 'and one raffle.'], 'Town square. All welcome, by order of the Fair Committee.', null],
   ['po-cat', 'FOUND CAT', MUST, ['Has taken over Desk 4.', 'Not leaving.'], 'Claim with two forms of ID. The cat will want to see yours too.', null],
   ['po-light', 'LIGHTHOUSE TOURS', VERM, ['On the half hour,', 'keeper permitting.'], 'Mind the lean. The lean is not covered by the tour.', null],
-  ['po-stamp', 'PUBLIC NOTICE', INK, ['Form 27-B must be filed', 'before any form is filed.'], 'Failure to file is itself a filing. — Office of Forms', null],
+  ['po-stamp', 'PUBLIC NOTICE', INK, ['Form 27-B must be filed', 'before any form is filed.'], 'Failure to file is a filing.', null],
 ];
 export const CARDS = [
   ['ca-harbor', 'Counting the gulls.', 'Twice, for accuracy.'],

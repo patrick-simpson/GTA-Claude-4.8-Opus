@@ -384,8 +384,11 @@ export class Fireworks {
     const a = this.rnd() * 6.283;
     const types: ShellType[] = ['peony', 'chrys', 'willow', 'palm', 'crossette', 'ring', 'heart', 'strobe', 'crackle', 'glitter'];
     const ty = types[(this.rnd() * types.length) | 0];
-    this.launch(ty, p.x + Math.cos(a) * 1.5, p.y, p.z + Math.sin(a) * 1.5, 55 + this.rnd() * 30,
-      (this.rnd() * PAL.length) | 0, (this.rnd() * PAL.length) | 0, 0.6, true);
+    const sx = p.x + Math.cos(a) * 1.5, sz = p.z + Math.sin(a) * 1.5, h = 55 + this.rnd() * 30;
+    const c1 = (this.rnd() * PAL.length) | 0, c2 = (this.rnd() * PAL.length) | 0;
+    this.launch(ty, sx, p.y, sz, h, c1, c2, 0.6, true);
+    // Everybody else in town sees the same shell at the same spot (net/extras.ts, event code 19).
+    g.net?.extras.fireworks(ty, sx, p.y, sz, h, c1, c2, 0.6);
     g.hud.toast(this.boxes > 0 ? `Fire in the hole. ${this.boxes} left in the box.` : 'That was the last one. The box is now a hat.', 3);
   }
 

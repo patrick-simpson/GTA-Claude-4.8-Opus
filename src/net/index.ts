@@ -53,6 +53,7 @@ import { TownRide } from './ride';
 import { TownRace } from './race';
 import { TownPursuit } from './pursuit';
 import { TownDerby } from './derby';
+import { TownExtras } from './extras';
 import { TownChat } from './chat';
 import { SAYS, myName, nameText, rerollName } from './names';
 import { hostBotPass } from './hostbot';
@@ -97,6 +98,8 @@ export class Net {
   readonly pursuit: TownPursuit;
   /** The demolition derby (fun queue item 13): the wire and the town's records. */
   readonly derby: TownDerby;
+  /** Shared fireworks you light yourself and the pushed loose duck (extras.ts). */
+  readonly extras: TownExtras;
   /** Safe chat: phrase and place indices only, with mute and rate limits (chat.ts; game/chat.ts is the screen). */
   readonly chat: TownChat;
   /** Riding together: this player in another's car, or others in this player's (ride.ts). */
@@ -164,6 +167,7 @@ export class Net {
     this.race = new TownRace(game, c, this.remotes);
     this.pursuit = new TownPursuit(game, c, this.remotes);
     this.derby = new TownDerby(game, c, this.remotes);
+    this.extras = new TownExtras(game, c, this.remotes);
     this.chat = new TownChat(game, c, this.remotes);
     this.ride = new TownRide(game, c, this.remotes);
     this.fight.crewHit = (v, dmg) => this.crew.hitHeld(v, dmg);
@@ -277,6 +281,7 @@ export class Net {
     this.race.dropped(id);
     this.pursuit.dropped(id);
     this.derby.dropped(id);
+    this.extras.dropped(id);
     this.chat.dropped(id);
     this.held.dropped(id);
     r.dispose();
@@ -344,6 +349,7 @@ export class Net {
       else if (e.code === PlayerEvent.Race) this.race.event(buf);
       else if (e.code === PlayerEvent.Pursuit) this.pursuit.event(buf);
       else if (e.code === PlayerEvent.Derby) this.derby.event(buf);
+      else if (e.code === PlayerEvent.Fireworks || e.code === PlayerEvent.Duck) this.extras.event(buf);
       else if (e.code === PlayerEvent.Chat) this.chat.event(buf);
       else if (e.code >= PlayerEvent.Fire) this.fight.event(e.code, buf, performance.now());
       else if (!this.chat.muted(e.id)) this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
@@ -621,6 +627,7 @@ export class Net {
       // pursuit: Hot Pursuit frames, the town's records, and the round on this screen (game/pursuit.ts).
       pursuit: this.pursuit.info(),
       derby: this.derby.info(),
+      extras: this.extras.info(),
       chat: this.chat.info(),
       // ride: riding together: this player's seat in another's car, the riders in this player's car, the lists heard (ride.ts).
       ride: this.ride.info(),

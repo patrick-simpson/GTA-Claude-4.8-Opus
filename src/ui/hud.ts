@@ -909,6 +909,7 @@ export class Hud implements HudApi {
   private toasts: Toast[] = [];
   private serial = 4070;
   private nameT = 0;
+  private airNoteAt = -1e9;
   private keysT = 0;
 
   private resized = true;
@@ -1506,7 +1507,12 @@ export class Hud implements HudApi {
     if (t < 0.8) return;
     const feet = Math.round(Math.hypot(v.x - this.airX, v.z - this.airZ) * FEET);
     // The stunt park's own trick card already told this flight; one notice is enough.
-    if (document.querySelector('.sp-card.on')) { if (this.intro === 3) this.endIntro(); return; }
+    // (The card stamps data-t whenever it speaks, so a bounce a moment after its notice, or a landing just after the card
+    // faded, is not told a second time. One AIRBORNE notice per flight, and none within 2.5 s of the last.)
+    const sp = document.querySelector('.sp-card') as HTMLElement | null;
+    const now = performance.now();
+    if ((sp && (sp.classList.contains('on') || now - Number(sp.dataset.t || 0) < 2500)) || now - this.airNoteAt < 2500) { if (this.intro === 3) this.endIntro(); return; }
+    this.airNoteAt = now;
     if (t >= 1.5 || feet >= 110) this.plate('AIRBORNE', `${feet} ft · ${t.toFixed(1)} s · no flight plan filed`, true);
     else this.toast(`Off the ground for ${t.toFixed(1)} s and ${feet} ft. ${HOPS[this.hops++ % HOPS.length]}`, 5);
     if (this.intro === 3) this.endIntro();
