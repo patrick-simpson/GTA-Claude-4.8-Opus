@@ -17,6 +17,7 @@ import {
 import { COAST, DAM_Z, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MZS, RAIL, RIVER_HW, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, riverX, streamX, tribZ } from '../world/mainland';
 import { progress } from '../world/progress';
 import { STREETS_NEW } from '../world/streets';
+import { ARROW, distText, type Guidance } from '../game/nav';
 
 import { PEER_COLOR } from '../net/names';
 /** Pardon's entrance (world) and the store's red: the radar badge, and the map's in menu.ts. */
@@ -924,6 +925,7 @@ export class Hud implements HudApi {
   /** Radar markers and the route line: src/game/ fills these in and bumps `rev`. */
   readonly nav: Nav = { blips: [], route: null, rev: 0 };
   private navRev = -1;
+  private turnEl: HTMLElement; private turnKey = '';
   private subEl!: HTMLElement; private subT = 0;
   private objShown: string | null = null;
   private timerEl!: HTMLElement; private timerTx = '';
@@ -947,6 +949,7 @@ export class Hud implements HudApi {
     <div class="hud-lung str"><span class="hud-lbl">Stamina</span><span class="hud-lung-bar"><i></i></span></div>
   </div>
   <div class="hud-radar"><canvas></canvas></div>
+  <div class="hud-turn hud-slip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b></b><small></small></span></div>
   <div class="hud-vitals">
     <span class="hud-vital"><i></i><span class="hud-lbl">Condition</span><b>100</b></span>
     <span class="hud-vital"><i></i><span class="hud-lbl">Padding</span><b>0</b></span>
@@ -1030,6 +1033,7 @@ export class Hud implements HudApi {
     this.hurtEl.className = 'hud-hurt';
     this.pips = Array.from(root.querySelectorAll('.hud-pip'));
     this.toastBox = q('.hud-toasts');
+    this.turnEl = q('.hud-turn');
     this.drive = q('.hud-drive');
     this.vname = q('.hud-vname');
     this.mph = q('.hud-mph');
@@ -1190,6 +1194,18 @@ export class Hud implements HudApi {
    * Plain text is shown as it is.
    */
   prompt(text: string | null): void { this.promptText = text; }
+
+  /** The satnav line by the radar ("Turn left on Applejack St, 200 ft"), from game/nav.ts; null hides it. */
+  turn(g: Guidance | null): void {
+    const key = g ? g.dir + g.text + Math.round(g.total / 40) : '';
+    if (key === this.turnKey) return;
+    this.turnKey = key;
+    this.turnEl.classList.toggle('on', !!g);
+    if (!g) return;
+    (this.turnEl.querySelector('path') as SVGPathElement).setAttribute('d', ARROW[g.dir]);
+    (this.turnEl.querySelector('b') as HTMLElement).textContent = g.text;
+    (this.turnEl.querySelector('small') as HTMLElement).textContent = g.dir === 'arrive' ? '' : `${distText(g.total)} to go`;
+  }
 
   /** A prompt that takes the interact key is up: the touch layer shows its USE key. */
   get prompting(): boolean { return this.promptText !== null && this.promptText.charAt(0) === '['; }

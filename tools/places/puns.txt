@@ -1,0 +1,399 @@
+# index into tools/places/pois-real.json | category | invented game name
+# A name starting with "=" means the POI is a game place that already exists (tools/places/build.mjs EXTRAS) and is not listed twice.
+# NOT SHIPPED: tools/ is not part of the build. Real names live only in pois-real.json and real-to-pun.json.
+0|leisure|Redundington Museum
+1|banks|Mere Interest Bank
+2|leisure|Main Flicker Picture House
+3|auto|Very Flat Tyre & Service
+4|food|Gubernatorial Grill & Bakery
+5|shops|Starling's Consignment
+6|shops|Petal Pushers Florist & Formal Wear
+7|offices|Meh Life Auto & Home
+8|services|Grounded Certified Cleaners
+9|services|Dutch Elm Snapshots
+10|offices|Barkshire Hathaway HomeSold
+11|food|Capsized Pizza
+12|food|Dunkless Donuts
+13|food|Buen Apathetico
+14|food|Grand Concentrate Cafe
+15|food|Prince of Patties
+16|services|Slim Hopes Clubhouse
+17|shops|R. U. Drapey Furniture & Electronics
+18|civic|The Lesser Legion Hall
+19|fuel|Cumbersome Farms
+20|auto|The Stalling Line Speed & Custom
+21|auto|Deuce Auto Sales
+22|auto|Deuce Tyre & Service
+23|food|Julienne's Bakery & Deli
+24|shops|Patchwork Guitars
+25|shops|Somersault Violins
+26|health|Second Opinion Medical Consultants
+27|shops|Are You Ready To Procrastinate?
+28|shops|Pirate's Chest III
+29|shops|Vapid Vapors & Tobacco
+30|shops|Record Correction
+31|services|Planet Maid Donation Bin
+32|services|Mercy's Hair Studio
+33|services|Ruthless Hair Removal
+34|shops|Hannafour Foods
+35|health|Hannafour Pharmacy
+36|food|Sub-Optimal Subs
+37|shops|Rent-Due Center
+38|health|Aspirin Dental
+39|offices|Hidden Fees Wealth Management
+40|offices|H & R Blockage Tax Prep
+41|shops|Moresies Clothing
+42|shops|Olympia Sort-of Sports
+43|shops|J. C. Penny-Pincher
+44|shops|Bull Loose Records
+45|shops|Bath & Body Shirks
+46|shops|Horizon-less Wireless
+47|shops|Snoozers Mattress Outlet
+48|offices|Pudding Insurance Adjusters
+49|worship|The Latterly Meetinghouse
+50|auto|Retreat Auto Parts
+51|food|Burnt Toast Express
+52|shops|The Frame-Up
+53|food|The Three Cent Pub
+54|fuel|Cumbersome Farms
+55|health|Laxwood Continuing Care
+56|food|The Improper Pig
+57|shops|Joan's Market
+58|fuel|Cit-Go-Slow Gas
+59|leisure|Dinghy Cinema
+60|food|Mostly Brews
+61|shops|Beige House Appliance
+62|services|Hair Refractions
+63|auto|Ray Hassle Fjord
+64|food|Ming Leeway Chinese
+65|shops|Jo's Smoke & Mirrors
+66|shops|Hoppy Trails Gifts
+67|fuel|Mobbil Gas
+68|services|Populace Salon & Spa
+69|shops|Silly Beauty Supply
+70|shops|Josephine's Meat Market
+71|banks|Mean State Credit Union
+72|services|Super Cutz-Rate
+73|civic|Tepid Falls Police Department
+74|shops|Auntie Dean's Organic Market
+75|food|Aroma Jolt's
+76|services|Coin Scar
+77|shops|Dollar Lieutenant
+78|food|sweetToad Frozen Yogurt
+79|health|Northern Dim Health
+80|civic|Tepid Falls Tribunal of Mild Grievances
+81|shops|Cellar Phone
+82|shops|Hobby Lobbyist Crafts
+83|food|Starbrokes Coffee
+84|shops|Save-A-Little
+85|health|Silver Filling Dentistry
+86|shops|Gym Nuts Corner
+87|health|Mount Saint Snooze Nursing Home
+88|food|Fire Hazard Subs
+89|shops|Resale Therapy Boutique
+90|shops|Goodwon't Thrift
+91|shops|Game Stoppage
+92|health|What? Hearing Aids
+93|food|Jargonsen's Cafe & Deli
+94|food|Sunset Bagel
+95|shops|The 106
+96|shops|Cambell's Hardware & Agwhy
+97|health|Lesser Tepid Pharmacy
+98|food|Bumble's Diner
+99|food|Lobster Trapdoor II
+100|auto|NOPE Auto Parts
+101|food|Dunkless Donuts
+102|civic|Lesser Tepid Fire & Rescue
+103|civic|Lesser Tepid Police Department
+104|banks|Tackonet Federal Credit Union
+105|fuel|Cumbersome Farms
+106|food|McFloggle's
+107|banks|Bungler Savings Bank
+108|shops|Pyro Ditty Fireworks
+109|shops|Jem's Hunting & Fishing Supply
+110|leisure|Nameless Park
+111|leisure|106 Playground
+112|leisure|Lesser Tepid Town Lands
+113|leisure|A Bench With a View
+114|shops|Fast-N-Nail Supply
+115|services|Tropical Sunburnations Inc.
+116|food|Shelfie's Deli
+117|food|The Parched Donkey
+118|worship|Bought & Paid-For Church
+119|food|Pad Thai Tutu
+120|food|Kernel Fried Chicken
+121|food|Taco Bellhop
+122|shops|Horizon-less Wireless
+123|auto|Interprise Rent-A-Car
+124|auto|Chevrolot Motors
+125|auto|Quick Motors
+126|auto|Crisper Motors
+127|auto|Dodgy Motors
+128|auto|Jeepers Motors
+129|auto|Ham Truck Sales
+130|auto|Fiasco Motors
+131|food|Dairy Dowager
+132|shops|Hannafour Foods
+133|food|Taco Bellhop
+134|schools|Olden Science Library
+135|health|Wall-Greens Drug
+136|services|Eastern Disunion Money Transfer
+137|food|Bent-O Sushi
+138|health|Whitney Daze Pharmacy
+139|food|Mirakula Sushi & Steak House
+140|shops|T. J. Max-Less
+141|shops|Aardvark's Rent-to-Own
+142|shops|Tractor Suppy Company
+143|services|Ageing Gracelessly Salon
+144|food|Downbeat Nutrition
+145|shops|Revisions Flowers & Bridal Designs
+146|shops|Nonsense & Peppermints
+147|auto|O'Really Auto Parts
+148|schools|StubbornWorks Maker Shed
+149|food|Mary Slow Coffeehouse
+150|food|Fuss Dining Hall
+151|offices|The Bursary of Ruin
+152|health|The Worry Center
+153|food|Robbers Dining Hall
+154|offices|DisConnects Careers Office
+155|schools|Department of Squishy Things
+156|schools|Department of Smells & Bangs
+157|schools|Department of Things That Fall
+158|schools|Department of Rocks, Mostly
+159|food|Josephine's Family Snack Spa
+160|schools|Department of Turning It Off and On
+161|schools|Department of Mostly Sums
+162|schools|Department of Feelings
+163|schools|Office of Admissions & Financial Ruin
+164|schools|Department of Trees & Regret
+165|food|Dana Dining Hall of Mystery Meat
+166|schools|Departments of Gossip & Opinion
+167|leisure|Ostrich Auditorium
+168|schools|Institute for Artificial Ineptitude
+169|schools|Hallowed Lab for Enterprise-ish
+170|schools|Department of Doodling
+171|leisure|Pot Luck Pottery Club
+172|offices|The Dithers Ditto
+173|shops|Dithers Bookstore & Overpriced Hoodies
+174|offices|Office of Advancing Communications Nobody Reads
+175|leisure|Aidan's Climbing & Bumbling Wall
+176|leisure|Dithers' Damp Center
+177|leisure|Jack Chilly Rink
+178|leisure|Whit-Moor Hoop Court
+179|leisure|Boulos Family Flab Center
+180|schools|Bixby Library of Art & Noise
+181|auto|O'Really Auto Parts
+182|auto|Very Flat Tyre & Service
+183|leisure|Kiddie Corral
+184|leisure|Mitchell's Pavilion of Moderate Shade
+185|leisure|Iconic-ish Sculpture
+186|leisure|Big River Rock
+187|shops|Dollar Shrub
+188|food|Back & Alley Restaurant
+189|shops|Nowhere Mart
+190|fuel|Nowhere Fuel
+191|shops|Hat-Away Mill Antiques
+192|leisure|Old Rusty Rail Bridge
+193|leisure|Rick's Memorial Bench
+194|auto|Southern Trailhead Lot
+195|services|Lint Lounge Laundromat
+196|auto|Wally Mart Auto Service
+197|services|Attitude Adjustment Salon
+198|fuel|Edison's Revenge Charging
+199|health|Unwell Health Partners
+200|shops|Big Crabapple
+201|leisure|Spindle Island Park
+202|food|Se-La-Di-Tea Cafe
+203|shops|Wally Mart Garden Center
+204|leisure|Pine Grave Cemetery
+205|schools|Miller Time Library
+206|leisure|Combover Baseball Field
+207|leisure|Bill Afford Field
+208|health|Misbehavioral Health Clinic
+209|health|The Ow Center for Health
+210|leisure|Chumpions Fitness
+211|shops|Hypothesis Wellness
+212|shops|Shaw Nuff Supermarket
+213|auto|Middle Mane Motors (Crisper, Dodgy, Jeepers, Ham, Fiasco)
+214|worship|Fate Evangelical Free Church
+=215|shops|Pardon's Surplus & Salvage
+216|leisure|Memorable-ish Veterans Park
+217|leisure|North Street Wreck Area
+218|food|Windy's
+219|lodging|Hollow-Day Inn Express & Suites
+220|health|Oak Groan Center
+221|leisure|Purnell Wiggly Field
+222|leisure|Culture Field
+223|lodging|Valley Family Guesthouse
+224|worship|Lorem Ipsum Chapel
+225|auto|Middle Mane Motors (Chevrolot, Quick)
+226|schools|Robbers' Union
+227|leisure|Run-Alls Field
+228|auto|Robbers Lot
+229|auto|AutoZoned-Out
+230|leisure|Dithers Museum of Modern Indecision
+231|auto|Eustus Lot
+232|leisure|Tepid High Softball Field
+233|leisure|Gall Field
+234|leisure|Lesser Tepid Junior High Baseball Field
+235|leisure|Lesser Tepid Junior High Softball Field
+236|leisure|Barn League Baseball Field
+237|leisure|Bastion Avenue Field
+238|leisure|Reedy Field
+239|leisure|Peter Out Field
+240|leisure|Tepid Falls Country Club for the Moderately Wealthy
+241|food|McFloggle's
+242|shops|Salvage Army Family Store
+243|food|Holey Canoeli
+244|food|Jargonsen's Cafe
+245|shops|Larceny Jewelers
+246|food|Cancan Mexican
+247|civic|Tepid Falls Public Library of Mild Interest
+248|health|Root Cause Endodontics
+249|shops|Gorham Bike & Skid
+250|shops|Yarnbad Center
+251|food|Next-to-Last Unicorn
+252|food|Pillager Family Restaurant
+253|food|19 Below
+254|food|Chew Lee Express
+255|food|Gold Street Tavern
+256|civic|Tepid Falls Fire & Mild Rescue
+257|health|Wall-Greens Drug
+258|health|MaineCorporal Express Care
+259|food|Dunkless Donuts
+260|auto|Thompsons Volks-Wagging
+261|food|Four Guys & a Fryer
+262|food|Ruby Wednesday
+263|shops|The Home Depotted
+264|shops|Wallymart Supercenter
+265|lodging|Firewise Inn
+266|shops|Stapleless Office Supply
+267|shops|Mobbil Mart
+268|worship|Congregation Beth Tepid
+269|banks|Kenneth Savings & Loan
+270|worship|Fairly Pleasant Street United Methodist Church
+271|worship|Gotchell Street United Baptist Church
+272|worship|Second-Best Congregational Church
+273|auto|Afford Lot
+274|leisure|D. K. Quirky Park
+275|leisure|Ox-Bough Nature Preserve
+276|food|Pizza Shed
+277|food|McFloggle's
+278|banks|KFZ Bank
+279|shops|Souper Shoes
+280|lodging|Hamptoon Inn
+281|food|T & B's Upback Tavern
+282|auto|Lower Sports Lot
+283|auto|Facilities Lot (Everything Broken)
+284|auto|Upper Sports Lot
+285|civic|Afford Youth Center
+=286|worship|Our Lady of Perpetual Hesitation
+287|shops|Oval K
+288|fuel|Swerving Gas
+289|food|Prince of Patties
+290|shops|Sweet Soil
+291|lodging|Inn at Tepid Falls
+292|food|Counter Kitchen Bakery Outlet
+293|food|Dunkless Donuts
+294|shops|Nowhere Mart
+295|fuel|Shellfish Gas
+296|food|Asia Minor Cafe
+297|food|Rhoda's House of Pie-zza
+298|health|Wall-Greens Drug
+299|shops|Plow's Market
+300|lodging|The Fairly Pleasant Street Inn
+301|auto|Middle Mane Motors (Toyoter)
+302|food|Pearbee's
+303|banks|Candor National Bank
+304|health|SVC Pharmacy
+305|leisure|Guffords Mini Golf
+306|leisure|The Bat Cave Batting Cage
+307|food|Guffords Ice Cream
+308|worship|Saint Josephus' Maronite Church
+309|shops|Josephine's Meat Market
+310|worship|Almost-First Baptist Church
+311|auto|Blunder Lot
+312|schools|Cotter Pin Union
+313|worship|Blessed Hopeful Advent Church
+314|worship|Unitary Universe Church
+315|leisure|Dithers Softball Field
+316|food|Dunkless Donuts
+317|leisure|Practice Makes Imperfect Field
+318|leisure|Serendipity Field
+319|leisure|Afford-Whales Tennis Courts
+320|leisure|Harold Afford Stadium
+321|auto|South Lot
+322|auto|Sports Lot
+323|auto|Hillside Lot
+324|leisure|Gorgon Center for Creative & Perspiring Arts
+325|leisure|Untitled Sculpture IV
+326|leisure|Untitled Sculpture VI
+327|leisure|Untitled Sculpture V
+328|leisure|Taken Auditorium
+329|leisure|Cavernous Field
+330|leisure|Crawfish Art Studio
+331|leisure|Fort Hillbilly Cemetery
+332|leisure|The Penny Toll Booth
+333|leisure|Tiny Tonic Footbridge Lookout
+334|leisure|Tail of Falls Park
+335|lodging|Lackwood Hotel
+=336|leisure|Quorum Square
+337|fuel|Cumbersome Farms
+338|shops|Cumbersome Farms
+339|food|Dunkless Donuts
+340|food|Aroma Jolt's
+341|leisure|Middle Mane Veterans' Memorial
+342|leisure|Middle Mane Veterans' Memorial Park
+343|schools|Wobble & Wheelie Riding School
+344|schools|Lesser Tepid Elementary
+345|leisure|Lesser Tepid High Field Hockey Pitch
+346|leisure|La Verdure Softball Field
+347|leisure|Nivvy Diamond
+348|leisure|Gary Pollen Memorial Field
+349|food|Ice Cream Shoppe of Birchland
+350|food|466 Nutrition
+351|auto|Lee Credit Maybe Later
+352|shops|Morse Code Memorials
+353|auto|Mid Mane Marine
+354|auto|Retreat Auto Parts
+355|shops|Harbor Fraught Tools
+356|food|Ming Leeway Chinese
+357|leisure|Moor-or-Less Playground
+358|worship|Second Thoughts Baptist Church
+359|leisure|Groove Street Playground
+360|leisure|Kiddie Gridiron
+361|leisure|Lesser Tepid Junior High Field Hockey Pitch
+362|leisure|Lesser Tepid Travel Soccer Club Field
+363|civic|Lesser Tepid Town Office
+364|schools|Albert S. Hallway School
+365|schools|George J. Mishell School
+366|leisure|Tramp Street Tot Lot
+367|leisure|Hillside Avenue Playpen
+368|leisure|Chelsea Street Playground
+369|leisure|Sterile Street Playground
+370|leisure|Eastern Avenue Playground
+371|leisure|Blue Street Park
+372|leisure|Cutting Corners Memorial Park
+373|leisure|Snorton Field
+374|leisure|Half-Fax Street Park
+375|schools|Lesser Tepid Elementary
+376|schools|Lesser Tepid High School
+377|leisure|Drumstick Field
+378|civic|Tepid Falls Hall of Minor Grievances
+=379|leisure|Postponement Hall
+=380|civic|The Dead Letter Office
+381|leisure|Postage Square
+382|leisure|Levity Park
+383|worship|Saint Jean the Baptist Church
+384|leisure|Drumstick Track
+385|lodging|Almost-Best Western Plus Grand Hotel
+386|leisure|Lesser Tepid High School Track
+387|shops|J. F. Oh! Mall
+388|lodging|Budget Ghost Airport Inn
+389|leisure|Harold Afford Athletic & Wreck-reation Center
+390|leisure|Six Walls and a Door
+391|leisure|Bixby Music & Art Center
+392|leisure|Fort Half-Fax Park
+=393|schools|Dithers College
+394|schools|Mount Mercy-Me Academy
+395|schools|Tepid Falls Senior High

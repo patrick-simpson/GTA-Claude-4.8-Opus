@@ -1,0 +1,3962 @@
+[
+ {
+  "name": "Redington Museum",
+  "cat": "tourism=museum",
+  "kind": "tourism",
+  "x": -12.3,
+  "z": -1582.2,
+  "result": "on_road",
+  "district": "South End",
+  "roadgap": -3.8
+ },
+ {
+  "name": "Merril Bank",
+  "cat": "amenity=bank",
+  "kind": "amenity",
+  "x": -38.5,
+  "z": -2652.8,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 2.3
+ },
+ {
+  "name": "Main Film Center",
+  "cat": "amenity=cinema",
+  "kind": "amenity",
+  "x": 81.8,
+  "z": -1806.8,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 4.8
+ },
+ {
+  "name": "VIP Tires and Service",
+  "cat": "shop=car_repair",
+  "kind": "shop",
+  "x": -42.0,
+  "z": -2684.5,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 8.5
+ },
+ {
+  "name": "Governor's Restaurant and Bakery",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -117.5,
+  "z": -2804.8,
+  "result": "on_road",
+  "district": "Upper Main/exit130",
+  "roadgap": -1.7
+ },
+ {
+  "name": "Sparrows Consignment",
+  "cat": "shop=clothes",
+  "kind": "shop",
+  "x": 82.4,
+  "z": -1886.0,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 5.4
+ },
+ {
+  "name": "Waterville Florist & Formal Wear",
+  "cat": "shop=florist",
+  "kind": "shop",
+  "x": 28.2,
+  "z": -2464.2,
+  "result": "on_road",
+  "district": "other",
+  "roadgap": -5.8
+ },
+ {
+  "name": "Met Life Auto & Home",
+  "cat": "office=insurance",
+  "kind": "office",
+  "x": 44.2,
+  "z": -2433.3,
+  "result": "on_road",
+  "district": "other",
+  "roadgap": -3.6
+ },
+ {
+  "name": "Grondins Certified Cleaners",
+  "cat": "shop=dry_cleaning",
+  "kind": "shop",
+  "x": 79.6,
+  "z": -2366.0,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 1.7
+ },
+ {
+  "name": "Elm City Photo",
+  "cat": "shop=photo",
+  "kind": "shop",
+  "x": 84.4,
+  "z": -2362.2,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 4.6
+ },
+ {
+  "name": "Berkshire Hathaway HomeServices",
+  "cat": "office=estate_agent",
+  "kind": "office",
+  "x": 101.0,
+  "z": -2340.4,
+  "result": "on_road",
+  "district": "North End",
+  "roadgap": -1.2
+ },
+ {
+  "name": "Cappza's Pizza",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 89.0,
+  "z": -2334.6,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 6.0
+ },
+ {
+  "name": "Dunkin'",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": 177.6,
+  "z": -2268.1,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 6.7
+ },
+ {
+  "name": "Buen Apetito",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 158.6,
+  "z": -2322.1,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 2.6
+ },
+ {
+  "name": "Grand Central Cafe",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 139.1,
+  "z": -2293.9,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 34.7
+ },
+ {
+  "name": "Burger King",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": 181.9,
+  "z": -2294.3,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 24.0
+ },
+ {
+  "name": "High Hopes Club House",
+  "cat": "amenity=clinic",
+  "kind": "amenity",
+  "x": 148.4,
+  "z": -2214.8,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 1.8
+ },
+ {
+  "name": "R E Drapeau",
+  "cat": "shop=electronics;furniture;bed",
+  "kind": "shop",
+  "x": 134.5,
+  "z": -2197.6,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 3.9
+ },
+ {
+  "name": "American Legion Hall",
+  "cat": "amenity=social_centre",
+  "kind": "amenity",
+  "x": 174.8,
+  "z": -2188.9,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 14.5
+ },
+ {
+  "name": "Cumberland Farms",
+  "cat": "amenity=fuel",
+  "kind": "amenity",
+  "x": 197.6,
+  "z": -2500.0,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 15.7
+ },
+ {
+  "name": "The Starting Line Speed & Custom",
+  "cat": "shop=motorcycle",
+  "kind": "shop",
+  "x": 196.6,
+  "z": -2483.9,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 14.0
+ },
+ {
+  "name": "Ace Auto Sales",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": 200.7,
+  "z": -2463.7,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 6.7
+ },
+ {
+  "name": "Ace Tire and Service",
+  "cat": "shop=car_repair",
+  "kind": "shop",
+  "x": 83.9,
+  "z": -2546.6,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 1.7
+ },
+ {
+  "name": "Juliette's Bakery & Deli",
+  "cat": "shop=bakery",
+  "kind": "shop",
+  "x": 107.7,
+  "z": -2472.4,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 25.3
+ },
+ {
+  "name": "Patkus Guitars",
+  "cat": "shop=musical_instrument",
+  "kind": "shop",
+  "x": 130.9,
+  "z": -2294.7,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 35.9
+ },
+ {
+  "name": "Somerset Violins",
+  "cat": "shop=musical_instrument",
+  "kind": "shop",
+  "x": 123.2,
+  "z": -2293.7,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 30.7
+ },
+ {
+  "name": "Kennebec Medical Consultants",
+  "cat": "amenity=doctors",
+  "kind": "amenity",
+  "x": 160.7,
+  "z": -2295.2,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 28.2
+ },
+ {
+  "name": "Are You Ready To Party?",
+  "cat": "shop=party",
+  "kind": "shop",
+  "x": 52.6,
+  "z": -2279.5,
+  "result": "within_20m_of_building",
+  "district": "North End",
+  "roadgap": 14.5
+ },
+ {
+  "name": "Treasure Chest II",
+  "cat": "shop=erotic",
+  "kind": "shop",
+  "x": 52.1,
+  "z": -2291.8,
+  "result": "on_building",
+  "district": "North End",
+  "roadgap": 15.6
+ },
+ {
+  "name": "VB Vapors & Tobacco",
+  "cat": "shop=e-cigarette",
+  "kind": "shop",
+  "x": 98.3,
+  "z": -2318.1,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 15.8
+ },
+ {
+  "name": "Record Connection",
+  "cat": "shop=music",
+  "kind": "shop",
+  "x": 74.8,
+  "z": -2328.3,
+  "result": "on_road",
+  "district": "North End",
+  "roadgap": -6.0
+ },
+ {
+  "name": "Planet Aid",
+  "cat": "amenity=recycling",
+  "kind": "amenity",
+  "x": 70.3,
+  "z": -2333.8,
+  "result": "on_road",
+  "district": "North End",
+  "roadgap": -1.3
+ },
+ {
+  "name": "Marcie's Hair Studio",
+  "cat": "shop=hairdresser",
+  "kind": "shop",
+  "x": 65.1,
+  "z": -2354.6,
+  "result": "within_20m_of_building",
+  "district": "North End",
+  "roadgap": 2.1
+ },
+ {
+  "name": "Electrolysis by Ruth Swanson",
+  "cat": "shop=beauty",
+  "kind": "shop",
+  "x": 60.2,
+  "z": -2373.3,
+  "result": "on_road",
+  "district": "North End",
+  "roadgap": -0.9
+ },
+ {
+  "name": "Hannaford",
+  "cat": "shop=supermarket",
+  "kind": "shop",
+  "x": -104.3,
+  "z": -2721.0,
+  "result": "on_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 20.6
+ },
+ {
+  "name": "Hannaford Pharmacy",
+  "cat": "amenity=pharmacy",
+  "kind": "amenity",
+  "x": -105.0,
+  "z": -2719.4,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 22.0
+ },
+ {
+  "name": "Subway",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -108.1,
+  "z": -2729.6,
+  "result": "on_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 20.6
+ },
+ {
+  "name": "Rent-A-Center",
+  "cat": "shop=furniture",
+  "kind": "shop",
+  "x": -113.3,
+  "z": -2740.6,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 20.8
+ },
+ {
+  "name": "Aspen Dental",
+  "cat": "amenity=dentist",
+  "kind": "amenity",
+  "x": -109.6,
+  "z": -2733.5,
+  "result": "on_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 20.4
+ },
+ {
+  "name": "Kennebec Wealth Management",
+  "cat": "office=financial",
+  "kind": "office",
+  "x": 67.6,
+  "z": -2225.5,
+  "result": "on_road",
+  "district": "North End",
+  "roadgap": -2.0
+ },
+ {
+  "name": "H&R Block",
+  "cat": "office=tax_advisor",
+  "kind": "office",
+  "x": 100.8,
+  "z": -2241.9,
+  "result": "within_20m_of_building",
+  "district": "North End",
+  "roadgap": 20.8
+ },
+ {
+  "name": "Maurices",
+  "cat": "shop=clothes",
+  "kind": "shop",
+  "x": -65.5,
+  "z": -2672.8,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 3.5
+ },
+ {
+  "name": "Olympia Sports",
+  "cat": "shop=sports",
+  "kind": "shop",
+  "x": -69.3,
+  "z": -2674.5,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 6.5
+ },
+ {
+  "name": "JCPenney",
+  "cat": "shop=department_store",
+  "kind": "shop",
+  "x": -80.6,
+  "z": -2675.6,
+  "result": "on_building",
+  "district": "other",
+  "roadgap": 17.0
+ },
+ {
+  "name": "Bull Moose",
+  "cat": "shop=music",
+  "kind": "shop",
+  "x": -87.9,
+  "z": -2683.6,
+  "result": "on_building",
+  "district": "other",
+  "roadgap": 21.2
+ },
+ {
+  "name": "Bath & Body Works",
+  "cat": "shop=cosmetics",
+  "kind": "shop",
+  "x": -87.1,
+  "z": -2685.7,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 19.5
+ },
+ {
+  "name": "Verizon",
+  "cat": "shop=mobile_phone",
+  "kind": "shop",
+  "x": -91.2,
+  "z": -2691.7,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 20.8
+ },
+ {
+  "name": "Sleepers",
+  "cat": "shop=clothes",
+  "kind": "shop",
+  "x": -91.8,
+  "z": -2692.3,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 21.1
+ },
+ {
+  "name": "Custard Insurance Adjusters",
+  "cat": "office=insurance",
+  "kind": "office",
+  "x": 38.0,
+  "z": -2234.8,
+  "result": "within_20m_of_building",
+  "district": "North End",
+  "roadgap": 17.7
+ },
+ {
+  "name": "The Church of Jesus Christ of Latter-day Saints",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": -671.2,
+  "z": -1532.7,
+  "result": "on_building",
+  "district": "other",
+  "roadgap": 9.7
+ },
+ {
+  "name": "Advance Auto Parts",
+  "cat": "shop=car_parts",
+  "kind": "shop",
+  "x": -75.2,
+  "z": -2761.4,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 7.5
+ },
+ {
+  "name": "Toast Xpress",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 127.5,
+  "z": -2294.0,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 35.0
+ },
+ {
+  "name": "The Framemakers",
+  "cat": "tourism=gallery",
+  "kind": "tourism",
+  "x": 50.8,
+  "z": -1734.7,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 11.9
+ },
+ {
+  "name": "The Two Cent Pub",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 562.2,
+  "z": -1562.7,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 158.7
+ },
+ {
+  "name": "Cumberland Farms",
+  "cat": "amenity=fuel",
+  "kind": "amenity",
+  "x": 543.1,
+  "z": -1207.1,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 14.0
+ },
+ {
+  "name": "Lakewood Continuing Care",
+  "cat": "amenity=social_facility",
+  "kind": "amenity",
+  "x": -477.1,
+  "z": -1104.1,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 71.1
+ },
+ {
+  "name": "The Proper Pig",
+  "cat": "amenity=pub",
+  "kind": "amenity",
+  "x": 104.2,
+  "z": -1747.3,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 14.7
+ },
+ {
+  "name": "John's Market",
+  "cat": "shop=convenience",
+  "kind": "shop",
+  "x": -320.8,
+  "z": -1805.7,
+  "result": "on_building",
+  "district": "West End",
+  "roadgap": 12.9
+ },
+ {
+  "name": "Citgo",
+  "cat": "amenity=fuel",
+  "kind": "amenity",
+  "x": -93.2,
+  "z": -2756.5,
+  "result": "on_road",
+  "district": "Upper Main/exit130",
+  "roadgap": -4.0
+ },
+ {
+  "name": "Flagship Cinema",
+  "cat": "amenity=cinema",
+  "kind": "amenity",
+  "x": -502.6,
+  "z": -1348.4,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 67.9
+ },
+ {
+  "name": "Mainely Brews",
+  "cat": "amenity=pub",
+  "kind": "amenity",
+  "x": 54.4,
+  "z": -2001.7,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 8.6
+ },
+ {
+  "name": "Brown House Appliance",
+  "cat": "shop=appliance",
+  "kind": "shop",
+  "x": -356.0,
+  "z": -1713.3,
+  "result": "within_20m_of_building",
+  "district": "West End",
+  "roadgap": 31.5
+ },
+ {
+  "name": "Hair Reflections",
+  "cat": "shop=hairdresser",
+  "kind": "shop",
+  "x": -808.7,
+  "z": -1262.8,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 4.5
+ },
+ {
+  "name": "Ray Haskell Ford",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -758.6,
+  "z": -1297.7,
+  "result": "on_road",
+  "district": "Strip/exit127",
+  "roadgap": -8.3
+ },
+ {
+  "name": "Ming Lee",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -70.1,
+  "z": -2770.0,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 16.3
+ },
+ {
+  "name": "Joe's Smoke Shop",
+  "cat": "shop=tobacco",
+  "kind": "shop",
+  "x": 76.6,
+  "z": -1867.1,
+  "result": "on_road",
+  "district": "Downtown",
+  "roadgap": -0.4
+ },
+ {
+  "name": "Happy Trails",
+  "cat": "shop=gift",
+  "kind": "shop",
+  "x": 76.5,
+  "z": -1864.6,
+  "result": "on_road",
+  "district": "Downtown",
+  "roadgap": -0.5
+ },
+ {
+  "name": "Mobil",
+  "cat": "amenity=fuel",
+  "kind": "amenity",
+  "x": 33.3,
+  "z": -2216.0,
+  "result": "within_20m_of_building",
+  "district": "North End",
+  "roadgap": 14.3
+ },
+ {
+  "name": "People's Salon & Spa",
+  "cat": "shop=hairdresser",
+  "kind": "shop",
+  "x": 127.8,
+  "z": -1866.5,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 1.5
+ },
+ {
+  "name": "Sally Beauty",
+  "cat": "shop=hairdresser_supply",
+  "kind": "shop",
+  "x": -143.8,
+  "z": -2792.1,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 27.4
+ },
+ {
+  "name": "Josephs Meat Market",
+  "cat": "shop=butcher",
+  "kind": "shop",
+  "x": 207.8,
+  "z": -2045.6,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 30.8
+ },
+ {
+  "name": "Maine State Credit Union Maine State Credit Union",
+  "cat": "amenity=bank",
+  "kind": "amenity",
+  "x": -242.8,
+  "z": -1109.1,
+  "result": "on_building",
+  "district": "South End",
+  "roadgap": 7.7
+ },
+ {
+  "name": "Supercuts",
+  "cat": "shop=hairdresser",
+  "kind": "shop",
+  "x": -138.4,
+  "z": -2793.5,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 21.9
+ },
+ {
+  "name": "Waterville Police Department",
+  "cat": "amenity=police",
+  "kind": "amenity",
+  "x": 245.0,
+  "z": -2295.1,
+  "result": "on_building",
+  "district": "North End",
+  "roadgap": 10.8
+ },
+ {
+  "name": "Uncle Dean's Natural Market",
+  "cat": "shop=supermarket",
+  "kind": "shop",
+  "x": -212.2,
+  "z": -1083.5,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 6.7
+ },
+ {
+  "name": "Aroma Joe's",
+  "cat": "amenity=cafe",
+  "kind": "amenity",
+  "x": -413.9,
+  "z": -1158.8,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 1.8
+ },
+ {
+  "name": "Coinstar",
+  "cat": "amenity=payment_terminal",
+  "kind": "amenity",
+  "x": -364.4,
+  "z": -1132.3,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 8.6
+ },
+ {
+  "name": "Dollar General",
+  "cat": "shop=variety_store",
+  "kind": "shop",
+  "x": -24.4,
+  "z": -1783.9,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 9.9
+ },
+ {
+  "name": "sweetFrog",
+  "cat": "amenity=ice_cream",
+  "kind": "amenity",
+  "x": -142.8,
+  "z": -2792.5,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 26.4
+ },
+ {
+  "name": "Northern Light Health",
+  "cat": "amenity=doctors",
+  "kind": "amenity",
+  "x": -7.6,
+  "z": -1822.8,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 15.6
+ },
+ {
+  "name": "Waterville District Court",
+  "cat": "amenity=courthouse",
+  "kind": "amenity",
+  "x": 255.5,
+  "z": -2354.8,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 6.8
+ },
+ {
+  "name": "U.S. Cellular",
+  "cat": "shop=mobile_phone",
+  "kind": "shop",
+  "x": -146.1,
+  "z": -2791.9,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 28.6
+ },
+ {
+  "name": "Hobby Lobby",
+  "cat": "shop=craft",
+  "kind": "shop",
+  "x": -99.3,
+  "z": -2708.4,
+  "result": "on_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 21.3
+ },
+ {
+  "name": "Starbucks",
+  "cat": "amenity=cafe",
+  "kind": "amenity",
+  "x": -136.5,
+  "z": -2793.7,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 20.2
+ },
+ {
+  "name": "Save-A-Lot",
+  "cat": "shop=supermarket",
+  "kind": "shop",
+  "x": -16.6,
+  "z": -1803.3,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 24.6
+ },
+ {
+  "name": "Silver Street Dentistry",
+  "cat": "amenity=dentist",
+  "kind": "amenity",
+  "x": -35.1,
+  "z": -1623.8,
+  "result": "empty_ground",
+  "district": "South End",
+  "roadgap": 8.0
+ },
+ {
+  "name": "GNC",
+  "cat": "shop=nutrition_supplements",
+  "kind": "shop",
+  "x": -137.5,
+  "z": -2793.5,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 21.2
+ },
+ {
+  "name": "Mount Saint Joseph Nursing Home Mount Saint Josephs",
+  "cat": "amenity=nursing_home",
+  "kind": "amenity",
+  "x": 267.5,
+  "z": -2815.2,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 37.3
+ },
+ {
+  "name": "Firehouse Subs",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -139.3,
+  "z": -2793.2,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 22.9
+ },
+ {
+  "name": "Retail Therapy Consignment Boutique",
+  "cat": "shop=second_hand",
+  "kind": "shop",
+  "x": -509.7,
+  "z": -1166.4,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 27.2
+ },
+ {
+  "name": "Goodwill",
+  "cat": "shop=charity",
+  "kind": "shop",
+  "x": -28.1,
+  "z": -1772.7,
+  "result": "on_road",
+  "district": "Downtown",
+  "roadgap": -1.3
+ },
+ {
+  "name": "GameStop",
+  "cat": "shop=video_games",
+  "kind": "shop",
+  "x": -141.8,
+  "z": -2792.9,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 25.3
+ },
+ {
+  "name": "Beltone",
+  "cat": "shop=hearing_aids",
+  "kind": "shop",
+  "x": -508.6,
+  "z": -1164.7,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 27.9
+ },
+ {
+  "name": "Jorgensens cafe and Deli",
+  "cat": "amenity=cafe",
+  "kind": "amenity",
+  "x": 70.5,
+  "z": -2162.4,
+  "result": "on_road",
+  "district": "North End",
+  "roadgap": -6.7
+ },
+ {
+  "name": "Sunrise Bagel",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 96.8,
+  "z": -1511.8,
+  "result": "empty_ground",
+  "district": "South End",
+  "roadgap": 54.7
+ },
+ {
+  "name": "The 107",
+  "cat": "shop=convenience",
+  "kind": "shop",
+  "x": 687.7,
+  "z": -1508.0,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 144.6
+ },
+ {
+  "name": "Campbells Hardware - Agway",
+  "cat": "shop=hardware",
+  "kind": "shop",
+  "x": 729.9,
+  "z": -1171.4,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 171.7
+ },
+ {
+  "name": "Winslow Pharmacy",
+  "cat": "amenity=pharmacy",
+  "kind": "amenity",
+  "x": 699.2,
+  "z": -1175.6,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 167.8
+ },
+ {
+  "name": "Bee's Diner",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 510.0,
+  "z": -1218.7,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 6.0
+ },
+ {
+  "name": "Lobster Trap II",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 391.6,
+  "z": -1491.6,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 12.1
+ },
+ {
+  "name": "NAPA",
+  "cat": "shop=car_parts",
+  "kind": "shop",
+  "x": 412.4,
+  "z": -1455.9,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 7.3
+ },
+ {
+  "name": "Dunkin'",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": 487.3,
+  "z": -1351.1,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 5.6
+ },
+ {
+  "name": "Winslow Fire and Rescue",
+  "cat": "amenity=fire_station",
+  "kind": "amenity",
+  "x": 420.8,
+  "z": -1882.8,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 8.2
+ },
+ {
+  "name": "Winslow Police Department",
+  "cat": "amenity=police",
+  "kind": "amenity",
+  "x": 401.2,
+  "z": -1879.8,
+  "result": "on_road",
+  "district": "Far bank",
+  "roadgap": -1.0
+ },
+ {
+  "name": "Tacconet Federal Credit Union",
+  "cat": "amenity=bank",
+  "kind": "amenity",
+  "x": 636.5,
+  "z": -2189.5,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 11.0
+ },
+ {
+  "name": "Cumberland Farms",
+  "cat": "shop=convenience",
+  "kind": "shop",
+  "x": 546.9,
+  "z": -1201.3,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 20.2
+ },
+ {
+  "name": "McDonald's",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": 562.8,
+  "z": -1191.4,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 39.0
+ },
+ {
+  "name": "Bangor Savings Bank",
+  "cat": "amenity=bank",
+  "kind": "amenity",
+  "x": 652.9,
+  "z": -1186.5,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 125.0
+ },
+ {
+  "name": "Pyro City",
+  "cat": "shop=fireworks",
+  "kind": "shop",
+  "x": 796.2,
+  "z": -1057.2,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 290.1
+ },
+ {
+  "name": "Jims Gun Shop",
+  "cat": "shop=mall",
+  "kind": "shop",
+  "x": 476.4,
+  "z": -1384.7,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 9.0
+ },
+ {
+  "name": "Public Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 369.9,
+  "z": -1847.2,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 25.9
+ },
+ {
+  "name": "107 Playground",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 703.7,
+  "z": -1504.4,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 147.5
+ },
+ {
+  "name": "Town of Winslow Lands",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 429.8,
+  "z": -1184.1,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 93.0
+ },
+ {
+  "name": "Park bench",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 335.6,
+  "z": -1728.0,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 43.4
+ },
+ {
+  "name": "Fastenal",
+  "cat": "shop=trade",
+  "kind": "shop",
+  "x": -901.0,
+  "z": -1384.3,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 104.7
+ },
+ {
+  "name": "Tropical Sunsations Inc",
+  "cat": "shop=beauty",
+  "kind": "shop",
+  "x": -886.3,
+  "z": -1341.8,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 59.9
+ },
+ {
+  "name": "Shelby's Deli",
+  "cat": "shop=deli",
+  "kind": "shop",
+  "x": -880.1,
+  "z": -1338.5,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 54.5
+ },
+ {
+  "name": "The Thirsty Mule",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -905.3,
+  "z": -1342.9,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 70.4
+ },
+ {
+  "name": "Blood Bought Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": -825.0,
+  "z": -1241.4,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 0.4
+ },
+ {
+  "name": "Pad Thai Too",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -569.5,
+  "z": -1213.6,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 7.9
+ },
+ {
+  "name": "KFC",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -628.1,
+  "z": -1248.3,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 21.0
+ },
+ {
+  "name": "Taco Bell",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -627.4,
+  "z": -1247.3,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 21.3
+ },
+ {
+  "name": "Verizon",
+  "cat": "shop=mobile_phone",
+  "kind": "shop",
+  "x": -508.6,
+  "z": -1197.4,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 0.8
+ },
+ {
+  "name": "Enterprise",
+  "cat": "amenity=car_rental",
+  "kind": "amenity",
+  "x": -507.4,
+  "z": -1195.7,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 1.5
+ },
+ {
+  "name": "Chevrolet",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -593.2,
+  "z": -1229.8,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 2.3
+ },
+ {
+  "name": "Buick",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -591.9,
+  "z": -1229.7,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 1.1
+ },
+ {
+  "name": "Chrysler",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -533.0,
+  "z": -1208.9,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 4.9
+ },
+ {
+  "name": "Dodge",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -532.6,
+  "z": -1208.3,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 5.2
+ },
+ {
+  "name": "Jeep",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -532.2,
+  "z": -1207.5,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 5.6
+ },
+ {
+  "name": "Ram",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -531.8,
+  "z": -1207.0,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 5.8
+ },
+ {
+  "name": "Fiat",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -531.5,
+  "z": -1206.2,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 6.3
+ },
+ {
+  "name": "Dairy Queen",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -511.0,
+  "z": -1167.4,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 27.0
+ },
+ {
+  "name": "Hannaford",
+  "cat": "shop=supermarket",
+  "kind": "shop",
+  "x": -370.0,
+  "z": -1131.7,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 11.2
+ },
+ {
+  "name": "Taco Bell",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -63.3,
+  "z": -2717.6,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 1.3
+ },
+ {
+  "name": "Olin Science Library",
+  "cat": "amenity=library",
+  "kind": "amenity",
+  "x": -388.2,
+  "z": -2435.0,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 6.9
+ },
+ {
+  "name": "Walgreens",
+  "cat": "amenity=pharmacy",
+  "kind": "amenity",
+  "x": 608.1,
+  "z": -1209.3,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 77.1
+ },
+ {
+  "name": "Western Union",
+  "cat": "amenity=money_transfer",
+  "kind": "amenity",
+  "x": 604.4,
+  "z": -1206.0,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 73.7
+ },
+ {
+  "name": "Bento Sushi",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -363.1,
+  "z": -1119.1,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 20.4
+ },
+ {
+  "name": "Whitney Davis",
+  "cat": "amenity=pharmacy",
+  "kind": "amenity",
+  "x": -365.1,
+  "z": -1128.1,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 12.7
+ },
+ {
+  "name": "Mirakuya Sushi & Steak House",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -365.4,
+  "z": -1101.6,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 37.6
+ },
+ {
+  "name": "TJ Maxx",
+  "cat": "shop=department_store",
+  "kind": "shop",
+  "x": -362.9,
+  "z": -1091.9,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 45.7
+ },
+ {
+  "name": "Aaron's",
+  "cat": "shop=furniture",
+  "kind": "shop",
+  "x": -363.9,
+  "z": -1080.0,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 57.2
+ },
+ {
+  "name": "Tractor Supply Company",
+  "cat": "shop=country_store",
+  "kind": "shop",
+  "x": -378.7,
+  "z": -1086.4,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 56.6
+ },
+ {
+  "name": "Age-Less LLC Salon",
+  "cat": "shop=beauty",
+  "kind": "shop",
+  "x": -507.4,
+  "z": -1163.5,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 28.2
+ },
+ {
+  "name": "Upbeat Nutrition",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -512.3,
+  "z": -1201.1,
+  "result": "on_road",
+  "district": "Strip/exit127",
+  "roadgap": -0.2
+ },
+ {
+  "name": "Visions Flowers & Bridal Designs",
+  "cat": "shop=florist",
+  "kind": "shop",
+  "x": -878.0,
+  "z": -1326.0,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 42.1
+ },
+ {
+  "name": "Incense & Peppermints",
+  "cat": "shop=confectionery",
+  "kind": "shop",
+  "x": 49.8,
+  "z": -1751.8,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 8.2
+ },
+ {
+  "name": "O'Reilly Auto Parts",
+  "cat": "shop=car_parts",
+  "kind": "shop",
+  "x": -46.8,
+  "z": -2678.8,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 2.2
+ },
+ {
+  "name": "MuleWorks",
+  "cat": "leisure=hackerspace",
+  "kind": "leisure",
+  "x": -477.4,
+  "z": -2421.0,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 91.8
+ },
+ {
+  "name": "Mary Low Coffeehouse",
+  "cat": "amenity=cafe",
+  "kind": "amenity",
+  "x": -396.8,
+  "z": -2279.0,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 11.1
+ },
+ {
+  "name": "Foss Dining Hall",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -392.4,
+  "z": -2257.1,
+  "result": "on_building",
+  "district": "other",
+  "roadgap": 8.7
+ },
+ {
+  "name": "Financial Services",
+  "cat": "office=financial",
+  "kind": "office",
+  "x": -445.6,
+  "z": -2309.1,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 55.7
+ },
+ {
+  "name": "Counseling and Health Center",
+  "cat": "amenity=clinic",
+  "kind": "amenity",
+  "x": -441.3,
+  "z": -2308.1,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 51.5
+ },
+ {
+  "name": "Roberts Dining Hall",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -473.2,
+  "z": -2528.0,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 40.6
+ },
+ {
+  "name": "DavisConnects",
+  "cat": "office=employment_agency",
+  "kind": "office",
+  "x": -434.5,
+  "z": -2487.0,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 68.0
+ },
+ {
+  "name": "Biology Department",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -415.9,
+  "z": -2433.0,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 32.7
+ },
+ {
+  "name": "Chemistry Department",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -433.3,
+  "z": -2439.2,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 51.0
+ },
+ {
+  "name": "Physics Department",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -454.1,
+  "z": -2443.7,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 72.3
+ },
+ {
+  "name": "Geology Department",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -446.9,
+  "z": -2442.5,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 65.1
+ },
+ {
+  "name": "Joseph Family Spa",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -437.2,
+  "z": -2340.1,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 44.9
+ },
+ {
+  "name": "Computer Science Department",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -361.1,
+  "z": -2443.9,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 1.6
+ },
+ {
+  "name": "Maths and Statistics Department",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -351.9,
+  "z": -2448.1,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 8.8
+ },
+ {
+  "name": "Psychology Department",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -353.7,
+  "z": -2461.7,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 2.6
+ },
+ {
+  "name": "Office of Admissions and Financial Aid",
+  "cat": "office=yes",
+  "kind": "office",
+  "x": -354.5,
+  "z": -2362.5,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 23.9
+ },
+ {
+  "name": "Environmental Science Department",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -392.2,
+  "z": -2429.6,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 8.8
+ },
+ {
+  "name": "Dana Dining Hall",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -424.5,
+  "z": -2279.9,
+  "result": "on_building",
+  "district": "other",
+  "roadgap": 38.5
+ },
+ {
+  "name": "Social Sciences Departments",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -374.9,
+  "z": -2334.0,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 3.4
+ },
+ {
+  "name": "Ostrove Auditorium",
+  "cat": "amenity=events_venue",
+  "kind": "amenity",
+  "x": -375.0,
+  "z": -2354.5,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 3.4
+ },
+ {
+  "name": "David Institute for Artificial Intellegence",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -400.9,
+  "z": -2431.5,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 17.7
+ },
+ {
+  "name": "Halloran Lab for Entrepreneurship",
+  "cat": "office=yes",
+  "kind": "office",
+  "x": -403.7,
+  "z": -2437.8,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 22.4
+ },
+ {
+  "name": "Arts Department",
+  "cat": "office=research",
+  "kind": "office",
+  "x": -413.2,
+  "z": -2461.3,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 39.3
+ },
+ {
+  "name": "Pottery Club Studio",
+  "cat": "amenity=arts_centre",
+  "kind": "amenity",
+  "x": -450.0,
+  "z": -2523.4,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 59.0
+ },
+ {
+  "name": "The Colby Echo",
+  "cat": "office=newspaper",
+  "kind": "office",
+  "x": -467.5,
+  "z": -2531.5,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 41.6
+ },
+ {
+  "name": "Colby Bookstore",
+  "cat": "shop=books",
+  "kind": "shop",
+  "x": -414.4,
+  "z": -2350.8,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 22.0
+ },
+ {
+  "name": "College and Student Advancement and Communications",
+  "cat": "office=yes",
+  "kind": "office",
+  "x": -341.1,
+  "z": -2417.6,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 29.4
+ },
+ {
+  "name": "Aidan's Climbing & Bouldering Wall",
+  "cat": "leisure=sports_centre",
+  "kind": "leisure",
+  "x": -591.0,
+  "z": -2665.1,
+  "result": "empty_ground",
+  "district": "Campus",
+  "roadgap": 25.2
+ },
+ {
+  "name": "Colby's Aquatic Center",
+  "cat": "leisure=sports_centre",
+  "kind": "leisure",
+  "x": -540.0,
+  "z": -2586.8,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 35.4
+ },
+ {
+  "name": "Jack Kelley Rink",
+  "cat": "leisure=ice_rink",
+  "kind": "leisure",
+  "x": -546.1,
+  "z": -2651.3,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 72.1
+ },
+ {
+  "name": "Whitmore-Mitchell Basketball Court",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -555.7,
+  "z": -2607.8,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 61.6
+ },
+ {
+  "name": "Boulos Family Fitness Center",
+  "cat": "leisure=fitness_centre",
+  "kind": "leisure",
+  "x": -531.5,
+  "z": -2623.6,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 58.1
+ },
+ {
+  "name": "Bixler Art and Music Library",
+  "cat": "amenity=library",
+  "kind": "amenity",
+  "x": -405.5,
+  "z": -2466.3,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 33.7
+ },
+ {
+  "name": "O'Reilly Auto Parts",
+  "cat": "shop=car_parts",
+  "kind": "shop",
+  "x": 530.4,
+  "z": -1271.0,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 16.6
+ },
+ {
+  "name": "VIP Tires and Service",
+  "cat": "shop=car_repair",
+  "kind": "shop",
+  "x": 525.3,
+  "z": -1278.7,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 10.8
+ },
+ {
+  "name": "Children's Play Area",
+  "cat": "leisure=playground",
+  "kind": "leisure",
+  "x": 265.4,
+  "z": -2032.8,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 88.4
+ },
+ {
+  "name": "Mitchell Family Pavilion",
+  "cat": "amenity=shelter",
+  "kind": "amenity",
+  "x": 250.5,
+  "z": -1924.1,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 73.5
+ },
+ {
+  "name": "Ticonic Sculpture",
+  "cat": "tourism=artwork",
+  "kind": "tourism",
+  "x": 282.7,
+  "z": -2048.6,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 88.5
+ },
+ {
+  "name": "River Stone",
+  "cat": "tourism=artwork",
+  "kind": "tourism",
+  "x": 262.6,
+  "z": -1970.3,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 85.6
+ },
+ {
+  "name": "Dollar Tree",
+  "cat": "shop=variety_store",
+  "kind": "shop",
+  "x": -1.3,
+  "z": -1837.8,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 9.3
+ },
+ {
+  "name": "Front & Main",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 77.7,
+  "z": -1691.1,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 0.7
+ },
+ {
+  "name": "Nouria",
+  "cat": "shop=convenience",
+  "kind": "shop",
+  "x": -542.4,
+  "z": -1198.2,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 19.0
+ },
+ {
+  "name": "Nouria",
+  "cat": "amenity=fuel",
+  "kind": "amenity",
+  "x": -543.8,
+  "z": -1215.6,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 5.4
+ },
+ {
+  "name": "Hathaway Mill Antiques",
+  "cat": "shop=antiques",
+  "kind": "shop",
+  "x": 143.4,
+  "z": -1541.2,
+  "result": "on_building",
+  "district": "South End",
+  "roadgap": 20.6
+ },
+ {
+  "name": "Old Railroad Bridge",
+  "cat": "tourism=viewpoint",
+  "kind": "tourism",
+  "x": 619.3,
+  "z": -2859.7,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 202.5
+ },
+ {
+  "name": "Rick McCarthy Memorial Bench",
+  "cat": "amenity=bench",
+  "kind": "amenity",
+  "x": 677.0,
+  "z": -2658.8,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 347.7
+ },
+ {
+  "name": "South Trailhead Parking",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -301.7,
+  "z": -2883.9,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 59.4
+ },
+ {
+  "name": "Laundry Lounge Laundromat",
+  "cat": "shop=laundry",
+  "kind": "shop",
+  "x": 504.5,
+  "z": -1301.2,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 2.1
+ },
+ {
+  "name": "Walmart Service",
+  "cat": "shop=car_repair",
+  "kind": "shop",
+  "x": -119.5,
+  "z": -2670.7,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 55.2
+ },
+ {
+  "name": "Attitudes Salon",
+  "cat": "shop=hairdresser",
+  "kind": "shop",
+  "x": 600.6,
+  "z": -1178.4,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 78.3
+ },
+ {
+  "name": "Tesla Supercharger",
+  "cat": "amenity=charging_station",
+  "kind": "amenity",
+  "x": -87.5,
+  "z": -2744.1,
+  "result": "on_road",
+  "district": "Upper Main/exit130",
+  "roadgap": -4.1
+ },
+ {
+  "name": "Andwell Health Partners",
+  "cat": "amenity=social_facility",
+  "kind": "amenity",
+  "x": 54.0,
+  "z": -1973.5,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 9.0
+ },
+ {
+  "name": "Big Apple",
+  "cat": "shop=convenience",
+  "kind": "shop",
+  "x": -95.4,
+  "z": -2754.0,
+  "result": "on_road",
+  "district": "Upper Main/exit130",
+  "roadgap": -1.0
+ },
+ {
+  "name": "Mill Island Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 232.4,
+  "z": -1461.9,
+  "result": "empty_ground",
+  "district": "Mills/Water St",
+  "roadgap": 56.4
+ },
+ {
+  "name": "Selah Tea Cafe",
+  "cat": "amenity=cafe",
+  "kind": "amenity",
+  "x": 79.0,
+  "z": -1974.7,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 2.0
+ },
+ {
+  "name": "Walmart Garden Center",
+  "cat": "shop=garden_centre",
+  "kind": "shop",
+  "x": -127.5,
+  "z": -2694.9,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 52.5
+ },
+ {
+  "name": "Pine Grove Cemetery",
+  "cat": "amenity=grave_yard",
+  "kind": "amenity",
+  "x": -67.6,
+  "z": -993.1,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 27.6
+ },
+ {
+  "name": "Miller Library",
+  "cat": "amenity=library",
+  "kind": "amenity",
+  "x": -469.8,
+  "z": -2419.7,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 84.1
+ },
+ {
+  "name": "Coombs Baseball Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -283.3,
+  "z": -2524.6,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 26.9
+ },
+ {
+  "name": "Bill Alfond Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -294.2,
+  "z": -2639.4,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 42.0
+ },
+ {
+  "name": "Kennebec Behavioral Health - Waterville Clinic",
+  "cat": "amenity=clinic",
+  "kind": "amenity",
+  "x": -127.1,
+  "z": -2507.7,
+  "result": "on_building",
+  "district": "other",
+  "roadgap": 13.9
+ },
+ {
+  "name": "Thayer Center for Health",
+  "cat": "amenity=hospital",
+  "kind": "amenity",
+  "x": -132.9,
+  "z": -2552.1,
+  "result": "on_building",
+  "district": "other",
+  "roadgap": 25.0
+ },
+ {
+  "name": "Champions",
+  "cat": "leisure=fitness_centre",
+  "kind": "leisure",
+  "x": -73.1,
+  "z": -2631.6,
+  "result": "on_building",
+  "district": "other",
+  "roadgap": 23.0
+ },
+ {
+  "name": "Theory Wellness - Waterville",
+  "cat": "shop=yes",
+  "kind": "shop",
+  "x": -60.0,
+  "z": -2788.9,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 16.2
+ },
+ {
+  "name": "Shaw's",
+  "cat": "shop=supermarket",
+  "kind": "shop",
+  "x": -517.8,
+  "z": -1294.1,
+  "result": "within_20m_of_building",
+  "district": "Strip/exit127",
+  "roadgap": 31.3
+ },
+ {
+  "name": "Central Maine Motors Chrysler Dodge Jeep Ram Fiat",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -530.2,
+  "z": -1199.0,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 11.6
+ },
+ {
+  "name": "Faith Evangelical Free Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": -490.7,
+  "z": -1155.4,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 25.9
+ },
+ {
+  "name": "Marden's",
+  "cat": "shop=department_store",
+  "kind": "shop",
+  "x": -642.1,
+  "z": -1127.3,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 59.8
+ },
+ {
+  "name": "Veterans Memorial Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": -39.7,
+  "z": -1907.6,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 0.3
+ },
+ {
+  "name": "North Street Recreation Area",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": -136.5,
+  "z": -2461.2,
+  "result": "on_road",
+  "district": "other",
+  "roadgap": -6.8
+ },
+ {
+  "name": "Wendy's",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -29.6,
+  "z": -2617.2,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 0.1
+ },
+ {
+  "name": "Holiday Inn Express & Suites Waterville - North",
+  "cat": "tourism=hotel",
+  "kind": "tourism",
+  "x": -49.6,
+  "z": -2613.9,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 5.9
+ },
+ {
+  "name": "Oak Grove Center",
+  "cat": "amenity=nursing_home",
+  "kind": "amenity",
+  "x": -279.9,
+  "z": -1531.4,
+  "result": "within_20m_of_building",
+  "district": "West End",
+  "roadgap": 25.0
+ },
+ {
+  "name": "Purnell Wrigley Field",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": -365.0,
+  "z": -1551.1,
+  "result": "on_road",
+  "district": "West End",
+  "roadgap": -5.8
+ },
+ {
+  "name": "Couture Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 90.7,
+  "z": -997.4,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 102.2
+ },
+ {
+  "name": "Hill Family Guesthouse",
+  "cat": "tourism=guest_house",
+  "kind": "tourism",
+  "x": -304.3,
+  "z": -2451.9,
+  "result": "empty_ground",
+  "district": "Campus",
+  "roadgap": 51.2
+ },
+ {
+  "name": "Lorimer Chapel",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": -468.6,
+  "z": -2330.6,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 76.3
+ },
+ {
+  "name": "Central Maine Motors Chevrolet Buick",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -592.2,
+  "z": -1209.8,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 3.0
+ },
+ {
+  "name": "Roberts Union",
+  "cat": "amenity=community_centre",
+  "kind": "amenity",
+  "x": -461.9,
+  "z": -2529.1,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 47.0
+ },
+ {
+  "name": "Runnals Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -432.0,
+  "z": -2203.6,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 52.9
+ },
+ {
+  "name": "Roberts Lot",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -408.7,
+  "z": -2528.0,
+  "result": "empty_ground",
+  "district": "Campus",
+  "roadgap": 63.8
+ },
+ {
+  "name": "AutoZone",
+  "cat": "shop=car_parts",
+  "kind": "shop",
+  "x": -404.7,
+  "z": -1156.5,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 0.7
+ },
+ {
+  "name": "Colby College Museum of Art",
+  "cat": "tourism=museum",
+  "kind": "tourism",
+  "x": -391.0,
+  "z": -2470.4,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 21.5
+ },
+ {
+  "name": "Eustis Lot",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -400.8,
+  "z": -2379.0,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 10.0
+ },
+ {
+  "name": "Waterville High School Softball Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -199.6,
+  "z": -1851.1,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 67.1
+ },
+ {
+  "name": "Gaul Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -211.3,
+  "z": -1870.2,
+  "result": "empty_ground",
+  "district": "West End",
+  "roadgap": 50.5
+ },
+ {
+  "name": "Winslow Junior High School Baseball Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 576.0,
+  "z": -1865.6,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 94.4
+ },
+ {
+  "name": "Winslow Junior High School Softball Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 674.3,
+  "z": -1868.1,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 163.6
+ },
+ {
+  "name": "Farm League Baseball Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 709.3,
+  "z": -1988.2,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 143.7
+ },
+ {
+  "name": "Boston Avenue Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 673.6,
+  "z": -2004.5,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 104.7
+ },
+ {
+  "name": "Reed Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 64.2,
+  "z": -2741.2,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 17.0
+ },
+ {
+  "name": "Peters Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 28.1,
+  "z": -2743.9,
+  "result": "on_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 17.7
+ },
+ {
+  "name": "Waterville Country Club",
+  "cat": "leisure=golf_course",
+  "kind": "leisure",
+  "x": -928.6,
+  "z": -1068.0,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 202.1
+ },
+ {
+  "name": "McDonald's",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -52.6,
+  "z": -2641.6,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 0.4
+ },
+ {
+  "name": "Salvation Army Family Store",
+  "cat": "shop=second_hand",
+  "kind": "shop",
+  "x": 347.6,
+  "z": -2874.3,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 20.7
+ },
+ {
+  "name": "Holy Cannoli",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 45.7,
+  "z": -1794.2,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 3.9
+ },
+ {
+  "name": "Jorgensen's Cafe",
+  "cat": "amenity=cafe",
+  "kind": "amenity",
+  "x": 80.4,
+  "z": -1855.1,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 3.4
+ },
+ {
+  "name": "Larsens Jewelry;Larsen's Jewelry",
+  "cat": "shop=jewelry",
+  "kind": "shop",
+  "x": 70.2,
+  "z": -1758.5,
+  "result": "on_road",
+  "district": "Downtown",
+  "roadgap": -6.8
+ },
+ {
+  "name": "Cancun Mexican",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 33.6,
+  "z": -1688.9,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 14.9
+ },
+ {
+  "name": "Waterville Library;Waterville Public Library",
+  "cat": "amenity=library",
+  "kind": "amenity",
+  "x": 11.4,
+  "z": -1935.1,
+  "result": "on_road",
+  "district": "Downtown",
+  "roadgap": -3.4
+ },
+ {
+  "name": "Apex Endodontics",
+  "cat": "amenity=dentist",
+  "kind": "amenity",
+  "x": -1.5,
+  "z": -1862.1,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 9.5
+ },
+ {
+  "name": "Gorham Bike & Ski",
+  "cat": "shop=bicycle",
+  "kind": "shop",
+  "x": 4.7,
+  "z": -1874.9,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 3.3
+ },
+ {
+  "name": "Yarngoods Center",
+  "cat": "shop=fabric",
+  "kind": "shop",
+  "x": 8.7,
+  "z": -1883.2,
+  "result": "on_road",
+  "district": "Downtown",
+  "roadgap": -0.7
+ },
+ {
+  "name": "Last Unicorn",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 40.2,
+  "z": -1698.0,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 8.5
+ },
+ {
+  "name": "Villager Family Resturaunt",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 1.3,
+  "z": -1867.9,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 6.7
+ },
+ {
+  "name": "18 Below",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 26.9,
+  "z": -1696.3,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 8.0
+ },
+ {
+  "name": "Cheung Lee Express",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 15.0,
+  "z": -1894.9,
+  "result": "on_road",
+  "district": "Downtown",
+  "roadgap": -7.0
+ },
+ {
+  "name": "Silver Street Tavern",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 48.3,
+  "z": -1697.4,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 14.7
+ },
+ {
+  "name": "Waterville Fire-Rescue",
+  "cat": "amenity=fire_station",
+  "kind": "amenity",
+  "x": 104.3,
+  "z": -2096.8,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 6.3
+ },
+ {
+  "name": "Walgreens",
+  "cat": "shop=chemist",
+  "kind": "shop",
+  "x": 47.1,
+  "z": -2099.0,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 14.8
+ },
+ {
+  "name": "MaineGeneral Express Care",
+  "cat": "amenity=clinic",
+  "kind": "amenity",
+  "x": 108.8,
+  "z": -2160.3,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 4.9
+ },
+ {
+  "name": "Dunkin'",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -51.9,
+  "z": -2696.4,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 3.0
+ },
+ {
+  "name": "Thompsons Volkswagen",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -64.0,
+  "z": -2729.6,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 5.6
+ },
+ {
+  "name": "Five Guys",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -91.6,
+  "z": -2782.0,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 2.0
+ },
+ {
+  "name": "Ruby Tuesday",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -151.7,
+  "z": -2790.6,
+  "result": "within_20m_of_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 29.2
+ },
+ {
+  "name": "The Home Depot",
+  "cat": "shop=doityourself",
+  "kind": "shop",
+  "x": -180.0,
+  "z": -2745.0,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 70.8
+ },
+ {
+  "name": "Walmart Supercenter",
+  "cat": "shop=supermarket",
+  "kind": "shop",
+  "x": -133.2,
+  "z": -2675.2,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 65.8
+ },
+ {
+  "name": "Fireside Inn",
+  "cat": "tourism=hotel",
+  "kind": "tourism",
+  "x": -121.9,
+  "z": -2792.3,
+  "result": "on_building",
+  "district": "Upper Main/exit130",
+  "roadgap": 7.4
+ },
+ {
+  "name": "Staples",
+  "cat": "shop=stationery",
+  "kind": "shop",
+  "x": -166.9,
+  "z": -2785.6,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 32.2
+ },
+ {
+  "name": "Mobil Mart",
+  "cat": "shop=convenience",
+  "kind": "shop",
+  "x": 29.2,
+  "z": -2222.6,
+  "result": "on_building",
+  "district": "North End",
+  "roadgap": 20.9
+ },
+ {
+  "name": "Congregation Beth Israel",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": 22.4,
+  "z": -2484.0,
+  "result": "on_road",
+  "district": "other",
+  "roadgap": -3.3
+ },
+ {
+  "name": "Kennebec Savings Bank",
+  "cat": "amenity=bank",
+  "kind": "amenity",
+  "x": 61.9,
+  "z": -2216.7,
+  "result": "on_road",
+  "district": "North End",
+  "roadgap": -1.6
+ },
+ {
+  "name": "Pleasant Street United Methodist Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": -33.8,
+  "z": -2042.5,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 20.3
+ },
+ {
+  "name": "Getchell Street United Baptist Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": 131.7,
+  "z": -2219.4,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 18.3
+ },
+ {
+  "name": "First Congregational Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": -19.3,
+  "z": -2525.3,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 9.2
+ },
+ {
+  "name": "Alfond Lot",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -538.7,
+  "z": -2275.1,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 41.8
+ },
+ {
+  "name": "David Kenneth Quirion Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 99.1,
+  "z": -2532.1,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 0.9
+ },
+ {
+  "name": "Oxbow Nature Preserve",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": -175.2,
+  "z": -1481.0,
+  "result": "empty_ground",
+  "district": "South End",
+  "roadgap": 77.1
+ },
+ {
+  "name": "Pizza Hut",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -621.0,
+  "z": -1230.3,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 30.1
+ },
+ {
+  "name": "McDonald's",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -623.3,
+  "z": -1315.9,
+  "result": "within_20m_of_building",
+  "district": "Strip/exit127",
+  "roadgap": 1.6
+ },
+ {
+  "name": "KFS bank",
+  "cat": "amenity=bank",
+  "kind": "amenity",
+  "x": -615.2,
+  "z": -1365.2,
+  "result": "on_road",
+  "district": "Strip/exit127",
+  "roadgap": -0.0
+ },
+ {
+  "name": "Super Shoes",
+  "cat": "shop=shoes",
+  "kind": "shop",
+  "x": -607.4,
+  "z": -1302.9,
+  "result": "on_road",
+  "district": "Strip/exit127",
+  "roadgap": -3.1
+ },
+ {
+  "name": "Hampton Inn Waterville",
+  "cat": "tourism=hotel",
+  "kind": "tourism",
+  "x": -598.1,
+  "z": -1307.9,
+  "result": "within_20m_of_building",
+  "district": "Strip/exit127",
+  "roadgap": 1.9
+ },
+ {
+  "name": "T&B's Outback Tavern",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -675.9,
+  "z": -1452.5,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 23.8
+ },
+ {
+  "name": "Lower Athletics Lot",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -304.8,
+  "z": -2599.3,
+  "result": "empty_ground",
+  "district": "Campus",
+  "roadgap": 3.7
+ },
+ {
+  "name": "Facilities Services Lot",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -441.7,
+  "z": -2634.3,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 13.4
+ },
+ {
+  "name": "Upper Athletics Lot",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -426.2,
+  "z": -2677.1,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 49.5
+ },
+ {
+  "name": "Alfond Youth Center",
+  "cat": "amenity=social_facility",
+  "kind": "amenity",
+  "x": -114.8,
+  "z": -2355.0,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 5.5
+ },
+ {
+  "name": "Notre Dame du Perpetuel Secours Catholic Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": -85.6,
+  "z": -1312.6,
+  "result": "empty_ground",
+  "district": "South End",
+  "roadgap": 54.6
+ },
+ {
+  "name": "Circle K",
+  "cat": "shop=convenience",
+  "kind": "shop",
+  "x": -643.0,
+  "z": -1328.6,
+  "result": "on_building",
+  "district": "Strip/exit127",
+  "roadgap": 20.0
+ },
+ {
+  "name": "Irving",
+  "cat": "amenity=fuel",
+  "kind": "amenity",
+  "x": -640.3,
+  "z": -1314.4,
+  "result": "within_20m_of_building",
+  "district": "Strip/exit127",
+  "roadgap": 8.4
+ },
+ {
+  "name": "Burger King",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -665.5,
+  "z": -1338.7,
+  "result": "within_20m_of_building",
+  "district": "Strip/exit127",
+  "roadgap": 32.7
+ },
+ {
+  "name": "Sweet Dirt",
+  "cat": "shop=cannabis",
+  "kind": "shop",
+  "x": -679.7,
+  "z": -1358.3,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 21.9
+ },
+ {
+  "name": "Inn at Waterville",
+  "cat": "tourism=motel",
+  "kind": "tourism",
+  "x": -661.5,
+  "z": -1354.2,
+  "result": "within_20m_of_building",
+  "district": "Strip/exit127",
+  "roadgap": 35.5
+ },
+ {
+  "name": "Country Kitchen Bakery Outlet",
+  "cat": "shop=bakery",
+  "kind": "shop",
+  "x": -581.2,
+  "z": -1240.3,
+  "result": "on_road",
+  "district": "Strip/exit127",
+  "roadgap": -1.6
+ },
+ {
+  "name": "Dunkin'",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -585.9,
+  "z": -1303.3,
+  "result": "on_road",
+  "district": "Strip/exit127",
+  "roadgap": -2.1
+ },
+ {
+  "name": "Nouria",
+  "cat": "shop=convenience",
+  "kind": "shop",
+  "x": 490.0,
+  "z": -1283.6,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 3.4
+ },
+ {
+  "name": "Shell",
+  "cat": "amenity=fuel",
+  "kind": "amenity",
+  "x": 489.4,
+  "z": -1292.7,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 0.9
+ },
+ {
+  "name": "Asian Cafe",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 480.1,
+  "z": -1317.7,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 0.3
+ },
+ {
+  "name": "Rita\u00e2\u20ac\u2122s House of Pizza",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": 476.0,
+  "z": -1326.0,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 0.8
+ },
+ {
+  "name": "Walgreens",
+  "cat": "shop=chemist",
+  "kind": "shop",
+  "x": 604.1,
+  "z": -1208.0,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 73.2
+ },
+ {
+  "name": "Pleau's Market",
+  "cat": "shop=supermarket",
+  "kind": "shop",
+  "x": 570.8,
+  "z": -1215.1,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 39.4
+ },
+ {
+  "name": "The Pleasant Street Inn",
+  "cat": "tourism=guest_house",
+  "kind": "tourism",
+  "x": 6.0,
+  "z": -2166.5,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 20.5
+ },
+ {
+  "name": "Central Maine Motors Toyota",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -581.3,
+  "z": -1087.6,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 3.3
+ },
+ {
+  "name": "Applebee's",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -505.5,
+  "z": -1252.5,
+  "result": "on_building",
+  "district": "Strip/exit127",
+  "roadgap": 24.6
+ },
+ {
+  "name": "Camden National Bank",
+  "cat": "amenity=bank",
+  "kind": "amenity",
+  "x": -498.4,
+  "z": -1190.8,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 0.6
+ },
+ {
+  "name": "CVS Pharmacy",
+  "cat": "shop=chemist",
+  "kind": "shop",
+  "x": -334.0,
+  "z": -1163.7,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 3.7
+ },
+ {
+  "name": "Gifford's Mini Golf",
+  "cat": "leisure=miniature_golf",
+  "kind": "leisure",
+  "x": -194.2,
+  "z": -1124.3,
+  "result": "on_building",
+  "district": "South End",
+  "roadgap": 21.4
+ },
+ {
+  "name": "Batting Cage",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -168.4,
+  "z": -1124.2,
+  "result": "on_building",
+  "district": "South End",
+  "roadgap": 20.5
+ },
+ {
+  "name": "Giffords Ice Cream",
+  "cat": "amenity=ice_cream",
+  "kind": "amenity",
+  "x": -218.9,
+  "z": -1146.6,
+  "result": "within_20m_of_building",
+  "district": "South End",
+  "roadgap": 19.1
+ },
+ {
+  "name": "St. Joseph's Maronite Catholic Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": 172.3,
+  "z": -1991.6,
+  "result": "on_road",
+  "district": "Downtown",
+  "roadgap": -4.7
+ },
+ {
+  "name": "Josephs Meat Market",
+  "cat": "shop=butcher",
+  "kind": "shop",
+  "x": 199.4,
+  "z": -2049.5,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 22.4
+ },
+ {
+  "name": "First Baptist Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": -14.9,
+  "z": -1954.1,
+  "result": "on_road",
+  "district": "Downtown",
+  "roadgap": -1.5
+ },
+ {
+  "name": "Lunder Lot",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -337.2,
+  "z": -2339.9,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 41.1
+ },
+ {
+  "name": "Cotter Union",
+  "cat": "amenity=community_centre",
+  "kind": "amenity",
+  "x": -427.1,
+  "z": -2350.1,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 34.7
+ },
+ {
+  "name": "Blessed Hope Advent Christian Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": -124.7,
+  "z": -1703.6,
+  "result": "on_building",
+  "district": "South End",
+  "roadgap": 24.6
+ },
+ {
+  "name": "Unitarian Universalist Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": -35.2,
+  "z": -1567.5,
+  "result": "within_20m_of_building",
+  "district": "South End",
+  "roadgap": 6.4
+ },
+ {
+  "name": "Colby Softball Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -261.2,
+  "z": -2558.4,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 23.8
+ },
+ {
+  "name": "Dunkin'",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -796.3,
+  "z": -1217.4,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 18.0
+ },
+ {
+  "name": "Practice Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -389.6,
+  "z": -2701.2,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 71.8
+ },
+ {
+  "name": "Mark J. Serdjenian Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -337.8,
+  "z": -2694.3,
+  "result": "empty_ground",
+  "district": "Campus",
+  "roadgap": 71.1
+ },
+ {
+  "name": "Alfond-Wales Tennis Courts",
+  "cat": "leisure=sports_centre",
+  "kind": "leisure",
+  "x": -321.7,
+  "z": -2487.8,
+  "result": "empty_ground",
+  "district": "Campus",
+  "roadgap": 17.2
+ },
+ {
+  "name": "Harold Alfond Stadium",
+  "cat": "leisure=stadium",
+  "kind": "leisure",
+  "x": -378.2,
+  "z": -2571.1,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 46.3
+ },
+ {
+  "name": "South Lot",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -339.5,
+  "z": -2259.3,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 30.2
+ },
+ {
+  "name": "Athletics Lot",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -488.2,
+  "z": -2677.6,
+  "result": "empty_ground",
+  "district": "Campus",
+  "roadgap": 72.1
+ },
+ {
+  "name": "Hillside Lot",
+  "cat": "amenity=parking",
+  "kind": "amenity",
+  "x": -557.1,
+  "z": -2344.4,
+  "result": "empty_ground",
+  "district": "Campus",
+  "roadgap": 16.5
+ },
+ {
+  "name": "Gordon Center For Creative & Performing Arts",
+  "cat": "amenity=arts_centre",
+  "kind": "amenity",
+  "x": -362.0,
+  "z": -2288.3,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 10.6
+ },
+ {
+  "name": "4",
+  "cat": "tourism=artwork",
+  "kind": "tourism",
+  "x": -401.7,
+  "z": -2457.4,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 27.1
+ },
+ {
+  "name": "6",
+  "cat": "tourism=artwork",
+  "kind": "tourism",
+  "x": -404.1,
+  "z": -2460.7,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 30.6
+ },
+ {
+  "name": "5",
+  "cat": "tourism=artwork",
+  "kind": "tourism",
+  "x": -407.3,
+  "z": -2458.4,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 32.7
+ },
+ {
+  "name": "Given Auditorium",
+  "cat": "amenity=theatre",
+  "kind": "amenity",
+  "x": -421.3,
+  "z": -2473.9,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 51.2
+ },
+ {
+  "name": "Seaverns Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": -361.5,
+  "z": -2570.3,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 40.7
+ },
+ {
+  "name": "Crawford Art Studio",
+  "cat": "amenity=arts_centre",
+  "kind": "amenity",
+  "x": -418.8,
+  "z": -2489.4,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 54.1
+ },
+ {
+  "name": "Fort Hill Cemetary",
+  "cat": "amenity=grave_yard",
+  "kind": "amenity",
+  "x": 539.5,
+  "z": -1326.1,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 6.1
+ },
+ {
+  "name": "Two Cent Bridge Toll Booth",
+  "cat": "amenity=disused",
+  "kind": "amenity",
+  "x": 250.5,
+  "z": -1890.4,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 73.5
+ },
+ {
+  "name": "Ticonic Footbridge Viewing Platform",
+  "cat": "tourism=viewpoint",
+  "kind": "tourism",
+  "x": 273.0,
+  "z": -1974.7,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 96.0
+ },
+ {
+  "name": "Head of Falls Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 229.0,
+  "z": -1941.5,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 52.0
+ },
+ {
+  "name": "Lockwood Hotel",
+  "cat": "tourism=hotel",
+  "kind": "tourism",
+  "x": 77.4,
+  "z": -1702.9,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 0.4
+ },
+ {
+  "name": "Castonguay Square",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 93.4,
+  "z": -1779.7,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 7.7
+ },
+ {
+  "name": "Cumberland Farms",
+  "cat": "amenity=fuel",
+  "kind": "amenity",
+  "x": 542.4,
+  "z": -1207.5,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 13.2
+ },
+ {
+  "name": "Cumberland Farms",
+  "cat": "shop=convenience",
+  "kind": "shop",
+  "x": 546.7,
+  "z": -1200.7,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 20.4
+ },
+ {
+  "name": "Dunkin'",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": 488.5,
+  "z": -1350.2,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 6.4
+ },
+ {
+  "name": "Aroma Joe's",
+  "cat": "amenity=cafe",
+  "kind": "amenity",
+  "x": 361.1,
+  "z": -1571.1,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 14.9
+ },
+ {
+  "name": "Central Maine Veterans Memorial",
+  "cat": "tourism=attraction",
+  "kind": "tourism",
+  "x": 822.0,
+  "z": -2265.9,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 97.1
+ },
+ {
+  "name": "Central Maine Veterans Memorial Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 822.1,
+  "z": -2268.4,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 96.8
+ },
+ {
+  "name": "Motorcycle Driving School",
+  "cat": "amenity=driving_school",
+  "kind": "amenity",
+  "x": 583.4,
+  "z": -2061.2,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 1.4
+ },
+ {
+  "name": "Winslow Elementary School",
+  "cat": "amenity=school",
+  "kind": "amenity",
+  "x": 678.1,
+  "z": -2069.8,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 86.5
+ },
+ {
+  "name": "Winslow High School Field Hockey Pitch",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 639.6,
+  "z": -1928.9,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 103.7
+ },
+ {
+  "name": "LaVerdiere Softball Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 724.0,
+  "z": -1919.4,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 182.0
+ },
+ {
+  "name": "Nivison Diamond",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 691.9,
+  "z": -1788.9,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 226.5
+ },
+ {
+  "name": "Gerry Poulin Memorial Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 521.5,
+  "z": -1910.3,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 31.0
+ },
+ {
+  "name": "The Ice Cream Shoppe of Oakland",
+  "cat": "amenity=ice_cream",
+  "kind": "amenity",
+  "x": -885.5,
+  "z": -1283.2,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 17.9
+ },
+ {
+  "name": "465 Nutrition",
+  "cat": "amenity=fast_food",
+  "kind": "amenity",
+  "x": -853.6,
+  "z": -1252.6,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 7.2
+ },
+ {
+  "name": "Lee Credit Now",
+  "cat": "shop=car",
+  "kind": "shop",
+  "x": -849.3,
+  "z": -1246.7,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 9.6
+ },
+ {
+  "name": "Morse Memorials",
+  "cat": "craft=stonemason",
+  "kind": "craft",
+  "x": -833.2,
+  "z": -1241.4,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 5.0
+ },
+ {
+  "name": "Mid Maine Marine",
+  "cat": "amenity=boat_storage",
+  "kind": "amenity",
+  "x": -847.9,
+  "z": -1306.7,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 20.1
+ },
+ {
+  "name": "Advance Auto Parts",
+  "cat": "shop=car_parts",
+  "kind": "shop",
+  "x": -74.3,
+  "z": -2766.4,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 11.4
+ },
+ {
+  "name": "Harbor Freight Tools",
+  "cat": "shop=hardware",
+  "kind": "shop",
+  "x": -77.4,
+  "z": -2775.7,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 12.3
+ },
+ {
+  "name": "Ming Lee",
+  "cat": "amenity=restaurant",
+  "kind": "amenity",
+  "x": -70.9,
+  "z": -2771.9,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 16.6
+ },
+ {
+  "name": "Moor Street Playground",
+  "cat": "leisure=playground",
+  "kind": "leisure",
+  "x": 176.2,
+  "z": -1134.2,
+  "result": "within_20m_of_building",
+  "district": "Mills/Water St",
+  "roadgap": 0.3
+ },
+ {
+  "name": "Second Baptist Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": 211.6,
+  "z": -1128.2,
+  "result": "empty_ground",
+  "district": "Mills/Water St",
+  "roadgap": 35.7
+ },
+ {
+  "name": "Grove Street Playground",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 145.7,
+  "z": -1109.0,
+  "result": "on_road",
+  "district": "South End",
+  "roadgap": -4.3
+ },
+ {
+  "name": "Youth Football Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 663.8,
+  "z": -1737.4,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 249.5
+ },
+ {
+  "name": "Winslow Junior High School Field Hockey Pitch",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 664.4,
+  "z": -1871.2,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 153.6
+ },
+ {
+  "name": "Winslow Travel Soccer Club Field",
+  "cat": "leisure=pitch",
+  "kind": "leisure",
+  "x": 713.6,
+  "z": -1976.4,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 151.5
+ },
+ {
+  "name": "Winslow Town Office",
+  "cat": "amenity=townhall",
+  "kind": "amenity",
+  "x": 411.3,
+  "z": -1878.6,
+  "result": "on_road",
+  "district": "Far bank",
+  "roadgap": -0.7
+ },
+ {
+  "name": "Albert S. Hall School",
+  "cat": "amenity=school",
+  "kind": "amenity",
+  "x": -101.6,
+  "z": -1802.3,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 30.2
+ },
+ {
+  "name": "George J. Mitchell School",
+  "cat": "amenity=school",
+  "kind": "amenity",
+  "x": 50.7,
+  "z": -2671.9,
+  "result": "within_20m_of_building",
+  "district": "other",
+  "roadgap": 32.5
+ },
+ {
+  "name": "Chaplin Street Tot Lot",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 117.8,
+  "z": -2353.7,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 6.2
+ },
+ {
+  "name": "Hillside Avenue Playground",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 83.6,
+  "z": -2425.1,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 29.1
+ },
+ {
+  "name": "Kelsey Street Playground",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 52.3,
+  "z": -2501.1,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 12.2
+ },
+ {
+  "name": "Sterling Street Playground",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": -431.4,
+  "z": -1117.2,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 46.8
+ },
+ {
+  "name": "Western Avenue Playground",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": -75.0,
+  "z": -1632.2,
+  "result": "on_building",
+  "district": "South End",
+  "roadgap": 7.8
+ },
+ {
+  "name": "Green Street Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 44.0,
+  "z": -1515.0,
+  "result": "within_20m_of_building",
+  "district": "South End",
+  "roadgap": 1.9
+ },
+ {
+  "name": "Cutting Memorial Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": -124.1,
+  "z": -2092.3,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 19.7
+ },
+ {
+  "name": "Norton Field",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 542.8,
+  "z": -1060.1,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 150.7
+ },
+ {
+  "name": "Halifax Street Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 578.5,
+  "z": -1360.7,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 20.3
+ },
+ {
+  "name": "Winslow Elementary School",
+  "cat": "amenity=school",
+  "kind": "amenity",
+  "x": 703.4,
+  "z": -2032.2,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 124.5
+ },
+ {
+  "name": "Winslow High School",
+  "cat": "amenity=school",
+  "kind": "amenity",
+  "x": 637.1,
+  "z": -1857.0,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 139.9
+ },
+ {
+  "name": "Drummond Field",
+  "cat": "leisure=stadium",
+  "kind": "leisure",
+  "x": -261.3,
+  "z": -1835.3,
+  "result": "on_building",
+  "district": "West End",
+  "roadgap": 12.5
+ },
+ {
+  "name": "Waterville City Hall",
+  "cat": "amenity=townhall",
+  "kind": "amenity",
+  "x": 114.1,
+  "z": -1805.3,
+  "result": "within_20m_of_building",
+  "district": "Downtown",
+  "roadgap": 33.3
+ },
+ {
+  "name": "Waterville Opera House",
+  "cat": "amenity=theatre",
+  "kind": "amenity",
+  "x": 122.3,
+  "z": -1820.3,
+  "result": "empty_ground",
+  "district": "Downtown",
+  "roadgap": 40.7
+ },
+ {
+  "name": "Waterville Post Office",
+  "cat": "amenity=post_office",
+  "kind": "amenity",
+  "x": 210.2,
+  "z": -2236.5,
+  "result": "empty_ground",
+  "district": "North End",
+  "roadgap": 17.9
+ },
+ {
+  "name": "Post Office Square",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 58.9,
+  "z": -2039.8,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 4.1
+ },
+ {
+  "name": "Levine\u00e2\u20ac\u2122s Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 87.6,
+  "z": -1651.1,
+  "result": "on_building",
+  "district": "Downtown",
+  "roadgap": 10.6
+ },
+ {
+  "name": "Saint John the Baptist Catholic Church",
+  "cat": "amenity=place_of_worship",
+  "kind": "amenity",
+  "x": 498.8,
+  "z": -1468.3,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 62.9
+ },
+ {
+  "name": "Drummond Track",
+  "cat": "leisure=track",
+  "kind": "leisure",
+  "x": -260.4,
+  "z": -1835.8,
+  "result": "on_building",
+  "district": "West End",
+  "roadgap": 13.1
+ },
+ {
+  "name": "Best Western Plus Waterville Grand Hotel",
+  "cat": "tourism=hotel",
+  "kind": "tourism",
+  "x": -98.2,
+  "z": -2811.0,
+  "result": "empty_ground",
+  "district": "Upper Main/exit130",
+  "roadgap": 7.9
+ },
+ {
+  "name": "Winslow High School Track",
+  "cat": "leisure=track",
+  "kind": "leisure",
+  "x": 638.6,
+  "z": -1924.3,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 105.1
+ },
+ {
+  "name": "J F K Mall",
+  "cat": "shop=mall",
+  "kind": "shop",
+  "x": -369.9,
+  "z": -1102.7,
+  "result": "empty_ground",
+  "district": "other",
+  "roadgap": 38.2
+ },
+ {
+  "name": "Budget Host - Airport Inn",
+  "cat": "tourism=motel",
+  "kind": "tourism",
+  "x": -569.2,
+  "z": -1179.4,
+  "result": "empty_ground",
+  "district": "Strip/exit127",
+  "roadgap": 5.5
+ },
+ {
+  "name": "Harold Alfond Athletic and Recreation Center",
+  "cat": "leisure=sports_centre",
+  "kind": "leisure",
+  "x": -560.2,
+  "z": -2622.1,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 69.5
+ },
+ {
+  "name": "Seven Walls",
+  "cat": "tourism=artwork",
+  "kind": "tourism",
+  "x": -368.6,
+  "z": -2484.2,
+  "result": "within_20m_of_building",
+  "district": "Campus",
+  "roadgap": 6.5
+ },
+ {
+  "name": "Bixler Music & Art Center",
+  "cat": "amenity=arts_centre",
+  "kind": "amenity",
+  "x": -413.9,
+  "z": -2476.9,
+  "result": "on_building",
+  "district": "Campus",
+  "roadgap": 45.2
+ },
+ {
+  "name": "Fort Halifax Park",
+  "cat": "leisure=park",
+  "kind": "leisure",
+  "x": 430.2,
+  "z": -1276.6,
+  "result": "empty_ground",
+  "district": "Far bank",
+  "roadgap": 62.1
+ },
+ {
+  "name": "Colby College",
+  "cat": "amenity=college",
+  "kind": "amenity",
+  "x": -380.8,
+  "z": -2256.1,
+  "result": "on_road",
+  "district": "other",
+  "roadgap": -2.7
+ },
+ {
+  "name": "Mount Merici Academy",
+  "cat": "amenity=school",
+  "kind": "amenity",
+  "x": -365.2,
+  "z": -1892.1,
+  "result": "empty_ground",
+  "district": "West End",
+  "roadgap": 91.3
+ },
+ {
+  "name": "Waterville Senior High School",
+  "cat": "amenity=school",
+  "kind": "amenity",
+  "x": -216.0,
+  "z": -1872.4,
+  "result": "empty_ground",
+  "district": "West End",
+  "roadgap": 45.3
+ }
+]

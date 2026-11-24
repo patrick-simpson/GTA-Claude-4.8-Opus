@@ -18,6 +18,9 @@ import { Pursuit } from './pursuit';
 import { Derby } from './derby';
 import { Shops } from './shops';
 import { Menu } from '../ui/menu';
+import { Navigator } from './nav';
+import { ARRIVE, places, type Place } from '../world/business';
+import { ShopSigns } from '../world/shopSigns';
 
 /** Seconds between autosaves, on the wall clock. */
 const AUTOSAVE = 10;
@@ -45,9 +48,15 @@ export class ThingsToDo {
   private wasDown = false;
   /** Set from the map: somewhere the player asked to be shown the way to. */
   waypoint: Pt | null = null;
+  /** The business the waypoint was set from (the Places list on the map): arriving at its door says its name. null for a click on the map. */
+  dest: Place | null = null;
+  private destWay: Pt | null = null;
+  /** The way to the goal, along the streets (game/nav.ts), and the signs on the businesses' doors. */
+  readonly navigator = new Navigator();
+  readonly signs: ShopSigns;
 
   private prompting = false; private lastPrompt: string | null = null;
-  private navT = 0; private navSig = ''; private routeT = 9; private routeTo: Pt | null = null;
+  private navT = 0; private navSig = '';
   private readonly blipBuf: Blip[] = [];
   private lastSave = performance.now();
   private lastX = NaN; private lastZ = 0;
@@ -67,6 +76,7 @@ export class ThingsToDo {
     this.derby = new Derby(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.shops = new Shops(game, this.markers);
+    this.signs = new ShopSigns(game);
     this.menu = new Menu(game, this);
 
     game.on('enter', (e) => {
@@ -178,6 +188,7 @@ export class ThingsToDo {
   /** The radar: who has work, where the business in hand is, and the streets to take to it. */
   private guide(dt: number): void {
     const g = this.game, nav = g.hud.nav, p = g.player;
+    this.arrive();
     if ((this.navT -= dt) <= 0) {
       this.navT = 0.25;
       const out = this.blipBuf;
@@ -196,24 +207,28 @@ export class ThingsToDo {
       if (sig !== this.navSig) { this.navSig = sig; nav.blips = out.slice(); nav.rev++; }
     }
     const to = this.missions.target ?? this.delivery.target ?? this.jobs.target ?? this.waypoint;
-    this.routeT += dt;
-    if (to !== this.routeTo || this.routeT > 1) {
-      this.routeTo = to; this.routeT = 0;
-      let route: number[] | null = null;
-      if (to && Math.hypot(p.x - to.x, p.z - to.z) > 45) {
-        const plan = g.plan, ids = plan.findPath(plan.nearestNode(p.x, p.z).id, plan.nearestNode(to.x, to.z).id);
-        if (ids.length > 1 || Math.hypot(p.x - to.x, p.z - to.z) < 160) {
-          const n = ids.map((id) => plan.nodes[id]);
-          // Drop the first corner when she is already past it, and the last when the place is short of it.
-          if (n.length > 1 && Math.hypot(p.x - n[1].x, p.z - n[1].z) < Math.hypot(n[0].x - n[1].x, n[0].z - n[1].z)) n.shift();
-          const k = n.length;
-          if (k > 1 && Math.hypot(to.x - n[k - 2].x, to.z - n[k - 2].z) < Math.hypot(n[k - 1].x - n[k - 2].x, n[k - 1].z - n[k - 2].z)) n.pop();
-          route = [p.x, p.z];
-          for (const q of n) route.push(q.x, q.z);
-          route.push(to.x, to.z);
-        }
-      }
-      if (route || nav.route) { nav.route = route; nav.rev++; }
+    const named = to === this.waypoint && this.dest ? this.dest.name : null;
+    g.hud.turn(this.navigator.update(dt, g.plan, p.x, p.z, to, named, nav));
+  }
+
+  /** Set the waypoint to a business's door (the Places list, a marker on the map) and work out the way at once, paused or not. */
+  go(pl: Place | null): void {
+    if (!pl) { this.waypoint = null; this.dest = null; this.destWay = null; return; }
+    this.dest = pl; this.destWay = this.waypoint = { x: pl.x, z: pl.z };
+    this.navT = 0; this.guide(1);
+  }
+
+  /** Every place in the town's directory, placed against the buildings as they stand now. */
+  places(): Place[] { return places(this.game.plan); }
+
+  /** Arrived at the door of the place she asked to be shown the way to: say where she is, and take the waypoint away. */
+  private arrive(): void {
+    const d = this.dest, p = this.game.player;
+    if (!d) return;
+    if (this.waypoint !== this.destWay) { this.dest = null; this.destWay = null; return; }
+    if (Math.hypot(p.x - d.x, p.z - d.z) < ARRIVE) {
+      this.game.hud.toast(`You have arrived: ${d.name}.`, 6);
+      this.waypoint = null; this.dest = null; this.destWay = null;
     }
   }
 

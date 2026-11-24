@@ -1,0 +1,105 @@
+/* The Places panel on the map (ui/places.ts). Paper and ink like the rest of the dossier. */
+.pl {
+  position: absolute;
+  top: 0.6em;
+  right: 0.6em;
+  bottom: 3.4em;
+  width: 19.5em;
+  max-width: calc(100% - 1.2em);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  pointer-events: none;
+  z-index: 3;
+  font-size: 0.86em;
+}
+.pl > * { pointer-events: auto; }
+.pl-tab {
+  align-self: flex-end;
+  padding: 0.45em 1em;
+  background: var(--ink);
+  color: var(--bone);
+  border: var(--rule) solid var(--ink);
+  font: 700 1em/1 "Big Shoulders Display", sans-serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.pl-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bone);
+  border: var(--rule) solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.pl.fold .pl-pane { display: none; }
+.pl-q {
+  margin: 0.5em;
+  padding: 0.55em 0.7em;
+  font: 600 1.05em "IBM Plex Mono", monospace;
+  color: var(--ink);
+  background: #fff9e8;
+  border: var(--rule) solid var(--ink);
+  min-width: 0;
+}
+.pl-chips { display: flex; gap: 0.35em; padding: 0 0.5em 0.5em; overflow-x: auto; flex: none; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.pl-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.35em 0.7em;
+  font: 600 0.9em "IBM Plex Mono", monospace;
+  color: var(--ink);
+  background: transparent;
+  border: 1.5px solid var(--ink);
+  border-radius: 1em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pl-chip i { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; border: 1px solid var(--ink); }
+.pl-chip.on { background: var(--ink); color: var(--bone); }
+.pl-sel { display: none; margin: 0 0.5em 0.5em; padding: 0.45em 0.6em; background: #fbe7a8; border: var(--rule) solid var(--ink); flex-direction: column; gap: 0.15em; }
+.pl-sel.on { display: flex; }
+.pl-sel b { font-size: 1.02em; }
+.pl-sel span { font: 600 0.9em "IBM Plex Mono", monospace; }
+.pl-clear { align-self: flex-start; margin-top: 0.3em; padding: 0.3em 0.7em; font: 700 0.9em "IBM Plex Mono", monospace; color: var(--ink); background: var(--bone); border: var(--rule) solid var(--ink); cursor: pointer; }
+.pl-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0; padding: 0; list-style: none; border-top: 1.5px solid var(--ink); overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+.pl-row {
+  font: inherit;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 0.9em 1fr;
+  grid-template-areas: "dot nm" "dot sub";
+  column-gap: 0.55em;
+  width: 100%;
+  min-height: 2.9em;
+  padding: 0.45em 0.7em;
+  text-align: left;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(20, 33, 61, 0.25);
+  cursor: pointer;
+}
+.pl-row:hover, .pl-row:focus-visible { background: #efe3bf; outline: none; }
+.pl-row.on { background: #fbe7a8; }
+.pl-row i { grid-area: dot; align-self: center; width: 0.8em; height: 0.8em; border-radius: 50%; border: 1.5px solid var(--ink); }
+.pl-nm { grid-area: nm; font-weight: 700; line-height: 1.15; }
+.pl-nm, .pl-sub { min-width: 0; overflow-wrap: anywhere; }
+.pl-sub { grid-area: sub; font: 500 0.82em "IBM Plex Mono", monospace; opacity: 0.8; }
+.pl-none { padding: 1em; font-size: 0.95em; }
+.pl-foot { flex: none; padding: 0.35em 0.7em; font: 500 0.75em "IBM Plex Mono", monospace; border-top: 1.5px solid var(--ink); }
+
+/* Phones: a narrower panel, bigger things to touch. */
+#menu.touch .pl { width: 15.5em; font-size: 0.82em; bottom: 2.6em; top: 0.4em; }
+#menu.touch .pl-row { min-height: 3.1em; }
+#menu.touch .pl-sel { margin: 0 0.4em 0.3em; padding: 0.25em 0.5em; }
+#menu.touch .pl-sel b { font-size: 0.95em; }
+#menu.touch .pl-q { margin: 0.35em 0.4em; padding: 0.4em 0.6em; }
+#menu.touch .pl-chips { padding-bottom: 0.35em; }
+#menu.touch .pl-chip { padding: 0.55em 0.9em; }
+#menu.touch .pl-q { font-size: 16px; }
+#menu.touch .pl-tab { padding: 0.65em 1.1em; }

@@ -33,6 +33,9 @@ import { MAP_CREDIT } from '../core/credits';
 import { PEER_COLOR } from '../net/names';
 import { PARDONS_AT, PARDONS_RED } from './hud';
 import { Wardrobe } from './wardrobe';
+import { PlacesPanel } from './places';
+import { CAT_COLOR } from '../world/shopSigns';
+import type { Place } from '../world/business';
 import { boardHtml } from '../game/leaderboard';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
@@ -88,6 +91,8 @@ export class Menu {
   private readonly districts: { text: string; x: number; z: number }[] = [];
   /** The Wardrobe page (ui/wardrobe.ts): the player's own look and car. */
   readonly wardrobe: Wardrobe;
+  /** The Places panel on the map (ui/places.ts). */
+  private readonly placesPanel: PlacesPanel;
 
   constructor(private readonly game: Game, private readonly todo: ThingsToDo) {
     const root = document.createElement('div');
@@ -139,6 +144,10 @@ export class Menu {
     addEventListener('keydown', (e) => this.onKey(e));
     addEventListener('resize', () => { if (this.open) { this.fitted = false; this.drawMap(); } });
     this.bindMap();
+    this.placesPanel = new PlacesPanel(root.querySelector('.mn-map') as HTMLElement, game, todo, {
+      focus: (x, z, k) => { this.fit0(); this.k = Math.max(this.k, k); this.clampView(); this.cx = x; this.cz = z; this.clampView(); this.cross = false; },
+      redraw: () => this.drawMap(),
+    });
     game.on('pause', (e) => { if (e.on) this.show(); else this.hide(); });
   }
 
@@ -176,7 +185,7 @@ export class Menu {
     if (!this.open) return;
     if (!wd) this.wardrobe.hide();
     if (wd) this.wardrobe.show(this.panes[this.tab]);
-    else if (this.tab === 0) { if (!this.fitted) this.fit(); this.drawMap(); }
+    else if (this.tab === 0) { if (!this.fitted) this.fit(); this.drawMap(); this.placesPanel.refresh(); }
     else if (this.tab === 1) this.panes[1].innerHTML = this.progressHtml();
     else if (this.tab === 2) this.panes[2].innerHTML = this.statsHtml();
     else if (this.tab === 3) this.panes[3].innerHTML = this.settingsHtml();
@@ -314,6 +323,21 @@ export class Menu {
     this.clampView();
   }
 
+  /** The map has been sized once, whichever way it was first opened. */
+  private fit0(): void { if (!this.fitted) this.fit(); }
+
+  /** The business marker under a point of the map, if any (markers show from a middling zoom). */
+  private placeAt(px: number, py: number): Place | null {
+    if (this.k < 0.42) return null;
+    const { w, h } = this.size();
+    let best: Place | null = null, bd = 13;
+    for (const b of this.placesPanel.all()) {
+      const d = Math.hypot(w / 2 + (b.x - this.cx) * this.k - px, h / 2 + (b.z - this.cz) * this.k - py);
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+
   private clampView(): void {
     const b = this.game.plan.bounds, { w, h } = this.size();
     this.k = Math.max(Math.min(w / (b.x1 - b.x0), h / (b.z1 - b.z0)) * 0.94, Math.min(3, this.k));
@@ -369,7 +393,9 @@ export class Menu {
       this.pinch = 0;
       if (e.type === 'pointerup' && this.dragMoved < 7 && this.pointers.size === 0) {
         const { w, h } = this.size();
-        this.setWay(this.cx + (at.x - w / 2) / this.k, this.cz + (at.y - h / 2) / this.k);
+        const hit = this.placeAt(at.x, at.y);
+        if (hit) this.placesPanel.pick(hit);
+        else this.setWay(this.cx + (at.x - w / 2) / this.k, this.cz + (at.y - h / 2) / this.k);
         this.drawMap();
       }
     };
@@ -460,12 +486,11 @@ export class Menu {
 
     // The way to the waypoint, along the streets.
     const p = g.player, way = todo.waypoint, goal = todo.missions.target ?? todo.jobs.target;
-    const routeTo = way ?? goal;
-    if (routeTo) {
-      const ids = plan.findPath(plan.nearestNode(p.x, p.z).id, plan.nearestNode(routeTo.x, routeTo.z).id);
-      c.beginPath(); c.moveTo(X(p.x), Z(p.z));
-      if (ids.length > 1) for (const id of ids) c.lineTo(X(plan.nodes[id].x), Z(plan.nodes[id].z));
-      c.lineTo(X(routeTo.x), Z(routeTo.z));
+    // The line is game/nav.ts's own (the streets, as the radar draws them), not a second guess.
+    const rt = g.hud.nav.route;
+    if ((way ?? goal) && rt && rt.length >= 4) {
+      c.beginPath(); c.moveTo(X(rt[0]), Z(rt[1]));
+      for (let i = 2; i < rt.length; i += 2) c.lineTo(X(rt[i]), Z(rt[i + 1]));
       c.lineJoin = 'round'; c.lineCap = 'round';
       c.strokeStyle = INK; c.lineWidth = 6; c.stroke();
       c.strokeStyle = MUSTARD; c.lineWidth = 3.5; c.stroke();
@@ -494,6 +519,24 @@ export class Menu {
       c.font = `700 ${px}px "IBM Plex Mono", monospace`;
       const tw = c.measureText("PARDON'S SURPLUS & SALVAGE").width;
       text("PARDON'S SURPLUS & SALVAGE", X(PARDONS_AT.x) + r + 6 + tw / 2, Z(PARDONS_AT.z), px, PARDONS_RED, true, '"IBM Plex Mono", monospace', 700);
+    }
+    // Businesses (world/business.ts): a dot in the kind's colour from a middling zoom, the name beside it close in.
+    if (k >= 0.42) {
+      const dr = Math.max(3, Math.min(6.5, 2.4 + k * 2.4)), lab = k >= 1, lp = Math.max(9, Math.min(12.5, 7.5 + k * 2.5));
+      const boxes: { x0: number; x1: number; y0: number; y1: number }[] = [];
+      c.font = `600 ${lp}px "Barlow Semi Condensed", sans-serif`;
+      for (const b of this.placesPanel.all()) {
+        const px = X(b.x), py = Z(b.z);
+        if (px < -10 || py < -10 || px > w + 10 || py > h + 10) continue;
+        const on = todo.dest === b;
+        c.beginPath(); c.arc(px, py, on ? dr + 2 : dr, 0, Math.PI * 2); c.fillStyle = CAT_COLOR[b.cat]; c.fill(); c.strokeStyle = INK; c.lineWidth = on ? 2.2 : 1.2; c.stroke();
+        if (!lab && !on) continue;
+        const tw = c.measureText(b.name).width / 2 + 3, ty = py - dr - lp * 0.8;
+        const bx = { x0: px - tw, x1: px + tw, y0: ty - lp * 0.6, y1: ty + lp * 0.6 };
+        if (!on && boxes.some((o) => bx.x0 < o.x1 && bx.x1 > o.x0 && bx.y0 < o.y1 && bx.y1 > o.y0)) continue;
+        boxes.push(bx);
+        text(b.name, px, ty, lp, INK, true, '"Barlow Semi Condensed", sans-serif', 700);
+      }
     }
     if (!todo.busy) for (const o of todo.missions.offers()) { const gv = todo.missions.givers[o.giver]; badge(gv.at.x, gv.at.z, VERMILION, gv.letter, false, BONE); }
     if (goal) badge(goal.x, goal.z, MUSTARD, '', true);

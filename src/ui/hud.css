@@ -54,6 +54,26 @@
 }
 .hud-radar canvas { display: block; width: 100%; height: 100%; }
 
+/* The satnav line: the next turn, above the radar (below it on a phone). */
+.hud-turn {
+  position: absolute;
+  left: 0.6em;
+  bottom: 18.9em;
+  display: none;
+  align-items: center;
+  gap: 0.5em;
+  max-width: 17em;
+  padding: 0.3em 0.7em 0.3em 0.5em;
+  font-size: 0.95em;
+  font-weight: 700;
+  line-height: 1.15;
+}
+.hud-turn.on { display: flex; }
+.hud-turn span { display: flex; flex-direction: column; min-width: 0; }
+.hud-turn small { font-size: 0.8em; font-weight: 600; opacity: 0.75; }
+.hud-turn svg { flex: none; width: 1.9em; height: 1.9em; color: var(--ink); }
+#hud.touch .hud-turn { bottom: auto; top: 14em; max-width: 13em; font-size: 0.85em; }
+
 /* ── Cash, clock, weather ──────────────────────────────────────────────── */
 
 .hud-right {
