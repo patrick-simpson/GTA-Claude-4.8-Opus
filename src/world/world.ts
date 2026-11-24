@@ -17,6 +17,7 @@ import { signalState } from './signals';
 import { Fireworks } from '../fx/fireworks';
 import { Launchers } from './launchers';
 import { Moose } from './moose';
+import { Train } from './train';
 import { DuckLoose } from './duckLoose';
 import { StuntPark } from './stuntPark';
 import { RareWeather } from './rareWeather';
@@ -65,6 +66,8 @@ export class World implements WorldApi {
     this.parts.push(new Launchers(g, this.group));
     // Moose crossings (world/moose.ts): bulls, cows and calves on the country roads, from the shared clock.
     this.parts.push(new Moose(g, this.group));
+    // The Budget Line (world/train.ts): a train on the mainland's rail, on the shared clock; the player can drive it.
+    this.parts.push(new Train(g, this.group));
     // Giant rubber duck events (world/duckLoose.ts): the duck breaks loose now and then; push it home for a reward.
     this.parts.push(new DuckLoose(g, this.group, fireworks));
     // Waiver Park (world/stuntPark.ts, stuntRide.ts): the stunt park east of Dock Seven, its loop, wall ride and trick score.

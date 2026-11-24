@@ -10,7 +10,9 @@ export type VehicleKind =
   | 'sedan' | 'hatch' | 'coupe' | 'muscle' | 'sports' | 'pickup'
   | 'van' | 'taxi' | 'tow' | 'bus' | 'cruiser' | 'bolt' | 'cmax'
   // Boats (ent/boat.ts): last, so every car keeps its index in KINDS (the network sends kinds by index).
-  | 'speedboat' | 'jetski';
+  | 'speedboat' | 'jetski'
+  // The Budget Line's locomotive (world/train.ts drives it; never in traffic, never spawned).
+  | 'train';
 
 export interface VehicleSpec {
   kind: VehicleKind;
@@ -145,6 +147,14 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
     mass: 380, topSpeed: 24, accel: 8, brake: 4, grip: 3.2, steer: 0.75, drive: 'rwd',
     colors: [MUSTARD, VERMILION, TEAL, BONE], common: 0,
   },
+  // The locomotive. world/train.ts owns its motion; the spec is here so the player, camera, HUD and network can treat the
+  // cab like any vehicle. common 0: never in traffic.
+  train: {
+    kind: 'train', name: 'Budget Line No. 4 locomotive',
+    length: 20.4, width: 3.1, height: 4.9, wheelbase: 13.6, track: 1.6, wheelR: 0.5, wheelW: 0.2,
+    mass: 120000, topSpeed: 27, accel: 0.6, brake: 1.2, grip: 2, steer: 0.1, drive: 'rwd',
+    colors: [0x5c1212], common: 0,
+  },
 };
 
 /** The kinds ent/boat.ts owns. */
@@ -177,6 +187,7 @@ export const PASSENGER_SEATS: Record<VehicleKind, readonly (readonly [number, nu
   // The runabout's passenger seat beside the helm and its stern bench; the jet ski's pillion behind the rider.
   speedboat: [[1.0, 0, 0], [0.5, -1.55, 0], [-0.2, -1.55, 0]],
   jetski: [[0.4, -0.6, 0.06]],
+  train: [],
 };
 
 /**
@@ -187,7 +198,7 @@ export const CUSHION: Record<VehicleKind, number> = {
   sedan: 0.42, hatch: 0.47, coupe: 0.33, muscle: 0.35, sports: 0.2, pickup: 0.8, van: 1.0, taxi: 0.45,
   tow: 0.9, bus: 1.25, cruiser: 0.44, bolt: 0.55, cmax: 0.56,
   // Above the waterline (a boat's y): the helm seat and the jet ski's saddle.
-  speedboat: 0.46, jetski: 0.7,
+  speedboat: 0.46, jetski: 0.7, train: 2.6,
 };
 /** Seats this far behind the driver's door (the model's seat), meters: the tow truck's door line is ahead of its cab's seats. */
 export const SEAT_BACK: Partial<Record<VehicleKind, number>> = { tow: 0.75 };

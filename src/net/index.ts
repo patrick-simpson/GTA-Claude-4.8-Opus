@@ -385,7 +385,7 @@ export class Net {
   /** Driving one of the cars (not a boat): its damage into dmgNow. Returns false on foot, in a boat or as a passenger. */
   private gatherDamage(): boolean {
     const v = this.game.player.vehicle;
-    if (!v || this.out.mode !== PlayerMode.Driving || isBoatKind(v.spec.kind)) return false;
+    if (!v || this.out.mode !== PlayerMode.Driving || isBoatKind(v.spec.kind) || v.spec.kind === 'train') return false;
     pack(damageOf(v), this.dmgView, 0);
     return true;
   }

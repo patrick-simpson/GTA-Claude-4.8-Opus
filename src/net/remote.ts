@@ -14,6 +14,7 @@ import { HORN_CHOICES, decodeLook, toStyled, type PlayerLook } from '../game/loo
 import { RNG, angleDiff, clamp } from '../core/util';
 import { KINDS, SPECS, isBoatKind, type VehicleKind } from '../ent/vehicleSpecs';
 import type { Boat, BoatKind } from '../ent/boat';
+import { trainRemote } from '../world/train';
 import { DAMAGE_WRECK, POSES, RAG_FLOATS, stepHealth, PlayerEvent, PlayerFlag, PlayerMode, type PlayerState } from './protocol';
 import { charCar } from '../ent/weapons';
 import { CarDamage, DAMAGE_BYTES, unpack } from '../ent/carDamage';
@@ -384,6 +385,16 @@ export class Remote {
     if (kind) {
       // (Another kind, or a whole car where a burnt out one was shown: another car.)
       if (this.car && (this.car.spec.kind !== kind || (this.car.wreck && c.damage < DAMAGE_WRECK))) { this.drop(); }
+      if (kind === 'train') {
+        // The Budget Line (world/train.ts): its consist is moved to the driver's locomotive; nobody is drawn in the cab.
+        trainRemote(this.id, c.x, c.y, c.z, c.yaw, c.pitch, c.roll, fwd);
+        this.damage = 0;
+        per.visible = false;
+        per.x = c.x; per.y = c.y; per.z = c.z; per.h = c.yaw; per.pose = 'sit'; per.speed = 0;
+        this.top = SPECS.train.height + 1;
+        if (!this.placed) { this.placed = true; this.tag(eye, night); }
+        return;
+      }
       if (isBoatKind(kind)) {
         // A boat (ent/boat.ts): drawn by the boats, with its wake and spray, and its driver sat on the seat.
         if (!this.car) this.car = g.player.boats.ghost(kind as BoatKind, c.color);

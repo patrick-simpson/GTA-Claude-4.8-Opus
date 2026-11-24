@@ -695,7 +695,7 @@ function build(kind: VehicleKind): VehicleModel {
     }
     // The Bolt's stand-in until bolt.glb arrives is the hatch's shape at the Bolt's size: no rack, no tailpipe.
     // (Boats are drawn by ent/boat.ts; this stand-in shape only exists so every kind has one.)
-    case 'hatch': case 'bolt': case 'cmax': case 'speedboat': case 'jetski': {
+    case 'hatch': case 'bolt': case 'cmax': case 'speedboat': case 'jetski': case 'train': {
       const cab: Cab = { z0: -zF + 0.05, zr0: -zF + 0.42, zr1: 0.1, z1: 0.85, roof: H, pillars: [-0.4] };
       c = new Car(s, cfg({
         top: [[-zF, 0.94], [-fa, 1.0], [fa - 0.45, 0.98], [fa + 0.25, 0.9], [zF, 0.78]],

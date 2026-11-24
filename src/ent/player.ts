@@ -19,6 +19,7 @@ import { nearestShore } from '../world/shore';
 import { Weapons } from './weapons';
 import { kid } from '../core/kid';
 import { Boats, type Boat } from './boat';
+import { trains } from '../world/train';
 
 const RADIUS = 0.35;
 const WALK = 1.8, JOG = 4.3, SPRINT = 7;
@@ -240,7 +241,7 @@ export class Player implements PlayerApi {
   enter(v: Vehicle, instant = false): void {
     if (this.car === v) return;
     // A boat is boarded where she stands (from the dock, the pier or the water): no walk round to a door.
-    if (this.boats.has(v)) { if (instant || this.mode === 'foot') { if (this.car) this.release(this.car); this.seat(v); } return; }
+    if (this.boats.has(v) || trains.cur?.isCab(v)) { if (instant || this.mode === 'foot') { if (this.car) this.release(this.car); this.seat(v); } return; }
     if (this.car) this.release(this.car);
     if (this.rideCar) this.release(this.rideCar);
     if (instant) { this.seat(v); return; }
@@ -648,13 +649,15 @@ export class Player implements PlayerApi {
       const d = Math.hypot(Math.max(along, 0), Math.max(across, 0));
       if (d < bd) { bd = d; best = v; }
     }
+    const cab = trains.cur?.nearCab(per.x, per.y, per.z, 1.6) ?? null;
+    if (cab) return cab;
     return this.boats.nearest(per.x, per.y, per.z, bd) ?? best;
   }
 
   /** The car she is on her way to the door of, if any. */
   get goingTo(): Vehicle | null { return this.mode === 'enter' ? this.goal : null; }
 
-  private listed(v: Vehicle): boolean { return this.game.vehicles.list.indexOf(v) >= 0 || this.boats.has(v); }
+  private listed(v: Vehicle): boolean { return this.game.vehicles.list.indexOf(v) >= 0 || this.boats.has(v) || !!trains.cur?.isCab(v); }
 
   private toDoor(dt: number): void {
     const per = this.person, v = this.goal, d = this.door;
