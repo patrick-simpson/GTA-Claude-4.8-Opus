@@ -30,10 +30,11 @@
 
 import type { Game } from '../core/game';
 import { angleDiff } from '../core/util';
-import { KINDS } from '../ent/vehicleSpecs';
+import { KINDS, isBoatKind } from '../ent/vehicleSpecs';
+import { DAMAGE_BYTES, damageOf, pack } from '../ent/carDamage';
 import {
   HELD_SHIFT, KEEPALIVE_FRAME, KEEPALIVE_MS, PERF_CANNOT_HOST_MS, PERF_INTERVAL_MS, PLAYER_STATE_BYTES, POSES, PlayerFlag, PlayerMode, SEND_HZ,
-  Frame, PlayerEvent, RAG_FLOATS, RAG_TAIL_BYTES, readRagTail, writeRagTail, WorldKind, blankPlayerState, damageNibble, decodePlayerEvent, decodePlayerState, encodePlayerEvent, encodeLookEvent, decodeLookEvent, encodeMsg, encodePlayerState, frameKind,
+  Frame, PlayerEvent, RAG_FLOATS, RAG_TAIL_BYTES, readRagTail, writeRagTail, DMG_TAIL_BYTES, readDmgTail, writeDmgTail, WorldKind, blankPlayerState, damageNibble, decodePlayerEvent, decodePlayerState, encodePlayerEvent, encodeLookEvent, decodeLookEvent, encodeMsg, encodePlayerState, frameKind,
   type PlayerEntry, type ServerMsg, type WelcomeMsg,
 } from './protocol';
 import { Connection, servicePlan, type NetStatus } from './conn';
@@ -50,6 +51,7 @@ import { TownCrew } from './crew';
 import { TownJobs } from './jobs';
 import { TownRide } from './ride';
 import { TownRace } from './race';
+import { TownPursuit } from './pursuit';
 import { SAYS, myName, nameText, rerollName } from './names';
 import { hostBotPass } from './hostbot';
 import { encodeLook, myLook, onMyLook } from '../game/looks';
@@ -89,6 +91,8 @@ export class Net {
   readonly jobs: TownJobs;
   /** Races between players (fun queue item 11): the wire and the town's records. */
   readonly race: TownRace;
+  /** Hot Pursuit (fun queue item 12): the wire and the town's records. */
+  readonly pursuit: TownPursuit;
   /** Riding together: this player in another's car, or others in this player's (ride.ts). */
   readonly ride: TownRide;
   /** This page is the mini PC's host bot (hostbot.ts): no player, nothing drawn, the town's host. */
@@ -152,6 +156,7 @@ export class Net {
     this.shared.heldCars = () => this.held.list();
     this.jobs = new TownJobs(game, c, this.remotes, this.held);
     this.race = new TownRace(game, c, this.remotes);
+    this.pursuit = new TownPursuit(game, c, this.remotes);
     this.ride = new TownRide(game, c, this.remotes);
     this.fight.crewHit = (v, dmg) => this.crew.hitHeld(v, dmg);
     this.fight.crewMate = (id) => this.crew.onTeam(id);
@@ -248,6 +253,7 @@ export class Net {
     this.jobs.refresh();
     this.ride.refresh();
     this.race.refresh();
+    this.pursuit.refresh();
   }
 
   private drop(id: number): void {
@@ -260,6 +266,7 @@ export class Net {
     this.crew.dropped(id);
     this.jobs.dropped(id);
     this.race.dropped(id);
+    this.pursuit.dropped(id);
     this.held.dropped(id);
     r.dispose();
     this.remotes.delete(id);
@@ -273,6 +280,7 @@ export class Net {
     this.crew.clear();
     this.jobs.clear();
     this.race.clear();
+    this.pursuit.clear();
     this.held.clear();
     this.showCount();
   }
@@ -284,6 +292,7 @@ export class Net {
     this.shared.welcome(m.now, now);
     this.town.welcome(m, now);
     this.race.welcome(m.facts);
+    this.pursuit.welcome(m.facts);
     this.force = true;
     this.anyAt = now; this.perfAt = now - PERF_INTERVAL_MS + 1000;
     this.showCount();
@@ -293,7 +302,7 @@ export class Net {
     if (m.t === 'join') this.add([m.id, ...m.name]);
     else if (m.t === 'leave') this.drop(m.id);
     else if (m.t === 'name' && 'id' in m) this.remotes.get(m.id)?.rename(m.name.slice());
-    else if (m.t === 'fact' || m.t === 'host') { this.town.msg(m); if (m.t === 'fact') this.race.fact(m.k, m.v); }
+    else if (m.t === 'fact' || m.t === 'host') { this.town.msg(m); if (m.t === 'fact') { this.race.fact(m.k, m.v); this.pursuit.fact(m.k, m.v); } }
     this.showCount();
   }
 
@@ -319,6 +328,7 @@ export class Net {
       else if (e.code === PlayerEvent.Job) this.jobs.event(buf);
       else if (e.code === PlayerEvent.Prop) this.props.event(buf);
       else if (e.code === PlayerEvent.Race) this.race.event(buf);
+      else if (e.code === PlayerEvent.Pursuit) this.pursuit.event(buf);
       else if (e.code >= PlayerEvent.Fire) this.fight.event(e.code, buf, performance.now());
       else this.remotes.get(e.id)?.hear(e.code, e.arg, performance.now());
       return;
@@ -347,6 +357,25 @@ export class Net {
     if (!r) return;
     r.push(s, performance.now());
     if (readRagTail(buf, s, this.ragIn)) r.pushRag(this.ragIn, performance.now());
+    else if (readDmgTail(buf, r.dmgTail)) r.hasDmg = true;
+  }
+
+  // ── Car damage (Nov 23; ent/carDamage.ts, protocol.ts writeDmgTail) ─────────
+
+  private readonly outDmg = new ArrayBuffer(PLAYER_STATE_BYTES + DMG_TAIL_BYTES);
+  private readonly dmgNow = new Uint8Array(DAMAGE_BYTES);
+  private readonly dmgSent = new Uint8Array(DAMAGE_BYTES);
+  private readonly dmgView = new DataView(this.dmgNow.buffer);
+  /** Driving one of the cars (not a boat): its damage into dmgNow. Returns false on foot, in a boat or as a passenger. */
+  private gatherDamage(): boolean {
+    const v = this.game.player.vehicle;
+    if (!v || this.out.mode !== PlayerMode.Driving || isBoatKind(v.spec.kind)) return false;
+    pack(damageOf(v), this.dmgView, 0);
+    return true;
+  }
+  private damageChanged(): boolean {
+    for (let i = 0; i < DAMAGE_BYTES; i++) if (this.dmgNow[i] !== this.dmgSent[i]) return true;
+    return false;
   }
 
   // ── Sending ────────────────────────────────────────────────────────────────
@@ -417,10 +446,13 @@ export class Net {
     // Nobody is shown to the others while still on the title card.
     if ((state === 'play' || state === 'paused') && now - this.stateAt >= SEND_MS - 4) {
       this.gather(now);
+      const dmg = this.gatherDamage();
+      if (dmg && this.damageChanged()) this.force = true;
       if (this.force || this.changed() || this.game.people.rag.flying(this.game.player.person)) {
         const rag = this.game.people.rag.sample(this.game.player.person, this.ragOut);
         if (rag) { encodePlayerState(this.out, this.outRag); writeRagTail(this.outRag, this.out, this.ragOut); }
-        if (c.send(rag ? this.outRag : encodePlayerState(this.out, this.outBuf))) {
+        else if (dmg) { encodePlayerState(this.out, this.outDmg); writeDmgTail(this.outDmg, this.dmgNow); this.dmgSent.set(this.dmgNow); }
+        if (c.send(rag ? this.outRag : dmg ? this.outDmg : encodePlayerState(this.out, this.outBuf))) {
           Object.assign(this.last, this.out);
           this.force = false;
           this.stateAt = this.anyAt = now;
@@ -570,6 +602,8 @@ export class Net {
       jobs: this.jobs.info(),
       // race: frames, the town's records as this page knows them, and the race on this screen (game/race.ts).
       race: this.race.info(),
+      // pursuit: Hot Pursuit frames, the town's records, and the round on this screen (game/pursuit.ts).
+      pursuit: this.pursuit.info(),
       // ride: riding together: this player's seat in another's car, the riders in this player's car, the lists heard (ride.ts).
       ride: this.ride.info(),
       pause: { refused: this.game.pauseRefused, why: this.pauseRefusal(), state: this.game.state },

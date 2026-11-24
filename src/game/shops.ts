@@ -10,6 +10,7 @@ import { WEAPONS } from '../ent/weapons';
 import { frontage } from '../sim/policeAir';
 import { money } from '../core/util';
 import { kid } from '../core/kid';
+import { damageOf, repairDamage } from '../ent/carDamage';
 import type { Markers, Pt } from './script';
 
 /** Rounds per purchase and the price, by weapon slot. Slot 0 is bare hands. */
@@ -75,12 +76,13 @@ export class Shops {
     }
     if (v && Math.abs(p.x - this.body.x) < 5.5 && Math.abs(p.z - this.body.z) < 4.5 && p.speed < 3) {
       if (p.heat > 0) { this.prompt = 'Bent & Dented does not open the door while the Patrol is looking for you.'; return; }
-      if (v.health >= 99.5) { this.prompt = `Bent & Dented: nothing wrong with the ${v.spec.name} that they can bill for.`; return; }
-      const price = 40 + Math.ceil((100 - v.health) * 3);
+      const dmg = damageOf(v);
+      if (v.health >= 99.5 && (!dmg || dmg.clean())) { this.prompt = `Bent & Dented: nothing wrong with the ${v.spec.name} that they can bill for.`; return; }
+      const price = 40 + Math.ceil((100 - v.health) * 3) + (dmg ? Math.ceil(dmg.wear() * 120) : 0);
       this.prompt = `[G] Repair the ${v.spec.name}: ${money(price)}`;
       if (g.input.eat('interact')) {
         if (p.money < price) tell(`Bent & Dented wants ${money(price)}. They will hold the car while you think about it. They will not.`);
-        else { p.money -= price; v.health = 100; hud.toast(`Bent & Dented: ${money(price)}. Good as new, which it never was.`, 5); }
+        else { p.money -= price; v.health = 100; repairDamage(v); hud.toast(`Bent & Dented: ${money(price)}. Good as new, which it never was.`, 5); }
       }
     }
   }

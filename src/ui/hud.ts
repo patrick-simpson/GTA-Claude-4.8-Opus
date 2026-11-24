@@ -379,6 +379,8 @@ export interface Blip {
   x: number; z: number;
   /** goal: where the business in hand is (mustard). giver: somebody with work (bone, a letter). job: a side job (teal). way: the map's waypoint. */
   kind: 'goal' | 'giver' | 'job' | 'way';
+  /** A fuzzy area instead of a badge: a circle this many meters across the middle of it (game/pursuit.ts). */
+  r?: number;
   /** One letter drawn on the badge. */
   label?: string;
 }
@@ -484,6 +486,7 @@ class Radar {
     const kf = rf / viewR, br = H * 0.075;
     for (const b of nav.blips) {
       const dx = b.x - x, dz = b.z - z, d = Math.hypot(dx, dz) || 1;
+      if (b.r) { this.area(c, b, dx, dz, d, kf, rf, ca, sa); continue; }
       const lim = (rf - br * 1.25) / kf, q = d > lim ? lim / d : 1;
       const px = (dx * ca - dz * sa) * q * kf, py = (dx * sa + dz * ca) * q * kf;
       c.fillStyle = b.kind === 'goal' || b.kind === 'way' ? MUSTARD : b.kind === 'job' ? TEAL : BONE;
@@ -585,6 +588,18 @@ class Radar {
   }
 
   /** One landmark badge on the edge of the face. `hot` is the one the player is being sent to. */
+  /** A fuzzy area (somebody is in here, roughly): a soft vermilion disc with a dashed rim, held inside the face. */
+  private area(c: CanvasRenderingContext2D, b: Blip, dx: number, dz: number, d: number, kf: number, rf: number, ca: number, sa: number): void {
+    const pr = Math.max(4, Math.min((b.r ?? 0) * kf, rf * 0.45)), lim = (rf - pr) / kf, q = d > lim ? lim / d : 1;
+    const px = (dx * ca - dz * sa) * q * kf, py = (dx * sa + dz * ca) * q * kf;
+    c.save();
+    c.globalAlpha = 0.3; c.fillStyle = VERMILION;
+    c.beginPath(); c.arc(px, py, pr, 0, TAU); c.fill();
+    c.globalAlpha = 0.9; c.strokeStyle = VERMILION; c.lineWidth = Math.max(1.5, rf * 0.02); c.setLineDash([pr * 0.35, pr * 0.25]);
+    c.stroke();
+    c.restore();
+  }
+
   private mark(kind: MarkKind, x: number, y: number, r: number, hot: boolean): void {
     const c = this.ctx, fg = hot ? INK : BONE;
     c.fillStyle = hot ? MUSTARD : INK;

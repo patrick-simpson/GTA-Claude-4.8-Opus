@@ -30,6 +30,7 @@ import { vehicleModel, wheelGeometry, type VehicleModel } from './vehicleModels'
 import { loadVehicleAssets, SHEET_TEXELS, type CarMaps, type SendCell, type VehicleAsset } from './vehicleAssets';
 import { BRIDGE, groundAt, setGroundHint, terrainAt, WATER_Y } from '../world/plan';
 import type { Box, Prop } from '../world/collide';
+import { CarDamage, LooseParts, damageShader, dent, scrape, shaderValues, HEAD_L, HEAD_R, TAIL_L, TAIL_R } from './carDamage';
 
 const STEP = 1 / 120;
 /** Heavier than real gravity: jumps land sooner and cars feel planted. */
@@ -141,7 +142,10 @@ function put4(a: Float32Array, k: number, x: number, y: number, z: number, w: nu
   a[k] = x; a[k + 1] = y; a[k + 2] = z; a[k + 3] = w;
   return a[k] !== o0 || a[k + 1] !== o1 || a[k + 2] !== o2 || a[k + 3] !== o3;
 }
-const D_MAT = 1, D_COL = 2, D_DIRT = 4, D_LAMP = 8, D_LAMP2 = 16, D_WHEEL = 32, D_RIM = 64;
+const D_MAT = 1, D_COL = 2, D_DIRT = 4, D_LAMP = 8, D_LAMP2 = 16, D_WHEEL = 32, D_RIM = 64, D_DMG = 128;
+const DMG_TEST = typeof location !== 'undefined' && new URLSearchParams(location.search).get('dmgtest') === '1';
+/** One car's damage numbers for the shader (carDamage.ts shaderValues): aDmg then aDmh. */
+const _dmgV = new Float32Array(8);
 /** Rim tints for a player's Garage (game/looks.ts RIM_COLORS index): multiplied into the wheel, so the dark tyre stays dark. */
 const RIM_TINT = [0xffffff, 0x1c1c20, 0xffc860, 0xc08050, 0xff5040, 0x5a8cff];
 
@@ -172,6 +176,9 @@ interface DrawSet {
   dirty: number;
   /** The buffers registered with core/flip.ts, to take back out when the set is rebuilt. */
   flips: THREE.BufferAttribute[];
+  /** Per instance: the damage (carDamage.ts), zones and the rest. Zero for clean cars and at the far level. */
+  dmg: Float32Array | null; dmh: Float32Array | null;
+  dmgAttr: THREE.InstancedBufferAttribute | null; dmhAttr: THREE.InstancedBufferAttribute | null;
 }
 
 interface KindBatch {
@@ -201,6 +208,8 @@ class Car implements Vehicle {
   /** The rim tint as drawn, linear. */
   rimShown = -1; rr = 1; rg = 1; rb = 1;
   health = 100;
+  /** Dents, glass, lamps, bumpers, tyres (carDamage.ts). Null until the first hit. */
+  dmg: CarDamage | null = null;
   onGround = true;
   airTime = 0;
   slip = 0;
@@ -721,6 +730,10 @@ export class Vehicles implements VehiclesApi {
    * the showroom level, then for the street level. Made when the first textured kind arrives.
    */
   private texMats: THREE.Material[] | null = null;
+  /** Dents and broken glass drawn on the near and street levels (not on phones; `?dmg=0` turns them off, for timing). */
+  private dmgOn = false;
+  /** Bumpers lying in the road. */
+  private loose!: LooseParts;
   /** The wheels' material with the shared tire maps, made when they arrive. */
   private wheelTexMat: THREE.MeshStandardMaterial | null = null;
   private assets = new Map<VehicleKind, VehicleAsset>();
@@ -805,6 +818,12 @@ export class Vehicles implements VehiclesApi {
     if (local) { this.paneMat.metalness = 0; this.paneMat.roughness = 0.04; this.paneMat.color.setHex(0x0c1a24); }
     sheen(this.paneMat, this.sky, 'pane', 0.04 * k, 0.75 * k, 0.2 * k, 0.44 * k, 0, true);
     this.mirror(this.paneMat, 1.4);
+    this.dmgOn = !low && new URLSearchParams(location.search).get('dmg') !== '0';
+    if (this.dmgOn) {
+      damageShader(this.bodyMat, 'paint'); damageShader(this.bodyNear, 'paint'); damageShader(this.detailMat, 'detail');
+      damageShader(this.paneMat, 'glass'); damageShader(this.glassTintMat, 'glass');
+    }
+    this.loose = new LooseParts(game.scene, game.quality.shadows);
     // ?glb=0 keeps every kind procedural, for comparing.
     // ?cartex=0 leaves the baked maps unfetched (the near levels then have no occlusion at all: for timing only).
     // So does a phone at medium (quality.lean): two 4096-texel sheets are too much of its memory for what a small screen shows.
@@ -841,6 +860,8 @@ export class Vehicles implements VehiclesApi {
     c.x = x; c.z = z; c.h = h;
     this.seat(c);
     this.cars.push(c);
+    // `?dmgtest=1`: every car starts battered somewhere, for timing the damage (tools/lead/rafprobe.mjs --query dmgtest=1).
+    if (DMG_TEST) { const a = this.rand() * 6.283; c.dmg = new CarDamage(); dent(c.dmg, Math.sin(a) * c.hw, Math.cos(a) * c.hl, c.hl, c.hw, 12 + this.rand() * 14, () => this.rand()); }
     return c;
   }
 
@@ -1029,6 +1050,7 @@ export class Vehicles implements VehiclesApi {
     }
     if (dt <= 0) { this.sync(night); return; }
     this.time += dt;
+    this.loose.update(dt, groundAt);
     const eye = game.view ? game.view.pos : game.camera.position;
     this.camX = eye.x; this.camZ = eye.z;
     const day = 1 - night;
@@ -1170,6 +1192,8 @@ export class Vehicles implements VehiclesApi {
       if (c.wade > 0) along *= 1 - 0.35 * clamp01(c.wade / 0.6);
       // The wheels spin on snow: a gentler pull away.
       along *= 1 - 0.4 * this.snow;
+      // A crumpled front is a hurt engine and a bent frame: a little less pull (carDamage.ts).
+      if (c.dmg) along *= c.dmg.power();
       // Feet off: engine braking and drag bring it to rest in a block or so. A car nobody is in sits in gear.
       // Light at speed, so lifting through a bend is not half a brake; firmer near walking pace so it does stop.
       let drag = throttle === 0 ? (0.55 + 0.02 * absV) * (COAST[sp.kind] ?? 1) + (absV < 5 ? 1 - absV / 5 : 0) : 0.15;
@@ -1193,7 +1217,7 @@ export class Vehicles implements VehiclesApi {
       // it had hit glue.
       // Only the cars with power to spare break the rear loose: nobody wants a bus that drifts by accident.
       const power = sp.drive === 'rwd' && throttle > 0.8 && Math.abs(c.steerPos) > 0.45 && vf > 1.5 && vf < 15 ? clamp01((sp.accel - 6) / 3) : 0;
-      let grip = gripBase;
+      let grip = gripBase * (c.dmg ? c.dmg.grip() : 1);
       if (hb) grip *= sp.drive === 'rwd' ? 0.2 : 0.25; else if (c.sliding || c.loose > 0) grip *= 0.5; else grip *= 1 - 0.5 * power;
       const cap = gripBase * 1.75 * (hb ? 0.5 : c.sliding ? 0.75 : 1) * dt;
       const avr = Math.abs(vr);
@@ -1207,6 +1231,8 @@ export class Vehicles implements VehiclesApi {
       // Heading.
       if (c.onF) {
         let yawWish = -vf * tanS / sp.wheelbase;
+        // A flat drags the car toward its side.
+        if (c.dmg && c.dmg.tyres) yawWish += c.dmg.pull() * 0.03 * vf / sp.wheelbase;
         yawWish *= 1 + 0.5 * power;
         // A sliding car weathervanes: left alone, the nose swings back to the way it is going.
         // Not for a moment after the handbrake, and less the further round the car already is: a turn
@@ -1382,7 +1408,56 @@ export class Vehicles implements VehiclesApi {
     if (c.hitT > 0) return;
     c.hitT = 0.2;
     c.health = Math.max(0, c.health - damage);
+    this.dentAt(c, x, z, speed);
     this.game.emit('impact', { vehicle: c, speed, other, x, z });
+  }
+
+  /**
+   * Where a hit lands on the car (world x, z): the zone there takes the dent, and whatever broke is thrown about.
+   * A puppet (another player's car, drawn here) is dented by its own browser and arrives in its state frames.
+   */
+  private dentAt(c: Car, x: number, z: number, speed: number): void {
+    if (c.wreck || c.puppet || c.shared) return;
+    const dx = x - c.x, dz = z - c.z, s = Math.sin(c.h), co = Math.cos(c.h);
+    const d = c.dmg ?? (c.dmg = new CarDamage());
+    const r = dent(d, dx * co - dz * s, dx * s + dz * co, c.hl, c.hw, speed, () => this.rand());
+    this.debris(c, r.glass, r.lamps, r.dropped);
+  }
+
+  /** Glass bits for each broken pane and lamp (local points, pairs), and a bumper into the road for each that came off. */
+  private debris(c: Car, glass: number[], lamps: number[], dropped: number): void {
+    const fx = this.game.fx?.emitters, s = Math.sin(c.h), co = Math.cos(c.h);
+    if (fx) {
+      for (let k = 0; k < glass.length + lamps.length; k += 2) {
+        const g = k < glass.length, a = g ? glass : lamps, j = g ? k : k - glass.length;
+        const lx = a[j] * c.hw, lz = a[j + 1] * c.hl;
+        fx.debris(c.x + lx * co + lz * s, c.y + (g ? c.spec.height * 0.75 : 0.65), c.z - lx * s + lz * co, c.vx * 0.5, c.vz * 0.5,
+          g ? 26 : 8, g ? 0xcfe3ea : 0xf2f0ea, g ? 3.5 : 2.5);
+      }
+    }
+    if (dropped & 1) this.loose.drop(c.x, c.y, c.z, c.h, true, c.hl, c.spec.width, c.vx, c.vz, c.color, () => this.rand());
+    if (dropped & 2) this.loose.drop(c.x, c.y, c.z, c.h, false, c.hl, c.spec.width, c.vx, c.vz, c.color, () => this.rand());
+  }
+
+  /** What another browser says this car's damage is (src/net): any bumper that has newly come off falls here too. */
+  showDamage(v: Vehicle, dropped: number): void {
+    const c = v as Car;
+    if (dropped) this.debris(c, [], [], dropped);
+  }
+
+  /** Metal dragged on something at (x, z), `vt` m/s along it: bare metal on that flank, and sparks. Called each step in contact. */
+  private rub(c: Car, x: number, z: number, vt: number): void {
+    if (c.wreck || c.puppet || c.shared) return;
+    const dx = x - c.x, dz = z - c.z, lx = dx * Math.cos(c.h) - dz * Math.sin(c.h);
+    const d = c.dmg ?? (c.dmg = new CarDamage());
+    scrape(d, lx > 0, 0.0025 * Math.min(vt, 25) / 10);
+    const fx = this.game.fx?.emitters;
+    if (fx && this.rand() < 0.35) fx.sparks(x, c.y + 0.35 + this.rand() * 0.3, z, -c.vx * 0.06, 0.35, -c.vz * 0.06, 3, 3 + vt * 0.2);
+  }
+
+  /** The repair shop: straight panels, new glass, lamps and tyres. */
+  repair(v: Vehicle): void {
+    (v as Car).dmg = null;
   }
 
   /**
@@ -1579,6 +1654,8 @@ export class Vehicles implements VehiclesApi {
     const rub = Math.min(Math.abs(vt), 0.22 * j * c.invM);
     c.vx -= (vt > 0 ? rub : -rub) * tx; c.vz -= (vt > 0 ? rub : -rub) * tz;
     if (-vn > 2) c.loose = Math.max(c.loose, 0.35);
+    // Dragged along it: the paint wears through on that flank and the metal sparks.
+    if (Math.abs(vt) > 4 && !c.puppet && !c.shared && !c.wreck) this.rub(c, px, pz, Math.abs(vt));
     if (-vn > HARD_HIT) this.impact(c, -vn, null, px, pz, (-vn - HARD_HIT) * DAMAGE);
   }
 
@@ -1745,6 +1822,8 @@ export class Vehicles implements VehiclesApi {
     const vt = (b.vx - a.vx) * tx + (b.vz - a.vz) * tz;
     const jt = clamp(-vt / im, -0.25 * j, 0.25 * j);
     a.vx -= jt * tx * a.invM; a.vz -= jt * tz * a.invM;
+    // A side swipe: both flanks wear and spark.
+    if (Math.abs(vt) > 4 && !pup) { this.rub(a, px, pz, Math.abs(vt)); if (!fixed) this.rub(b, px, pz, Math.abs(vt)); }
     if (!pup) { b.vx += jt * tx * bInvM; b.vz += jt * tz * bInvM; }
     const closing = -vn;
     if (pup) { a.pupV = (this.time - a.pupT < NET_HIT_S ? a.pupV : 0) + closing; a.pupT = this.time; }
@@ -1755,7 +1834,7 @@ export class Vehicles implements VehiclesApi {
       // The lighter car takes the larger share of the damage.
       const dmg = (closing - HARD_HIT) * DAMAGE;
       // (What a knock does to a shared car or to another player's is their browser's business.)
-      if (!fixed) b.health = Math.max(0, b.health - dmg * b.invM / im);
+      if (!fixed) { b.health = Math.max(0, b.health - dmg * b.invM / im); this.dentAt(b, px, pz, closing); }
       this.impact(a, closing, b, px, pz, dmg * a.invM / (a.invM + b.invM));
     }
   }
@@ -1976,7 +2055,10 @@ export class Vehicles implements VehiclesApi {
       b.pick = n === 3 ? [0, 1, 2] : n === 2 ? [0, 0, 1] : [0, 0, 0];
       b.sections = a.sections;
       const maps = low ? null : a.maps;
-      if (maps && !this.texMats) this.texMats = [this.coat(maps, true), this.mirror(detailMaterial(maps), 1.25), this.coat(maps, false), this.mirror(detailMaterial(maps, false), 1.25)];
+      if (maps && !this.texMats) {
+        this.texMats = [this.coat(maps, true), this.mirror(detailMaterial(maps), 1.25), this.coat(maps, false), this.mirror(detailMaterial(maps, false), 1.25)];
+        if (this.dmgOn) this.texMats.forEach((m, i) => damageShader(m, i & 1 ? 'detail' : 'paint'));
+      }
       const tex = maps ? this.texMats : null;
       if (!low && a.wheelMaps && !this.wheelTexMat) this.wheelTexMat = this.mirror(detailMaterial(a.wheelMaps), 1.25);
       lods.forEach((l, i) => {
@@ -2008,6 +2090,7 @@ export class Vehicles implements VehiclesApi {
       const s: DrawSet = {
         parts, body: [], wheels: null!, mats: null!, cols: null!, dirt: null!, dirtAttr: null, wmats: null!, wcols: null!, lamps: null, lamps2: null, lampAttr: null, lampAttr2: null,
         cap: b.cap, wcap: b.cap * p.wheels.length, n: 0, nw: 0, near: 0, nwNear: 0, dirty: 0, flips: [],
+        dmg: null, dmh: null, dmgAttr: null, dmhAttr: null,
       };
       this.fillSet(s);
       return s;
@@ -2054,6 +2137,17 @@ export class Vehicles implements VehiclesApi {
       flip.geo(q.lampGeo, 'aLamp'); flip.geo(q.lampGeo, 'aLamp2');
       s.flips.push(s.lampAttr, s.lampAttr2);
     }
+    // Damage (carDamage.ts): the Blender models above the phone preset only; the far level writes zeros.
+    if (this.dmgOn && q.lampGeo) {
+      s.dmg = new Float32Array(s.cap * 4); s.dmh = new Float32Array(s.cap * 4);
+      const da = dyn(s.dmg, 4), dh = dyn(s.dmh, 4);
+      s.dmgAttr = da; s.dmhAttr = dh;
+      const geos = [q.paint[0], ...q.others.map((o) => o[0])];
+      for (const g of geos) { g.setAttribute('aDmg', da); g.setAttribute('aDmh', dh); }
+      flip.add(da, (x) => { for (const g of geos) g.setAttribute('aDmg', x); });
+      flip.add(dh, (x) => { for (const g of geos) g.setAttribute('aDmh', x); });
+      s.flips.push(da, dh);
+    }
   }
 
   private dropSet(s: DrawSet): void {
@@ -2064,10 +2158,12 @@ export class Vehicles implements VehiclesApi {
 
   /** Growing replaces the meshes and their buffers, so carry over what this frame has already written. */
   private growSet(s: DrawSet): void {
-    const { mats, cols, wmats, wcols, lamps, lamps2, dirt } = s;
+    const { mats, cols, wmats, wcols, lamps, lamps2, dirt, dmg, dmh } = s;
     this.dropSet(s);
     s.cap *= 2; s.wcap *= 2;
     this.fillSet(s);
+    if (dmg && s.dmg) s.dmg.set(dmg);
+    if (dmh && s.dmh) s.dmh.set(dmh);
     s.mats.set(mats); s.cols.set(cols); s.wmats.set(wmats); s.wcols.set(wcols); s.dirt.set(dirt);
     if (lamps && s.lamps) s.lamps.set(lamps);
     if (lamps2 && s.lamps2) s.lamps2.set(lamps2);
@@ -2095,7 +2191,11 @@ export class Vehicles implements VehiclesApi {
       _qw.setFromAxisAngle(Y_AXIS, (front ? -c.steerAng : 0) + (left ? 0 : Math.PI));
       _qs.setFromAxisAngle(X_AXIS, (front ? c.spinF : c.spinR) * (left ? 1 : -1));
       _q.copy(_qg).multiply(_qw).multiply(_qs);
+      // A burst tyre sits on its rim: the wheel shrinks and drops toward the road.
+      const flat = c.dmg !== null && (c.dmg.tyres & (1 << ((front ? 0 : 2) + (left ? 0 : 1)))) !== 0;
+      if (flat) { _s.y = _s.z = sp.wheelR * 0.86; _p.y -= sp.wheelR * 0.12; }
       _m.compose(_p, _q, _s);
+      if (flat) _s.set(sp.wheelW, sp.wheelR, sp.wheelR);
       _m.toArray(c.wmat, i * 16);
     }
     c.stale = false;
@@ -2163,7 +2263,13 @@ export class Vehicles implements VehiclesApi {
       if (c.color !== c.shown) { _col.setHex(c.color); c.cr = _col.r; c.cg = _col.g; c.cb = _col.b; c.shown = c.color; }
       if (put3(s.cols, i * 3, c.cr, c.cg, c.cb)) dirty |= D_COL;
       // (The paint finish rides on the dust number, two per step: the paint shader takes it apart again.)
-      if (put1(s.dirt, i, (c.wreck ? 0.7 : c.dirt) + 2 * (c.wreck ? 0 : c.finish))) dirty |= D_DIRT;
+      // A battered car is a grubby one too: on the far level and phones that darkening is all the damage there is.
+      if (put1(s.dirt, i, (c.wreck ? 0.7 : c.dmg ? Math.min(0.97, c.dirt + 0.6 * c.dmg.wear()) : c.dirt) + 2 * (c.wreck ? 0 : c.finish))) dirty |= D_DIRT;
+      if (s.dmg && s.dmh) {
+        shaderValues(c.lod < 2 ? c.dmg : null, c.hl, c.hw, _dmgV, 0);
+        const a = put4(s.dmg, i * 4, _dmgV[0], _dmgV[1], _dmgV[2], _dmgV[3]);
+        if (put4(s.dmh, i * 4, _dmgV[4], _dmgV[5], _dmgV[6], _dmgV[7]) || a) dirty |= D_DMG;
+      }
       // The lenses themselves light up; the glow sprites in lamps() are the halo round them.
       if (s.lamps && s.lamps2) {
         // One lens does both jobs on most cars: the brake section glows dimly with the tail lamps and flares when braking.
@@ -2213,6 +2319,7 @@ export class Vehicles implements VehiclesApi {
       if (d & D_DIRT && s.dirtAttr) sendRange(s.dirtAttr, s.n);
       if (d & D_LAMP && s.lampAttr) sendRange(s.lampAttr, s.n * 4);
       if (d & D_LAMP2 && s.lampAttr2) sendRange(s.lampAttr2, s.n * 3);
+      if (d & D_DMG && s.dmgAttr && s.dmhAttr) { sendRange(s.dmgAttr, s.n * 4); sendRange(s.dmhAttr, s.n * 4); }
       if (d & D_WHEEL && s.nw) sendRange(s.wheels.instanceMatrix, s.nw * 16);
       if (d & D_RIM && s.nw) sendRange(s.wheels.instanceColor!, s.nw * 3);
     }
@@ -2230,6 +2337,7 @@ export class Vehicles implements VehiclesApi {
     if (c.lights && ahead > 0.01) {
       const s = 1.0 * grow, k = ahead;
       for (const l of model.head) {
+        if (c.dmg && c.dmg.lamps & (l.x > 0 ? HEAD_L : HEAD_R)) continue;
         glow.add(m[0] * l.x + m[4] * l.y + m[8] * l.z + m[12], m[1] * l.x + m[5] * l.y + m[9] * l.z + m[13], m[2] * l.x + m[6] * l.y + m[10] * l.z + m[14], k, k * 0.86, k * 0.58, s);
       }
     }
@@ -2245,6 +2353,7 @@ export class Vehicles implements VehiclesApi {
       if (s > 0) {
         s *= grow; r *= astern; g *= astern; b *= astern;
         for (const l of model.tail) {
+          if (c.dmg && c.dmg.lamps & (l.x > 0 ? TAIL_L : TAIL_R)) continue;
           glow.add(m[0] * l.x + m[4] * l.y + m[8] * l.z + m[12], m[1] * l.x + m[5] * l.y + m[9] * l.z + m[13], m[2] * l.x + m[6] * l.y + m[10] * l.z + m[14], r, g, b, s);
         }
       }

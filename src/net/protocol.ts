@@ -376,11 +376,35 @@ export function readRagTail(buf: ArrayBuffer, s: PlayerState, out: Float32Array)
   return true;
 }
 
+// Car damage tail (Nov 23): while a player drives one of the cars, their state frame carries 9 more bytes after the
+// 34: a mark and ent/carDamage.ts's eight bytes (crumple of the front, rear, left and right; the glass; lamps and
+// tyres; bumpers; scrapes). Like the ragdoll tail (which only rides on foot, so the two never meet), the service
+// relays it unread within MAX_PLAYER_FRAME_BYTES and an older page reads the 34 it knows: no Worker redeploy.
+//   34 mark u8 (DMG_MARK)  35..42 the damage
+export const DMG_MARK = 0xd4;
+export const DMG_TAIL_BYTES = 9;
+
+/** Write the damage after a state frame already encoded in `buf` (PLAYER_STATE_BYTES + DMG_TAIL_BYTES long). */
+export function writeDmgTail(buf: ArrayBuffer, bytes: Uint8Array): void {
+  const u8 = new Uint8Array(buf, PLAYER_STATE_BYTES, DMG_TAIL_BYTES);
+  u8[0] = DMG_MARK;
+  u8.set(bytes.subarray(0, DMG_TAIL_BYTES - 1), 1);
+}
+
+/** The damage bytes from a state frame that has them. */
+export function readDmgTail(buf: ArrayBuffer, out: Uint8Array): boolean {
+  if (buf.byteLength < PLAYER_STATE_BYTES + DMG_TAIL_BYTES) return false;
+  const u8 = new Uint8Array(buf, PLAYER_STATE_BYTES, DMG_TAIL_BYTES);
+  if (u8[0] !== DMG_MARK) return false;
+  out.set(u8.subarray(1));
+  return true;
+}
+
 // Player event: 4 bytes. [kind, id, code, arg]
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17 } as const;
 // Emote (4 bytes): [kind, id, 15, emote id] (game/emotes.ts EMOTES; 0 = stopped). Sent when a player starts or stops one,
 // and again every few seconds while a looping one runs, for anybody who arrives. Relayed unread by the service; a page
 // that does not know code 15 hands it to the weapons code, which ignores codes it does not know: no new version.
@@ -1839,5 +1863,49 @@ export function decodeRace(buf: ArrayBuffer): RaceMsg | null {
   else if (m.kind === RaceKind.Cp) { if (n < 11) return null; m.count = u[6]; m.ms = d.getUint32(7, true); }
   else if (m.kind === RaceKind.Done) { if (n < 15) return null; m.how = u[6]; m.ms = d.getUint32(7, true); m.lap = d.getUint32(11, true); }
   else if (m.kind !== RaceKind.Off) return null;
+  return m;
+}
+
+// ---- Hot Pursuit: police chase between players (fun queue item 12; net/pursuit.ts, game/pursuit.ts) ----
+//
+// Event frames (byte 2 PlayerEvent.Pursuit), relayed unread by both services, like races; a page from before Hot
+// Pursuit hands code 17 to fight.ts, which does nothing with it. Still protocol v5, no service change. One layout for
+// every kind, 15 + n bytes:
+//   3 kind (PursuitKind)  4 caller u8 (whose round)  5 station u8 (0 island, 1 mainland)
+//   6 a u8  7 b u8  8..9 c u16  10..13 ms u32  14 n u8  15.. n ids u8
+//   Call:  a seconds left to join, b 1 = the cop is drawn at random, ids who is in (the caller first)
+//   Join:  a 1 joined, 0 left before the start
+//   Go:    a the cop's id, b head start s, c round s (after the head start), ids every player in the round
+//   Siren: a 1 on, 0 off (the cop)
+//   Hold:  a how full the wanted player's BUSTED bar is, 0..255 (the wanted player, while it changes)
+//   Bust:  ms since the cop was let go (the wanted player: their own screen judged it)
+//   Done:  a role (1 cop, 2 escaped, 3 busted), b busts (the cop's), ms survived as wanted
+//   Off:   the caller called it off
+// Town records are durable facts written by the host only: PURSUIT_FACT_BUSTS = [busts, holder's name 3 numbers],
+// PURSUIT_FACT_ESCAPE = [seconds survived as wanted, holder's name 3 numbers] (-1 = no third word).
+export const PursuitKind = { Call: 1, Join: 2, Go: 3, Siren: 4, Hold: 5, Bust: 6, Done: 7, Off: 8 } as const;
+export const PURSUIT_FACT_BUSTS = 'pursuit.busts';
+export const PURSUIT_FACT_ESCAPE = 'pursuit.escape';
+export const PURSUIT_MAX = 8;
+export interface PursuitMsg { id: number; kind: number; caller: number; station: number; a: number; b: number; c: number; ms: number; ids: number[] }
+
+export function encodePursuit(m: PursuitMsg): ArrayBuffer {
+  const ids = m.ids.slice(0, PURSUIT_MAX);
+  const buf = makeFrame(Frame.Event, 15 + ids.length - FRAME_HEADER_BYTES);
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  u[2] = PlayerEvent.Pursuit; u[3] = m.kind & 0xff; u[4] = m.caller & 0xff; u[5] = m.station & 0xff;
+  u[6] = Math.max(0, Math.min(255, Math.round(m.a))); u[7] = Math.max(0, Math.min(255, Math.round(m.b)));
+  d.setUint16(8, clampU16(m.c), true);
+  d.setUint32(10, Math.max(0, Math.min(0xffffffff, Math.round(m.ms))), true);
+  u[14] = ids.length; ids.forEach((v, i) => { u[15 + i] = v & 0xff; });
+  return buf;
+}
+
+export function decodePursuit(buf: ArrayBuffer): PursuitMsg | null {
+  if (buf.byteLength < 15) return null;
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Pursuit || u[3] < 1 || u[3] > 8) return null;
+  const m: PursuitMsg = { id: u[1], kind: u[3], caller: u[4], station: u[5], a: u[6], b: u[7], c: d.getUint16(8, true), ms: d.getUint32(10, true), ids: [] };
+  for (let i = 0; i < Math.min(u[14], PURSUIT_MAX) && 15 + i < buf.byteLength; i++) m.ids.push(u[15 + i]);
   return m;
 }

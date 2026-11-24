@@ -16,6 +16,7 @@ import { KINDS, SPECS, isBoatKind, type VehicleKind } from '../ent/vehicleSpecs'
 import type { Boat, BoatKind } from '../ent/boat';
 import { DAMAGE_WRECK, POSES, RAG_FLOATS, stepHealth, PlayerEvent, PlayerFlag, PlayerMode, type PlayerState } from './protocol';
 import { charCar } from '../ent/weapons';
+import { CarDamage, DAMAGE_BYTES, unpack } from '../ent/carDamage';
 import { SAYS, nameText } from './names';
 
 /** How far in the past the others are shown, ms. A little over one send interval, so there is nearly always a frame on each side. */
@@ -130,6 +131,27 @@ export class Remote {
   rideSeat = 0;
   /** How bent the car they are driving is, in the 16 steps of the wire (0 on foot). */
   damage = 0;
+  /** Nov 23: their car's dents, glass, lamps, bumpers and tyres as their state frames' tail says (ent/carDamage.ts). */
+  readonly dmgTail = new Uint8Array(DAMAGE_BYTES);
+  hasDmg = false;
+  private dmgShown = new Uint8Array(DAMAGE_BYTES);
+  private dmgCar: Vehicle | null = null;
+  /** Put the tail's damage on the car shown for them (only when it changes, or the car is a new one). */
+  private showCarDamage(car: Vehicle, g: Game): void {
+    let same = car === this.dmgCar;
+    for (let i = 0; same && i < DAMAGE_BYTES; i++) if (this.dmgTail[i] !== this.dmgShown[i]) same = false;
+    if (same || car.wreck) return;
+    const fresh = car !== this.dmgCar;
+    this.dmgCar = car; this.dmgShown.set(this.dmgTail);
+    const host = car as unknown as { dmg: CarDamage | null };
+    if (!('dmg' in host)) return;
+    if (this.dmgTail.every((b) => b === 0)) { host.dmg = null; return; }
+    const d = host.dmg ?? (host.dmg = new CarDamage());
+    const dropped = unpack(d, new DataView(this.dmgTail.buffer), 0);
+    // (A car first shown already without its bumper does not drop one in the road here.)
+    const v = g.vehicles as unknown as { showDamage?: (v: Vehicle, dropped: number) => void };
+    if (dropped && !fresh) v.showDamage?.(car, dropped);
+  }
   /** Stage 3, step 3 (fight.ts): the health they last told of, whether they are dead until they say otherwise, and the counts. */
   health = 100;
   dead = false;
@@ -377,6 +399,7 @@ export class Remote {
       // Stage 3, step 4: as bent as its owner's browser says, which is what makes it steam, smoke and burn here.
       showDamage(car, c.damage);
       this.damage = c.damage;
+      if (this.hasDmg) this.showCarDamage(car, g);
       if (!car.wreck) car.color = c.color;
       else car.driver = null;
       // Their Garage (game/looks.ts): the finish goes with their own paint; rims and horn with any car they drive.
