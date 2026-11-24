@@ -165,6 +165,32 @@ export function cry(core: AudioCore, t: number, out: AudioNode, pitch: number, u
   hiss(core, t, out, 'white', 'bandpass', 1900 * k, 2, 0.1, 0.01, d);
 }
 
+/** Air leaving somebody under the water: a few round bloops that climb in pitch, `n` of them. */
+export function bubbles(core: AudioCore, t: number, out: AudioNode, n: number, r: Rand): void {
+  for (let i = 0; i < n; i++) {
+    const at = t + i * 0.09 + r() * 0.12, f = 240 + r() * 420, d = 0.06 + r() * 0.07;
+    const o = core.osc('sine', f), g = core.gain(0);
+    o.frequency.setValueAtTime(f, at); o.frequency.exponentialRampToValueAtTime(f * (1.7 + r() * 0.8), at + d);
+    core.env(g.gain, at, 0.005, 0.2 * (0.55 + r() * 0.45), d);
+    o.connect(g); g.connect(out); o.start(at); o.stop(at + d + 0.05);
+  }
+  hiss(core, t, out, 'brown', 'lowpass', 300, 1.2, 0.1, 0.02, 0.25);
+}
+
+/** The lifeguard's whistle: a pea whistle, two blasts, the pitch wobbling with the pea. */
+export function whistle(core: AudioCore, t: number, out: AudioNode, r: Rand): void {
+  for (let i = 0; i < 2; i++) {
+    const at = t + i * 0.62, d = i ? 0.5 : 0.3, f = 2750 + r() * 80;
+    const o = core.osc('sine', f), lfo = core.osc('sine', 38), lg = core.gain(55), g = core.gain(0);
+    lfo.connect(lg); lg.connect(o.frequency);
+    o.frequency.setValueAtTime(f * 0.96, at); o.frequency.linearRampToValueAtTime(f, at + 0.04);
+    core.gate(g.gain, at, 0.012, 0.45, d * 0.8, d * 0.2);
+    o.connect(g); g.connect(out);
+    hiss(core, at, out, 'white', 'bandpass', 3100, 6, 0.07, 0.01, d);
+    o.start(at); o.stop(at + d + 0.05); lfo.start(at); lfo.stop(at + d + 0.05);
+  }
+}
+
 /** Fresh Coat: the ball in the can, then the can. */
 export function spray(core: AudioCore, t: number, out: AudioNode, r: Rand): void {
   for (let i = 0; i < 5; i++) hiss(core, t + i * 0.09 + r() * 0.02, out, 'white', 'bandpass', 2400 + r() * 500, 9, 1, 0.0005, 0.025);
@@ -290,6 +316,16 @@ export class TroubleSounds {
       const sp = core.place(e.x, 1.5, e.z, { ref: 6, max: 90, wet: 0.2 });
       if (sp) cry(core, core.now + sp.lag + 0.04, sp.in, 150 + r() * 160, e.speed > 9, r);
       this.alarm(e.x, e.z);
+    });
+    // Drowning (ent/player.ts): bubbles rising, the gasp on coming up, the lifeguard's whistle.
+    game.on('water', (e) => {
+      if (!core.claim('water' + e.kind, 2, e.kind === 'bubbles' ? 0.3 : 0.8)) return;
+      const sp = core.place(e.x, 0.5, e.z, { ref: e.kind === 'whistle' ? 30 : 6, max: e.kind === 'whistle' ? 250 : 60, wet: 0.2 });
+      if (!sp) return;
+      const t = core.now + sp.lag + 0.02;
+      if (e.kind === 'bubbles') bubbles(core, t, sp.in, 2 + Math.round(e.amount * 3), r);
+      else if (e.kind === 'gasp') { gasp(core, t, sp.in, 170, r); gasp(core, t + 0.32, sp.in, 190, r); }
+      else whistle(core, t, sp.in, r);
     });
     game.on('roadblock', () => { if (core.claim('dispatch', 1, 0.6)) dispatch(core, core.now + 0.05, core.direct('sfx', 0.5, 0.05)); });
     game.on('respray', () => { if (core.claim('spray', 1, 2)) spray(core, core.now + 0.05, core.direct('sfx', 0.6, 0.15), r); });

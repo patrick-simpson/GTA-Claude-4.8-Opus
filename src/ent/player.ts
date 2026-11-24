@@ -15,6 +15,7 @@ import type { Box } from '../world/collide';
 import { clamp, clamp01, damp, dampAngle, headingOf, lerp, money, smooth } from '../core/util';
 import { groundAt, setGroundHint } from '../world/plan';
 import { waterLevelAt } from '../world/mainland';
+import { nearestShore } from '../world/shore';
 import { Weapons } from './weapons';
 import { kid } from '../core/kid';
 import { Boats, type Boat } from './boat';
@@ -51,6 +52,29 @@ const HOME = [5, 6, 2, 0.45] as const;
 const AIM_PACE = 2.6;
 const START_MONEY = 250;
 
+// Drowning (owner, Nov 24). Swimming keeps her up, so nothing below changes how a swim feels: only stopping, or swimming
+// until she is spent, ever takes her under.
+/** Seconds of treading water with no input before she starts to go down. */
+const TREAD = 4;
+/** How far she sinks at most (m below her floating depth), and how fast (m/s) when she gives up / when she kicks back up. */
+const SINK_MAX = 1.7, SINK_RATE = 0.45, RISE_RATE = 1.5;
+/** Her head is under once she has sunk this far. */
+const HEAD_UNDER = 0.45;
+/** Seconds of air a full breath lasts underwater, and how quickly it comes back at the surface. */
+const BREATH_SECS = 12, BREATH_BACK = 2.2;
+/** Stamina: seconds of steady swimming / of sprint swimming from fresh to spent, and seconds of treading to recover fully. */
+const STAMINA_SWIM = 110, STAMINA_SPRINT = 45, STAMINA_REST = 45;
+/** Below this stamina she is tired: slower strokes, and a stopped swimmer sinks faster. */
+const TIRED = 0.25;
+/** Seconds of air left to a car's occupant when it has gone under. */
+const CAR_BREATH = 8;
+/** The drowned sequence: seconds of limp float and fade, when she is put ashore, when control returns, when the veil is gone. */
+const WASH_FADE = 1.7, WASH_PUT = 2.7, WASH_FREE = 3.3;
+/** Kid-friendly mode: seconds of treading in deep water before the lifeguard's whistle. */
+const KID_TREAD = 5;
+/** A drowned swimmer's bill for being fished out, as a share of her cash (the hospital's is 10%). */
+const FISH_FEE = 0.05;
+
 
 const NAGS = [
   'The Harbor Authority has not approved swimming to the mainland.',
@@ -65,7 +89,7 @@ const LAST_WORDS = [
   'Paperwork to follow.',
 ];
 
-type Mode = 'foot' | 'enter' | 'drive' | 'ride' | 'leave' | 'hoist' | 'tumble' | 'dead';
+type Mode = 'foot' | 'enter' | 'drive' | 'ride' | 'leave' | 'hoist' | 'tumble' | 'dead' | 'wash';
 
 export class Player implements PlayerApi {
   readonly person: Person;
@@ -118,6 +142,14 @@ export class Player implements PlayerApi {
   /** Out-of-bounds: seconds left of being steered home, toast cool-down, which line is next. */
   private turnT = 0; private nagT = 0; private nag = 0;
   private deaths = 0;
+  /** Drowning (see the constants above): lungs and strength 0..1, seconds of treading, how far under she has sunk, the bubble clock. */
+  breath = 1; stamina = 1;
+  private tread = 0; private sink = 0; private bubT = 0; private wasUnder = false;
+  /** The drowned sequence: its clock and kind, and the black veil over the screen (0 clear, 1 black). */
+  private washT = 0; private washKind: 'drown' | 'rescue' = 'drown'; private washed = false;
+  veil = 0;
+  /** This frame's swim input (set in onFoot), which is what keeps her up. */
+  private inM = 0; private inSprint = false;
 
   // Scratch values, so nothing is allocated per frame.
   private p = { x: 0, z: 0 };
@@ -163,7 +195,7 @@ export class Player implements PlayerApi {
    * from, if anywhere. Nothing grows back: health returns at Mercy General.
    */
   hurt(amount: number, from?: { x: number; z: number } | null): void {
-    if (amount <= 0 || this.mode === 'dead' || kid.on) return;
+    if (amount <= 0 || this.mode === 'dead' || this.mode === 'wash' || kid.on) return;
     this.damage(amount);
     this.hurtT = this.game.time; this.hurtAmount = amount;
     this.hurtFrom = from ? headingOf(from.x - this.x, from.z - this.z) : NaN;
@@ -351,7 +383,9 @@ export class Player implements PlayerApi {
       case 'leave': case 'hoist': this.scripted(dt); break;
       case 'tumble': this.tumbling(dt); break;
       case 'dead': this.lying(dt); break;
+      case 'wash': this.washing(dt); break;
     }
+    this.lungs(dt);
     this.person.health = this.health;
   }
 
@@ -375,7 +409,9 @@ export class Player implements PlayerApi {
 
     let want: number;
     if (this.swimming) {
-      want = (sprint ? SWIM_FAST : SWIM) * m;
+      // Spent, she cannot sprint and her strokes slow; above TIRED a swim is exactly what it always was.
+      if (this.stamina <= 0.02) sprint = false;
+      want = (sprint ? SWIM_FAST : SWIM) * m * (this.stamina < TIRED ? 0.55 + 0.45 * (this.stamina / TIRED) : 1);
     } else {
       // A light push on the stick is a walk; past 60% it ramps up to the jog.
       want = m <= 0.6 ? WALK * (m / 0.6) : lerp(WALK, sprint ? SPRINT : JOG, (m - 0.6) / 0.4);
@@ -383,6 +419,7 @@ export class Player implements PlayerApi {
       if (this.wet) want *= 1 - 0.6 * clamp01((waterLevelAt(per.x, per.z) - per.y) / FLOAT);
       if (aim) want = Math.min(want, AIM_PACE);
     }
+    this.inM = m; this.inSprint = sprint;
     const rate = this.swimming ? 3.5 : this.grounded ? (m > 0.05 ? 11 : 15) : 2;
     const k = m > 1e-4 ? want / m : 0;
     this.vx = damp(this.vx, wx * k, rate, dt);
@@ -495,7 +532,7 @@ export class Player implements PlayerApi {
         this.swimming = false; this.grounded = true; this.vy = 0; per.y = gy;
       } else {
         // A soft spring to the floating depth, so a dive bobs back up instead of stopping dead.
-        this.vy += ((swimY(per.x, per.z) - per.y) * 30 - this.vy * 9) * dt;
+        this.vy += ((Math.max(swimY(per.x, per.z) - this.sink, gy + 0.05) - per.y) * 30 - this.vy * 9) * dt;
         per.y += this.vy * dt;
       }
     } else if (this.grounded) {
@@ -699,7 +736,8 @@ export class Player implements PlayerApi {
       this.sinkT += dt;
       c.accel = 0; c.steer = 0; c.handbrake = false; c.horn = false;
       per.x = v.x; per.y = v.y; per.z = v.z; per.h = v.h;
-      if (this.sinkT >= SINK_HOLD) this.exit();
+      // Not out the instant: the cabin is filling. F gets her out; lungs() drowns her if she waits. Kid mode pops her up.
+      if (kid.on && this.sinkT >= SINK_HOLD) this.exit();
       return;
     }
     c.steer = inp.moveX;
@@ -852,6 +890,124 @@ export class Player implements PlayerApi {
     g.hud.stamp('CLOCKED OUT', LAST_WORDS[this.deaths++ % LAST_WORDS.length]);
   }
 
+  // ── Drowning ───────────────────────────────────────────────────────────────
+
+  /**
+   * Breath and strength, every frame. Swimming (any stroke at all) keeps her up; stand still in deep water and she treads for
+   * TREAD seconds, then sinks, and her breath runs out BREATH_SECS after her head goes under. A car on the bottom is the same
+   * clock with CAR_BREATH. Kid-friendly mode never drowns: stop swimming and the lifeguard comes (rescue).
+   */
+  private lungs(dt: number): void {
+    const per = this.person, g = this.game;
+    if (this.mode === 'wash' || this.mode === 'dead') return;
+    const car = this.mode === 'drive' ? this.car : null;
+    if (car && car.sunk && !this.boats.has(car)) {
+      if (kid.on) return;
+      this.breath = Math.max(0, this.breath - dt / CAR_BREATH);
+      this.bubT -= dt;
+      if (this.bubT <= 0) { this.bubT = 0.5; g.emit('water', { kind: 'bubbles', x: per.x, z: per.z, amount: 1 - this.breath }); }
+      if (this.breath <= 0) this.beginWash('drown');
+      return;
+    }
+    if (this.mode !== 'foot' || !this.swimming) {
+      // Dry, or wading: lungs and legs fill back up.
+      this.sink = Math.max(0, this.sink - RISE_RATE * dt); this.tread = 0;
+      this.breath = Math.min(1, this.breath + dt * BREATH_BACK / BREATH_SECS);
+      this.stamina = Math.min(1, this.stamina + dt / 12);
+      this.wasUnder = false;
+      return;
+    }
+    const moving = this.inM > 0.1;
+    if (moving) this.tread = 0; else this.tread += dt;
+    if (kid.on) {
+      this.sink = 0; this.breath = 1; this.stamina = 1;
+      if (this.tread > KID_TREAD) this.beginWash('rescue');
+      return;
+    }
+    if (moving) {
+      this.sink = Math.max(0, this.sink - RISE_RATE * dt);
+      this.stamina = Math.max(0, this.stamina - dt / (this.inSprint ? STAMINA_SPRINT : STAMINA_SWIM));
+    } else {
+      this.stamina = Math.min(1, this.stamina + dt / STAMINA_REST);
+      const tired = this.stamina < TIRED;
+      if (this.tread > (tired ? TREAD * 0.4 : TREAD)) this.sink = Math.min(SINK_MAX, this.sink + SINK_RATE * (tired ? 1.8 : 1) * dt);
+    }
+    if (this.sink > HEAD_UNDER) {
+      this.wasUnder = true;
+      this.breath = Math.max(0, this.breath - dt / BREATH_SECS);
+      this.bubT -= dt;
+      if (this.bubT <= 0) { this.bubT = 0.6 + this.breath * 0.8; g.emit('water', { kind: 'bubbles', x: per.x, z: per.z, amount: 1 - this.breath }); }
+      if (this.breath <= 0) this.beginWash('drown');
+    } else {
+      if (this.wasUnder) {
+        this.wasUnder = false;
+        if (this.breath < 0.7) g.emit('water', { kind: 'gasp', x: per.x, z: per.z, amount: 1 - this.breath });
+      }
+      this.breath = Math.min(1, this.breath + dt * BREATH_BACK / BREATH_SECS);
+    }
+  }
+
+  /** Out of air (or, in kid-friendly mode, whistled out): the fade, the card, and a new place to stand. */
+  private beginWash(kind: 'drown' | 'rescue'): void {
+    const g = this.game, per = this.person;
+    if (this.car || this.rideCar) this.exit();
+    this.mode = 'wash';
+    this.washKind = kind; this.washT = 0; this.washed = false;
+    this.goal = null; this.nearVehicle = null;
+    this.vx = this.vz = 0; this.vy = 0;
+    this.sink = 0; this.breath = kind === 'drown' ? 0 : 1;
+    per.visible = true; per.speed = 0;
+    if (kind === 'rescue') g.emit('water', { kind: 'whistle', x: per.x, z: per.z, amount: 1 });
+  }
+
+  /** The drowned sequence, see WASH_*: float limp, fade to black, set down on the nearest shore (or at Mercy General), fade up. */
+  private washing(dt: number): void {
+    const g = this.game, per = this.person;
+    this.washT += dt;
+    const t = this.washT;
+    this.veil = t < WASH_FADE ? t / WASH_FADE : t < WASH_PUT ? 1 : Math.max(0, 1 - (t - WASH_PUT) / (WASH_FREE - WASH_PUT));
+    if (!this.washed) {
+      per.speed = 0; this.vx = this.vz = 0;
+      if (this.washKind === 'drown') {
+        // Face down at the surface, rolling a little with the swell.
+        per.pose = 'down';
+        per.y = waterLevelAt(per.x, per.z) - 0.3 + Math.sin(t * 2.1) * 0.04;
+      } else {
+        per.pose = 'swim';
+        per.y = swimY(per.x, per.z);
+      }
+      if (t < WASH_PUT) return;
+      this.washed = true;
+      const ox = per.x, oz = per.z;
+      const sh = nearestShore(ox, oz, 600, (x, z, gy) => !g.col.pointBlocked(x, z, gy + 0.9));
+      if (sh) {
+        this.put(sh.x, sh.z, Math.atan2(sh.x - ox, sh.z - oz));
+        if (this.washKind === 'drown') {
+          const bill = Math.floor(this.money * FISH_FEE);
+          this.money -= bill;
+          g.hud.toast(bill > 0 ? `The Harbor Authority fished you out and billed you ${money(bill)}. Dripping is not covered.` : 'The Harbor Authority fished you out and found nothing to bill.', 6);
+        }
+      } else {
+        const home = g.plan.sidewalkPoint(...HOME);
+        this.put(home.x, home.z, home.h);
+        this.health = 100; this.heat = 0;
+        const bill = Math.floor(this.money * 0.1);
+        this.money -= bill;
+        g.hud.toast(bill > 0 ? `Mercy General billed you ${money(bill)}. They validated parking.` : 'Mercy General found nothing to bill. They validated parking anyway.', 6);
+      }
+      this.mode = 'wash';
+      this.veil = 1;
+      per.pose = 'down';
+      if (this.washKind === 'drown') g.hud.stamp('WASHED UP', 'Harbor Authority Form W-4: you were wet, and then you were not.');
+      else g.hud.stamp('FISHED OUT', 'A lifeguard has placed you on the beach and filed the paperwork.');
+      g.cam.snap();
+      return;
+    }
+    per.pose = t < WASH_PUT + 0.35 ? 'down' : 'stand';
+    per.speed = 0;
+    if (t >= WASH_FREE) { this.mode = 'foot'; this.veil = 0; this.safeT = 1; per.pose = 'stand'; }
+  }
+
   private lying(dt: number): void {
     // Kid-friendly mode switched on while she lay there: she gets up where she is, no bill.
     if (kid.on) { this.health = 100; this.mode = 'tumble'; this.restT = 0; return; }
@@ -884,6 +1040,7 @@ export class Player implements PlayerApi {
     this.grounded = !this.swimming;
     this.vx = this.vy = this.vz = 0;
     this.airT = 0; this.jumpBuf = 0; this.turnT = 0;
+    this.breath = 1; this.stamina = 1; this.sink = 0; this.tread = 0; this.wasUnder = false; this.veil = 0;
     this.mode = 'foot';
     this.nearVehicle = null;
     per.visible = true;

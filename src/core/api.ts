@@ -214,6 +214,10 @@ export interface PlayerApi {
   /** Police attention, 0..5. Milestone 3 drives it; the HUD already shows it. */
   heat: number;
   readonly swimming: boolean;
+  /** Drowning: air left in her lungs and strength left for swimming, both 0..1 (1 = full). */
+  readonly breath: number; readonly stamina: number;
+  /** How black the screen is while she is being washed ashore: 0 clear, 1 black. */
+  readonly veil: number;
   /** A vehicle close enough to get into right now (for the HUD hint), else null. */
   readonly nearVehicle: Vehicle | null;
   teleport(x: number, z: number, h?: number): void;
@@ -262,6 +266,8 @@ export interface GameEvents {
   exit: { vehicle: Vehicle };
   propBreak: { prop: Prop; vx: number; vz: number };
   splash: { x: number; z: number; big: boolean };
+  /** Drowning (ent/player.ts): air leaving a swimmer under the surface, a gasp on coming up, the lifeguard's whistle. `amount` 0..1 is how short of breath. */
+  water: { kind: 'bubbles' | 'gasp' | 'whistle'; x: number; z: number; amount: number };
   /** The giant rubber duck in the harbor has been bumped. It honks. */
   duck: { x: number; z: number };
   start: Record<string, never>;

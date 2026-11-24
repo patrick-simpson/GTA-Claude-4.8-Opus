@@ -467,6 +467,36 @@
 }
 .hud-stamp-s:empty { display: none; }
 
+/* ── Swimming: breath and stamina ────────────────────────────────────────── */
+.hud-swim {
+  position: absolute;
+  left: 50%;
+  bottom: 24%;
+  transform: translateX(-50%);
+  display: none;
+  flex-direction: column;
+  gap: 0.3em;
+  padding: 0.5em 0.7em 0.6em;
+  background: var(--bone);
+  color: var(--ink);
+  border: var(--rule) solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.hud-swim.on { display: flex; }
+.hud-lung { display: flex; align-items: center; gap: 0.7em; }
+.hud-lung .hud-lbl { width: 5.6em; }
+.hud-lung-bar { position: relative; width: 13em; height: 0.85em; border: var(--rule) solid var(--ink); background: transparent; }
+.hud-lung-bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: var(--ink); }
+.hud-lung.air .hud-lung-bar i { background: var(--ink); }
+.hud-lung.str .hud-lung-bar i { background: var(--mustard); }
+.hud-swim.gasping .hud-lung.air .hud-lung-bar i { background: var(--vermilion); }
+.hud-swim.gasping { animation: hud-gasp 0.7s steps(1) infinite; }
+.hud-swim.spent .hud-lung.str .hud-lbl { color: var(--vermilion); }
+@keyframes hud-gasp { 0% { box-shadow: 2px 2px 0 var(--vermilion); } 50% { box-shadow: 2px 2px 0 var(--ink); } }
+#hud.touch .hud-swim { bottom: 34%; }
+/* The black of the washed-up fade, under every slip and the stamp. */
+.hud-veil { position: absolute; inset: 0; background: #000; opacity: 0; display: none; pointer-events: none; }
+
 /* ── Quick-reference card ──────────────────────────────────────────────── */
 
 .hud-keys {

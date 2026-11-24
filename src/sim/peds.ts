@@ -15,7 +15,8 @@ import type { Game } from '../core/game';
 import { kid } from '../core/kid';
 import type { Look, Person, Vehicle } from '../core/api';
 import { RNG, clamp, dampAngle } from '../core/util';
-import { MAIN_SPLIT_Z } from '../world/mainland';
+import { MAIN_SPLIT_Z, waterLevelAt } from '../world/mainland';
+import { nearestShore } from '../world/shore';
 import { PIER, groundAt, type Block, type District, type RoadEdge, type RoadNode } from '../world/plan';
 import type { StreetGraph } from '../world/streets';
 import type { Prop } from '../world/collide';
@@ -67,6 +68,11 @@ export interface Mover {
 
 /** Multiplayer host: players who are close together, and the share of the cast kept round them. */
 interface Group { a: Anchor; members: Anchor[]; blocks: Block[]; top: number; want: number; n: number; jumped: boolean; fill: number }
+
+/** Where each swimming walker is heading (swimHome). */
+const swimTo = new WeakMap<object, { x: number; z: number }>();
+/** Metres per second of a pedestrian's paddle. */
+const SWIM_PACE = 1.3;
 
 export interface Walker extends RoadPed {
   p: Person;
@@ -1073,6 +1079,8 @@ export class Peds {
       g.col.resolveCircle(p, R, p.y + 0.2);
     } else w.vx = w.vz = 0;
     p.y = groundAt(p.x, p.z);
+    // Knocked into the water and not badly hurt: she swims for the nearest beach (drowning, fun-queue 22).
+    if (p.y < -0.5 && !w.hard && this.swimHome(w, dt)) return;
     p.pose = 'down'; p.speed = 0;
     w.timer -= dt;
     if (w.timer > 0 || sp > 0.3) return;
@@ -1087,6 +1095,32 @@ export class Peds {
     }
     // Nobody is carted off in plain view. Once nobody is looking they are back in the pool, unharmed and unimpressed.
     if (wet || this.fair(p.x, p.z, 40, 1e5, 95)) { w.active = false; w.hard = false; w.mode = WALK; p.visible = false; p.health = 100; }
+  }
+
+  /** A walker in deep water paddles to the closest dry sand and carries on. False if there is none in reach (she is then taken away as before). */
+  private swimHome(w: Walker, dt: number): boolean {
+    const p = w.p;
+    let s = swimTo.get(w);
+    if (!s) {
+      const sh = nearestShore(p.x, p.z, 300);
+      if (!sh) return false;
+      swimTo.set(w, (s = { x: sh.x, z: sh.z }));
+    }
+    const dx = s.x - p.x, dz = s.z - p.z, d = Math.hypot(dx, dz);
+    if (d > 1.2) {
+      const k = Math.min(d, SWIM_PACE * dt) / d;
+      p.x += dx * k; p.z += dz * k;
+      p.h = dampAngle(p.h, Math.atan2(dx, dz), 6, dt);
+      p.y = waterLevelAt(p.x, p.z) - 1.3;
+      p.pose = 'swim'; p.speed = SWIM_PACE;
+      return true;
+    }
+    swimTo.delete(w);
+    p.x = s.x; p.z = s.z; p.y = groundAt(s.x, s.z);
+    p.pose = 'stand'; p.speed = 0; p.health = Math.max(p.health, 10);
+    this.adopt(w);
+    w.flee = 2.5;
+    return true;
   }
 
   /** Run from (x, z) for a while: along the sidewalk, whichever way is away. */

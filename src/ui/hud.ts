@@ -856,6 +856,9 @@ export class Hud implements HudApi {
   private pauseEl: HTMLElement;
   private pauseVals: HTMLElement[];
   private vitals: HTMLElement;
+  /** Drowning: the swim slip (breath and stamina), the black veil, and what they last showed. */
+  private swimEl: HTMLElement; private airBar: HTMLElement; private strBar: HTMLElement; private veilEl: HTMLElement;
+  private shownAir = -1; private shownStr = -1; private shownVeil = -1; private swimShow = false;
   private hpEl: HTMLElement;
   private arEl: HTMLElement;
 
@@ -936,7 +939,12 @@ export class Hud implements HudApi {
     const field = (label: string): string => `<div class="hud-card-row"><span class="hud-lbl">${label}</span><span></span></div>`;
 
     root.innerHTML = `
+<div class="hud-veil"></div>
 <div class="hud-frame">
+  <div class="hud-swim">
+    <div class="hud-lung air"><span class="hud-lbl">Breath</span><span class="hud-lung-bar"><i></i></span></div>
+    <div class="hud-lung str"><span class="hud-lbl">Stamina</span><span class="hud-lung-bar"><i></i></span></div>
+  </div>
   <div class="hud-radar"><canvas></canvas></div>
   <div class="hud-vitals">
     <span class="hud-vital"><i></i><span class="hud-lbl">Condition</span><b>100</b></span>
@@ -1034,6 +1042,10 @@ export class Hud implements HudApi {
     this.pauseEl = q('.hud-pause');
     this.pauseVals = Array.from(root.querySelectorAll<HTMLElement>('.hud-card-row > span:last-child'));
     this.vitals = q('.hud-vitals');
+    this.swimEl = q('.hud-swim');
+    this.airBar = q('.hud-lung.air i');
+    this.strBar = q('.hud-lung.str i');
+    this.veilEl = q('.hud-veil');
     this.hpEl = q('.hud-vital:first-child b');
     this.arEl = q('.hud-vital:last-child b');
 
@@ -1136,6 +1148,24 @@ export class Hud implements HudApi {
     (el.children[1] as HTMLElement).style.display = name ? 'block' : 'none';
     el.style.opacity = '1';
     this.radioUntil = performance.now() + seconds * 1000;
+  }
+
+  /**
+   * The swim slip (drowning, ent/player.ts): shown while her lungs are not full or she is tired and in deep water. The breath
+   * bar turns vermilion and blinks when it is nearly out. Also drives the black veil of the washed-up sequence.
+   */
+  private tickSwim(p: Game['player']): void {
+    const air = Math.round(clamp01(p.breath) * 40), str = Math.round(clamp01(p.stamina) * 40);
+    const show = (p.swimming && (p.stamina < 0.97 || p.breath < 1)) || p.breath < 0.999;
+    if (show !== this.swimShow) { this.swimShow = show; this.swimEl.classList.toggle('on', show); }
+    if (air !== this.shownAir) {
+      this.shownAir = air;
+      this.airBar.style.width = (air * 2.5) + '%';
+      this.swimEl.classList.toggle('gasping', air > 0 && air <= 12);
+    }
+    if (str !== this.shownStr) { this.shownStr = str; this.strBar.style.width = (str * 2.5) + '%'; this.swimEl.classList.toggle('spent', str <= 10); }
+    const v = Math.round(clamp01(p.veil) * 100);
+    if (v !== this.shownVeil) { this.shownVeil = v; this.veilEl.style.opacity = String(v / 100); this.veilEl.style.display = v ? 'block' : 'none'; }
   }
 
   stamp(title: string, sub = ''): void {
@@ -1288,6 +1318,7 @@ export class Hud implements HudApi {
     }
     if (arN !== this.shownAr) { this.shownAr = arN; this.arEl.textContent = String(arN); }
 
+    this.tickSwim(p);
     this.tickArms(live);
     if (this.subT > 0 && live && (this.subT -= dt) <= 0) this.subEl.classList.remove('on');
     if (this.backT > 0 && live && performance.now() - this.backT >= UNSTICK * 1000) { this.backT = 0; g.todo.unstick(); }
