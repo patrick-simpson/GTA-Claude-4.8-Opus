@@ -65,6 +65,12 @@ function pool(n) {
   });
 }
 
+/** ETC1S [qlevel, clevel] for a standalone picture: `etc1sLevels` in config.json maps a name regex to them (default 255, 4). */
+function etc1sLevels(name) {
+  for (const [re, q, c] of CONFIG.etc1sLevels ?? []) if (new RegExp(re, 'i').test(name)) return [q, c];
+  return [255, 4];
+}
+
 /** Which basis mode and colour space a picture gets, from its name (standalone files) or the slot it fills (glTF). */
 export function textureMode(name, slot) {
   const n = name.replace(/\.[^.]+$/, '');
@@ -75,12 +81,12 @@ export function textureMode(name, slot) {
 }
 
 /** A picture's bytes as KTX2 with mipmaps. `png` is what toktx reads. */
-async function toKtx2(toktx, pngBytes, mode, srgb, tmp) {
-  const id = sha(pngBytes, mode, String(srgb));
+async function toKtx2(toktx, pngBytes, mode, srgb, tmp, ql = [255, 4]) {
+  const id = sha(pngBytes, mode, String(srgb), ql.join());
   const inp = path.join(tmp, id + '.png'), outp = path.join(tmp, id + '.ktx2');
   fs.writeFileSync(inp, pngBytes);
   const common = ['--t2', '--genmipmap', '--assign_oetf', srgb ? 'srgb' : 'linear', '--assign_primaries', 'none', '--threads', '2'];
-  const enc = mode === 'uastc' ? ['--encode', 'uastc', '--uastc_quality', '2', '--zcmp', '18'] : ['--encode', 'etc1s', '--clevel', '4', '--qlevel', '255'];
+  const enc = mode === 'uastc' ? ['--encode', 'uastc', '--uastc_quality', '2', '--zcmp', '18'] : ['--encode', 'etc1s', '--clevel', String(ql[1]), '--qlevel', String(ql[0])];
   try { await run(toktx, [...common, ...enc, outp, inp]); return fs.readFileSync(outp); } finally { fs.rmSync(inp, { force: true }); fs.rmSync(outp, { force: true }); }
 }
 
@@ -183,11 +189,11 @@ export async function optimizeAssets(o = {}) {
       tot.glbIn += bytes.length; tot.glbOut += buf.length;
     } else if (toktx && /\.(webp|png|jpe?g)$/.test(ext) && !RAW.some((r) => r.test(f))) {
       const { mode, srgb } = textureMode(f);
-      const key = sha(bytes, VERSION, mode, String(srgb)), cf = path.join(cache, `${f}.${key}.ktx2`);
+      const key = sha(bytes, VERSION, mode, String(srgb), etc1sLevels(f).join()), cf = path.join(cache, `${f}.${key}.ktx2`);
       let buf;
       if (!o.force && fs.existsSync(cf)) { buf = fs.readFileSync(cf); tot.cached++; }
       else {
-        buf = await toKtx2(toktx, await toPng(bytes, FLIP.test(f)), mode, srgb, tmp); fs.writeFileSync(cf, buf); tot.made++;
+        buf = await toKtx2(toktx, await toPng(bytes, FLIP.test(f)), mode, srgb, tmp, etc1sLevels(f)); fs.writeFileSync(cf, buf); tot.made++;
         for (const old of fs.readdirSync(cache)) if (old.startsWith(f + '.') && old !== path.basename(cf)) fs.rmSync(path.join(cache, old), { force: true });
       }
       const kf = f.replace(/\.[^.]+$/, '.ktx2');

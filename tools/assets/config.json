@@ -7,5 +7,6 @@
   "uastc": "(_n|_bn|_nrm|normal|_mask|damage|logo|sign|decal|label|poster|banner|text)$",
   "srgb": "(_bc|albedo|basecolor|color|colour|diffuse|atlas|logo|sign|decal|label|poster|banner|text|_c)$",
   "flip": "^(car_damage|pardons_lm).",
-  "etc1s": "_lm$"
+  "etc1s": "_lm$|^cars_sheet_",
+  "etc1sLevels": [["^cars_sheet_n", 255, 5], ["^cars_sheet_o", 128, 4]]
 }

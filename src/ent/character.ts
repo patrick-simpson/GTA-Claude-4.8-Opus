@@ -344,14 +344,20 @@ vec2 pcW = vec2(sin(vBind.x * 1100.0 + vBind.z * 700.0), sin(vBind.y * 1100.0));
 if (pcC == 1) diffuseColor.rgb *= 1.0 + 0.07 * pcNear * pcW.x * pcW.y + 0.035 * sin(vBind.y * 31.0 + 2.0 * sin(vBind.x * 17.0 + vBind.z * 13.0));
 else if (pcC == 0) diffuseColor.rgb *= vec3(1.0, 0.985, 0.975) + vec3(0.03, 0.045, 0.045) * sin(vBind.y * 23.0 + 3.0 * sin(vBind.x * 41.0 + vBind.z * 29.0));`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-if (pcC == 1) normal = normalize(normal + 0.10 * pcNear * vec3(pcW.x, pcW.y, 0.0));`)
+if (pcC == 1) normal = normalize(normal + 0.10 * pcNear * vec3(pcW.x, pcW.y, 0.0));
+// Pores: a fine, uneven grain on skin, gone before it can shimmer.
+else if (pcC == 0) normal = normalize(normal + 0.045 * pcNear * vec3(sin(vBind.x * 1900.0 + vBind.y * 1300.0) * sin(vBind.z * 1700.0 - vBind.x * 900.0), sin(vBind.y * 2100.0 + vBind.z * 1500.0) * sin(vBind.x * 1600.0), 0.0));`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-roughnessFactor = pcC == 0 ? 0.56 : pcC == 1 ? 0.93 : pcC == 2 ? 0.46 : pcC == 3 ? 0.78 : pcC == 4 ? 0.52 : pcC == 5 ? 0.32 : pcC == 6 ? 0.06 : 0.28;`)
+roughnessFactor = pcC == 0 ? 0.56 + 0.12 * sin(vBind.y * 47.0 + 2.0 * sin(vBind.x * 53.0 + vBind.z * 31.0)) : pcC == 1 ? 0.93 : pcC == 2 ? 0.46 : pcC == 3 ? 0.78 : pcC == 4 ? 0.52 : pcC == 5 ? 0.32 : pcC == 6 ? 0.06 : 0.28;`)
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nif (pcC == 5) metalnessFactor = 1.0;')
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
 float pcRim = pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 3.0);
 if (pcC == 1) { reflectedLight.indirectDiffuse *= 1.0 + 0.7 * pcRim; reflectedLight.directDiffuse *= 1.0 + 0.4 * pcRim; }
-else if (pcC == 0) { reflectedLight.indirectDiffuse *= vec3(1.14, 1.0, 0.9); reflectedLight.directDiffuse *= vec3(1.0) + vec3(0.22, 0.05, 0.0) * pcRim; }
+else if (pcC == 0) {
+  reflectedLight.indirectDiffuse *= vec3(1.14, 1.0, 0.9); reflectedLight.directDiffuse *= vec3(1.0) + vec3(0.22, 0.05, 0.0) * pcRim;
+  // Light scattering under the skin: a warm red glow in the shade, strongest where the surface turns away (ears, nose, fingers).
+  reflectedLight.indirectDiffuse += diffuseColor.rgb * vec3(0.10, 0.030, 0.010) * (0.35 + 0.65 * pcRim);
+}
 else if (pcC == 4) { reflectedLight.indirectDiffuse *= 1.0 + 0.5 * pcRim; }
 // Eyes are wet and catch light from everywhere: without this they are two dark holes under any hat.
 else if (pcC == 6) { reflectedLight.indirectDiffuse += diffuseColor.rgb * 0.22 * (0.25 + reflectedLight.indirectDiffuse); }`);

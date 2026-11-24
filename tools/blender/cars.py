@@ -1519,6 +1519,11 @@ def relief(P=None):
     if dm: bump('grille', pillows, dm[1])
     else: bump('grille', mesh, 0.004)
     bump('seat', channels, 0.007); bump('interior', grain, 0.0016)
+    # Moulded plastic trim (bumpers' lower valance, mirror caps, window frames) is never dead flat: a fine leather-like grain.
+    def trim_grain(x, y, z, M, nt, tc):
+        nz = nt.nodes.new('ShaderNodeTexNoise'); nz.inputs['Scale'].default_value = 140.0; nz.inputs['Detail'].default_value = 3.0
+        nt.links.new(tc.outputs['Object'], nz.inputs['Vector']); return nz.outputs[0]
+    bump('trim', trim_grain, 0.0006)
 
 
 def unwrap(obs, sill, uvw=None):
@@ -1578,8 +1583,21 @@ def unwrap(obs, sill, uvw=None):
 def _bake_setup(samples_dist=0.6):
     sc = bpy.context.scene
     sc.render.engine = 'CYCLES'
-    try: sc.cycles.device = 'CPU'; sc.cycles.use_denoising = False
+    sc.cycles.device = 'CPU'
+    try:
+        # The RTX does the bakes (Cycles on OptiX, else CUDA); the CPU only if neither is there.
+        cp = bpy.context.preferences.addons['cycles'].preferences
+        for typ in ('OPTIX', 'CUDA'):
+            try: cp.compute_device_type = typ
+            except Exception: continue
+            cp.get_devices()
+            gpus = [d for d in cp.devices if d.type == typ]
+            for d in cp.devices: d.use = d.type == typ
+            if gpus: sc.cycles.device = 'GPU'; break
+    except Exception as ex: print('bake on CPU:', ex)
+    try: sc.cycles.use_denoising = False
     except Exception: pass
+    print('BAKE DEVICE', sc.cycles.device)
     w = bpy.data.worlds.new('bakeworld'); sc.world = w
     try: w.light_settings.distance = samples_dist
     except Exception: pass
@@ -1625,7 +1643,7 @@ def bake_maps(kind, sets, P):
                 if sxn < 0: o.rotation_euler = (0, 0, pi)
                 insts.append(o)
         _only([dup])
-        for img, typ, smp, margin in ((imgN, 'NORMAL', 2, 2), (imgO, 'AO', 48, 2)):
+        for img, typ, smp, margin in ((imgN, 'NORMAL', 4, 2), (imgO, 'AO', 160, 2)):
             _target(mats, img); sc.cycles.samples = smp
             bpy.ops.object.bake(type=typ, normal_space='TANGENT', margin=margin, use_clear=False)
         for o in insts + [dup]: bpy.data.objects.remove(o)
@@ -2436,3 +2454,10 @@ if __name__ == '__main__':
         except Exception:
             import traceback
             print('FAILED cars_far'); traceback.print_exc()
+        # And the ready-made normal/occlusion sheets the asset pipeline compresses to KTX2 (see tools/assets/README.md).
+        try:
+            import subprocess
+            r = subprocess.run(['node', os.path.join(ROOT, 'tools', 'assets', 'carsheet.mjs')], capture_output=True, text=True, timeout=300)
+            print('CARSHEET ' + (r.stdout.strip() or r.stderr.strip()[:300]))
+        except Exception as ex:
+            print('FAILED carsheet', ex)

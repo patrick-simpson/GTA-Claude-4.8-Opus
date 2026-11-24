@@ -47,6 +47,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { assets } from '../core/assets';
+import { KTX_ON, ktxUrl, loadKtx } from '../core/ktx';
 import { SPECS, type VehicleKind } from './vehicleSpecs';
 
 /** Kinds with a file in public/models. Keep in step with that folder. */
@@ -75,15 +76,25 @@ export function wantsCarMaps(low: boolean, maxTextureSize: number): boolean {
   return !low && maxTextureSize >= SHEET_TEXELS && new URLSearchParams(location.search).get('cartex') !== '0';
 }
 
+/**
+ * The same sheets made offline (tools/assets/carsheet.mjs, run by cars.py): the build compresses them to KTX2, which the
+ * card keeps compressed (about half the video memory of the raw sheets below, and no pixel copying at run time). Used
+ * only where a .ktx2 exists; otherwise every kind's own pair of pictures is gathered at run time as before.
+ */
+const SHEET_N = 'models/cars_sheet_n.webp', SHEET_O = 'models/cars_sheet_o.webp';
+const hasReadySheets = (): boolean => KTX_ON && ktxUrl(SHEET_N) !== SHEET_N && ktxUrl(SHEET_O) !== SHEET_O;
+
 /** What loadVehicleAssets will ask for, in its order, for the download queue: the far file, the opening view's files, the rest. */
 export function carFiles(far: CarLoad['far'], textures: boolean): { far: string[]; opening: string[]; later: string[] } {
   const out = { far: far === 'none' ? [] : [FAR_FILE], opening: [] as string[], later: [] as string[] };
   if (far === 'only') return out;
   if (textures && WHEEL_TEX) out.opening.push('models/cars_wheel_n.webp', 'models/cars_wheel_o.webp');
+  const ready = textures && hasReadySheets();
+  if (ready) out.opening.push(SHEET_N, SHEET_O);
   kindsByNeed().forEach((k, i) => {
     const to = i < OPENING_KINDS.length ? out.opening : out.later;
     to.push(`models/${k}.glb`);
-    if (textures && TEX_KINDS.includes(k)) to.push(`models/${k}_n.webp`, `models/${k}_o.webp`);
+    if (textures && !ready && TEX_KINDS.includes(k)) to.push(`models/${k}_n.webp`, `models/${k}_o.webp`);
   });
   return out;
 }
@@ -379,10 +390,10 @@ function sheets(send: SendCell | null): NonNullable<typeof sheet> {
  * picture that is missing or the wrong size leaves the cell blank (smooth and unshaded), which is a car with no
  * occlusion, not a broken one.
  */
-async function place(asset: VehicleAsset, send: SendCell | null): Promise<void> {
+async function place(asset: VehicleAsset, send: SendCell | null, ready: CarMaps | null = null): Promise<void> {
   const i = TEX_KINDS.indexOf(asset.kind);
   if (i < 0 || i >= COLS * ROWS) return;
-  const cx = i % COLS, cy = Math.floor(i / COLS), s = sheets(send);
+  const cx = i % COLS, cy = Math.floor(i / COLS), s = ready ? null : sheets(send);
   for (const l of asset.lods) {
     for (const g of [l.paint, l.detail]) {
       const uv = g?.getAttribute('uv') as THREE.BufferAttribute | undefined;
@@ -392,6 +403,7 @@ async function place(asset: VehicleAsset, send: SendCell | null): Promise<void> 
       uv.needsUpdate = true;
     }
   }
+  if (ready || !s) { asset.maps = ready; return; }
   asset.maps = s.maps;
   const [n, o] = await Promise.all([pixels(`models/${asset.kind}_n.webp`, 2), pixels(`models/${asset.kind}_o.webp`, 1)]);
   const W = COLS * CELL;
@@ -411,6 +423,16 @@ async function place(asset: VehicleAsset, send: SendCell | null): Promise<void> 
     if (nd) s.maps.normal.needsUpdate = true;
     if (od) s.maps.ao.needsUpdate = true;
   }
+}
+
+/** The ready-made sheets as compressed textures, or null (no .ktx2, ?ktx=0, decode failed): then each kind gathers its own cell. */
+async function readySheets(): Promise<CarMaps | null> {
+  if (!hasReadySheets()) return null;
+  const [n, o] = await Promise.all([loadKtx(SHEET_N, { srgb: false, flip: false, anisotropy: 4 }), loadKtx(SHEET_O, { srgb: false, flip: false, anisotropy: 4 })]);
+  if (!n || !o) { n?.dispose(); o?.dispose(); return null; }
+  // A cell's edge must not borrow its neighbour's texels.
+  for (const t of [n, o]) t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return { normal: n, ao: o };
 }
 
 const isGlb = (buf: ArrayBuffer | null): buf is ArrayBuffer => !!buf && buf.byteLength >= 20 && new DataView(buf).getUint32(0, true) === 0x46546c67;
@@ -454,6 +476,7 @@ export function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, o: CarLoad)
   const all = (async (): Promise<void> => {
     const loader = new GLTFLoader();
     const wheelMaps = o.textures && WHEEL_TEX ? await wheelTextures() : null;
+    const ready = o.textures ? await readySheets() : null;
     let i = 0;
     for (const kind of kindsByNeed()) {
       if (i++ === OPENING_KINDS.length) opened();
@@ -466,7 +489,7 @@ export function loadVehicleAssets(onLoad: (a: VehicleAsset) => void, o: CarLoad)
         if (!asset) { console.warn(`models/${kind}.glb: no LOD0 with a paint mesh; keeping the procedural ${kind}`); continue; }
         for (const n of asset.notes) console.warn(`models/${kind}.glb: ${n}`);
         // The maps come before the car is shown: its near levels have no occlusion of their own to fall back on.
-        if (o.textures) await place(asset, o.send);
+        if (o.textures) await place(asset, o.send, ready);
         asset.wheelMaps = wheelMaps;
         full.add(kind);
         onLoad(asset);

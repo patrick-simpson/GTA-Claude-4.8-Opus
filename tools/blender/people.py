@@ -468,7 +468,7 @@ def build_eye(M, F, s):
     def sph(phi, th, r, rot=None):
         v = Vector((sin(phi) * cos(th), sin(phi) * sin(th), cos(phi))) * r
         return E + (rot @ v if rot else v)
-    ring = lambda p, t, r=ER, rot=None: [(sph(radians(p), 2 * pi * k / 10, r, rot), HW, t) for k in range(10)]
+    ring = lambda p, t, r=ER, rot=None: [(sph(radians(p), 2 * pi * k / 16, r, rot), HW, t) for k in range(16)]
     M.grid([[(sph(0, 0, ER), HW, 1.0)]] + [ring(p, 1.0 - 0.3 * (p / 56) ** 2) for p in (10, 22, 34, 45, 56)], 'eyewhite', min_lod=0)
     # The iris rides just proud of the white and turns with the look. Its tint paints the pupil and the dark rim.
     rot = Matrix.Rotation(F['lookx'] * 0.35, 3, 'Y') @ Matrix.Rotation(-F['looky'] * 0.30, 3, 'X')
@@ -559,7 +559,14 @@ def build_hand(M, G, F, s, n, lod):
             secs.append(dict(c=p.copy(), rx=r * flat, zf=r, zb=r, u=u, v=v))
         tip = pts[-1] + (pts[-1] - pts[-2]).normalized() * r1 * k * 0.8
         secs.append(dict(c=tip, rx=0, zf=0, zb=0, u=Vector((1, 0, 0)), v=Vector((0, 0, 1))))
-        M.tube(secs, 6, 'body', W, min_lod=0, tint=nail or 1.0)
+        M.tube(secs, 8, 'body', W, min_lod=0, tint=nail or 1.0)
+        # A nail: a flat pale pad on the back of the last bone.
+        if len(pts) > 3:
+            a = (pts[-1] - pts[-2]).normalized(); q = pts[-1] - a * r1 * k * 0.9
+            nv = a.cross(Vector((inx, 0, 0))); nv = nv.normalized() if nv.length > 1e-4 else Vector((0, 0, 1))
+            nb = nv.cross(a).normalized()
+            # Which way is the back of the finger: away from the palm side, i.e. the sign that points to -inx at rest.
+            M.ball(tuple(q + a * r1 * k * 0.55 - nb * (1 if nb.x * inx < 0 else -1) * r1 * k * 0.55), (r1 * k * 0.62, r1 * k * 0.62, r1 * k * 0.62), 'body', W, 6, 4, min_lod=0, tint=(1.0, 0.86, 0.82))
 
     for fi, (fz, L1, r, bd) in enumerate(FINGERS):
         rel = 0.20 + 0.07 * fi
@@ -626,7 +633,13 @@ def person(G, lod, F):
         ty = T[-1][0]
         secs.append(S(ty + 0.006, nk + neck, None, None, T[-1][4], w={'chest': 1.0}))
         secs.append(S(ty + 0.003, nk - 0.004, None, None, T[-1][4], w={'chest': 1.0}, t=0.55))
-        M.tube(secs, 16, mat, keep=keep, min_lod=min_lod)
+        def folds(a, sec):
+            # Cloth is never smooth: slack gathers in diagonal creases round the waist, and drapes in soft vertical ones below the chest.
+            y = sec['c'].y
+            if lod or y < hem + 0.025: return 0.0
+            low = smooth((1.17 - y) / 0.20)
+            return ease * 0.0 + (0.0042 * sin(a * 6.0 + y * 36.0) + 0.0030 * sin(a * 11.0 - y * 9.0)) * low + 0.0016 * sin(a * 5.0 + y * 52.0) * smooth((1.40 - y) / 0.25)
+        M.tube(secs, 16, mat, keep=keep, min_lod=min_lod, disp=folds)
 
     def collar(mat, out=0.030, high=0.030, gap=0.30):
         """A turned-down collar: up the neck, folded, lying on the shoulders, open at the throat."""
@@ -721,9 +734,12 @@ def person(G, lod, F):
     # ── Hair ── A shell over the skull whose edge dives under the skin at the hairline.
     def shell(mat, off, line, top=1.0, hang=None, lo=1.56, rise=1.0, bump=None, until=None, tint=streak, segs=20, min_lod=2):
         ramp = max(0.022, off * 1.1)
+        if lod == 0 and mat != 'cap': segs = segs * 3 // 2 // 2 * 2
         n_eff = near_segs(segs) if lod == 0 else max(10, segs * 3 // 4) if lod == 1 else 6
         def has(yu, a):
-            return yu > line(a) - 0.004 and (until is None or yu < until(a))
+            # Up close the faces are dropped well below the hairline (the shell is buried there by disp), so the edge you see is
+            # where the shell crosses the skin, a smooth curve, not the outline of the grid.
+            return yu > line(a) - (0.016 if lod == 0 and mat != 'cap' else 0.004) and (until is None or yu < until(a))
         def d(a, sec):
             # A vertex on the rim (any face round it missing) sits just under the skin, so no shell ever shows its inside.
             da = pi / n_eff
@@ -732,6 +748,9 @@ def person(G, lod, F):
             return o * clamp((sec['hy'] - line(a)) / ramp, -0.5 if off < 0.02 else -0.08, 1.0)
         secs = []; crown = HEAD[-1][0]
         hs = [h for h in HEAD if h[0] >= lo]
+        if lod == 0 and mat != 'cap':
+            # Up close the hairline is cut face by face, so give the shell twice the rings: the steps along it halve.
+            hs = [q for a, b in zip(hs, hs[1:]) for q in (a, tuple(lerp(a[i], b[i], 0.5) for i in range(5)))] + hs[-1:]
         for i, h in enumerate(hs):
             y, rx, zf, zb, cz = head_at(hy(max(h[0], hang) if hang else h[0]), hk)
             yy = hy(h[0]); yy = hy(lo) + (yy - hy(lo)) * rise
@@ -749,10 +768,11 @@ def person(G, lod, F):
         M.tube(secs, segs, mat, HW, keep=keep, disp=d, lod_segs=10, tint=tint, min_lod=min_lod)
     crop = lambda a: lerp(1.662, 1.738, smooth(sin(a) / 0.85)) if sin(a) > 0 else lerp(1.662, 1.598, smooth(-sin(a) / 0.8))
     bob = lambda a: lerp(1.555, 1.735, smooth((sin(a) - 0.12) / 0.4))
-    for hm in ('hair_crop', 'hair_tail', 'hair_bun'): shell(hm, 0.011, crop, lo=1.59)
+    clump = lambda a, y: 1.0 + 0.16 * sin(a * 13.0 + y * 55.0) * sin(a * 5.0 - y * 31.0)
+    for hm in ('hair_crop', 'hair_tail', 'hair_bun'): shell(hm, 0.013, crop, lo=1.59, bump=clump)
     # Side part: more of it, swept across from the left of the crown and falling toward the right brow.
-    shell('hair_part', 0.019, lambda a: crop(a) - 0.014 * G2(a, 1.05, 0.5), lo=1.59, bump=lambda a, y: 0.75 + 0.55 * smooth((cos(a - 2.2) + 0.2) / 1.2))
-    shell('hair_long', 0.017, bob, hang=1.64)
+    shell('hair_part', 0.022, lambda a: crop(a) - 0.014 * G2(a, 1.05, 0.5), lo=1.59, bump=lambda a, y: (0.75 + 0.55 * smooth((cos(a - 2.2) + 0.2) / 1.2)) * clump(a, y))
+    shell('hair_long', 0.020, bob, hang=1.64, bump=clump)
     # ...and the rest of it down the back to the shoulder blades.
     M.tube([S(1.60, 0.078, 0.020, 0.050, -0.052, w=HW), S(1.54, 0.088, 0.026, 0.050, -0.062, w=HW), S(1.47, 0.094, 0.030, 0.044, -0.082, w={'head': 0.5, 'chest': 0.5}),
             S(1.40, 0.090, 0.026, 0.036, -0.098, w={'chest': 1.0}), S(1.345, 0.070, 0.016, 0.022, -0.104, w={'chest': 1.0}), S(1.33, 0, 0, 0, -0.104, w={'chest': 1.0})],
@@ -887,10 +907,10 @@ def build_face_extras(M, F, lod):
         """How much beard there is at a spot: 0 none, 1 full."""
         ax = abs(x)
         if ax < 0.021 and 1.576 < y < 1.5905: return 0.0                     # the mouth
-        if y > 1.5905 and ax < 0.027: return clamp((1.6035 - y) / 0.004) * clamp((0.027 - ax) / 0.004)   # moustache
-        side = smooth((ax - 0.018) / 0.010)
+        if y > 1.5905 and ax < 0.027: return clamp((1.6035 - y) / 0.007) * clamp((0.027 - ax) / 0.008)   # moustache
+        side = smooth((ax - 0.016) / 0.016)
         top = 1.586 + 0.050 * smooth((ax - 0.032) / 0.03)                      # up the jaw toward the sideburn
-        return clamp((top - y) / 0.010) * (1.0 if y < 1.576 else side)
+        return clamp((top - y) / 0.018) * (1.0 if y < 1.576 else side)
     nc = 14
     cols = [c for c in (head_cols() if lod == 0 else [(-pi / 2 + 2 * pi * k / nc, None) for k in range(nc)]) if -0.05 < c[0] < pi + 0.05]
     rws = [r for r in (FACE_ROWS if lod == 0 else COARSE_ROWS) if r[0] < 1.645]
@@ -902,7 +922,7 @@ def build_face_extras(M, F, lod):
                 p0, _ = face_point(F, a, y, t, tag, lod)
                 r = region(p0.x, y); rr.append(r)
                 o = off * (1.0 + 0.5 * G2(y, 1.545, 0.012) * G2(p0.x, 0, 0.03)) if lift else off
-                pt, _ = face_point(F, a, y, t, tag, lod, off=lerp(-0.0008, o, smooth(r / 0.7)))
+                pt, _ = face_point(F, a, y, t, tag, lod, off=lerp(-0.0040 if lift else -0.0008, o, smooth(r / 0.85)))
                 row.append((pt, HW, 0.86 + 0.14 * sin(p0.x * 900 + y * 700) ** 2))
             rows.append(row); R.append(rr)
         M.grid(rows, mat, closed=False, keep=lambda j, k, R=R: max(R[j][k], R[j][k + 1], R[j + 1][k], R[j + 1][k + 1]) > 0.0,
@@ -1159,7 +1179,6 @@ def sheets(kind, G, arm_ob, obs, which):
 
 def build(kind, do_render=True, do_export=True, which=('faces', 'body', 'wardrobe', 'hands')):
     G = BODY[kind]
-    bpy.ops.wm.read_factory_settings(use_empty=True)
     global STAGE
     STAGE = None
     make_materials()
@@ -1203,9 +1222,25 @@ def build(kind, do_render=True, do_export=True, which=('faces', 'body', 'wardrob
     if do_render: sheets(kind, G, arm_ob, bodies, which)
 
 
+def _ctx():
+    """With Blender's window showing (never -b on the laptop), operators poll false from a start-up script unless told
+    which window and 3D view they run in. Without a window this overrides nothing."""
+    kw = {}; wm = bpy.context.window_manager
+    win = wm.windows[0] if wm and len(wm.windows) else None
+    if win:
+        kw['window'] = win; kw['screen'] = win.screen
+        area = next((a for a in win.screen.areas if a.type == 'VIEW_3D'), None)
+        if area:
+            kw['area'] = area
+            reg = next((r for r in area.regions if r.type == 'WINDOW'), None)
+            if reg: kw['region'] = reg
+    return bpy.context.temp_override(**kw)
+
+
 if __name__ == '__main__':
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     kinds = [a for a in argv if not a.startswith('--') and a in BODY] or list(BODY)
     which = argv[argv.index('--sheets') + 1].split(',') if '--sheets' in argv else ('faces', 'body', 'wardrobe', 'hands')
     for k in kinds:
-        build(k, '--no-render' not in argv, '--no-export' not in argv, which)
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        with _ctx(): build(k, '--no-render' not in argv, '--no-export' not in argv, which)

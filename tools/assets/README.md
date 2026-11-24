@@ -11,7 +11,13 @@
 | every `*.webp` `*.png` `*.jpg` not on the `raw` list | the picture stays, plus `<name>.ktx2` | KTX2 with a full mip chain. UASTC for normals (`_n _bn _nrm`), `damage`, masks, logos and signs; ETC1S (quality 255) for colour, occlusion and `_lm` lightmaps. |
 | (generated) | `ktx.json` | picture name -> `.ktx2` name. The build also bakes it into the code as `__KTX__`. |
 
-Pictures that are read pixel by pixel (the car normal/occlusion maps are packed into shared atlases, flora is merged with
+The cars' normal/occlusion atlases are made offline: `node tools/assets/carsheet.mjs` (cars.py runs it after every export) gathers
+every kind's `<kind>_n.webp` / `<kind>_o.webp` into `cars_sheet_n.webp` and `cars_sheet_o.webp` (4 x 4 cells of 1024, the layout of
+`vehicleAssets.ts`). Those two are NOT on the `raw` list, so the build turns them into KTX2 (both ETC1S: normals at qlevel 255 / clevel 5, 0.8 MB; occlusion at qlevel 128, 1.7 MB; `etc1sLevels` in config.json. UASTC+RDO+zstd for the normals was 3.2 MB at best, so the cars' relief rides ETC1S, with no visible banding in a close-up. Phones never fetch them) and the
+game keeps them compressed on the card (`readySheets()` in vehicleAssets.ts). Where no `.ktx2` exists (dev server, `?ktx=0`) the old
+per-kind pictures are gathered at run time. The per-kind files stay on the `raw` list (they are the fallback and the source).
+
+Pictures that are read pixel by pixel (the per-kind car maps, flora is merged with
 its alpha mask in JS) are on the `raw` list in `config.json` and get no `.ktx2`. Anything not on that list is converted.
 
 Nothing to register: a new `.glb` or picture in `public/models` is picked up by the next build. Results are cached by
