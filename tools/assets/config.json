@@ -1,0 +1,11 @@
+{
+  "raw": [
+    "^cars_wheel_",
+    "^flora_",
+    "^(bolt|bus|cmax|coupe|cruiser|hatch|muscle|pickup|sedan|sports|taxi|tow|van)_[no]\\."
+  ],
+  "uastc": "(_n|_bn|_nrm|normal|_mask|damage|logo|sign|decal|label|poster|banner|text)$",
+  "srgb": "(_bc|albedo|basecolor|color|colour|diffuse|atlas|logo|sign|decal|label|poster|banner|text|_c)$",
+  "flip": "^(car_damage|pardons_lm).",
+  "etc1s": "_lm$"
+}

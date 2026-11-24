@@ -18,6 +18,7 @@
 
 import * as THREE from 'three';
 import { flip } from '../core/flip';
+import { loadKtx } from '../core/ktx';
 
 export const FRONT = 0, REAR = 1, LEFT = 2, RIGHT = 3;
 /** Glass panes, two bits each in CarDamage.glass: 0 whole, 1 cracked, 2 shattered. */
@@ -197,10 +198,15 @@ function damageSheet(): THREE.Texture {
   const blank = new THREE.DataTexture(new Uint8Array([128, 0, 0, 0]), 1, 1);
   blank.needsUpdate = true;
   sheet = blank;
-  const tex = new THREE.TextureLoader().load('models/car_damage.webp', () => { sheet = tex; for (const u of users) u.value = tex; });
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.anisotropy = 4;
+  const use = (tex: THREE.Texture): void => { sheet = tex; for (const u of users) u.value = tex; };
+  // The compressed copy when the build has one (src/core/ktx.ts), else the picture.
+  void loadKtx('models/car_damage.webp', { srgb: false, flip: false }).then((k) => {
+    if (k) { use(k); return; }
+    const tex = new THREE.TextureLoader().load('models/car_damage.webp', () => use(tex));
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.NoColorSpace;
+    tex.anisotropy = 4;
+  });
   return blank;
 }
 const users: { value: THREE.Texture }[] = [];

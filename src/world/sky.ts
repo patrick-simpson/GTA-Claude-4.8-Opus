@@ -230,7 +230,9 @@ varying vec3 vDir;
 void main() {
   vDir = position;
   vec4 p = projectionMatrix * vec4(mat3(viewMatrix) * position, 1.0);
-  gl_Position = vec4(p.xy, 0.0, p.w);
+  // On the far plane (z = w), and drawn after the opaque things with the depth test on: pixels a building, road or car
+  // already covers never run the sky shader (it was drawn first, at full screen, then painted over).
+  gl_Position = vec4(p.xy, p.w, p.w);
 }`;
 
 const DOME_FRAG = /* glsl */ `
@@ -608,12 +610,12 @@ export class Sky implements SkyApi {
     const box = new THREE.BoxGeometry(2, 2, 2);
     const domeMat = new THREE.ShaderMaterial({
       uniforms: this.uniforms, vertexShader: DOME_VERT, fragmentShader: DOME_FRAG,
-      side: THREE.BackSide, depthTest: false, depthWrite: false, fog: false,
+      side: THREE.BackSide, depthTest: true, depthWrite: false, fog: false,
     });
     this.dome = new THREE.Mesh(box, domeMat);
     this.dome.name = 'sky';
     this.dome.frustumCulled = false;
-    this.dome.renderOrder = -1000;
+    this.dome.renderOrder = 1000; // last of the opaque list (transparent things draw after it either way)
     this.dome.matrixAutoUpdate = false;
     // The fog colour depends on which way the camera faces, and the camera can
     // still be moved after update() (screenshot views, shake). Settling it here,

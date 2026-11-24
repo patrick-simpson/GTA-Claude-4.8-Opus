@@ -18,6 +18,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Game } from '../core/game';
 import { assets } from '../core/assets';
+import { loadKtx } from '../core/ktx';
 import { progress } from './progress';
 import { BRIDGE_SPANS } from './plan';
 import { STREETS_NEW } from './streets';
@@ -78,6 +79,8 @@ export function loadTexture(url: string, flip: boolean, srgb: boolean): Promise<
   if (!p) {
     p = (async () => {
       try {
+        const k = await loadKtx(url, { srgb, flip });
+        if (k) return k;
         const blob = await assets.blob(url);
         if (!blob || !blob.type.startsWith('image')) return null;
         const bmp = await createImageBitmap(blob, { imageOrientation: flip ? 'flipY' : 'none' });

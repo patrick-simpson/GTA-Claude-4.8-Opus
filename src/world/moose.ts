@@ -111,9 +111,14 @@ function twilight(hour: number): number {
 
 const pick = <T>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];
 
+/** How far from the camera a crossing sign is drawn (m): it is 1 m wide, so past this it is a speck. */
+const SIGN_SHOW = 450;
+
 export class Moose implements WorldPart {
   readonly stats = { sites: 0, active: 0, shown: 0, hits: 0, charges: 0, knocks: 0, ms: 0, loaded: false };
   private readonly group = new THREE.Group();
+  /** The crossing signs (three draws each): hidden beyond SIGN_SHOW so a far mainland costs no calls from downtown. */
+  private readonly signGroups: THREE.Group[] = [];
   sites: Site[] = [];
   private cache: (Cross | null)[] = [];
   private cacheKey = '';
@@ -307,6 +312,10 @@ export class Moose implements WorldPart {
   update(dt: number): void {
     const t0 = performance.now();
     const g = this.game;
+    if (this.signGroups.length) {
+      const cp = g.camera.position;
+      for (const sg of this.signGroups) sg.visible = Math.hypot(sg.position.x - cp.x, sg.position.z - cp.z) < SIGN_SHOW;
+    }
     if (!this.patched) this.patchTraffic();
     if (!this.src) { if (!this.loading) this.load(); this.roadPeds.length = 0; return; }
     const sky = g.sky;
@@ -656,6 +665,7 @@ export class Moose implements WorldPart {
         const p = new THREE.Mesh(pole, post); p.castShadow = true;
         g.add(f, bk, p);
         this.group.add(g);
+        this.signGroups.push(g);
       }
     }
   }

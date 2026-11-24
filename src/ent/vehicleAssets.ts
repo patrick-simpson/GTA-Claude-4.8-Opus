@@ -387,8 +387,8 @@ async function place(asset: VehicleAsset, send: SendCell | null): Promise<void> 
     for (const g of [l.paint, l.detail]) {
       const uv = g?.getAttribute('uv') as THREE.BufferAttribute | undefined;
       if (!uv) continue;
-      const a = uv.array as Float32Array;
-      for (let k = 0; k < a.length; k += 2) { a[k] = (Math.min(1, Math.max(0, a[k])) + cx) / COLS; a[k + 1] = (Math.min(1, Math.max(0, a[k + 1])) + cy) / ROWS; }
+      // getX / setXY, not the array: in the shipped models (tools/assets) the coordinates are normalized 16 bit integers.
+      for (let k = 0; k < uv.count; k++) uv.setXY(k, (Math.min(1, Math.max(0, uv.getX(k))) + cx) / COLS, (Math.min(1, Math.max(0, uv.getY(k))) + cy) / ROWS);
       uv.needsUpdate = true;
     }
   }

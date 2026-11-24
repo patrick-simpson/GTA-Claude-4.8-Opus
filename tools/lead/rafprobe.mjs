@@ -14,6 +14,8 @@ const SC = {
   downtown: { at: [-30, 0, 3.14], path: [-30, 60, -30, -200] },
   heights: { at: [0, -320, 1.57], path: [-240, -320, 300, -320] },
   mainst: { land: 1, at: [80, -1300, 3.14], path: [80, -1100, 80, -1560] },
+  // The tornado and rain (world/rareWeather.ts) at night-fall over downtown; cfgs noTornado/noCloud/noShells say what the funnel costs.
+  storm: { at: [-30, 0, 3.14], path: [-30, 60, -30, -200], storm: 1 },
   park: { at: [140, -110, 1.57], path: [60, -110, 300, -110] },
   // Pardon's (src/world/pardonsStore.ts): inside along the sales floor, and the lot in front.
   pardons: { land: 1, at: [-628, -1135, 0], path: [-606, -1126, -676, -1126] },
@@ -46,6 +48,7 @@ const t = opt.vsync ? await boot60() : await boot({ query, width: 1920, height: 
 try {
   for (let i = 0; i < 6; i++) { await t.page.waitForTimeout(1500); await t.step(4); }
   await t.game((g) => g.setTime(13));
+  if (SC.storm) await t.game((g) => { g.setWeather('rain'); window.__storm.tornado.start(); });
   await t.game((g, a) => g.teleport(a[0], a[1], a[2]), SC.at);
   await t.step(90); await t.page.waitForTimeout(400); await t.step(10);
   const res = await t.page.evaluate(async ([p, at, secs, rounds, cfgOnly, speed, modes]) => {
@@ -121,6 +124,9 @@ try {
       // Photo mode (src/fx/photo.ts) open, with and without depth of field: the difference is what the blur costs.
       photo: () => { g.photo.enter(); Object.assign(g.photo.set, { dof: 0 }); g.photo.apply(); return () => g.photo.leave(); },
       photoDof: () => { g.photo.enter(); Object.assign(g.photo.set, { dof: 0.9, focus: 6 }); g.photo.apply(); return () => g.photo.leave(); },
+      noTornado: () => { const r = window.__storm.tornado.root; r.visible = false; return () => { r.visible = true; }; },
+      noCloud: () => { const c = window.__storm.tornado.cloud; c.visible = false; return () => { c.visible = true; }; },
+      noShells: () => { const s = window.__storm.tornado.shells; s.forEach((m) => { m.visible = false; }); return () => s.forEach((m) => { m.visible = true; }); },
       noAO: () => { if (!g.post) return () => {}; g.post.aoOn = false; return () => { g.post.aoOn = true; }; },
     };
     const names = Object.keys(cfgs).filter((k) => !cfgOnly || cfgOnly.includes(k));

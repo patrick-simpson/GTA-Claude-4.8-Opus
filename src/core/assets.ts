@@ -12,6 +12,8 @@
 // total is known before the first response. What has arrived is counted from the response bodies as they stream.
 // (The live site sends .glb files gzipped; these are the unpacked bytes on both sides of the fraction.)
 
+import { ktxUrl } from './ktx';
+
 declare const __MODEL_BYTES__: Record<string, number> | undefined;
 
 const SIZES: Record<string, number> = typeof __MODEL_BYTES__ === 'object' && __MODEL_BYTES__ ? __MODEL_BYTES__ : {};
@@ -82,7 +84,8 @@ class Assets {
 
   /** Say what will be wanted, most needed first. The first `opening` of them are what the opening view shows. */
   plan(urls: readonly string[], opening: number): void {
-    urls.forEach((u, i) => { if (!this.items.has(u)) this.queue.push(this.make(u, i < opening)); });
+    // A picture that has a .ktx2 (src/core/ktx.ts) is downloaded as that.
+    urls.forEach((u, i) => { const k = ktxUrl(u); if (!this.items.has(k)) this.queue.push(this.make(k, i < opening)); });
     this.pump();
   }
 

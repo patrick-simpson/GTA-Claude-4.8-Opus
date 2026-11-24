@@ -30,6 +30,11 @@ jobs:
 
       - run: npm ci
 
+      # toktx (KTX-Software) makes the compressed KTX2 pictures (tools/assets/README.md). If it cannot be installed the
+      # build still works: the pictures just stay webp (the models are compressed either way).
+      - run: |
+          curl -fsSL -o /tmp/ktx.deb https://github.com/KhronosGroup/KTX-Software/releases/download/v4.4.2/KTX-Software-4.4.2-Linux-x86_64.deb && sudo dpkg -i /tmp/ktx.deb && toktx --version || echo "KTX-Software not installed: pictures stay webp"
+
       # Type-checks, then bundles into dist/. If this fails nothing is deployed
       # and the site keeps serving the last good build.
       - run: npm run build

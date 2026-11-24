@@ -15,6 +15,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { Game } from '../core/game';
 import type { Person } from '../core/api';
 import { assets } from '../core/assets';
+import { loadKtx } from '../core/ktx';
 import { RNG } from '../core/util';
 import { CORRALS, PD, pdRect } from './pardonsSite';
 
@@ -529,7 +530,9 @@ export class PardonsStock {
   }
 
   async load(): Promise<void> {
-    const [jb, kb, lb] = await Promise.all([assets.bytes('models/pardons_stock.json'), assets.bytes('models/pardons_kit.glb'), assets.blob('models/pardons_lm.webp')]);
+    const lk = await loadKtx('models/pardons_lm.webp', { srgb: false, flip: false });
+    if (lk) LM.uLm.value = lk;
+    const [jb, kb, lb] = await Promise.all([assets.bytes('models/pardons_stock.json'), assets.bytes('models/pardons_kit.glb'), lk ? Promise.resolve(null) : assets.blob('models/pardons_lm.webp')]);
     if (lb && lb.size > 100 && lb.type.startsWith('image')) {
       const url = URL.createObjectURL(lb);
       try {

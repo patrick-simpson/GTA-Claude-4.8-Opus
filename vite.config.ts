@@ -6,7 +6,17 @@ import { execSync } from 'node:child_process';
 // The size of every model file, written into the code as __MODEL_BYTES__ so the title card knows the total of what
 // it is waiting for before the first response arrives (src/core/assets.ts).
 const models = fileURLToPath(new URL('./public/models', import.meta.url));
-const modelBytes = Object.fromEntries(fs.readdirSync(models).map((f) => [f, fs.statSync(`${models}/${f}`).size]));
+const sizesOf = (dir: string): Record<string, number> => Object.fromEntries(fs.readdirSync(dir).map((f) => [f, fs.statSync(`${dir}/${f}`).size]));
+
+// The asset pipeline (tools/assets/README.md): for `vite build`, the smaller models and the .ktx2 pictures are made (or
+// taken from the cache) before anything else, written over dist/models when the bundle is done, and the sizes and the
+// picture list below are theirs. ASSETS_OPT=0 builds with the originals (for comparing). The Basis transcoder the
+// game's KTX2 loader reads is copied into public/basis in every mode.
+const pipeline = await import('./tools/assets/optimize.mjs');
+pipeline.copyTranscoder();
+const optimized = process.argv.includes('build') && process.env.ASSETS_OPT !== '0' ? await pipeline.optimizeAssets() : null;
+const modelBytes = { ...sizesOf(models), ...(optimized ? sizesOf(optimized.out) : {}) };
+const ktxFiles = optimized ? Object.fromEntries(Object.entries(optimized.manifest.files as Record<string, { ktx2: string }>).map(([k, v]) => [k, v.ktx2])) : {};
 
 // This build's id: the commit on GitHub, BUILD_ID when a test sets one, else the time. It is baked into the bundle as
 // __BUILD_ID__ and written to dist/version.json, which the running game polls (src/core/update.ts).
@@ -31,8 +41,11 @@ const news = buildNews();
 // Relative base so the build works on the custom domain and on a /repo/ sub-path alike.
 export default defineConfig({
   base: './',
-  define: { __MODEL_BYTES__: JSON.stringify(modelBytes), __BUILD_ID__: JSON.stringify(buildId), __BUILD_NEWS__: JSON.stringify(news) },
+  define: { __MODEL_BYTES__: JSON.stringify(modelBytes), __KTX__: JSON.stringify(ktxFiles), __BUILD_ID__: JSON.stringify(buildId), __BUILD_NEWS__: JSON.stringify(news) },
   plugins: [{
+    name: 'asset-pipeline',
+    closeBundle() { if (optimized) pipeline.overlay(optimized.out, fileURLToPath(new URL('./dist/models', import.meta.url))); },
+  }, {
     name: 'version-stamp',
     generateBundle() {
       this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ id: buildId, title: news.title, notes: news.notes }) });
