@@ -41,6 +41,8 @@ export interface Settings {
   volMaster: number; volMusic: number; volSfx: number; volAmbience: number;
   /** The station the radio was left on: -1 = off, 0 = Claude FM, 1.. = the generated stations (src/audio/radio.ts). */
   station: number;
+  /** 1 once the one-time move of every old save to Claude FM has been made (Nov 24); later dial choices stick. */
+  radioV: number;
 }
 
 export interface Stats {
@@ -105,7 +107,7 @@ export function freshStats(): Stats {
   return { driven: 0, walked: 0, cars: 0, topSpeed: 0, airtime: 0, airDist: 0, booked: 0, deaths: 0, passed: 0, failed: 0, fares: 0, tows: 0, parcels: 0, races: 0, earned: 0, played: 0 };
 }
 export function freshSettings(): Settings {
-  return { sens: 1, invertY: false, quality: 'auto', fsTap: true, reducedMotion: false, season: 'auto', volMaster: 0.8, volMusic: 0.7, volSfx: 0.8, volAmbience: 0.8, station: 0 };
+  return { sens: 1, invertY: false, quality: 'auto', fsTap: true, reducedMotion: false, season: 'auto', volMaster: 0.8, volMusic: 0.7, volSfx: 0.8, volAmbience: 0.8, station: 0, radioV: 1 };
 }
 function fresh(): SaveDoc {
   return { v: SAVE_VERSION, when: 0, player: null, missions: [], ducks: [], jumps: [], counts: {}, best: {}, stats: freshStats(), settings: freshSettings() };
@@ -153,7 +155,8 @@ export function sanitize(raw: unknown): SaveDoc {
   d.settings.volMusic = num(t.volMusic, 0.7, 0, 1);
   d.settings.volSfx = num(t.volSfx, 0.8, 0, 1);
   d.settings.volAmbience = num(t.volAmbience, 0.8, 0, 1);
-  d.settings.station = Math.round(num(t.station, 0, -1, 6));
+  // Claude FM became the default after some saves had picked a station (or the radio off): once, put them on it.
+  d.settings.station = t.radioV === 1 ? Math.round(num(t.station, 0, -1, 6)) : 0;
   return d;
 }
 

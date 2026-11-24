@@ -6,6 +6,7 @@
 //
 //   dj-<station>   a DJ's links and idents for each generated station: played over the intro of the next song
 //   ads            fake adverts for the town's invented businesses, in between
+//   dj-claudefm    the host of Claude FM (the live stream): Kokoro, not Piper; ClaudeFMDJ below ducks the stream for a line
 //   police         megaphone lines and radio chatter from a cruiser in a pursuit, placed in the world
 //   barks          what the townsfolk say: bumped, hit, nearly hit, running away, cheering at the derby
 //
@@ -24,7 +25,7 @@ import type { AudioCore } from './audio';
 import { mulberry } from './audio';
 
 /** Shown in the menu's settings: what the licences ask for (tools/licenses/voices.md). */
-export const VOICE_CREDIT = 'Spoken lines: Piper text-to-speech. Voices trained on the VCTK corpus and the Alba recordings (University of Edinburgh, CC BY 4.0) and on LJ Speech (public domain).';
+export const VOICE_CREDIT = 'Spoken lines: Piper text-to-speech. Voices trained on the VCTK corpus and the Alba recordings (University of Edinburgh, CC BY 4.0) and on LJ Speech (public domain). The Claude FM host: Kokoro-82M text-to-speech (Apache-2.0, hexgrad), voice am_michael.';
 
 type Clip = { id: string; t: number; d: number; kind: string; g: string };
 
@@ -163,6 +164,93 @@ export class RadioVoice {
   private cut(t: number): void {
     if (this.src) { try { this.src.stop(t + 0.05); } catch { /* done */ } this.src = null; }
   }
+}
+
+// ── Claude FM's ──────────────────────────────────────────────────────────────
+
+/** The few parts of ClaudeFM (claudefm.ts) the host needs: is it sounding, and the factor it may be ducked by. */
+interface FMLike { readonly playing: boolean; duck: number }
+
+/** Seconds of listening before the first line (never under 30), and between lines after that (about 4 to 7 minutes). */
+const FM_FIRST = [45, 90], FM_EVERY = [240, 420], FM_DUCK = 0.25, FM_RAMP = 0.6;
+
+/**
+ * The host of Claude FM. The stream is YouTube's, so it cannot be mixed: it is pulled down (setVolume, through
+ * ClaudeFM.duck) to a quarter over 0.6 s, one line is spoken on the music bus (it follows the Music slider like the
+ * stream does), and the stream comes back over 0.6 s. Only counts time while the stream is really playing; stopping
+ * (left the car, paused, tab hidden) cuts the line short and puts the volume back. The pack loads on first play.
+ */
+export class ClaudeFMDJ {
+  readonly pack = new Pack('dj-claudefm');
+  stats = { lines: 0, last: '', kind: '' };
+  /** Phase: waiting, ducking down, speaking, coming back. */
+  phase: 'wait' | 'down' | 'say' | 'up' = 'wait';
+  private left = FM_FIRST[0] + Math.random() * (FM_FIRST[1] - FM_FIRST[0]);
+  private t = 0;
+  private src: AudioBufferSourceNode | null = null;
+  private clip: Clip | null = null;
+  private recent: string[] = [];
+  private first = true;
+
+  constructor(private readonly core: AudioCore, private readonly fm: FMLike) {}
+
+  /** Each frame with the real seconds since the last. `on`: Claude FM is wanted and sounding. */
+  tick(dt: number, on: boolean): void {
+    const fm = this.fm;
+    if (on && this.pack.state === 'idle') this.pack.load(this.core);
+    if (!on) {
+      if (this.phase !== 'wait') this.stop();
+      if (fm.duck !== 1) fm.duck = 1;
+      return;
+    }
+    dt = Math.min(dt, 0.25);
+    const c = this.core;
+    if (this.phase === 'wait') {
+      this.left -= dt;
+      if (this.left > 0) return;
+      if (this.pack.state !== 'ready' || c.ctx.state !== 'running') { this.left = 5; return; }
+      this.phase = 'down'; this.t = 0;
+    } else if (this.phase === 'down') {
+      this.t += dt;
+      fm.duck = 1 - (1 - FM_DUCK) * Math.min(1, this.t / FM_RAMP);
+      if (this.t >= FM_RAMP) {
+        if (!this.speak()) { this.phase = 'up'; this.t = 0; } else { this.phase = 'say'; this.t = 0; }
+      }
+    } else if (this.phase === 'say') {
+      this.t += dt;
+      if (this.clip && this.t >= this.clip.d + 0.15) { this.phase = 'up'; this.t = 0; this.src = null; }
+    } else {
+      this.t += dt;
+      fm.duck = FM_DUCK + (1 - FM_DUCK) * Math.min(1, this.t / FM_RAMP);
+      if (this.t >= FM_RAMP) { fm.duck = 1; this.phase = 'wait'; this.left = FM_EVERY[0] + Math.random() * (FM_EVERY[1] - FM_EVERY[0]); }
+    }
+  }
+
+  /** Say one line now (not one of the last few; the first is always an ident). Returns false if it could not. */
+  private speak(): boolean {
+    const c = this.core, pk = this.pack;
+    const kinds = this.first ? ['id'] : Math.random() < 0.6 ? ['tip'] : ['link', 'id'];
+    let pool = kinds.flatMap((k) => pk.get(k)).filter((x) => !this.recent.includes(x.id));
+    if (!pool.length) pool = pk.clips.filter((x) => !this.recent.includes(x.id));
+    if (!pool.length) return false;
+    const clip = pool[Math.floor(Math.random() * pool.length)];
+    this.recent.push(clip.id); if (this.recent.length > 8) this.recent.shift();
+    // The voice rides the music bus: the Music slider and the master level set it, as they set the stream.
+    this.src = play(c, pk, clip, c.bus.music, c.now + 0.03, 1.5);
+    if (!this.src) return false;
+    this.clip = clip; this.first = false; this.stats.lines++; this.stats.last = clip.id; this.stats.kind = clip.kind;
+    return true;
+  }
+
+  /** Cut whatever is being said and put the stream back at once. */
+  private stop(): void {
+    if (this.src) { try { this.src.stop(this.core.now + 0.03); } catch { /* done */ } this.src = null; }
+    this.phase = 'wait'; this.fm.duck = 1;
+    this.left = FM_EVERY[0] + Math.random() * (FM_EVERY[1] - FM_EVERY[0]);
+  }
+
+  /** For the tests: speak at the next frame. */
+  force(): void { this.phase = 'wait'; this.left = 0; }
 }
 
 // ── The world's ──────────────────────────────────────────────────────────────

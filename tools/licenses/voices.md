@@ -22,6 +22,26 @@ Attribution (CC BY 4.0) is shown in the game: `VOICE_CREDIT` in `src/audio/voice
 Settings tab. The voices are synthetic: no recording of any real speaker is reproduced, and no line mentions a real
 person, place or brand.
 
+## Claude FM's host (Kokoro, not Piper)
+
+The host of Claude FM (`public/audio/voice/dj-claudefm.*`, 28 lines, about 0.9 MB as Opus/WebM at 32 kbps, 0.8 MB as MP3) is spoken by
+**Kokoro-82M v1.0** (hexgrad), synthesised offline with `kokoro-onnx` 0.4.7 (MIT) in `C:\Users\User\kokoro` (outside the repo; models
+`kokoro-v1.0.onnx` and `voices-v1.0.bin` from github.com/thewh1teagle/kokoro-onnx, release `model-files-v1.0`). Read on 2026-11-24:
+
+| Part | Licence | Notes |
+| --- | --- | --- |
+| Kokoro-82M weights | **Apache-2.0** (model card, huggingface.co/hexgrad/Kokoro-82M: "Apache-licensed weights, Kokoro can be deployed anywhere ... we welcome the deployment of the model in real use cases") | Architecture StyleTTS 2 (MIT), ISTFTNet |
+| Voice pack `am_michael` (American English, male; grade C+, target quality B) | Part of the same Apache-2.0 release; the card names no separate voice licence | The card states the training data was "exclusively permissive/non-copyrighted audio" (public domain, Apache/MIT, and synthetic audio from closed TTS providers; none from open TTS models or custom clones). The only CC BY audio it lists is Koniwa (Japanese) and SIWIS (French), neither American. |
+| espeak-ng (phonemiser, GPL-3.0) | Used only at build time to turn text into phonemes; not shipped or linked into the game; the spoken audio is not a derivative of it | |
+
+Allowed in a public game, so Kokoro is used (no fall back to Piper was needed). Apache-2.0 asks no attribution for output audio, but the
+credit is shown anyway (`VOICE_CREDIT` in `src/audio/voices.ts`). Chosen by analysis of the same 140-character line in `am_michael`,
+`am_adam`, `am_fenrir`, `am_puck`, `af_heart`, `af_bella` (median pitch, pitch spread in semitones, voicing clarity, peak level):
+`am_michael` has a low steady pitch (117 Hz, spread 3.2 semitones, so it does not swing), no clipping (peak 0.56; `am_fenrir` peaked at 1.00)
+and the calm pace of a late-night host. Speed 0.93. Broadcast chain (ffmpeg): 85 Hz high-pass, +2.5 dB at 170 Hz for body, +1.5 dB at
+3.2 kHz, -2 dB at 6.5 kHz against hiss, low-pass 9.5 kHz, gentle 3:1 compressor, levelled to about -18 LUFS. Regenerate (repo root):
+`C:\Users\User\kokoro\venv\Scripts\python.exe -I scratch/fmdj/gen.py [voice]`; the lines are in `scratch/fmdj/lines.py`.
+
 ## Not used, and why
 
 | Voice | Reason |

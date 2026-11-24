@@ -27,7 +27,7 @@ import { hiss, ping, thud } from './sfx';
 import { ClaudeFM, CLAUDE_FM_CALL } from './claudefm';
 import { CAROLS } from './carols';
 import { holiday } from '../world/holiday';
-import { RadioVoice } from './voices';
+import { RadioVoice, ClaudeFMDJ } from './voices';
 
 // ── Harmony ──────────────────────────────────────────────────────────────────
 
@@ -586,6 +586,7 @@ export class Radio {
         if (this.game.player.seated) { this.game.hud.toast('Claude FM is off the air. Over to ' + STATIONS[0].call + '.', 3.5); this.show(); }
       }
     });
+    this.fmDj = new ClaudeFMDJ(core, this.fm);
     game.on('pause', (e) => { this.paused = e.on; if (e.on) this.fm.pause(); });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.fm.pause(); });
   }
@@ -622,6 +623,9 @@ export class Radio {
     this.show();
   }
   private tuneAt = 0;
+  /** The host of Claude FM: now and then ducks the stream for a line (voices.ts). */
+  readonly fmDj: ClaudeFMDJ;
+  private lastKeys = 0;
   /** The DJs, idents and adverts between songs (voices.ts). */
   readonly voice: RadioVoice;
 
@@ -639,6 +643,9 @@ export class Radio {
     const fm = this.station === 0 && !!v && !v.sunk && !this.paused && document.visibilityState !== 'hidden'
       && s.volMaster > 0 && s.volMusic > 0 && this.core.now >= this.tuneAt;
     this.fm.set(fm, s.volMaster * s.volMusic);
+    const now = performance.now(), dt = this.lastKeys ? (now - this.lastKeys) / 1000 : 0;
+    this.lastKeys = now;
+    this.fmDj.tick(dt, fm && this.fm.playing);
   }
 
   update(_dt: number): void {
