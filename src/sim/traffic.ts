@@ -17,6 +17,8 @@ import type { Vehicle } from '../core/api';
 import { RNG, TAU, clamp } from '../core/util';
 import { RAMPS, type District, type RoadEdge, type RoadNode } from '../world/plan';
 import { SPECS, commonKind, type VehicleKind } from '../ent/vehicleSpecs';
+import { MAIN_SPLIT_Z } from '../world/mainland';
+import { StreetDrivers, type Rail } from './streetTraffic';
 
 /** The most left and pushed cars the town keeps wherever they stand; past this the ones nobody can see are towed. */
 const KEPT_MAX = 40;
@@ -40,8 +42,10 @@ export interface RoadPed { x: number; z: number; vx: number; vz: number }
 /** A cubic curve through a junction: in at 0, out at 3, with 1 and 2 as the handles. */
 interface Turn { x0: number; z0: number; x1: number; z1: number; x2: number; z2: number; x3: number; z3: number; u: number; vmax: number }
 
-interface Driver {
+export interface Driver {
   v: Vehicle | null;
+  /** On the new mainland streets (plan.streets): the rail it drives (streetTraffic.ts). Null on the island's grid. */
+  r: Rail | null;
   e: RoadEdge;
   /** The junction being driven toward, and the street to take from it. */
   to: RoadNode;
@@ -139,7 +143,9 @@ export class Traffic {
   private balanceT = 0;
 
   private readonly rng = new RNG(60312);
-  private readonly byVeh = new Map<Vehicle, Driver>();
+  readonly byVeh = new Map<Vehicle, Driver>();
+  /** Drivers on the new mainland streets, when the plan has them (null with ?streets=old). */
+  readonly rails: StreetDrivers | null = null;
   /** Usable lanes per direction of each street: [edge * 2 + (toward b ? 1 : 0)]. A stunt ramp in the roadway takes the outer one. */
   private readonly nLane: Uint8Array;
   /** Cars their drivers walked away from. Ordinary parked cars now, tidied up once far behind. */
@@ -149,7 +155,7 @@ export class Traffic {
   /** The soak test switches this on to have each driver note what it is waiting for. */
   debug = false;
 
-  constructor(private readonly game: Game) {
+  constructor(readonly game: Game) {
     const plan = game.plan, rng = this.rng;
     this.nLane = new Uint8Array(plan.edges.length * 2);
     for (const e of plan.edges) {
@@ -167,7 +173,7 @@ export class Traffic {
     const n = Math.round(CARS * clamp(game.quality.density, 0.4, 1));
     for (let i = 0; i < n; i++) {
       const d: Driver = {
-        v: null, e: plan.edges[0], to: plan.nodes[0], next: plan.edges[0], turnKind: 0,
+        v: null, r: null, e: plan.edges[0], to: plan.nodes[0], next: plan.edges[0], turnKind: 0,
         lane: 0, wantLane: 0, home: rng.chance(0.65) ? 1 : 0, off: 1.75, turn: null, cruise: 10,
         near: [], nearT: 0, legit: false, wait: 0, honk: 0, honkCool: 0,
         passing: false, passEnd: 0, passAt: 0, passOff: 0, lcCool: 0, bold: 0,
@@ -176,8 +182,9 @@ export class Traffic {
       };
       this.drivers.push(d);
     }
+    if (plan.streets) this.rails = new StreetDrivers(this, plan.streets);
     this.look();
-    for (const d of this.drivers) if (this.active() < this.target()) for (let k = 0; k < 60 && !d.v; k++) this.seat(d, this.own, 18, 165, 0);
+    for (const d of this.drivers) if (this.active() < this.target()) for (let k = 0; k < 60 && !d.v; k++) this.seatAt(d, this.own, 18, 165, 0);
 
     game.on('impact', (ev) => {
       const a = this.byVeh.get(ev.vehicle), b = ev.other ? this.byVeh.get(ev.other) : undefined;
@@ -294,15 +301,17 @@ export class Traffic {
           let a = anchors[0];
           if (many) for (const b of anchors) if (b.n < a.n) a = b;
           if (a.n >= share) continue;
-          if (a.jumped) for (let k = 0; k < 60 && !d.v; k++) this.seat(d, a, 25, 160, 0);
-          else for (let k = 0; k < 3 && !d.v; k++) this.seat(d, a, 70, 165, 120);
+          if (a.jumped) for (let k = 0; k < 60 && !d.v; k++) this.seatAt(d, a, 25, 160, 0);
+          else for (let k = 0; k < 3 && !d.v; k++) this.seatAt(d, a, 70, 165, 120);
           if (d.v) { active++; a.n++; d.anchor = anchors.indexOf(a); }
           continue;
         }
-        this.drive(d, v, dt);
+        if (d.r && this.rails) this.rails.drive(d, v, dt); else this.drive(d, v, dt);
       }
       if (many && (this.balanceT -= dt) <= 0) { this.balanceT = 0.2; this.balance(share); }
     }
+
+    this.rails?.update();
 
     // One abandoned car looked at per frame is plenty.
     const o = this.orphans;
@@ -343,7 +352,7 @@ export class Traffic {
   // ── Multiplayer: numbers on the wire, and handing the cars over ──────────────
 
   /** A number no car here is using; they go round, so one is not reused the moment its car has gone. */
-  private newWid(): number {
+  newWid(): number {
     let id = this.lastWid;
     for (let k = 0; k < 255; k++) {
       id = (id % 255) + 1;
@@ -469,6 +478,15 @@ export class Traffic {
     let d: Driver | null = null;
     for (const c of this.drivers) if (!c.v) { d = c; break; }
     if (!d) return false;
+    // On the new mainland streets: its rail from where it stands.
+    if (this.rails && v.z < MAIN_SPLIT_Z) {
+      if (!this.rails.place(d, v)) return false;
+      v.driver = 'ai';
+      d.v = v; d.wid = wid; this.widUsed[wid] = 1;
+      this.byVeh.set(v, d);
+      this.fresh(d);
+      return true;
+    }
     const plan = this.game.plan, sh = Math.sin(v.h), ch = Math.cos(v.h);
     let best: RoadEdge | null = null, bestFwd = true, bestLat = 0, top = 7;
     for (const e of plan.landEdges(v.z)) {
@@ -513,7 +531,7 @@ export class Traffic {
   /** Back from showing somebody else's traffic to driving this browser's own. */
   resume(): void { this.guest = false; }
 
-  private fresh(d: Driver): void {
+  fresh(d: Driver): void {
     d.near.length = 0; d.nearT = 0;
     d.legit = d.passing = false;
     d.wait = d.honk = d.honkCool = d.lcCool = d.bold = d.stuck = d.back = d.backCool = d.jams = d.still = d.halt = d.panic = d.bail = d.swerveT = d.slowT = 0;
@@ -522,6 +540,7 @@ export class Traffic {
 
   private release(d: Driver): void {
     if (d.v) { this.byVeh.delete(d.v); d.v.ctl.horn = false; }
+    if (d.r) this.rails?.forget(d);
     d.v = null;
     if (d.wid) { this.widUsed[d.wid] = 0; d.wid = 0; }
   }
@@ -570,7 +589,7 @@ export class Traffic {
     if (d.lane > n - 1) d.lane = n - 1;
   }
 
-  private kindFor(district: District | null, avenue: boolean): VehicleKind {
+  kindFor(district: District | null, avenue: boolean): VehicleKind {
     const rng = this.rng, r = rng.next();
     if (avenue && r < 0.11) {
       let buses = 0;
@@ -591,6 +610,41 @@ export class Traffic {
       if (kind !== 'bus' && kind !== 'cruiser' && kind !== 'taxi' && kind !== 'tow') return kind;
     }
     return 'sedan';
+  }
+
+  /** Seat a driver near an anchor: on the new mainland streets when the anchor is over there and the plan has them. */
+  private seatAt(d: Driver, a: Anchor, near: number, far: number, front: number): boolean {
+    return this.rails && a.z < MAIN_SPLIT_Z ? this.rails.seat(d, a, near, far, front) : this.seat(d, a, near, far, front);
+  }
+
+  /** For the rail drivers: the people in the roadway this frame. */
+  roadPeds(): readonly RoadPed[] { return this.peds; }
+
+  /** For the rail drivers: pull up and get out after a knock (as drive() does for the island's). */
+  leaveCar(d: Driver, v: Vehicle): void {
+    const ctl = v.ctl;
+    ctl.accel = 0; ctl.steer = 0; ctl.handbrake = true; ctl.horn = false;
+    v.driver = null;
+    const door = { x: v.x, z: v.z };
+    v.doorPos(-1, door);
+    this.orphans.push(v);
+    const w = d.wid;
+    d.wid = 0;
+    if (w) this.orphanWid.set(v, w);
+    this.release(d);
+    this.onBail?.(v, door.x, door.z);
+  }
+
+  /** A rail driver over the bridge's middle, southbound: back onto the island's grid along the plan's bridge edge. */
+  toIsland(d: Driver, v: Vehicle): void {
+    const plan = this.game.plan, e = plan.edges[plan.bridgeEdge], r = d.r!;
+    this.rails?.forget(d);
+    d.e = e; d.to = plan.nodes[e.b];
+    d.lane = Math.min(r.lane, e.lanes - 1); d.off = clamp(r.off, 1, e.hw - 1); d.turn = null;
+    d.passing = false; d.prevStop = 99; d.yellow = 0;
+    d.next = this.pick(d, e, d.to);
+    this.plan(d);
+    void v;
   }
 
   /** Try one random spot in a lane; on success a new car is driving there. */
@@ -693,6 +747,8 @@ export class Traffic {
 
   private drive(d: Driver, v: Vehicle, dt: number): void {
     const g = this.game, plan = g.plan, ctl = v.ctl;
+    // Northbound onto the bridge with the new mainland streets ahead: the bridge's rail from here on.
+    if (this.rails && d.to.land === 1 && d.e.deck && !d.turn) { this.rails.fromBridge(d, v); this.rails.drive(d, v, dt); return; }
     let e = d.e, to = d.to;
     let fwd = plan.nodes[e.b] === to;
     let from = plan.nodes[fwd ? e.a : e.b];

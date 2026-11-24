@@ -281,6 +281,8 @@ class Progress {
       if (!e.land) continue;
       e.closed = e.deck ? !this.complete : e.stage > this.stage;
     }
+    // The new mainland streets (traffic and parking on them follow the same stages).
+    this.plan.streets?.openTo(this.stage, this.complete);
   }
 
   private announce(g: Goal): void {
@@ -404,7 +406,7 @@ export class ProgressWorks {
 
   /** For the tests: the barriers up (by the stage each closes off) and the mainland's kerb cars put out here (with the stage of their street). */
   info(): { barriers: number[]; kerbs: { x: number; z: number; stage: number; closed: boolean }[] } {
-    const edges = this.game.plan.edges;
+    const edges = (this.game.plan.streets ?? this.game.plan).edges;
     return {
       barriers: this.barrierStages.slice(),
       kerbs: this.parked.filter((s) => s.v).map((s) => ({ x: +s.x.toFixed(1), z: +s.z.toFixed(1), stage: edges[s.edge].stage, closed: edges[s.edge].closed })),
@@ -425,16 +427,17 @@ export class ProgressWorks {
     // The island parks all its cars at the start. The mainland's are kept as a list and put out only around the player.
     // (The same dice as before, in the same order: alone, the same cars at the same kerbs. Every place is kept with its
     // roll, so that a shared town can choose its own share of them.)
-    const rng = new RNG(4022), plan = game.plan;
-    for (const s of plan.mainlandParking) {
+    // With the new streets (plan.streets) the kerbs are theirs, and `edge` is an edge of that graph.
+    const rng = new RNG(4022), plan = game.plan, sg = plan.streets;
+    for (const s of sg ? sg.parking : plan.mainlandParking) {
       const roll = rng.next(), kind = commonKind(rng.next()), tint = rng.next();
-      this.parked.push({ x: s.x, z: s.z, h: s.h, kind, tint, edge: plan.nearestEdge(s.x, s.z).edge.id, v: null, roll });
+      this.parked.push({ x: s.x, z: s.z, h: s.h, kind, tint, edge: (sg ?? plan).nearestEdge(s.x, s.z).edge.id, v: null, roll });
     }
   }
 
   /** Park cars within sight of the player on streets that are open, and take away the untouched ones left far behind. */
   private parking(): void {
-    const game = this.game, pl = game.player, edges = game.plan.edges;
+    const game = this.game, pl = game.player, edges = (game.plan.streets ?? game.plan).edges;
     // (`progress` is the town's while a town is on the screen: its streets, and the town's share of places.)
     const share = progress.mine ? MAINLAND_TOWN_SHARE : 0.5 * game.quality.density;
     let budget = 8;
