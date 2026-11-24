@@ -15,6 +15,7 @@ import { Activities } from './activities';
 import { Racing } from './race';
 import { Delivery } from './delivery';
 import { Pursuit } from './pursuit';
+import { Derby } from './derby';
 import { Shops } from './shops';
 import { Menu } from '../ui/menu';
 
@@ -37,6 +38,8 @@ export class ThingsToDo {
   readonly delivery: Delivery;
   /** Hot Pursuit: a police chase between players (fun queue item 12). */
   readonly pursuit: Pursuit;
+  /** The demolition derby at Flounder Field (fun queue item 13). */
+  readonly derby: Derby;
   readonly shops: Shops;
   readonly menu: Menu;
   private wasDown = false;
@@ -61,6 +64,7 @@ export class ThingsToDo {
     this.jobs = new Activities(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.racing = new Racing(game, this.markers, () => this.jobs.races, () => this.busy === null, (id) => this.setBusy(id));
     this.pursuit = new Pursuit(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
+    this.derby = new Derby(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.shops = new Shops(game, this.markers);
     this.menu = new Menu(game, this);
@@ -146,6 +150,7 @@ export class ThingsToDo {
     this.missions.update(dt);
     this.racing.update(dt);
     this.pursuit.update(dt);
+    this.derby.update(dt);
     this.delivery.update(dt);
     this.jobs.update(dt);
     this.shops.update(dt);
@@ -182,6 +187,7 @@ export class ThingsToDo {
       this.delivery.blips(out);
       this.racing.blips(out);
       this.pursuit.blips(out);
+      this.derby.blips(out);
       this.shops.blips(out);
       const w = this.waypoint;
       if (w) { if (Math.hypot(p.x - w.x, p.z - w.z) < 14) this.waypoint = null; else out.push({ x: w.x, z: w.z, kind: 'way' }); }

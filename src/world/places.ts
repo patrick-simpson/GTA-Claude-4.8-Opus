@@ -387,43 +387,67 @@ function bench(K: Kit, x: number, z: number, hd: number): void {
 
 // ── Flounder Field ───────────────────────────────────────────────────────────
 
+/** The demolition derby's bowl inside Flounder Field (game/derby.ts): middle, the concrete barrier's semi-axes, the gate outside. */
+export const DERBY = { x: -421, z: -70, a: 29, b: 18, gateX: -476, gateZ: -70 } as const;
+
 function buildArena(K: Kit): void {
   K.place('arena');
   const f = K.f, d = K.dbl;
   const cx = -421, cz = -70, A = 47, B = 36, Y = CURB, N = 56, TOP = 14;
   const seat = [TEAL, BONE, VERM, BONE];
 
-  // Collision: the oval as a stack of slices. The whole bowl is solid; nobody gets in without a ticket.
-  const S = 12;
+  // Collision: the stands as a ring of slices (fun queue item 13, the derby): solid from the outer wall in to just
+  // behind the derby's concrete barrier, so nobody drives in from the street; inside, game/derby.ts keeps the cars
+  // off the barrier itself (an ellipse, not boxes).
+  const S = 24, RA = DERBY.a + 0.9, RB = DERBY.b + 0.9;
   for (let k = 0; k < S; k++) {
     const xa = -A + (k / S) * 2 * A, xb = -A + ((k + 1) / S) * 2 * A, xm = Math.min(Math.abs(xa), Math.abs(xb));
     const hz = B * Math.sqrt(Math.max(0, 1 - (xm / A) * (xm / A)));
-    K.col.addBox(cx + xa, cz - hz, cx + xb, cz + hz, Y + TOP);
+    const xs = xa < 0 && xb > 0 ? 0 : xm;
+    const hi = xs >= RA ? 0 : RB * Math.sqrt(Math.max(0, 1 - (xs / RA) * (xs / RA)));
+    if (hi <= 0) { K.col.addBox(cx + xa, cz - hz, cx + xb, cz + hz, Y + TOP); continue; }
+    K.col.addBox(cx + xa, cz + hi, cx + xb, cz + hz, Y + TOP);
+    K.col.addBox(cx + xa, cz - hz, cx + xb, cz - hi, Y + TOP);
   }
 
-  // Pitch, drawn to be read from the air or the top of a jump.
-  const PYY = Y + 0.5;
-  disc(f, cx, cz, 31, 20, PYY, 0xc98a63, N);
-  const PW = 46, PD = 27, stripes = 10;
-  for (let i = 0; i < stripes; i++) {
-    const xa = cx - PW / 2 + (i / stripes) * PW;
-    f.floor(xa, cz - PD / 2, xa + PW / stripes, cz + PD / 2, PYY + 0.04, i % 2 ? 0x6f9a4f : 0x82ad5d);
-  }
-  const LY = PYY + 0.08, lw = 0.22;
-  const line = (xa: number, za: number, xb: number, zb: number): void => f.floor(Math.min(xa, xb) - lw / 2, Math.min(za, zb) - lw / 2, Math.max(xa, xb) + lw / 2, Math.max(za, zb) + lw / 2, LY, BONE);
-  const hx = PW / 2 - 0.5, hz = PD / 2 - 0.5;
-  line(cx - hx, cz - hz, cx + hx, cz - hz); line(cx - hx, cz + hz, cx + hx, cz + hz);
-  line(cx - hx, cz - hz, cx - hx, cz + hz); line(cx + hx, cz - hz, cx + hx, cz + hz);
-  line(cx, cz - hz, cx, cz + hz);
-  for (const s of [-1, 1]) {
-    const gx = cx + s * hx, bxx = cx + s * (hx - 7);
-    line(gx, cz - 8, bxx, cz - 8); line(gx, cz + 8, bxx, cz + 8); line(bxx, cz - 8, bxx, cz + 8);
-  }
-  for (let i = 0; i < 24; i++) ringUp(f, cx, cz, 5.4, 5.4, LY, 5.62, 5.62, LY, (i / 24) * TAU, ((i + 1) / 24) * TAU, BONE);
+  // The floor: a churned dirt bowl for the demolition derby, ruts and puddles of oil, under the floodlights.
+  const PYY = Y + 0.03;
+  // (The dirt itself, ruts and oil, is game/derby.ts's own mesh: slush on it in winter, not a snowfield.)
+  disc(f, cx, cz, 31, 20, PYY, 0x6e4d33, N);
+  // Concrete barriers (jersey blocks) round the bowl, every fourth one painted; tyre walls stacked in front of them.
   {
-    // The club crest on the center spot.
-    const r = K.signs.rect(K.signs.has('hang-fish') ? 'hang-fish' : K.signs.hanging[0]), e = 4.6;
-    K.sign.quad(cx - e, LY + 0.03, cz + e, cx + e, LY + 0.03, cz + e, cx + e, LY + 0.03, cz - e, cx - e, LY + 0.03, cz - e, 0xffffff, r.u0, r.v0, r.u1, r.v1);
+    const NB = 72;
+    for (let i = 0; i < NB; i++) {
+      const t0 = (i / NB) * TAU, t1 = ((i + 1) / NB) * TAU, tm = (t0 + t1) / 2;
+      const x0 = cx + DERBY.a * Math.cos(t0), z0 = cz + DERBY.b * Math.sin(t0), x1 = cx + DERBY.a * Math.cos(t1), z1 = cz + DERBY.b * Math.sin(t1);
+      const len = Math.hypot(x1 - x0, z1 - z0), nx = Math.cos(tm) / DERBY.a, nz = Math.sin(tm) / DERBY.b, rot = Math.atan2(nx, nz);
+      const mx = cx + (DERBY.a + 0.3) * Math.cos(tm), mz = cz + (DERBY.b + 0.3) * Math.sin(tm);
+      const hue = i % 4 === 0 ? (i % 8 === 0 ? VERM : MUST) : CONCRETE;
+      f.box(mx, PYY, mz, len * 0.97, 0.3, 0.8, hue, rot, 5, 0.92);
+      f.box(mx, PYY + 0.3, mz, len * 0.97, 0.55, 0.42, hue, rot, 5, 1);
+      f.box(mx, PYY + 0.85, mz, len * 0.97, 0.08, 0.3, hue, rot, 5, 1.05);
+    }
+    const r = new RNG(77);
+    for (let i = 0; i < 36; i++) {
+      const t = (i / 36) * TAU + 0.04;
+      if (Math.abs(Math.cos(t)) > 0.985 && Math.cos(t) < 0) continue; // the gate, west
+      for (let j = -1; j <= 1; j++) {
+        const tt = t + j * 0.03, x = cx + (DERBY.a - 0.35) * Math.cos(tt), z = cz + (DERBY.b - 0.35) * Math.sin(tt);
+        const n = 3 + ((r.next() * 2) | 0);
+        for (let q = 0; q < n; q++) {
+          f.cyl(x, PYY + q * 0.24, z, 0.36, 0.36, 0.22, 0x1b1b1d, 10, true, 0.85 + r.next() * 0.2);
+          if (q % 2 === 0 && j === 0) f.cyl(x, PYY + q * 0.24 + 0.07, z, 0.365, 0.365, 0.05, i % 3 ? BONE : VERM, 10, false, 0.9);
+        }
+      }
+    }
+  }
+  // The gate on the west side, by the lot: a steel frame and a striped banner over the arch.
+  {
+    const gx = cx - A - 0.6;
+    for (const u of [-3.4, 3.4]) { f.box(gx - 1.2, Y, cz + u, 0.5, 6.4, 0.5, STEEL, 0, 5); K.col.addProp(gx - 1.2, cz + u, 0.35, 6.4, 'post', false); }
+    f.box(gx - 1.2, Y + 5.6, cz, 0.6, 1.1, 7.4, INK, 0, 5);
+    for (let k = 0; k < 6; k++) f.box(gx - 1.55, Y + 5.75, cz - 3 + k * 1.2, 0.08, 0.8, 0.6, k % 2 ? MUST : VERM, 0, 5);
+    d.quad(gx - 0.35, Y, cz - 3, gx - 0.35, Y, cz + 3, gx - 0.35, Y + 4.8, cz + 3, gx - 0.35, Y + 4.8, cz - 3, 0x2a2420);
   }
 
   for (let i = 0; i < N; i++) {

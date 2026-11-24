@@ -404,7 +404,7 @@ export function readDmgTail(buf: ArrayBuffer, out: Uint8Array): boolean {
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18 } as const;
 // Emote (4 bytes): [kind, id, 15, emote id] (game/emotes.ts EMOTES; 0 = stopped). Sent when a player starts or stops one,
 // and again every few seconds while a looping one runs, for anybody who arrives. Relayed unread by the service; a page
 // that does not know code 15 hands it to the weapons code, which ignores codes it does not know: no new version.
@@ -1907,5 +1907,53 @@ export function decodePursuit(buf: ArrayBuffer): PursuitMsg | null {
   if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Pursuit || u[3] < 1 || u[3] > 8) return null;
   const m: PursuitMsg = { id: u[1], kind: u[3], caller: u[4], station: u[5], a: u[6], b: u[7], c: d.getUint16(8, true), ms: d.getUint32(10, true), ids: [] };
   for (let i = 0; i < Math.min(u[14], PURSUIT_MAX) && 15 + i < buf.byteLength; i++) m.ids.push(u[15 + i]);
+  return m;
+}
+
+// ---- Demolition derby at Flounder Field (fun queue item 13; net/derby.ts, game/derby.ts) ----
+//
+// Event frames (byte 2 PlayerEvent.Derby), relayed unread by both services, like races and Hot Pursuit; a page from
+// before the derby hands code 18 to fight.ts, which does nothing with it. Still protocol v5, no service change. Event
+// frames are capped at MAX_PLAYER_FRAME_BYTES (96), so one layout, 14 + n bytes:
+//   3 kind (DerbyKind)  4 caller u8 (whose derby)  5 a u8  6 b u8  7..8 c u16  9..12 ms u32  13 n u8  14.. n bytes
+//   Call:  a seconds left to join, bytes: who is in (the caller first)
+//   Join:  a 1 joined, 0 left before the start
+//   Go:    a AI drivers, b seed, c round s, bytes: players in grid order (AI ids are DERBY_AI + k, after them)
+//   Cars:  the caller's AI cars, DERBY_CAR_BYTES each: id, x i16 and z i16 (cm*5 from the bowl's middle), heading u8,
+//          speed i8 (m/s*2), steer i8 (*100), hp u8, hits u8, out u8 (1 out)
+//   Dents: the caller's AI cars' damage, 1 + 8 bytes each (id, CarDamage.pack)
+//   Stat:  a player's own car: a hp, b 1 out, c hits
+//   End:   the caller: the order (winner first), then each one's hits, n = 2 x cars
+//   Done:  each player at the podium: a their wins (career, this one counted), c hits this derby (for the records)
+//   Off:   the caller called it off
+// Town records are durable facts written by the host only: DERBY_FACT_WINS = [wins, holder's name 3 numbers],
+// DERBY_FACT_HITS = [hits in one derby, holder's name 3 numbers].
+export const DerbyKind = { Call: 1, Join: 2, Go: 3, Cars: 4, Dents: 5, Stat: 6, End: 7, Done: 8, Off: 9 } as const;
+export const DERBY_FACT_WINS = 'derby.wins';
+export const DERBY_FACT_HITS = 'derby.hits';
+export const DERBY_AI = 200;
+export const DERBY_CAR_BYTES = 10;
+export const DERBY_HEADER = 14;
+export const DERBY_MAX_BYTES = MAX_PLAYER_FRAME_BYTES - DERBY_HEADER;
+export interface DerbyMsg { id: number; kind: number; caller: number; a: number; b: number; c: number; ms: number; bytes: number[] }
+
+export function encodeDerby(m: DerbyMsg): ArrayBuffer {
+  const b = m.bytes.slice(0, DERBY_MAX_BYTES);
+  const buf = makeFrame(Frame.Event, DERBY_HEADER + b.length - FRAME_HEADER_BYTES);
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  u[2] = PlayerEvent.Derby; u[3] = m.kind & 0xff; u[4] = m.caller & 0xff;
+  u[5] = Math.max(0, Math.min(255, Math.round(m.a))); u[6] = Math.max(0, Math.min(255, Math.round(m.b)));
+  d.setUint16(7, clampU16(m.c), true);
+  d.setUint32(9, Math.max(0, Math.min(0xffffffff, Math.round(m.ms))), true);
+  u[13] = b.length; b.forEach((v, i) => { u[DERBY_HEADER + i] = v & 0xff; });
+  return buf;
+}
+
+export function decodeDerby(buf: ArrayBuffer): DerbyMsg | null {
+  if (buf.byteLength < DERBY_HEADER) return null;
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Derby || u[3] < 1 || u[3] > 9) return null;
+  const m: DerbyMsg = { id: u[1], kind: u[3], caller: u[4], a: u[5], b: u[6], c: d.getUint16(7, true), ms: d.getUint32(9, true), bytes: [] };
+  for (let i = 0; i < u[13] && DERBY_HEADER + i < buf.byteLength; i++) m.bytes.push(u[DERBY_HEADER + i]);
   return m;
 }
