@@ -405,6 +405,56 @@ export function buildDithersCampus(game: Game, mats: CityMaterials, parent: THRE
   for (const dr of CAMPUS_DRIVES) ribbon(C.G, dr, 5.2, 0.08, 0xe2dfd8);
   // Walks: poured concrete gone a little warm, the odd darker slab run (by path, so a walk is one colour end to end).
   CAMPUS_PATHS.forEach((p, k) => ribbon(P, p, 2.2, 0.1, [0xe6dfd0, 0xdcd4c4, 0xd2cbbd][k % 3]));
+  // Where a walk runs across a public road it stops at the kerbs (ribbon()); the crossing itself is painted on the road: a ladder
+  // crosswalk, bars 0.6 m wide and 3 m long every 1.2 m, kerb to kerb. The plan's walks often end on the road's centre line, where
+  // the next one begins: two such halves make one crossing, and a walk that just ends there is carried straight over to the far kerb.
+  const road = streetSurface();
+  if (road) {
+    type Pt = [number, number, number];
+    const full: [Pt, Pt][] = [], half: { k: Pt; e: Pt; used?: boolean }[] = [], crossed: number[] = [];
+    for (const p of CAMPUS_PATHS) {
+      let run: Pt[] = [], off = false;
+      for (let i = 0; i + 3 < p.length; i += 2) {
+        const last = i + 4 >= p.length, n = Math.max(1, Math.ceil(Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1])));
+        for (let k = 0; k <= (last ? n : n - 1); k++) {
+          const x = p[i] + ((p[i + 2] - p[i]) * k) / n, z = p[i + 1] + ((p[i + 3] - p[i + 1]) * k) / n, pr = road.probe(x, z);
+          if (pr.kind === 'road') { run.push([x, pr.h, z]); continue; }
+          if (run.length) { if (off) full.push([run[0], run[run.length - 1]]); else half.push({ k: run[run.length - 1], e: run[0] }); run = []; }
+          off = true;
+        }
+      }
+      if (run.length && off) half.push({ k: run[0], e: run[run.length - 1] });
+    }
+    half.forEach((h, i) => {
+      if (h.used) return;
+      const o = half.find((q, j) => j > i && !q.used && Math.hypot(q.e[0] - h.e[0], q.e[2] - h.e[2]) < 3 && Math.hypot(q.k[0] - h.k[0], q.k[2] - h.k[2]) > 4);
+      if (o) { o.used = true; full.push([h.k, o.k]); return; }
+      const l = Math.hypot(h.e[0] - h.k[0], h.e[2] - h.k[2]);
+      if (l < 1.5) return;
+      const dx = (h.e[0] - h.k[0]) / l, dz = (h.e[2] - h.k[2]) / l;
+      let far: Pt = h.e;
+      for (let t = 0.5; t < 22; t += 0.5) { const x = h.e[0] + dx * t, z = h.e[2] + dz * t, pr = road.probe(x, z); if (pr.kind !== 'road') break; far = [x, pr.h, z]; }
+      full.push([h.k, far]);
+    });
+    // Each end is carried out along the crossing's own line to the kerb, so no crossing stops short in the roadway.
+    const kerb = (p: Pt, sx: number, sz: number): Pt => { let o = p; for (let t = 0.5; t < 14; t += 0.5) { const x = p[0] + sx * t, z = p[2] + sz * t, pr = road.probe(x, z); if (pr.kind !== 'road') break; o = [x, pr.h, z]; } return o; };
+    for (const [a0, b0] of full) {
+      const l0 = Math.hypot(b0[0] - a0[0], b0[2] - a0[2]);
+      if (l0 < 1.5) continue;
+      const a = kerb(a0, (a0[0] - b0[0]) / l0, (a0[2] - b0[2]) / l0), b = kerb(b0, (b0[0] - a0[0]) / l0, (b0[2] - a0[2]) / l0);
+      const len = Math.hypot(b[0] - a[0], b[2] - a[2]), mx = (a[0] + b[0]) / 2, mz = (a[2] + b[2]) / 2;
+      if (len < 4 || len > 26) continue;
+      let dup = false;
+      for (let i = 0; i < crossed.length; i += 2) if (Math.hypot(crossed[i] - mx, crossed[i + 1] - mz) < 9) dup = true;
+      if (dup) continue;
+      crossed.push(mx, mz);
+      const dx = (b[0] - a[0]) / len, dz = (b[2] - a[2]) / len;
+      for (let s = 0.5; s < len - 0.3; s += 1.2) {
+        const q = (t: number, e: number): number[] => { const x = a[0] + dx * t - dz * e, z = a[2] + dz * t + dx * e, pr = road.probe(x, z); return [x, (pr.kind === 'road' ? pr.h : a[1] + (b[1] - a[1]) * (t / len)) + 0.035, z]; };
+        L.quad(q(s - 0.3, 1.5), q(s - 0.3, -1.5), q(s + 0.3, -1.5), q(s + 0.3, 1.5), PAINT, up);
+      }
+    }
+  }
   // Turf: the town's grass, mown in bands a shade apart. No pitch is greener than the lawn it lies in.
   const grass = [0xf2f6e6, 0xdfe6cf];
   for (const [sport, cx, cz, w, d, a] of CAMPUS_FIELDS) {

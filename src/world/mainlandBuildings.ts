@@ -23,7 +23,8 @@ import type { Game } from '../core/game';
 import type { WorldPart } from '../core/api';
 import type { CityMaterials, Surface } from './materials';
 import { Batch } from './batch';
-import { CURB, groundAt, type Block, type CityPlan, type Lot, type Rect } from './plan';
+import { CURB, groundAt, streetSurface, type Block, type CityPlan, type Lot, type Rect } from './plan';
+import { plantExtra } from './floraAssets';
 import { STREETS_NEW } from './streets';
 import { EXTRA_LOTS, FOOTBRIDGE_Z, waterDist, coastSD } from './mainland';
 import { FOOTPRINTS, FP_STRIDE } from './footprintData';
@@ -140,6 +141,8 @@ export class MainKit {
   readonly wallMat: Surface;
   readonly signMat: Surface;
   readonly low: boolean;
+  /** Phones: the simple versions (no dressing on side walls, no roof plant). */
+  readonly lean: boolean;
   private wall = new Chunks(); private flat = new Chunks(); private sign = new Chunks(); private fence = new Chunks();
   /** Batches of the chunk chosen by at(): wall sheet, flat colour, signs, fence strip. */
   W!: Batch; F!: Batch; S!: Batch; N!: Batch;
@@ -150,6 +153,7 @@ export class MainKit {
 
   constructor(readonly game: Game, readonly mats: CityMaterials, parent: THREE.Object3D) {
     this.low = game.quality.name === 'low';
+    this.lean = !!game.quality.lean;
     this.group.name = 'mainland-buildings';
     parent.add(this.group);
     const t = this.tex = makeMainlandTextures(game.quality);
@@ -293,6 +297,7 @@ export class MainKit {
   /** Plain wall of one MWALL row. Courses are counted from `ybase`, so strips cut round an opening still line up. */
   band(f: Frame, s0: number, s1: number, y0: number, y1: number, hex: number, row: number, ybase = y0, shade = 1, o = 0, per: number = CELL): void {
     if (s1 - s0 < 0.01 || y1 - y0 < 0.01) return;
+    if (row < 0) { this.vq(this.F, f, s0, s1, y0, y1, o, hex, 0, 0, 1, 1, shade); return; }
     const [v0, v1] = mwallV(row), dv = v1 - v0, us = 1 / (CELL * 16), u0 = s0 * us, u1 = s1 * us;
     let y = y0;
     while (y < y1 - 1e-4) {
@@ -338,14 +343,25 @@ export class MainKit {
       this.band(f, prev, s1, a, b, hex, wallRow, y, shade, 0, fh + 0.001);
     }
   }
+  /**
+   * One row of windows laid on a wall that is already drawn (no reveal), spaced `pitch` apart and centred between s0 and s1. With `dress`
+   * each gets a sill and a lintel standing a little proud (not on the low preset or phones).
+   */
+  winRow(f: Frame, s0: number, s1: number, y: number, st: WinStyle, pitch: number, seed: number, trim = 0xffffff, shade = 1, dress = false, o = 0.02): void {
+    const n = Math.floor((s1 - s0 - 1) / pitch), m = (s1 - s0 - n * pitch) / 2 + (pitch - st.w) / 2;
+    for (let i = 0; i < n; i++) {
+      const s = s0 + m + i * pitch;
+      this.piece(f, s, st.w, y, st.h, o, st.row, (seed + i * 7) % 32, st.own ? 0xffffff : trim, st.own ? shade : 1);
+      if (!dress || st.own || this.low || this.lean) continue;
+      this.vq(this.F, f, s - 0.1, s + st.w + 0.1, y - 0.14, y, o + 0.035, STONE, 0, 0, 1, 1, shade);
+      this.vq(this.F, f, s - 0.12, s + st.w + 0.12, y + st.h, y + st.h + 0.2, o + 0.02, STONE, 0, 0, 1, 1, shade * 0.97);
+    }
+  }
   /** A blank wall with windows laid on it, for sides and backs nobody walks along. */
-  plainWall(f: Frame, s0: number, s1: number, y0: number, y1: number, hex: number, shade: number, row: number = ROW.brick, wins?: { st: WinStyle; yb: number; fh: number; floors: number; pitch: number; seed: number; trim?: number }): void {
+  plainWall(f: Frame, s0: number, s1: number, y0: number, y1: number, hex: number, shade: number, row: number = ROW.brick, wins?: { st: WinStyle; yb: number; fh: number; floors: number; pitch: number; seed: number; trim?: number; dress?: boolean }): void {
     this.band(f, s0, s1, y0, y1, hex, row, y0, shade);
     if (!wins) return;
-    const { st, pitch } = wins, n = Math.floor((s1 - s0 - 1) / pitch), m = (s1 - s0 - n * pitch) / 2 + (pitch - st.w) / 2;
-    for (let fl = 0; fl < wins.floors; fl++) for (let i = 0; i < n; i++) {
-      this.piece(f, s0 + m + i * pitch, st.w, wins.yb + fl * wins.fh + st.sill, st.h, 0.02, st.row, (wins.seed * 3 + fl * 11 + i * 7) % 32, st.own ? 0xffffff : wins.trim ?? 0xffffff, st.own ? shade : 1);
-    }
+    for (let fl = 0; fl < wins.floors; fl++) this.winRow(f, s0, s1, wins.yb + fl * wins.fh + wins.st.sill, wins.st, wins.pitch, wins.seed * 3 + fl * 11, wins.trim ?? 0xffffff, shade, !!wins.dress);
   }
   /** Corbelled brick cornice along the top of a wall: the dentil band of the sheet on a projecting course, capped. */
   cornice(f: Frame, s0: number, s1: number, ytop: number, hex: number, shade: number, h = 0.62, out = 0.16): void {
@@ -459,7 +475,16 @@ export interface OLot extends Lot {
   osm?: { t: number; hm: number; i: number };
   /** Where the front wall stands once built (hood() and osm() fill it in): the wall's foot and the unit normal out of the front. Businesses hang their signs here. */
   wall?: { x: number; z: number; nx: number; nz: number };
+  /** The street doors osm() drew on this building, each with the place its sign goes: businesses (business.ts) take a door each, shopSigns.ts letters the signs. */
+  doors?: Door[];
 }
+/**
+ * A street door on a footprint building: its foot on the wall line and the unit normal out of the wall, and the sign board over it
+ * (centre of its foot, standing just off the wall; w x h metres). `opt`: only lettered when a business is there (a block of flats needs no sign).
+ */
+export interface Door { x: number; z: number; nx: number; nz: number; sx: number; sy: number; sz: number; sw: number; sh: number; opt?: boolean; used?: boolean; /** Height of the lamp over the door (0: none). */ ly?: number }
+/** How far into the night the town is (0 day .. 1 night), for the unlit sign boards (shopSigns.ts) to dim by. */
+export const TOWN_NIGHT = { value: 0 };
 let MASK: Map<number, Ori[]> | null = null;
 /** Builds the footprint buildings' spatial hash (20 m cells): trees and street furniture ask `buildingNear` so nothing grows through a store. Call before the trees are planted. */
 export function primeBuildingMask(plan: CityPlan): void {
@@ -590,9 +615,17 @@ export function mainlandLots(plan: CityPlan): OLot[] {
       const ax = Math.sin(ha), az = Math.cos(ha), cands: [number, number, boolean][] = [[ax, az, true], [-ax, -az, true], [az, -ax, false], [-az, ax, false]];
       let best = cands[0], bd = -2;
       for (const c of cands) { const v = c[0] * dx + c[1] * dz; if (v > bd) { bd = v; best = c; } }
-      const h = Math.atan2(best[0], best[1]);
+      let h = Math.atan2(best[0], best[1]);
       let w = best[2] ? W : L, d = best[2] ? L : W;
       const house = t === 0;
+      if (house) {
+        // A house looks squarely at its street, door to the sidewalk: the street's own normal where it passes nearest. (The real footprint's
+        // angle is often some degrees off the game's street, or belongs to a lane the game does not have.)
+        const tl = Math.hypot(pp.dx, pp.dz) || 1;
+        let sx = -pp.dz / tl, sz = pp.dx / tl;
+        if (sx * dx + sz * dz < 0) { sx = -sx; sz = -sz; }
+        if (sx * dx + sz * dz > 0.6) h = Math.atan2(sx, sz);
+      }
       if (house) { w = Math.max(7, Math.min(w, 11)); d = Math.max(7, Math.min(d, 12)); }
       else if (t === 1) { w = Math.max(9, Math.min(w, 24)); d = Math.max(9, Math.min(d, 20)); }
       else { w = Math.max(10, Math.min(w, 85)); d = Math.max(9, Math.min(d, 60)); }
@@ -1103,11 +1136,33 @@ class Builder {
     const f0 = loc(-o.w / 2, 0);
     const F = { ox: f0[0], oz: f0[1], tx, tz, nx, nz, len: o.w, depth: o.d };
     const sy = gy(0, o.d / 2);
-    // Front walk from the door to the street, and the drive (with its garage if there is one).
-    const doorU = u0 + (mir ? W - D.door : D.door);
+    // Front walk from the door to the street's sidewalk, and the drive (with its garage if there is one) out across the sidewalk to the kerb.
+    const doorU = u0 + (mir ? W - D.door : D.door), lean = k.lean;
     lot.wall = { x: loc(doorU, set)[0], z: loc(doorU, set)[1], nx, nz };
-    const qEnd = set - D.front - 1.0;
-    if (qEnd > 0.5) k.hq(k.F, F, doorU - 0.6 + o.w / 2, doorU + 0.6 + o.w / 2, -qEnd, 0.6, gy(doorU, qEnd / 2) + 0.04, true, 0xb9b5ab, 1);
+    const S = streetSurface();
+    /** Out from the lot's front edge at u: where the sidewalk begins, where the roadway does, and the sidewalk's height. Null when no street passes in front. */
+    const reach = (u: number): [number, number, number] | null => {
+      if (!S) return null;
+      let a = -1, h = 0;
+      for (let q = 0; q <= 24; q += 0.6) {
+        const [x, z] = loc(u, -q), pr = S.probe(x, z);
+        if (pr.kind === 'walk') { if (a < 0) { a = q; h = pr.h; } }
+        else if (pr.kind === 'road') return [a < 0 ? q : a, q, a < 0 ? pr.h : h];
+      }
+      return null;
+    };
+    /** Paving on the ground between u = ua..ub from q = qa (nearer the street) in to qb, in 3 m steps that follow the slope. */
+    const strip = (ua: number, ub: number, qa: number, qb: number, hex: number, hy?: (x: number, z: number) => number): void => {
+      const n = Math.max(1, Math.ceil((qb - qa) / 3)), Y = hy ?? ((x: number, z: number): number => groundAt(x, z) + 0.04);
+      for (let i = 0; i < n; i++) {
+        const q0 = qa + ((qb - qa) * i) / n, q1 = qa + ((qb - qa) * (i + 1)) / n;
+        const A = loc(ua, q0), B = loc(ub, q0), Cc = loc(ub, q1), Dd = loc(ua, q1);
+        const ya = Math.max(Y(A[0], A[1]), Y(B[0], B[1])), yb = Math.max(Y(Cc[0], Cc[1]), Y(Dd[0], Dd[1]));
+        k.F.quad(A[0], ya, A[1], B[0], ya, B[1], Cc[0], yb, Cc[1], Dd[0], yb, Dd[1], hex, 0, 0, 1, 1, 1);
+      }
+    };
+    const qEnd = set - D.front - 1.0, rw = reach(doorU);
+    if (qEnd > 0.5) strip(doorU - 0.6, doorU + 0.6, -(rw ? rw[0] + 0.15 : 0.6), qEnd, 0xb9b5ab);
     const ud = ds * (o.w / 2 - 1.9);
     let qGar = -1;
     if (hasDrive && rng.chance(0.34)) {
@@ -1119,8 +1174,10 @@ class Builder {
       }
     }
     if (hasDrive) {
-      const qd = qGar > 0 ? qGar + 0.3 : set + D.D * rng.range(0.45, 0.8);
-      k.hq(k.F, F, ud - 1.5 + o.w / 2, ud + 1.5 + o.w / 2, -qd, 0.6, Math.max(gy(ud, 0), gy(ud, qd)) + 0.04, true, rng.chance(0.5) ? 0x5e5e60 : 0xa59f92, 1);
+      const qd = qGar > 0 ? qGar + 0.3 : set + D.D * rng.range(0.45, 0.8), tar = rng.chance(0.5), rd = reach(ud);
+      strip(ud - 1.5, ud + 1.5, -(rd ? rd[0] + 0.1 : 0.6), qd, tar ? 0x4c4d50 : 0xa59f92);
+      // The apron: across the sidewalk to the kerb, a little wider than the drive.
+      if (rd && S && rd[1] > rd[0] + 0.5) strip(ud - 1.9, ud + 1.9, -rd[1] - 0.05, -rd[0] - 0.1, tar ? 0x595a5d : 0xb1ab9e, (x, z) => { const pr = S.probe(x, z); return (pr.kind === 'walk' ? pr.h : rd[2]) + 0.025; });
       // A car in the drive, nose to the street or away from it.
       if (rng.chance(0.42)) {
         const qc = rng.range(3.3, 5.0) + 2.35, lim = qGar > 0 ? qGar - 0.3 : o.d - 0.4;
@@ -1149,14 +1206,55 @@ class Builder {
       for (const sd of [-1, 1]) if (!(hasDrive && sd === ds) || rng.chance(0.2)) run(sd * hw, q0, sd * hw, o.d - 0.2, 'chain');
       if (qGar < 0) run(-hw, o.d - 0.2, hw, o.d - 0.2, 'chain');
     }
-    if (leafy && rng.chance(0.3)) {
+    void F; void leafy;
+    if (D.kind === 'store') return;
+    // The front boundary, with gaps for the walk and the drive: a clipped hedge, a picket fence, a low stone wall or chain-link. The leafy
+    // streets west of downtown are mostly hedges and pickets, the South End by the mills more often open or wired.
+    const r1 = rng.next(), cuts = west ? [0.22, 0.44, 0.58, 0.6] : south ? [0.1, 0.22, 0.29, 0.41] : [0.14, 0.3, 0.41, 0.49];
+    const kind = r1 < cuts[0] ? (lean ? 'picket' : 'hedge') : r1 < cuts[1] ? 'picket' : r1 < cuts[2] ? 'stone' : r1 < cuts[3] ? 'chain' : '';
+    if (kind) {
       const hw = o.w / 2 - 0.2, gaps: [number, number][] = [[doorU - 0.9, doorU + 0.9]];
-      if (hasDrive) gaps.push([ud - 1.7, ud + 1.7]);
+      if (hasDrive) gaps.push([ud - 1.9, ud + 1.9]);
       gaps.sort((a, b) => a[0] - b[0]);
       let at = -hw;
-      for (const [a, b] of gaps) { if (a - at > 1) run(at, 0.4, a, 0.4, 'picket'); at = Math.max(at, b); }
-      if (hw - at > 1) run(at, 0.4, hw, 0.4, 'picket');
+      const seg = (a: number, b: number): void => { if (b - a > 1.2) { const A = loc(a, 0.4), B = loc(b, 0.4); this.bound(kind, A[0], A[1], B[0], B[1]); } };
+      for (const [a, b] of gaps) { seg(at, a); at = Math.max(at, b); }
+      seg(at, hw);
+      // A hedge often turns the corner and runs back to the house on the side away from the drive.
+      if (kind === 'hedge' && rng.chance(0.5)) { const sd = hasDrive ? -ds : 1, A = loc(sd * hw, 1.4), B = loc(sd * hw, Math.max(2.5, set)); this.bound(kind, A[0], A[1], B[0], B[1]); }
     }
+    // A small tree in the front yard, shrubs by the foundation (the town's one tree field draws them, ground.ts).
+    const GREEN = [0x5e8b4b, 0x4f7d45, 0x6a9550];
+    if (set > 4.6 && rng.chance(0.38)) {
+      const ut = (hasDrive ? -ds : doorU > 0 ? -1 : 1) * rng.range(0.8, Math.max(0.9, o.w / 2 - 1.6)), [x, z] = loc(ut, set * rng.range(0.32, 0.5));
+      if (Math.abs(ut - doorU) > 1.7) plantExtra(rng.pick(['cherry', 'birch', 'maple', 'cherry']), x, groundAt(x, z), z, rng.range(0, 6.28), rng.range(0.4, 0.56), rng.pick(GREEN));
+    }
+    if (!lean) for (const sd of [-1, 1]) {
+      const us = uc + sd * (W / 2 - 0.9);
+      if (!rng.chance(0.42) || Math.abs(us - doorU) < 1.6) continue;
+      const [x, z] = loc(us, set - D.front - 0.7);
+      plantExtra('shrub', x, groundAt(x, z) + 0.4, z, rng.range(0, 6.28), rng.range(0.75, 1.1), rng.pick(GREEN));
+    }
+  }
+
+  /** A yard boundary from A to B (its outside is on the left hand going from A to B... the street side of a front run): hedge modules, a fence from the strip, or a low stone wall. None is solid. */
+  private bound(kind: string, ax: number, az: number, bx: number, bz: number): void {
+    const k = this.k, len = Math.hypot(bx - ax, bz - az);
+    if (len < 1) return;
+    const dx = (bx - ax) / len, dz = (bz - az) / len, ya = groundAt(ax, az), yb = groundAt(bx, bz);
+    if (kind === 'picket' || kind === 'chain') { k.fenceRun({ x0: ax, z0: az, x1: bx, z1: bz }, (ya + yb) / 2 - 0.05, kind, false); return; }
+    if (kind === 'hedge') {
+      const n = Math.max(1, Math.round(len / 2));
+      for (let i = 0; i < n; i++) { const x = ax + dx * len * (i + 0.5) / n, z = az + dz * len * (i + 0.5) / n; plantExtra('hedge', x, groundAt(x, z) + 0.3, z, Math.atan2(-dz, dx), 1, 0x56803f); }
+      return;
+    }
+    // Stone: two faces from the sheet's granite, a flat cap, closed ends.
+    const y0 = Math.min(ya, yb) - 0.3, y1 = Math.max(ya, yb) + 0.55, th = 0.4, onx = -dz, onz = dx;
+    const f: Frame = { ox: ax, oz: az, tx: dx, tz: dz, nx: onx, nz: onz, len, depth: th };
+    const g: Frame = { ox: bx - onx * th, oz: bz - onz * th, tx: -dx, tz: -dz, nx: -onx, nz: -onz, len, depth: th };
+    k.band(f, 0, len, y0, y1, 0xb9b4a8, ROW.granite, y0, 1); k.band(g, 0, len, y0, y1, 0xb9b4a8, ROW.granite, y0, 0.9);
+    k.hq(k.F, f, 0, len, -th, 0, y1, true, 0xa29e93);
+    k.jq(k.F, f, 0, -th, 0, y0, y1, false, 0x9a968b); k.jq(k.F, f, len, -th, 0, y0, y1, true, 0x9a968b);
   }
 
   // ── Real footprints: the generic commercial, industrial and civic kits (OSM footprints, footprintData.ts) ──────────────────────
@@ -1184,8 +1282,11 @@ class Builder {
     k.hq(k.F, fr[0], 0, fr[0].len, -o.d, 0, y1, true, dim(hex, 0.85), shade);
   }
 
-  /** A shopfront on an oriented frame: glass bays and a door from the sheet's shop row, a fascia in a colour with the sign, sometimes an awning. */
-  private oshop(f: Frame, s0: number, s1: number, y: number, HS: number, rng: RNG, blockId: number, sign?: string, awn = true): void {
+  /**
+   * A shopfront on an oriented frame: glass bays and a door from the sheet's shop row, a fascia in a colour, sometimes an awning. Returns
+   * its door and where the sign goes on the fascia (shopSigns.ts letters it with the business that takes the door).
+   */
+  private oshop(f: Frame, s0: number, s1: number, y: number, HS: number, rng: RNG, awn = true): Door {
     const k = this.k, lean = !!this.game.quality.lean, col = rng.pick(SHOPCOL), tint = blend(col, 0xffffff, 0.5), gh = Math.min(3.0, HS - 0.9), [v0, v1] = mwallV(ROW.shop, 2);
     const pw = 0.4, a = s0 + pw, b = s1 - pw, dw = 1.9, n = Math.max(1, Math.round((b - a - dw) / 2.6)), bw = (b - a - dw) / n, doorAt = rng.int(0, n);
     const cell = (sa: number, sb: number, c: number): void => {
@@ -1196,20 +1297,56 @@ class Builder {
       k.vq(k.F, f, sa, sa + 0.07, y, y + gh + 0.04, 0.05, al); k.vq(k.F, f, sb - 0.07, sb, y, y + gh + 0.04, 0.05, al);
       k.vq(k.F, f, sa, sb, y, y + 0.34, 0.045, al, 0, 0, 1, 1, 0.9); k.vq(k.F, f, sa, sb, y + gh - 0.1, y + gh + 0.04, 0.045, al);
     };
-    let s = a;
+    let s = a, doorS = (s0 + s1) / 2;
     const c0 = rng.int(0, 11);
     for (let i = 0; i <= n; i++) {
-      if (i === doorAt) { cell(s, s + dw, 12 + rng.int(0, 3)); s += dw; }
+      if (i === doorAt) { cell(s, s + dw, 12 + rng.int(0, 3)); doorS = s + dw / 2; s += dw; }
       if (i < n) { cell(s, s + bw, (c0 + i * 5) % 12); s += bw; }
     }
     k.vq(k.F, f, s0, a, y, y + HS - 0.25, 0.06, col, 0, 0, 1, 1, 0.92); k.vq(k.F, f, b, s1, y, y + HS - 0.25, 0.06, col, 0, 0, 1, 1, 0.92);
     k.vq(k.F, f, s0, s1, y + gh, y + HS - 0.04, 0.1, dim(col, 1.1));
-    const sw = Math.min(s1 - s0 - 1.2, 4.6), sh = Math.min(HS - gh - 0.3, sw / 4);
-    if (sw > 1.5 && sh > 0.3) k.signAt(f, (s0 + s1) / 2, y + gh + (HS - gh - 0.04 - sh) / 2, sh * 4, 0.14, sign ?? this.shopName(blockId), sh);
+    const sw = Math.min(s1 - s0 - 1.2, 4.6), sh = Math.min(HS - gh - 0.3, sw / 4), ok = sw > 1.5 && sh > 0.3;
     if (awn && rng.chance(0.35) && s1 - s0 > 4) {
       const ac = rng.pick(AWNING), y1 = y + gh + 0.05, y0 = y + 2.5, out = 1.4;
       k.sq(k.F, f, s0 + 0.5, s1 - 0.5, 0.08, y1, out, y0, ac);
       k.sq(k.F, f, s0 + 0.5, s1 - 0.5, 0.08, y1 - 0.02, out, y0 - 0.02, ac, 0.6, 0, 0, 1, 1, true);
+    }
+    const sc = (s0 + s1) / 2;
+    return { x: PX(f, doorS, 0), z: PZ(f, doorS, 0), nx: f.nx, nz: f.nz, sx: PX(f, sc, 0.14), sy: y + gh + (HS - gh - 0.04 - sh) / 2, sz: PZ(f, sc, 0.14), sw: ok ? sh * 4 : 0, sh: ok ? sh : 0 };
+  }
+
+  /** A door laid on a wall with a canopy over it and a slab step, for the kits without a shopfront. Returns it with the sign board's place above. */
+  private entry(f: Frame, c: number, y: number, kind: number, hex: number, dw = 1.2, canopy = 0x3a3d40, signW = 2.4, signY = 3.05, o = 0): Door {
+    const k = this.k;
+    k.piece(f, c - dw / 2, dw, y, 2.3, o + 0.035, ROW.door, kind, hex, 1);
+    if (!k.low) {
+      k.ledge(f, c - dw / 2 - 0.5, c + dw / 2 + 0.5, y + 2.42, y + 2.56, o, o + 1.0, canopy);
+      if (!k.lean) k.ledge(f, c - dw / 2 - 0.3, c + dw / 2 + 0.3, y - 0.3, y + 0.05, o, o + 0.9, 0xb9b6ac);
+    }
+    return { x: PX(f, c, o), z: PZ(f, c, o), nx: f.nx, nz: f.nz, sx: PX(f, c, o + 0.06), sy: y + signY, sz: PZ(f, c, o + 0.06), sw: signW, sh: signW / 4, opt: true, ly: y + 2.68 };
+  }
+
+  /** What a footprint building is walled in: brick, clapboard, vinyl siding, painted render (row -1: smooth) or concrete block. */
+  private skin(rng: RNG, t: number): { kind: 'brick' | 'clap' | 'vinyl' | 'stucco' | 'block'; row: number; hex: number; trim: number } {
+    const r = rng.next(), c = t === 3 ? [0.3, 0.3, 0.3, 0.68] : t === 1 ? [0.42, 0.68, 1, 1] : [0.38, 0.6, 0.72, 0.87];
+    if (r < c[0]) return { kind: 'brick', row: ROW.brick, hex: rng.pick(BRICKS), trim: STONE };
+    if (r < c[1]) return { kind: 'clap', row: ROW.clap, hex: rng.pick(PAINT), trim: WHITE };
+    if (r < c[2]) return { kind: 'vinyl', row: ROW.clap, hex: rng.pick([0xe9e6dc, 0xd9d4c2, 0xcfd6d8, 0xc8cfc0, 0xe2d8c0, 0xb9c2c9, 0xd6c9b0]), trim: WHITE };
+    if (r < c[3]) return { kind: 'stucco', row: -1, hex: rng.pick([0xe3d9c2, 0xd9c7a6, 0xcfc8ba, 0xe8e2d2, 0xc9b596, 0xbfc4bd, 0xd8b99a]), trim: 0xf1ede2 };
+    // (Painted block: the brick row in a pale paint reads as small units; the granite row's courses are far too big for it.)
+    return { kind: 'block', row: ROW.brick, hex: rng.pick([0xd9d5c8, 0xc9c6bb, 0xe2dccb, 0xbfc3c0, 0xd6cdb6]), trim: 0x8d8a82 };
+  }
+
+  /** A hipped roof on an oriented rectangle: four shingled slopes up to a ridge (a point on a square), eaves standing `over` out with a soffit. */
+  private ohip(o: Ori, y: number, rise: number, over: number, hex: number): void {
+    const k = this.k, [v0, v1] = mwallV(ROW.shingle), us = 1 / (CELL * 16), m = Math.min(o.w, o.d);
+    const a = this.oframes({ ...o, w: o.w + 2 * over, d: o.d + 2 * over }), b = this.oframes({ ...o, w: o.w - m + 0.04, d: o.d - m + 0.04 }), fr = this.oframes(o);
+    const ye = y - over * rise / (m / 2), slope = Math.hypot(rise + y - ye, m / 2 + over), rows = Math.max(1, Math.round(slope / CELL));
+    for (let s = 0; s < 4; s++) {
+      const A = a[s], B = b[s];
+      k.W.quad(A.ox, ye, A.oz, PX(A, A.len, 0), ye, PZ(A, A.len, 0), PX(B, B.len, 0), y + rise, PZ(B, B.len, 0), B.ox, y + rise, B.oz, hex,
+        0, v0, A.len * us, v0 + (v1 - v0) * Math.min(1, slope / (rows * CELL)), s === 0 ? 1 : s === 2 ? 0.86 : 0.93);
+      if (!k.low) k.hq(k.F, fr[s], -over, fr[s].len + over, 0, over, ye, false, 0xd9d5c8, 0.8);
     }
   }
 
@@ -1251,7 +1388,7 @@ class Builder {
    * Big-box store, New England retail style: a split-face block base, EIFS above with a brand frieze, pilasters, a tower over the glazed
    * entrance with a canopy, corrugated metal sides, dock doors on the back, and a parapet.
    */
-  private bigBox(o: Ori, fr: Frame[], y: number, top: number, rng: RNG, qi: number, lean: boolean): void {
+  private bigBox(o: Ori, fr: Frame[], y: number, top: number, rng: RNG, lean: boolean): Door {
     const k = this.k, f0 = fr[0], w = o.w, HS = top - y;
     const eifs = rng.pick([0xd8d0bc, 0xe2ded2, 0xcfc6b0, 0xc4c9c7, 0xd9cfae]), brand = rng.pick([0x1f3d6e, 0x7a1f1c, 0x1d5a3a, 0xc08a1a]);
     const block = 0xa9a396, metal = rng.pick([0xc9cdca, 0xbfc5c6, 0xd2d0c6]), ew = Math.min(14, w * 0.5), e0 = rng.chance(0.5) ? w * 0.18 : w - w * 0.18 - ew;
@@ -1262,13 +1399,14 @@ class Builder {
     k.vq(k.F, f0, 0, w, top - 2.5, top - 2.42, 0.012, dim(eifs, 0.62));
     if (!lean) for (let x = 6; x < w - 3; x += 12) if (x < e0 - 3 || x > e0 + ew + 3) k.ledge(f0, x - 0.35, x + 0.35, y + 2.2, top, 0, 0.2, dim(eifs, 0.93));
     // The glazed entrance, a canopy over it, two flanking piers and the tower block above with the sign on its brand panel.
-    this.oshop(f0, e0, e0 + ew, y, 5.2, rng, 101000 + qi, undefined, false);
+    const door = this.oshop(f0, e0, e0 + ew, y, 5.2, rng, false);
     k.ledge(f0, e0 - 1.5, e0 - 0.5, y, y + 5.3, 0, 0.9, dim(eifs, 1.05));
     k.ledge(f0, e0 + ew + 0.5, e0 + ew + 1.5, y, y + 5.3, 0, 0.9, dim(eifs, 1.05));
     k.ledge(f0, e0 - 1.5, e0 + ew + 1.5, y + 5.2, top + 2.4, 0, 0.9, dim(eifs, 1.05));
     k.ledge(f0, e0 - 1.65, e0 + ew + 1.65, top + 2.3, top + 2.6, 0, 1.0, dim(eifs, 0.84));
     k.vq(k.F, f0, e0 - 0.6, e0 + ew + 0.6, y + 5.45, top + 2.1, 0.93, brand);
-    k.signAt(f0, e0 + ew / 2, y + 5.65, Math.min(ew + 0.4, 10), 0.97, signKey(MAIN_SHOPS[(qi * 5) % MAIN_SHOPS.length][0]), Math.min(2, HS - 4.2));
+    const sh = Math.min(2, HS - 4.0, (ew + 0.4) / 4);
+    door.sx = PX(f0, e0 + ew / 2, 0.97); door.sz = PZ(f0, e0 + ew / 2, 0.97); door.sy = y + 5.45 + (HS - 3.35 - sh) / 2; door.sw = sh * 4; door.sh = sh;
     if (!lean) k.ledge(f0, e0 - 0.3, e0 + ew + 0.3, y + 4.5, y + 4.72, 0.9, 3.4, 0x3a3d40);
     // Corrugated metal on the sides and the back, dock doors along the back.
     for (let s = 1; s < 4; s++) {
@@ -1277,8 +1415,12 @@ class Builder {
       k.band(f, 0, f.len, y + 1.2, top, metal, ROW.seam, y + 1.2, sh);
       if (s === 2 && !lean) { const n = Math.max(1, Math.floor(f.len / 18)); for (let i = 0; i < n; i++) { const c = (i + 0.5) * f.len / n; k.piece(f, c - 1.4, 2.8, y, 3.2, 0.03, ROW.door, 7, 0xffffff, 1); k.ledge(f, c - 1.7, c + 1.7, y + 3.3, y + 3.5, 0, 0.5, 0x4a4d50); } }
       if (s !== 2 && !lean) k.piece(f, f.len * 0.3, 1.1, y, 2.2, 0.03, ROW.door, 5, 0xffffff, 1);
+      // Ribs down the metal and a band under the parapet, so a side that looks at a street is not one plain sheet.
+      if (!lean) { const n = Math.max(2, Math.round(f.len / 10)); for (let i = 1; i < n; i++) k.vq(k.F, f, i * f.len / n - 0.09, i * f.len / n + 0.09, y + 1.2, top, 0.05, dim(metal, 0.78), 0, 0, 1, 1, sh); }
+      k.vq(k.F, f, 0, f.len, top - 1.1, top - 0.6, 0.04, brand, 0, 0, 1, 1, sh);
     }
     this.coping(fr, top, dim(eifs, 0.9), 0.55);
+    return door;
   }
 
   /** A church on a footprint: brick or white clapboard, tall windows, a gabled roof and a steeple (a square tower, a louvred belfry and a spire) on the front. */
@@ -1379,37 +1521,84 @@ class Builder {
       let top = y + 4.8, HS = 4.35, fl = 1;
       let roofHex = rng.pick(ROOF), gabled = false;
       // The walls below the floor line hide the slope.
-      const under = (): void => { for (const f of fr) k.band(f, 0, f.len, base, y, hex, ROW.granite, base, 0.9); };
+      const under = (): void => { for (const f of fr) k.band(f, 0, f.len, base, y, 0x9c978c, ROW.granite, base, 0.9); };
       if (t === 2 || t === 3 || t === 1) {
-        const shop = t === 2 || t === 3;
-        fl = t === 1 ? floorsOf(3, 2, 4) : t === 2 ? floorsOf(w * d > 280 ? 2 : 1, 1, 3) : t === 3 ? 1 : floorsOf(2, 1, 3);
+        // Shops, strip malls and blocks of flats. Each has its own walling (brick, clapboard, vinyl, render, block) and window size; a long
+        // one is a row of bays with their own shade and parapet; small ones take a gable or a hipped roof, the rest a flat roof behind a
+        // parapet. Every side has windows on every floor, the back its service doors: no wall of it is blank.
+        const shop = t !== 1, f0 = fr[0], sk = this.skin(rng, t), soft = sk.kind === 'clap' || sk.kind === 'vinyl';
+        fl = t === 1 ? floorsOf(3, 2, 4) : t === 2 ? floorsOf(w * d > 280 ? 2 : 1, 1, 3) : 1;
         HS = shop ? (t === 3 ? 4.2 : 4.35) : FH;
-        top = y + HS + (fl - 1) * FH + 0.55;
+        const body = y + HS + (fl - 1) * FH, area = w * d;
+        const form = t === 3 || lean ? 'flat' : area < 240 && (soft || rng.chance(0.4)) ? 'gable' : area < 560 && rng.chance(soft ? 0.8 : 0.3) ? 'hip' : 'flat';
+        top = body + (form === 'flat' ? 0.55 : 0.3);
         under();
-        const f0 = fr[0];
-        if (shop) {
-          const units = t === 3 ? Math.max(2, Math.round(w / 7.5)) : Math.max(1, Math.round(w / 11)), uw = w / units;
-          for (let u = 0; u < units; u++) this.oshop(f0, u * uw, (u + 1) * uw, y, HS, rng, 101000 + q.i + u, undefined, t !== 3);
-          if (t === 3 && !lean) {
-            // A strip mall: one canopy the length of the frontage on posts, brick piers between the units.
-            const cc = rng.pick([0x2c4a3a, 0x25395c, 0x6a2620, 0x3c3c3c]);
-            k.ledge(f0, 0, w, y + 2.7, y + 3.0, 0, 2.1, cc);
-            for (let u = 0; u <= units; u++) { k.ledge(f0, Math.max(0, u * uw - 0.25), Math.min(w, u * uw + 0.25), y, y + HS + 0.2, 0, 0.18, dim(hex, 0.92)); if (u % 2 === 0) k.F.cyl(PX(f0, Math.min(w - 0.1, Math.max(0.1, u * uw)), 2.0), y, PZ(f0, Math.min(w - 0.1, Math.max(0.1, u * uw)), 2.0), 0.07, 0.07, 2.72, 0x2b2f33, 6, false); }
+        const st: WinStyle = { ...WIN.sash, w: rng.pick([1.0, 1.1, 1.3]), h: rng.pick([1.75, 2.05]) }, pitch = st.w + rng.range(1.5, 2.3);
+        const nb = w > 26 ? Math.max(2, Math.round(w / rng.range(9, 13))) : 1, bw = w / nb, mid = nb >> 1;
+        const doors: Door[] = lot.doors = [], capHex = sk.kind === 'brick' ? dim(sk.hex, 0.9) : sk.trim;
+        for (let b = 0; b < nb; b++) {
+          const s0 = b * bw, s1 = s0 + bw, hx = nb > 1 ? dim(sk.hex, 0.9 + 0.16 * rng.next()) : sk.hex;
+          const up = form === 'flat' && nb > 1 && !lean ? rng.pick([0, 0.6, 1.1]) : 0, ptop = top + up;
+          if (shop) {
+            const units = Math.max(1, Math.round(bw / (t === 3 ? 7.5 : 10))), uw = bw / units;
+            for (let u = 0; u < units; u++) doors.push(this.oshop(f0, s0 + u * uw, s0 + (u + 1) * uw, y, HS, rng, t !== 3));
+          } else if (b === mid) {
+            // The street door in the middle bay under a canopy, ground-floor windows either side of it.
+            const c = (s0 + s1) / 2;
+            k.band(f0, c - 1.5, c + 1.5, y, y + FH, hx, sk.row, y, 1, 0, FH + 0.001);
+            for (const [a0, a1] of [[s0, c - 1.5], [c + 1.5, s1]]) {
+              if (a1 - a0 > st.w + 1.2) k.facade(f0, a0, a1, y, FH, 1, hx, 1, st, pitch, seed + b, 0xffffff, sk.row);
+              else k.band(f0, a0, a1, y, y + FH, hx, sk.row, y, 1, 0, FH + 0.001);
+            }
+            doors.push(this.entry(f0, c, y, rng.pick([MWALL.doors.panel, MWALL.doors.oval, MWALL.doors.lights]), rng.pick(DOORC), 1.2, dim(sk.trim, 0.85)));
+          } else k.facade(f0, s0, s1, y, FH, 1, hx, 1, st, pitch, seed + b, 0xffffff, sk.row);
+          if (fl > 1) k.facade(f0, s0, s1, y + HS, FH, fl - 1, hx, 1, st, pitch, seed + b * 3 + 1, 0xffffff, sk.row);
+          k.band(f0, s0, s1, body, ptop, hx, sk.row, body, 1);
+          if (sk.kind === 'brick') k.cornice(f0, s0, s1, ptop, hx, 1);
+          else k.ledge(f0, s0, s1, ptop - 0.3, ptop, 0, 0.1, sk.trim);
+          if (up > 0) {
+            // A bay's parapet standing above its neighbours: its back, its ends and a cap.
+            k.vq(k.F, f0, s1, s0, top, ptop, -0.3, dim(hx, 0.8));
+            k.jq(k.F, f0, s0, -0.3, 0, top, ptop, false, dim(hx, 0.85)); k.jq(k.F, f0, s1, -0.3, 0, top, ptop, true, dim(hx, 0.85));
+            if (sk.kind !== 'brick') k.hq(k.F, f0, s0, s1, -0.3, 0.12, ptop, true, capHex);
           }
-          if (fl > 1) k.facade(f0, 0, w, y + HS, FH, fl - 1, hex, 1, WIN.sash, 3.3, seed);
-          else k.band(f0, 0, w, y + HS, top, hex, ROW.brick, y + HS, 1);
-        } else {
-          const wr = ROW.brick, st = WIN.sash;
-          k.facade(f0, 0, w, y, FH, fl, hex, 1, st, 3.3, seed, 0xffffff, wr);
-          k.band(f0, 0, w, y + fl * FH, top, hex, wr, y + fl * FH, 1);
-          k.piece(f0, w / 2 - 0.55, 1.1, y, 2.3, 0.03, ROW.door, 0, 0xffffff, 1);
+          if (b > 0 && !k.low) k.ledge(f0, s0 - 0.2, s0 + 0.2, y + (shop ? HS : 0), top, 0, 0.12, sk.kind === 'brick' ? dim(sk.hex, 0.82) : sk.trim);
         }
+        if (t === 3 && !lean) {
+          // A strip mall: one canopy the length of the frontage on posts.
+          const cc = rng.pick([0x2c4a3a, 0x25395c, 0x6a2620, 0x3c3c3c]), n = Math.max(2, Math.round(w / 7.5));
+          k.ledge(f0, 0, w, y + 2.7, y + 3.0, 0, 2.1, cc);
+          for (let u = 0; u <= n; u += 2) { const su = Math.min(w - 0.1, Math.max(0.1, u * w / n)); k.F.cyl(PX(f0, su, 2.0), y, PZ(f0, su, 2.0), 0.07, 0.07, 2.72, 0x2b2f33, 6, false); }
+        }
+        const dress = !lean, sp = pitch + 0.4;
         for (let s = 1; s < 4; s++) {
-          const f = fr[s], wr = ROW.brick, floors = shop ? Math.max(fl - 1, 0) : fl;
-          k.plainWall(f, 0, f.len, y, top, hex, s === 2 ? 0.92 : 0.96, wr, floors > 0 ? { st: WIN.sash, yb: y + (shop ? HS : 0), fh: FH, floors, pitch: 3.6, seed: seed + s, trim: 0xffffff } : undefined);
+          const f = fr[s], sh = s === 2 ? 0.92 : 0.96;
+          k.plainWall(f, 0, f.len, y, top, sk.hex, sh, sk.row, { st, yb: y + HS, fh: FH, floors: fl - 1, pitch: sp, seed: seed + s, trim: 0xffffff, dress });
+          // The ground floor: windows down the sides (fewer on a shop), service doors and downspouts on the back.
+          if (s !== 2) k.winRow(f, shop ? 2.5 : 0, f.len, y + st.sill + (shop ? 0.3 : 0), st, shop ? sp * 1.6 : sp, seed + s * 5, 0xffffff, sh, dress);
+          else {
+            const nd = Math.max(1, Math.round(f.len / 12)), dl = f.len / nd;
+            for (let i = 0; i < nd; i++) {
+              const c = (i + 0.5) * dl;
+              k.piece(f, c - 0.5, 1.0, y, 2.15, 0.03, ROW.door, MWALL.doors.steel, 0xffffff, sh);
+              if (!shop) { k.winRow(f, i * dl, c - 0.7, y + st.sill, st, sp, seed + i, 0xffffff, sh, dress); k.winRow(f, c + 0.7, (i + 1) * dl, y + st.sill, st, sp, seed + i + 9, 0xffffff, sh, dress); }
+            }
+            if (dress) for (const x of [0.35, f.len - 0.35]) k.vq(k.F, f, x - 0.06, x + 0.06, y, top, 0.05, 0x4a4d50, 0, 0, 1, 1, sh);
+          }
         }
-        k.cornice(f0, 0, w, top, hex, 1);
-        if (!lean) this.coping(fr, top, dim(hex, 0.9), 0.4);
+        // Corner boards on boarded walls.
+        if (soft && !k.low) for (const f of fr) { k.vq(k.F, f, 0, 0.16, y, top, 0.035, WHITE); k.vq(k.F, f, f.len - 0.16, f.len, y, top, 0.035, WHITE); }
+        if (form === 'gable') {
+          const along = w >= d, rise = Math.max(1.8, Math.min(4.2, (along ? d : w) * 0.3));
+          k.ogable(fr, top, rise, along, 0.45, roofHex, sk.hex, sk.row < 0 ? ROW.clap : sk.row);
+          gabled = true;
+        } else if (form === 'hip') {
+          this.ohip(o, top, Math.max(1.6, Math.min(3.6, Math.min(w, d) * 0.26)), 0.45, roofHex);
+          gabled = true;
+        } else if (!lean) {
+          this.coping(fr, top, capHex, 0.4);
+          if (area > 300) this.roofPlant(o, top + 0.02, rng, Math.min(3, Math.floor(area / 300)));
+        }
       } else if (t === 7) {
         top = this.oChurch(o, fr, y, hm, rng, roofHex, lean); HS = top - y; gabled = true;
       } else if (t >= 8) {
@@ -1417,24 +1606,56 @@ class Builder {
       } else if (t === 4) {
         // Big-box store: a tall plain box, a glazed entrance under a big sign, and the car park in front.
         HS = Math.max(6.2, hm > 0 ? Math.min(hm, 11) : 8); top = y + HS; under();
-        this.bigBox(o, fr, y, top, rng, q.i, lean);
+        lot.doors = [this.bigBox(o, fr, y, top, rng, lean)];
         roofHex = 0xb9bbb7;
         if (!lean) this.seams(o, fr, top, 0xa3a5a2, 9);
         this.parkingLot(o, fr[0], lean, G);
         if (!lean) this.roofPlant(o, top, rng, Math.floor(w * d / 700));
       } else if (t === 5) {
-        // Industrial shed: metal-sided, loading doors along the street side, a few roof vents.
+        // Industrial shed: ribbed metal on a block base, a brick office at one end of the front with the door and the firm's sign, roller
+        // doors under canopies on the front and one side, high windows and ribs round every side, and a low gable (a flat roof on the widest).
         HS = Math.max(5.5, hm > 0 ? Math.min(hm, 10) : 6.5); top = y + HS; under();
-        const mh = rng.pick([0x8d9aa3, 0xb5a98a, 0x9aa59a, 0xa4a8a5]);
-        for (let s = 0; s < 4; s++) { k.band(fr[s], 0, fr[s].len, y, y + 0.9, 0xa9a396, ROW.granite, y, 1); k.band(fr[s], 0, fr[s].len, y + 0.9, top, mh, ROW.seam, y + 0.9, s === 2 ? 0.86 : 0.97); }
-        for (const s of [0, 1]) { const f = fr[s], n = Math.max(1, Math.floor(f.len / 14)); for (let i = 0; i < n; i++) k.piece(f, (i + 0.5) * f.len / n - 1.4, 2.8, y, 3.2, 0.03, ROW.door, i % 2 ? 5 : 7, 0xffffff, 1); }
-        k.cornice(fr[0], 0, w, top, mh, 1, 0.4, 0.08);
-        if (!lean) { this.coping(fr, top, dim(mh, 0.85), 0.4); this.seams(o, fr, top, 0x55575a, 7); this.roofPlant(o, top, rng, Math.floor(w * d / 500)); }
+        const mh = rng.pick([0x8d9aa3, 0xb5a98a, 0x9aa59a, 0xa4a8a5, 0x7f8f7a, 0x6f8296, 0xb9b3a2, 0x8a5a4a]), tc = dim(mh, 0.62), f0 = fr[0];
+        const ow = Math.min(11, Math.max(6, w * 0.3)), oh = 3.5, a0 = rng.chance(0.5) ? 0 : w - ow, obr = rng.pick(BRICKS);
+        for (let s = 0; s < 4; s++) {
+          const f = fr[s], sh = s === 0 ? 1 : s === 2 ? 0.86 : 0.97, docks = s === 0 || s === 1, n = Math.max(1, Math.round(f.len / (docks ? 13 : 9)));
+          k.band(f, 0, f.len, y, y + 0.9, 0xa9a396, ROW.granite, y, sh); k.band(f, 0, f.len, y + 0.9, top, mh, ROW.seam, y + 0.9, sh);
+          k.vq(k.F, f, 0, f.len, top - 0.4, top, 0.04, tc, 0, 0, 1, 1, sh);
+          for (let i = 0; i < n; i++) {
+            const c = (i + 0.5) * f.len / n, office = s === 0 && c > a0 - 2 && c < a0 + ow + 2;
+            if (i && !lean) k.vq(k.F, f, i * f.len / n - 0.07, i * f.len / n + 0.07, y + 0.9, top - 0.4, 0.05, tc, 0, 0, 1, 1, sh);
+            if (!office && HS > 5.9) for (const dx of [-1.02, 0.02]) k.piece(f, c + dx, 1.0, top - 2.05, 1.2, 0.03, ROW.sash, (seed + i * 5 + s * 3 + (dx > 0 ? 1 : 0)) % 32, 0xffffff, 1);
+            if (!docks || office) continue;
+            k.piece(f, c - 1.6, 3.2, y, 3.4, 0.03, ROW.door, MWALL.doors.garage, 0xffffff, 1);
+            if (!lean) { k.ledge(f, c - 2.0, c + 2.0, y + 3.5, y + 3.66, 0, 0.9, tc); if (i % 2 === 0 && f.len / n > 8.5) k.piece(f, c + 2.4, 1.0, y, 2.15, 0.03, ROW.door, MWALL.doors.steel, 0xffffff, 1); }
+          }
+        }
+        // The office end: brick to 3.5 m with windows, the door under a canopy, a stone coping, the sign on the metal above.
+        k.band(f0, a0, a0 + ow, y, y + oh, obr, ROW.brick, y, 1, 0.12);
+        k.ledge(f0, a0 - 0.05, a0 + ow + 0.05, y + oh, y + oh + 0.14, 0, 0.2, STONE);
+        k.jq(k.F, f0, a0, 0, 0.12, y, y + oh, false, dim(obr, 0.8)); k.jq(k.F, f0, a0 + ow, 0, 0.12, y, y + oh, true, dim(obr, 0.8));
+        k.winRow(f0, a0 ? a0 + 2.4 : a0, a0 ? a0 + ow : a0 + ow - 2.4, y + 0.9, WIN.sash, 2.5, seed, 0xffffff, 1, !lean, 0.14);
+        const door = this.entry(f0, a0 ? a0 + 1.4 : a0 + ow - 1.4, y, MWALL.doors.lights, 0xffffff, 1.1, tc, Math.min(ow - 1, 5.2, (HS - oh - 1.1) * 4), oh + 0.45, 0.12);
+        door.opt = false; lot.doors = [door];
+        const across = Math.min(w, d);
+        if (across <= 36 && !lean) {
+          k.ogable(fr, top, Math.max(1.1, Math.min(2.8, across * 0.1)), w >= d, 0.3, 0x8f9496, mh, ROW.seam, 1, ROW.seam);
+          gabled = true;
+        } else if (!lean) { this.coping(fr, top, dim(mh, 0.85), 0.4); this.seams(o, fr, top, 0x55575a, 7); this.roofPlant(o, top, rng, Math.floor(w * d / 500)); }
+        // A lean-to on posts along one side, where it keeps off the roads.
+        const f3 = fr[3], l0 = f3.len * 0.25, l1 = Math.min(f3.len - 2, l0 + 12), yh = y + 3.7;
+        if (!lean && w * d > 500 && l1 - l0 > 6 && (!G || (G.clearOfRoads(PX(f3, l0, 4.6), PZ(f3, l0, 4.6), 2.5) && G.clearOfRoads(PX(f3, l1, 4.6), PZ(f3, l1, 4.6), 2.5))) && !RESERVED.some((r) => { const x = PX(f3, (l0 + l1) / 2, 4), z = PZ(f3, (l0 + l1) / 2, 4); return x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1; })) {
+          k.sq(k.F, f3, l0, l1, 0, yh, 3.8, yh - 0.8, 0x8f9496); k.sq(k.F, f3, l0, l1, 0, yh - 0.03, 3.8, yh - 0.83, 0x6c7072, 0.7, 0, 0, 1, 1, true);
+          for (const sp of [l0 + 0.2, (l0 + l1) / 2, l1 - 0.2]) { const px = PX(f3, sp, 3.6), pz = PZ(f3, sp, 3.6), g = groundAt(px, pz) - 0.2; k.F.cyl(px, g, pz, 0.07, 0.07, yh - 0.76 - g, 0x3a3d40, 6, false); this.game.col.addProp(px, pz, 0.12, 3, 'post', false); }
+        }
       } else if (t === 6) {
         // Mill: red brick bays on every wall, five floors at most, a stair tower and a chimney on the big ones.
         fl = floorsOf(3, 2, 5); top = y + fl * FH + 0.6; under();
         for (let s = 0; s < 4; s++) { const f = fr[s]; k.facade(f, 0, f.len, y, FH, fl, hex, 1, WIN.mill, 3.4, seed + s * 3, 0xffffff, ROW.brick); }
         k.cornice(fr[0], 0, w, top, hex, 1);
+        // The mill door: a granite portal on the front with the double door in it.
+        k.ledge(fr[0], w / 2 - 1.5, w / 2 + 1.5, y, y + 3.8, 0, 0.3, STONE);
+        lot.doors = [this.entry(fr[0], w / 2, y, MWALL.doors.hall, 0x2c4a3a, 1.9, 0x3a3d40, 2.4, 4.0, 0.3)];
         const nx = Math.sin(o.h), nz = Math.cos(o.h), tx = nz, tz = -nx;
         // Granite string course under the first floor, a coped roof with a monitor of clerestory windows along it.
         if (!lean) {
@@ -2096,7 +2317,7 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
   const pd = new PardonsStore(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   return {
     update: () => { kit.update(); ms.update(); rf.update(); pd.update(); cv?.update(); houses?.update(); },
-    setNight: (n: number) => { kit.setNight(); ms.setNight(n); rf.setNight(n); pd.setNight(n); cv?.setNight(n); houses?.setNight(n); },
+    setNight: (n: number) => { TOWN_NIGHT.value = n; kit.setNight(); ms.setNight(n); rf.setNight(n); pd.setNight(n); cv?.setNight(n); houses?.setNight(n); },
   };
 }
 

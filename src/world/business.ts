@@ -9,7 +9,7 @@
 // is near. Signs: world/shopSigns.ts.
 
 import { CATEGORIES, CATEGORY_NAME, DIRECTORY, type Category } from './directory';
-import { mainlandLots, type OLot } from './mainlandBuildings';
+import { mainlandLots, type Door, type OLot } from './mainlandBuildings';
 import { CAMPUS_BUILDINGS } from './dithersPlan';
 import { CIVIC } from './civicAssets';
 import { HQ } from './speedscanHQ';
@@ -43,6 +43,8 @@ export interface Place {
   sign: boolean;
   /** The building it was snapped to, for the report. */
   at: string;
+  /** The door it took on a footprint building, when the sign board over that door is its own (shopSigns.ts letters it). */
+  fascia?: Door;
 }
 
 interface Bld { name: string; cx: number; cz: number; kind: 'lot' | 'campus'; x0: number; z0: number; x1: number; z1: number; face: number; w: number; d: number; a: number; pen: number; lot?: OLot }
@@ -80,6 +82,7 @@ export function places(plan: CityPlan, again = false): Place[] {
   // The buildings there are.
   const blds: Bld[] = [];
   for (const l of mainlandLots(plan)) {
+    if (l.doors) for (const d of l.doors) d.used = false;
     const r = l.rect, [fx, fz] = dirOf(l.face);
     void fx; void fz;
     blds.push({ name: 'lot', kind: 'lot', cx: (r.x0 + r.x1) / 2, cz: (r.z0 + r.z1) / 2, x0: r.x0, z0: r.z0, x1: r.x1, z1: r.z1, face: l.face, w: r.x1 - r.x0, d: r.z1 - r.z0, a: 0, pen: l.district === 'stacks' && !(l.osm && l.osm.t !== 0) ? 10 : 0, lot: l.ori ? l : undefined });
@@ -120,6 +123,7 @@ export function places(plan: CityPlan, again = false): Place[] {
   // Dithers' own halls and houses.
   for (const b of campus) {
     if (have.has(b.name)) continue;
+    have.add(b.name); // one place per name: the college's four "Stands" are one entry
     const d = campusDoor(b);
     push({ name: b.name, cat: 'schools', x: d.x, z: d.z, nx: d.nx, nz: d.nz, wx: d.wx, wz: d.wz, rx: b.cx, rz: b.cz, placed: true, open: false, game: true, sign: false, at: b.name });
   }
@@ -141,8 +145,17 @@ export function places(plan: CityPlan, again = false): Place[] {
     for (const b of campus) { const d = cdist(b, x, z); if (d < bd) { bd = d; best = b; } }
     return { b: best, d: bd };
   };
-  for (const [name, ci, x, z, open] of DIRECTORY) {
+  // No two places in town go by one name: where the directory repeats one (the college's four "Stands"), the later ones take their street's name too.
+  const named = new Set(out.map((p) => p.name));
+  for (const [name0, ci, x, z, open] of DIRECTORY) {
     const cat = CATEGORIES[ci];
+    let name = name0;
+    if (named.has(name)) {
+      const st = G.nearestEdge(x, z).edge.name;
+      name = st ? `${name0}, ${st}` : name0;
+      for (let k = 2; named.has(name); k++) name = `${name0} ${k}`;
+    }
+    named.add(name);
     const base = { name, cat, rx: x, rz: z, open: open === 1, game: false };
     if (open) {
       // Open ground: placed where it stands, if a street is near enough to get to it.
@@ -158,6 +171,19 @@ export function places(plan: CityPlan, again = false): Place[] {
       continue;
     }
     const lo = b.lot, oo = lo?.ori;
+    if (lo && lo.doors && lo.doors.length) {
+      // A footprint building with its doors drawn: the free door nearest the business, and the sign board over it; once every door is taken, the nearest one and a blade sign beside it.
+      let free: Door | null = null, fd = 1e9, any = lo.doors[0], ad = 1e9;
+      for (const dr of lo.doors) {
+        const dd = Math.hypot(dr.x - x, dr.z - z);
+        if (dd < ad) { ad = dd; any = dr; }
+        if (!dr.used && dr.sw > 0 && dd < fd) { fd = dd; free = dr; }
+      }
+      const dr = free ?? any;
+      if (free) free.used = true;
+      push({ ...base, x: dr.x + dr.nx * 2.5, z: dr.z + dr.nz * 2.5, nx: dr.nx, nz: dr.nz, wx: dr.x, wz: dr.z, placed: true, sign: !free, at: 'footprint', fascia: free ?? undefined });
+      continue;
+    }
     if (lo && oo) {
       // A building at its own angle: the door on its real front wall (the lot's `wall` once built, else the lot's front edge), at the spot nearest the business.
       const fx = Math.sin(oo.h), fz = Math.cos(oo.h), tx = fz, tz = -fx;

@@ -556,6 +556,8 @@ export class Sky implements SkyApi {
   private readonly horBase = new THREE.Color();
   private readonly horGlow = new THREE.Color();
   private readonly fogFlat = new THREE.Color();
+  /** The sky's colour a little above the horizon: what the haze leans to where there is no post pipeline (faceFog). */
+  private readonly midBase = new THREE.Color();
   private glowAmt = 0;
   private fogTint = 0;
   private exposure = 1;
@@ -853,6 +855,7 @@ export class Sky implements SkyApi {
     const snowing = w[W.snow];
     if (snowing > 0) this.fogFlat.lerp(this.c1.copy(SNOW_FOG).multiplyScalar(lerp(1, 0.16, dark)), snowing * 0.8);
     this.horBase.copy(p.hor);
+    this.midBase.copy(p.mid);
     this.horGlow.copy(p.glow);
     this.glowAmt = p.glowAmt;
     this.fogTint = w[W.tint];
@@ -953,6 +956,11 @@ export class Sky implements SkyApi {
     // Through the post pipeline nothing is tone mapped until the composite, fog
     // included, so there the fog wants the dome's raw colour and the two are
     // mapped together.
+    // Without the post pipeline (the low preset, phones) the haze is mixed in after the tone map, on the screen's own scale, and the
+    // draw distance is half as far, so twice the air lies on everything: the pale horizon cream then washes the whole town out to white.
+    // There the haze leans a third of the way to the sky above the horizon and is an eighth darker (dome band and fog alike, so far
+    // ground still melts into the sky), which gives the distance the blue-grey depth it has at high. Fog weather keeps its own colour.
+    if (!this.game.post?.enabled) { const k = 1 - this.fogTint; c.lerp(this.midBase, 0.36 * k).multiplyScalar(1 - 0.13 * k); }
     this.fog.color.copy(c);
     if (!this.game.post?.enabled) toneMap(this.fog.color, this.exposure);
   }
