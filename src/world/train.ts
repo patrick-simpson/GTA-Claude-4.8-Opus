@@ -48,6 +48,7 @@ import { kid } from '../core/kid';
 import { groundAt } from './plan';
 import { MAIN_Y, RAIL, RAIL_TRESTLE } from './mainland';
 import { STREETS_NEW } from './streets';
+import { RAILWAY, RAIL_DECK_Y, onRailDeck, railNear } from './railway';
 import { SPECS, type VehicleSpec } from '../ent/vehicleSpecs';
 import { bellStroke, clack, dieselGrain, grind, hornNote, hornPattern } from '../audio/train';
 
@@ -60,17 +61,31 @@ const rnd = (a: number, b: number): number => a + Math.random() * (b - a);
 const X0 = RAIL.x0, X1 = RAIL.x1, RZ = RAIL.z;
 /** The spur (new streets): leaves the main line here, curves north on this radius, ends at this z. */
 const SW_X = 470, SPUR_R = 60, SPUR_END_Z = -2430;
-const SPUR = STREETS_NEW;
-const DEPOT_X = STREETS_NEW ? 167 : 107;
+/** The new-streets railway (world/railway.ts): a main line from the south buffer, the yard lead and the sidings. Null under ?streets=old. */
+const RW = RAILWAY;
+const SPUR = !!RW;
+/** The switch's metre on the main line, and the depot's. */
+const SW_S = RW ? RW.swS : 0;
+const DEPOT_S = RW ? RW.depot.s : 107 - X0;
 /** Where the train stands at each end: the tail clear of the last crossing in the west, the head short of one in the east. */
 const WEST_TAIL_X = STREETS_NEW ? -575 : X0 + 8;
 const EAST_HEAD_X = STREETS_NEW ? 610 : X1 - 8;
+/** Metres from the south buffer where the head stands at each end: the tail 6 m clear of the buffer, the head short of the north one. */
+const S_TAIL = RW ? 6 : WEST_TAIL_X - X0;
+const S_HEAD = RW ? RW.main.length / 2 - 9 : EAST_HEAD_X - X0;
+const START_X = RW ? RW.main[0] : WEST_TAIL_X, START_Z = RW ? RW.main[1] : RZ;
 
 interface Path { n: number; x: Float32Array; z: Float32Array; y: Float32Array; h: Float32Array; k: Float32Array; len: number }
-interface Crossing { x: number; z: number; s: number; hw: number; dx: number; dz: number; name: string; on: boolean; t: number; arm: number; horned: boolean; bellT: number; lamps: THREE.Mesh[]; arms: THREE.Object3D[]; peds: RoadPed[] }
+interface Crossing { x: number; z: number; tx: number; tz: number; s: number; hw: number; dx: number; dz: number; name: string; on: boolean; t: number; arm: number; horned: boolean; bellT: number; lamps: THREE.Mesh[]; arms: THREE.Object3D[]; peds: RoadPed[] }
 
 /** Height of the rail's top: the trestle's deck, flush with a street at a crossing, else on its ballast. */
 function railY(x: number, z: number, cross: readonly Crossing[]): number {
+  if (RW) {
+    if (onRailDeck(x, z)) return RAIL_DECK_Y;
+    const g = groundAt(x, z);
+    for (const c of cross) if (Math.hypot(x - c.x, z - c.z) < c.hw / Math.max(0.4, Math.abs(c.dx * c.tz - c.dz * c.tx)) + 2.5) return g;
+    return g + 0.21;
+  }
   if (x > RAIL_TRESTLE.x0 && x < RAIL_TRESTLE.x1 && Math.abs(z - RZ) < 3) return MAIN_Y + 0.15;
   const g = groundAt(x, z);
   for (const c of cross) if (Math.abs(x - c.x) < c.hw + 3 && Math.abs(z - c.z) < 4) return g + 0.0;
@@ -218,17 +233,23 @@ function legTime(D: number, vmax: number, a: number, b: number): number {
 
 /** One run of the given consist length: legs in game minutes from the start of the run. */
 function plan(trainLen: number, passenger: boolean): Leg[] {
-  const sW = WEST_TAIL_X - X0 + trainLen, sE = EAST_HEAD_X - X0;
-  const vmax = passenger ? 15 : 12, a = passenger ? 0.5 : 0.35, b = passenger ? 0.6 : 0.45;
-  const stops = passenger ? [DEPOT_X - X0 + (trainLen + CARS.loco.hc * 2) / 2] : [];
+  const sW = S_TAIL + trainLen, sE = S_HEAD;
+  const ks = RW ? 1.8 : 1, a = (passenger ? 0.5 : 0.35) * ks, b = (passenger ? 0.6 : 0.45) * ks;
+  const stops = passenger ? [DEPOT_S + (trainLen + CARS.loco.hc * 2) / 2] : [];
   const out: [number, number][] = [];
   const legs: { s0: number; s1: number }[] = [];
   const east = [sW, ...stops, sE], west = [sE, ...stops.slice().reverse(), sW];
   for (const seq of [east, west]) for (let i = 0; i + 1 < seq.length; i++) legs.push({ s0: seq[i], s1: seq[i + 1] });
   const DWELL_DEPOT = 30;
-  let moving = 0;
-  for (const l of legs) moving += legTime(Math.abs(l.s1 - l.s0), vmax, a, b);
   const depotDwell = stops.length * 2 * DWELL_DEPOT;
+  // The longer line asks for more speed: the cruise rises until both ways, the dwells and a margin fit in RUN.
+  let vmax = passenger ? 15 : 12, moving = 0;
+  for (;;) {
+    moving = 0;
+    for (const l of legs) moving += legTime(Math.abs(l.s1 - l.s0), vmax, a, b);
+    if (moving + depotDwell + 40 <= RUN || vmax >= 26) break;
+    vmax += 1;
+  }
   const endDwell = Math.max(10, (RUN - moving - depotDwell) / 2);
   const res: Leg[] = [];
   let t = endDwell / 2;
@@ -302,21 +323,15 @@ export class Train implements WorldPart {
     trains.cur = this;
     // Crossings first: the rail's height at each depends on them.
     if (STREETS_NEW) this.findCrossings();
-    const mp: number[] = [];
-    for (let x = X0; x <= X1 + 1e-6; x += 1) mp.push(x, RZ);
+    const mp: number[] = RW ? RW.main.slice() : [];
+    if (!RW) for (let x = X0; x <= X1 + 1e-6; x += 1) mp.push(x, RZ);
     this.main = makePath(mp, this.cross);
-    if (SPUR) {
-      const sp: number[] = [];
-      for (let x = X0; x <= SW_X + 1e-6; x += 1) sp.push(x, RZ);
-      const steps = Math.floor((Math.PI / 2) * SPUR_R);
-      for (let j = 1; j <= steps; j++) { const th = j / SPUR_R; sp.push(SW_X + SPUR_R * Math.sin(th), RZ - SPUR_R + SPUR_R * Math.cos(th)); }
-      const ex = SW_X + SPUR_R;
-      let z = sp[sp.length - 1] - 1;
-      sp.push(ex, z);
-      while (z > SPUR_END_Z) { z -= 1; sp.push(ex, z); }
+    if (RW) {
+      // The yard lead shares the main line up to the switch's points, then leaves it on its tight curve.
+      const sp = RW.main.slice(0, 2 * SW_S + 2);
+      for (let j = 1; j < RW.lead.length / 2; j++) sp.push(RW.lead[2 * j], RW.lead[2 * j + 1]);
       this.spur = makePath(sp, this.cross);
     } else this.spur = null;
-    for (const c of this.cross) c.s = c.x - X0;
 
     this.lampOn = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.35, 0.2), toneMapped: true });
     this.lampOff = new THREE.MeshBasicMaterial({ color: 0x2a0a08 });
@@ -332,57 +347,113 @@ export class Train implements WorldPart {
 
   // ── Building ──────────────────────────────────────────────────────────────
 
+  /** Every street the line meets, found where the graph's edges cut the main line (so gates sit exactly on the crossings). */
   private findCrossings(): void {
     const st = (this.game.plan as unknown as { streets?: { edges: { id: number; name: string; hw: number; deck?: boolean }[]; edgePts(e: unknown): number[] } }).streets;
-    if (!st) return;
+    if (!st || !RW) return;
+    const M = RW.main, n = M.length / 2;
     for (const e of st.edges) {
       if (e.deck) continue;
       const p = st.edgePts(e);
       for (let k = 0; k + 3 < p.length; k += 2) {
-        const az = p[k + 1], bz = p[k + 3];
-        if ((az - RZ) * (bz - RZ) > 0 || az === bz) continue;
-        const t = (RZ - az) / (bz - az), x = p[k] + (p[k + 2] - p[k]) * t;
-        if (x < X0 + 2 || x > X1 - 2) continue;
-        if (x > RAIL_TRESTLE.x0 - 2 && x < RAIL_TRESTLE.x1 + 2) continue;
-        const dl = Math.hypot(p[k + 2] - p[k], bz - az) || 1;
-        this.cross.push({ x, z: RZ, s: 0, hw: e.hw, dx: (p[k + 2] - p[k]) / dl, dz: (bz - az) / dl, name: e.name, on: false, t: 0, arm: 1, horned: false, bellT: 0, lamps: [], arms: [], peds: [] });
+        const ax = p[k], az = p[k + 1], bx = p[k + 2], bz = p[k + 3], rx = bx - ax, rz = bz - az, sl = Math.hypot(rx, rz);
+        if (sl < 1e-6) continue;
+        let near = railNear(bx, bz, 14);
+        for (let d = 0; d <= sl && !near; d += 8) near = railNear(ax + rx * d / sl, az + rz * d / sl, 14);
+        if (!near) continue;
+        for (let i = 0; i + 1 < n; i++) {
+          const mx = M[2 * i], mz = M[2 * i + 1], sx = M[2 * i + 2] - mx, sz = M[2 * i + 3] - mz;
+          const den = rx * sz - rz * sx;
+          if (Math.abs(den) < 1e-9) continue;
+          const tt = ((mx - ax) * sz - (mz - az) * sx) / den, u = ((mx - ax) * rz - (mz - az) * rx) / den;
+          if (tt < 0 || tt >= 1 || u < 0 || u >= 1) continue;
+          const s = i + u;
+          if (s < 12 || s > n - 12) continue;
+          if (RW.trestles.some((q) => s > q.s0 - 2 && s < q.s1 + 2)) continue;
+          if (this.cross.some((c) => c.name === e.name && Math.abs(c.s - s) < 4)) continue;
+          const tl = Math.hypot(sx, sz) || 1;
+          this.cross.push({ x: ax + rx * tt, z: az + rz * tt, tx: sx / tl, tz: sz / tl, s, hw: e.hw, dx: rx / sl, dz: rz / sl, name: e.name, on: false, t: 0, arm: 1, horned: false, bellT: 0, lamps: [], arms: [], peds: [] });
+        }
       }
     }
+    this.cross.sort((a, b) => a.s - b.s);
   }
 
-  /** The spur's track (ties, rails, ballast), its switch stand, the buffer stop and the pulpwood landing at its end. */
+  /** The whole railway under the new streets: ballast, ties and rails along every path, the trestles, buffers, the switch stand and the yard's parked cars. */
   private buildTrackExtras(parent: THREE.Group): void {
-    const P = this.spur;
-    if (!P) return;
-    const geo = new Boxes();
-    const s0 = SW_X - X0 - 2;
-    for (let s = s0; s < P.len - 1; s += 2) {
-      const p = at(P, s + 1, this.pp), g = groundAt(p.x, p.z);
-      geo.box(p.x, g + 0.03, p.z, 3.4, 0.24, 2.05, p.h, 0x7d776c);
-      geo.box(p.x, p.y - 0.13, p.z, 2.5, 0.1, 0.26, p.h, 0x5a4636);
-      for (const sg of [-1, 1]) {
-        const ox = Math.cos(p.h) * 0.72 * sg, oz = -Math.sin(p.h) * 0.72 * sg;
-        geo.box(p.x + ox, p.y - 0.04, p.z + oz, 0.08, 0.1, 2.02, p.h, 0x54585e);
+    if (!RW || !this.spur) return;
+    const col = this.game.col, mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 });
+    const BAL = 0x7d776c, TIE = 0x5a4636, RAILC = 0x54585e, TIMB = 0x6a5238, ORANGE = 0xe4572e;
+    const step = this.low ? 4 : 3;
+    let geo = new Boxes(), count = 0;
+    const flush = (): void => {
+      if (!count) return;
+      const m = new THREE.Mesh(geo.build(), mat); m.receiveShadow = true; parent.add(m);
+      geo = new Boxes(); count = 0;
+    };
+    const atCrossing = (x: number, z: number): boolean => this.cross.some((c) => Math.hypot(x - c.x, z - c.z) < c.hw / Math.max(0.4, Math.abs(c.dx * c.tz - c.dz * c.tx)) + 1.5);
+    const lay = (P: Path, s0: number, s1: number): void => {
+      for (let s = s0; s < s1 - 1; s += step) {
+        const p = at(P, s + step / 2, this.pp), g = groundAt(p.x, p.z), deck = onRailDeck(p.x, p.z), road = atCrossing(p.x, p.z);
+        if (!deck && !road) geo.box(p.x, g + 0.03, p.z, 3.4, 0.24, step + 0.2, p.h, BAL);
+        if (deck) {
+          geo.box(p.x, p.y - 0.43, p.z, 4.4, 0.5, step + 0.1, p.h, TIMB);
+          if (Math.floor(s / 15) !== Math.floor((s - step) / 15)) {
+            const rx = Math.cos(p.h), rz = -Math.sin(p.h), top = p.y - 0.68, bot = -4.5;
+            for (const sg of [-1, 1]) geo.box(p.x + rx * 1.7 * sg, (top + bot) / 2, p.z + rz * 1.7 * sg, 0.55, top - bot, 0.55, p.h, TIMB);
+            geo.box(p.x, top - 0.3, p.z, 4.2, 0.3, 0.35, p.h, TIMB);
+            geo.box(p.x, top - 2.2, p.z, 3.4, 0.25, 0.3, p.h, TIMB);
+          }
+        }
+        for (let o = 0; o < step && !road; o += step / 2) { const q = at(P, s + o + step / 4, this.pq); geo.box(q.x, q.y - 0.13, q.z, 2.5, 0.1, 0.26, q.h, TIE); }
+        for (const sg of [-1, 1]) {
+          const ox = Math.cos(p.h) * 0.72 * sg, oz = -Math.sin(p.h) * 0.72 * sg;
+          geo.box(p.x + ox, p.y - 0.04, p.z + oz, 0.08, 0.1, step + 0.02, p.h, RAILC);
+        }
+        count += 3;
+        if (count > 700) flush();
       }
-    }
-    // Buffer stop and the landing.
-    const e = at(P, P.len - 1, this.pp), g = groundAt(e.x, e.z);
-    geo.box(e.x, g + 0.55, e.z - 1.5, 2.6, 1.1, 0.5, 0, 0xe4572e);
-    this.game.col.addBoxC(e.x, e.z - 1.5, 2.6, 0.6, g + 1.1, g - 0.5);
-    for (let i = 0; i < 4; i++) {
-      const px = e.x + (i % 2 ? 9 : -9), pz = e.z + 14 + Math.floor(i / 2) * 16;
-      for (let r = 0; r < 3; r++) geo.box(px, g + 0.45 + r * 0.8, pz, 3.2 - r * 0.6, 0.8, 12, 0, r % 2 ? 0x8a6a48 : 0x76583a);
-      this.game.col.addBoxC(px, pz, 3.2, 12, g + 2.4, g - 0.5);
-    }
+      flush();
+    };
+    const buffer = (P: Path, atEnd: boolean): void => {
+      const e = at(P, atEnd ? P.len - 1 : 0, this.pp), g = groundAt(e.x, e.z), dir = atEnd ? 1 : -1;
+      const bx = e.x + Math.sin(e.h) * 1.7 * dir, bz = e.z + Math.cos(e.h) * 1.7 * dir;
+      geo.box(bx, g + 0.55, bz, 2.6, 1.1, 0.5, e.h, ORANGE);
+      geo.box(bx, g + 0.3, bz, 0.5, 0.6, 2.5, e.h, TIE);
+      col.addBoxC(bx, bz, 2.6, 2.6, g + 1.1, g - 0.5);
+      count += 2;
+    };
+    lay(this.main, 0, this.main.len);
+    lay(this.spur, SW_S, this.spur.len);
+    const sid = RW.sidings.map((s) => makePath(s, this.cross));
+    for (const P of sid) lay(P, 4, P.len);
+    buffer(this.main, false); buffer(this.main, true); buffer(this.spur, true);
+    for (const P of sid) buffer(P, true);
+    // Cars left on the yard sidings: boxcars, a flat with lumber, a tanker, a hopper.
+    const CARC = [0x7a3b2e, 0x6a4a36, 0x3f5a4a, 0x8a6a2e, 0x55606a];
+    sid.forEach((P, si) => {
+      const n = [3, 2, 2, 1][si] ?? 1;
+      for (let k = 0; k < n; k++) {
+        const s = P.len - 9 - k * 17.5, p = at(P, s, this.pp), g = p.y + 0.1, hex = CARC[(si * 3 + k) % CARC.length], kind = (si + k) % 4;
+        const rx = Math.cos(p.h), rz = -Math.sin(p.h), fx = Math.sin(p.h), fz = Math.cos(p.h);
+        for (const tt of [-4.2, 4.2]) geo.box(p.x + fx * tt, g, p.z + fz * tt, 2.2, 0.75, 2.4, p.h, 0x26282b);
+        geo.box(p.x, g + 0.75, p.z, 2.7, 0.3, 12.6, p.h, 0x2e3033);
+        if (kind === 1) { geo.box(p.x, g + 1.2, p.z, 2.4, 0.9, 11.4, p.h, 0x8a6a48); geo.box(p.x, g + 2.1, p.z, 2.0, 0.9, 11.0, p.h, 0x76583a); }
+        else if (kind === 2) { geo.box(p.x, g + 1.9, p.z, 2.9, 2.6, 12.0, p.h, 0x111112); geo.box(p.x, g + 3.3, p.z, 0.8, 0.4, 1.4, p.h, 0x2a2a2a); }
+        else { geo.box(p.x, g + 1.05, p.z, 2.8, 2.9, 12.4, p.h, hex); geo.box(p.x, g + 3.95, p.z, 0.6, 0.08, 12.0, p.h, 0x3a3a3a); for (const sg of [-1, 1]) geo.box(p.x + rx * 1.42 * sg, g + 1.15, p.z + rz * 1.42 * sg, 0.06, 2.6, 2.3, p.h, hex ^ 0x202020); }
+        for (let j = -2; j <= 2; j++) { const q = at(P, s + j * 4, this.pq); col.addBoxC(q.x, q.z, 4.2, 4.2, g + (kind === 1 ? 2.6 : 3.9), g - 1); }
+        count += 12;
+        if (count > 700) flush();
+      }
+    });
     // The switch stand beside the points, its target turned to show the route.
-    const w = at(this.main, SW_X - X0, this.pp), gw = groundAt(w.x, w.z + 3);
-    geo.box(w.x, gw + 0.6, w.z + 2.6, 0.12, 1.2, 0.12, 0, 0x2b2d30);
+    const w = at(this.main, SW_S, this.pp), gw = groundAt(w.x, w.z), sx = w.x + Math.cos(w.h) * 3, sz = w.z - Math.sin(w.h) * 3;
+    geo.box(sx, gw + 0.6, sz, 0.12, 1.2, 0.12, 0, 0x2b2d30);
     this.switchTarget = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.04), new THREE.MeshStandardMaterial({ color: 0x2e8b3a, roughness: 0.6 }));
-    this.switchTarget.position.set(w.x, gw + 1.35, w.z + 2.6);
+    this.switchTarget.position.set(sx, gw + 1.35, sz);
+    this.switchTarget.rotation.y = w.h;
     parent.add(this.switchTarget);
-    const mesh = new THREE.Mesh(geo.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
-    mesh.receiveShadow = true;
-    parent.add(mesh);
+    flush();
   }
   private switchTarget: THREE.Mesh | null = null;
 
@@ -400,13 +471,9 @@ export class Train implements WorldPart {
     for (const c of this.cross) {
       const lampsA: THREE.BufferGeometry[] = [], lampsB: THREE.BufferGeometry[] = [];
       for (const sg of [-1, 1]) {
-        // Traffic on this side of the line moves toward it along -sg * (dx, dz) (dz is never zero: no street runs along the track).
-        const fdx = -sg * c.dx * Math.sign(c.dz || 1), fdz = -sg * c.dz * Math.sign(c.dz || 1);
-        // fdx, fdz: heading of traffic approaching from the side where z - RZ has the sign of sg... recomputed below to be sure.
-        let hx = fdx, hz = fdz;
-        if (Math.sign(-hz) !== Math.sign(sg)) { hx = -hx; hz = -hz; }
-        // (Traffic north of the line, sg = -1, heads south: +z. South of it, sg = +1, heads north: -z.)
-        const along = Math.min(14, 5.6 / Math.max(0.3, Math.abs(hz)));
+        // Traffic on side sg of the line heads along sg * (dx, dz) toward it; the mast stands on its right, 5.6 m short of the track.
+        const hx = sg * c.dx, hz = sg * c.dz;
+        const along = Math.min(14, 5.6 / Math.max(0.3, Math.abs(hx * c.tz - hz * c.tx)));
         const rx = -hz, rz = hx;           // its right
         const bx = c.x - hx * along, bz = c.z - hz * along;   // point on the road centre before the line
         const mx = bx + rx * (c.hw + 1.3), mz = bz + rz * (c.hw + 1.3), g = groundAt(mx, mz);
@@ -573,7 +640,7 @@ export class Train implements WorldPart {
     const c = this.clock(), want = this.wantConsist().kind;
     // Swap consists only while it stands at the west end with nobody near enough to see it happen.
     if (want !== this.consist) {
-      const pl = this.game.player, far = !pl || (this.mode === 'sched' && this.nearest(pl.x, pl.z) > 320 && Math.hypot(pl.x - WEST_TAIL_X, pl.z - RZ) > 260);
+      const pl = this.game.player, far = !pl || (this.mode === 'sched' && this.nearest(pl.x, pl.z) > 320 && Math.hypot(pl.x - START_X, pl.z - START_Z) > 260);
       const atWest = c.u < 30 || c.u > RUN - 30;
       // (A screen whose clock only just synced may have the wrong consist mid-run: swapped as soon as nobody is near it.)
       if (((atWest || far) && far) || this.cars.length === 0) this.setConsist(want);
@@ -667,7 +734,7 @@ export class Train implements WorldPart {
     this.v = nv;
     this.s += nv * dt;
     // Throw the switch for the route ahead while the whole train is short of the points.
-    const swS = SW_X - X0;
+    const swS = SW_S;
     if (this.spur && this.s < swS) this.pathId = this.switchSpur ? 1 : 0;
     const P = this.path(), L = this.trainLen();
     // Buffer stops at the ends of the line.
@@ -688,10 +755,17 @@ export class Train implements WorldPart {
 
   /** Where a point is on the line: path, distance along it, and how far off it lies. */
   private project(x: number, z: number): { id: number; s: number; d: number } {
+    if (RW) {
+      let best = { id: 0, s: 0, d: Infinity };
+      const M = this.main, P = this.spur;
+      for (let i = 0; i < M.n; i++) { const d = Math.hypot(M.x[i] - x, M.z[i] - z); if (d < best.d) best = { id: 0, s: i, d }; }
+      if (P) for (let i = SW_S + 1; i < P.n; i++) { const d = Math.hypot(P.x[i] - x, P.z[i] - z); if (d < best.d) best = { id: 1, s: i, d }; }
+      return best;
+    }
     let best = { id: 0, s: clamp(x - X0, 0, this.main.len), d: Math.abs(z - RZ) };
     const P = this.spur;
     if (P && x > SW_X - 5 && z < RZ - 2) {
-      const i0 = Math.floor(SW_X - X0);
+      const i0 = Math.floor(SW_S);
       for (let i = i0; i < P.n; i++) {
         const d = Math.hypot(P.x[i] - x, P.z[i] - z);
         if (d < best.d) best = { id: 1, s: i, d };
@@ -866,14 +940,14 @@ export class Train implements WorldPart {
   // ── Crossings ─────────────────────────────────────────────────────────────
 
   private crossings(dt: number): void {
-    const head = this.s, tail = this.s - this.trainLen(), v = this.v, offMain = this.pathId === 1 && head > SW_X - X0;
+    const head = this.s, tail = this.s - this.trainLen(), v = this.v, offMain = this.pathId === 1 && head > SW_S;
     const stops = this.stopPeds;
     stops.length = 0;
     const core = this.game.audio?.core, lis = this.game.camera.position;
     for (const c of this.cross) {
       let d = c.s > head ? c.s - head : c.s < tail ? tail - c.s : 0;
-      if (offMain && c.s > SW_X - X0) d = Infinity;
-      if (this.mode === 'derail') d = Math.abs(c.x - this.cars[0].b.x) < 30 ? 0 : Infinity;
+      if (offMain && c.s > SW_S) d = Infinity;
+      if (this.mode === 'derail') d = Math.hypot(c.x - this.cars[0].b.x, c.z - this.cars[0].b.z) < 30 ? 0 : Infinity;
       const toward = (c.s > head && v > 0.3) || (c.s < tail && v < -0.3);
       const on = d < c.hw + 4 || (toward && d < 35 + Math.abs(v) * 24);
       if (on !== c.on) { c.on = on; c.t = 0; if (!on) c.horned = false; }
@@ -1063,15 +1137,15 @@ export class Train implements WorldPart {
     if (!driving) { if (this.promptT > 0) { this.promptT = 0; g.hud.prompt(null); } if (this.hornStop) { this.hornStop(g.audio?.core?.now ?? 0); this.hornStop = null; } return; }
     const c = this.cab.ctl;
     // A/D line the spur switch while the train is short of the points.
-    if (this.spur && this.s < SW_X - X0) {
-      if (c.steer < -0.5 && !this.switchSpur) { this.switchSpur = true; g.hud.toast('Switch lined for the pulpwood spur (tight curve: keep it under 25 mph).', 3); }
+    if (this.spur && this.s < SW_S) {
+      if (c.steer < -0.5 && !this.switchSpur) { this.switchSpur = true; g.hud.toast('Switch lined for the yard lead (tight curve: keep it under 25 mph).', 3); }
       if (c.steer > 0.5 && this.switchSpur) { this.switchSpur = false; g.hud.toast('Switch lined for the main line.', 2.5); }
     }
     this.promptT -= dt;
     if (this.promptT <= 0) {
       this.promptT = 0.5;
       const mph = Math.round(Math.abs(this.v) * 2.237);
-      const sw = this.spur ? (this.s < SW_X - X0 ? ` · A/D switch: ${this.switchSpur ? 'SPUR' : 'MAIN'}` : this.pathId === 1 ? ' · on the spur' : '') : '';
+      const sw = this.spur ? (this.s < SW_S ? ` · A/D switch: ${this.switchSpur ? 'SPUR' : 'MAIN'}` : this.pathId === 1 ? ' · on the yard lead' : '') : '';
       g.hud.prompt(this.mode === 'derail' ? 'F  Climb out' : `W/S throttle · Space brake · H horn${sw} · ${mph} mph`);
     }
     // The horn, for as long as it is held.

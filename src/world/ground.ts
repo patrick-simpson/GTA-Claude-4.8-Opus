@@ -13,6 +13,7 @@ import type { Game } from '../core/game';
 import type { WorldPart } from '../core/api';
 import type { CityMaterials } from './materials';
 import type { Prop, PropKind } from './collide';
+import { RAILWAY, railNear } from './railway';
 import { Batch } from './batch';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { MARKS, TILE_M } from './textures';
@@ -105,7 +106,7 @@ const inset = (r: Rect, road: readonly boolean[], d: number): Rect => ({
 
 /** True on a stunt ramp, within 12 m of one, or in its run-up and landing strip. */
 /** Lamps along the new streets stay off the railway and out of the river. */
-const keepOutLamp = (x: number, z: number): boolean => (Math.abs(z - RAIL.z) < 5.5 && x > RAIL.x0 - 4 && x < RAIL.x1 + 4) || waterDist(x, z) < 4;
+const keepOutLamp = (x: number, z: number): boolean => (!RAILWAY && Math.abs(z - RAIL.z) < 5.5 && x > RAIL.x0 - 4 && x < RAIL.x1 + 4) || railNear(x, z, 6) || waterDist(x, z) < 4;
 
 function nearRamp(x: number, z: number): boolean {
   for (const r of RAMPS) {
@@ -122,7 +123,8 @@ function nearRamp(x: number, z: number): boolean {
 function keepOut(x: number, z: number): boolean {
   if (z < MAIN_SPLIT_Z) {
     // The mainland's: the railway, the bridge's landing, the footpath to the footbridge, the Thruway's stub, the water's edge.
-    if (Math.abs(z - RAIL.z) < 5.5 && x > RAIL.x0 - 4 && x < RAIL.x1 + 4) return true;
+    if (!RAILWAY && Math.abs(z - RAIL.z) < 5.5 && x > RAIL.x0 - 4 && x < RAIL.x1 + 4) return true;
+    if (railNear(x, z, 5)) return true;
     // Under the new street plan: its roads and sidewalks instead of the old grid's.
     const surf = streetSurface();
     if (surf) return surf.nearRoad(x, z, 3) || waterDist(x, z) < 3 || !campusFree(x, z, 2); // Dithers College: no trees in its halls or pond
@@ -1903,9 +1905,10 @@ class Ground implements WorldPart {
         for (const sg of [-1, 1]) flat.box(xm, top - 0.1, z + sg * 0.72, 2, 0.1, 0.08, RAILC, 0, 5);
       }
     };
+    // New streets: the whole railway (main line, trestles, yard, buffers) is laid by world/train.ts along world/railway.ts.
+    if (!this.newPlan) {
     track(RAIL.x0, RAIL.x1, RAIL.z, false);
-    // New streets: the sidings lie beside the depot, between Tuition Ave and Front St (mainlandPlaces.ts).
-    for (const dz of [-4.6, 4.6]) if (this.newPlan) track(136, 214, RAIL.z + dz, true); else track(MXS[3] + 12, MXS[8] - 12, RAIL.z + dz, true);
+    for (const dz of [-4.6, 4.6]) track(MXS[3] + 12, MXS[8] - 12, RAIL.z + dz, true);
     const tl = RAIL_TRESTLE.x1 - RAIL_TRESTLE.x0, tm = (RAIL_TRESTLE.x0 + RAIL_TRESTLE.x1) / 2;
     flat.box(tm, Y - 0.5, RAIL.z, tl, 0.5, 4.4, TIMB, 0, 7);
     for (let x = RAIL_TRESTLE.x0 + 8; x < RAIL_TRESTLE.x1 - 4; x += 14) {
@@ -1916,6 +1919,7 @@ class Ground implements WorldPart {
       const g = groundAt(end, RAIL.z);
       flat.box(end, g, RAIL.z, 0.5, 1.1, 2.6, 0xe4572e);
       col.addBoxC(end, RAIL.z, 0.6, 2.6, g + 1.1, g - 0.5);
+    }
     }
     // Crossbucks at every level crossing, one for each direction of traffic.
     for (const e of plan.edges) {

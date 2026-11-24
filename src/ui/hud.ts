@@ -14,6 +14,7 @@ import {
   BREAKWATER, BRIDGE, LIGHTHOUSE, PIER, PIER_HEAD, RAMPS, WATER_Y, ZS,
   bridgeEndZ, islandSD, terrainAt, type CityPlan, type District, type Rect,
 } from '../world/plan';
+import { RAILWAY } from '../world/railway';
 import { COAST, DAM_Z, FOOTBRIDGE, FOOTBRIDGE_Z, HILL, LAKE, MZS, RAIL, RIVER_HW, STREAM_HW, STREAM_Z0, TRIB_HW, coastSD, riverX, streamX, tribZ } from '../world/mainland';
 import { progress } from '../world/progress';
 import { STREETS_NEW } from '../world/streets';
@@ -225,9 +226,12 @@ export function drawChart(plan: CityPlan, s: number): HTMLCanvasElement {
   }
   // The railway, and the footbridge to Lesser Tepid.
   c.setLineDash([12, 5]);
-  road(RAIL.x0, RAIL.z, RAIL.x1, RAIL.z, 3.4, INK, 'butt');
-  // The spur to the north-east: off the main line at x 470 in a quarter circle of 60 m, then straight north to z -2430.
-  if (STREETS_NEW) { c.lineCap = 'butt'; c.strokeStyle = INK; c.lineWidth = 3.4; c.beginPath(); c.moveTo(470, RAIL.z); c.arc(470, -2210, 60, Math.PI / 2, 0, true); c.lineTo(530, -2430); c.stroke(); }
+  if (RAILWAY) {
+    // The Budget Line (world/railway.ts): the main line, the yard lead and the yard's sidings.
+    c.lineCap = 'butt'; c.strokeStyle = INK;
+    const trk = (p: number[], w: number, from = 0): void => { c.lineWidth = w; c.beginPath(); c.moveTo(p[2 * from], p[2 * from + 1]); for (let i = from + 4; i < p.length / 2; i += 4) c.lineTo(p[2 * i], p[2 * i + 1]); c.lineTo(p[p.length - 2], p[p.length - 1]); c.stroke(); };
+    trk(RAILWAY.main, 3.4); trk(RAILWAY.lead, 2.6); for (const s of RAILWAY.sidings) trk(s, 2);
+  } else road(RAIL.x0, RAIL.z, RAIL.x1, RAIL.z, 3.4, INK, 'butt');
   c.setLineDash([]);
   if (!S) road(FOOTBRIDGE.x0 - 70, FOOTBRIDGE_Z, FOOTBRIDGE.x1 + 270, FOOTBRIDGE_Z, 2.2, INK, 'butt');
   road(FOOTBRIDGE.x0, FOOTBRIDGE_Z, FOOTBRIDGE.x1, FOOTBRIDGE_Z, 5, INK, 'butt');

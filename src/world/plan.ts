@@ -10,6 +10,7 @@
 // and every island random number is what it was before the mainland existed.
 // Mainland nodes and blocks carry i, j offset by MI0, MJ0; `land` is 1 on them.
 
+import { RAILWAY } from './railway';
 import { RNG, clamp, smooth } from '../core/util';
 import {
   DECKS, EXTRA_LOTS, LAKE, MAIN_SPLIT_Z, MAIN_Y, MI0, MJ0, MXS, MZS, M_AVE_X, M_AVE_Z, M_EW_NAMES, M_NS_NAMES, RAIL,
@@ -315,6 +316,7 @@ function mainGroundAt(x: number, z: number): number {
     }
   }
   for (const d of DECKS) if (x >= d.x0 && x <= d.x1 && z >= d.z0 && z <= d.z1) return MAIN_Y;
+  if (RAILWAY) for (const d of RAILWAY.decks) if (x >= d.x0 && x <= d.x1 && z >= d.z0 && z <= d.z1) return MAIN_Y;
   return mainlandTerrain(x, z);
 }
 

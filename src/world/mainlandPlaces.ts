@@ -17,6 +17,7 @@
 import type { WorldPart } from '../core/api';
 import { RNG } from '../core/util';
 import { DAM_Z, FOOTBRIDGE, FOOTBRIDGE_Z, LAKE, MAIN_Y, POND_Y, RAIL, riverX } from './mainland';
+import { RAILWAY } from './railway';
 import { groundAt, type Lot, type Rect } from './plan';
 import { FENCE_UV, MWALL } from './textures';
 import { NEW_SITES, OPERA, PX, PZ, mainlandLots, WIN, cut, dim, frameOf, frect, mainKit, type Frame, type MainKit, type WinStyle } from './mainlandBuildings';
@@ -297,8 +298,45 @@ function college(k: MainKit): void {
   for (const s of [0, 2]) { const f = frameOf({ x0: (-537 + CX), z0: (-1629.04 + CZ), x1: (-533 + CX), z1: (-1628.96 + CZ) }, s); k.signAt(f, 2, y + 3.45, 3.9, 0.01, 'm-college'); }
 }
 
+/** New streets: the depot stands beside the west-bank run of the line (world/railway.ts), its platform on the track side, the water tower behind. */
+function depotNS(k: MainKit): void {
+  const DP = RAILWAY!.depot, col = k.game.col, BUFF = 0xcdb37a, GREEN = 0x3a5244, TX = DP.x, CZ = Math.round(DP.z);
+  const x1 = TX - 6.5, D: Rect = { x0: x1 - 8.5, z0: CZ - 15, x1, z1: CZ + 15 }, y = groundAt(D.x1, CZ), wt = y + 4.1, px = TX - 4.4;
+  k.at(D.x1, CZ);
+  k.F.box(px, y, CZ, 4, 0.42, 48, CONC);
+  col.addBox(px - 2, CZ - 24, px + 2, CZ + 24, y + 0.42, y - 1);
+  k.solid(D, wt + 2, y - 1);
+  for (let s = 0; s < 4; s++) {
+    const f = frameOf(D, s), n = Math.floor(f.len / 3.4);
+    k.band(f, 0, f.len, y, y + 1.1, GREEN, R.clap, y, 1);
+    k.band(f, 0, f.len, y + 1.1, wt, BUFF, R.clap, y + 1.1, s ? 0.96 : 1);
+    for (let i = 0; i < n; i++) {
+      const sx = ((i + 0.5) * f.len) / n;
+      if (!(s & 1) && i % 3 === 1) k.piece(f, sx - 0.6, 1.2, y, 2.5, 0.03, R.door, MWALL.doors.hall + 8 * (i % 3), GREEN);
+      else k.piece(f, sx - 0.5, 1, y + 1.1, 1.9, 0.03, R.house, i * 5 + s, WHITE);
+    }
+    if (s === 0 || s === 2) k.signAt(f, f.len / 2, wt - 1.3, 3.4, 0.04, 'm-depot');
+  }
+  const nf = frameOf(D, 1);
+  k.fbox(nf, 13.6, 16.4, 0, 0.8, y, wt, BUFF, 4);
+  k.piece(nf, 14.3, 1.4, y + 1.1, 1.9, 0.81, R.house, 6, WHITE);
+  k.frustum(grow(D, 3.2), wt - 0.5, { x0: (D.x0 + D.x1) / 2 - 0.1, z0: D.z0 + 5, x1: (D.x0 + D.x1) / 2 + 0.1, z1: D.z1 - 5 }, wt + 3.3, 0x6a7a70, R.seam);
+  k.board(TX - 3, CZ, 1, y + 0.42, 3.4, 'm-depot', 2.3, GREEN);
+  for (const bz of [CZ - 21, CZ + 21]) bench(k, px - 1, bz, y + 0.42, false);
+  // The water tower, a cedar tank on six legs, at the yard end of the platform.
+  const wx = D.x0 - 4, wz = CZ - 40, ty = y + 7.5;
+  k.at(wx, wz);
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; k.pipe(k.F, wx + Math.cos(a) * 3.3, y, wz + Math.sin(a) * 3.3, wx + Math.cos(a) * 2.6, ty, wz + Math.sin(a) * 2.6, 0.14, 0x4a3a2c, 5); }
+  k.F.cyl(wx, ty, wz, 3.1, 3.1, 0.25, 0x4a3a2c, 12, false);
+  k.F.cyl(wx, ty + 0.25, wz, 3, 3.15, 4.8, 0x8a6442, 12, false);
+  for (const hy of [1, 2.6, 4.2]) k.F.cyl(wx, ty + 0.25 + hy, wz, 3.2, 3.2, 0.1, IRON, 12, false);
+  k.F.cyl(wx, ty + 5.05, wz, 3.5, 0.2, 1.9, 0x3f4744, 12, false);
+  col.addBox(wx - 3.3, wz - 3.3, wx + 3.3, wz + 3.3, ty + 5, y - 1);
+}
+
 /** The depot, its platform, a water tower, and what was left on the sidings. */
 function depot(k: MainKit): void {
+  if (RAILWAY) { depotNS(k); return; }
   const D: Rect = { x0: (92 + DX), z0: (-1887 + DZ), x1: (122 + DX), z1: (-1878.5 + DZ) }, y = groundAt((107 + DX), (-1882 + DZ)), col = k.game.col, BUFF = 0xcdb37a, GREEN = 0x3a5244, wt = y + 4.1;
   k.at((107 + DX), (-1885 + DZ));
   k.F.box((107 + DX), y, (-1889 + DZ), 48, 0.42, 4, CONC);

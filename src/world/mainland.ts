@@ -185,8 +185,8 @@ const RTX = NEW ? 305 : 294;
 export const RAIL_TRESTLE: MRect = { x0: RTX, x1: RTX + 128, z0: RAIL_Z - 2.2, z1: RAIL_Z + 2.2 };
 /** The railway: one track east-west across the north of town, from the buffer stop by the Thruway to the far bank. */
 export const RAIL = { z: RAIL_Z, x0: NEW ? -640 : -660, x1: 640, hw: 9 };
-/** New streets: no old road bridge (Trestle St crosses at z -1635 on its own deck, streetMeshes.ts), so no walkable floor where it was. */
-export const DECKS: MRect[] = NEW ? [FOOTBRIDGE, RAIL_TRESTLE] : [ROAD_BRIDGE, FOOTBRIDGE, RAIL_TRESTLE];
+/** (New streets: the railway's own trestles are RAILWAY.decks, world/railway.ts.) New streets: no old road bridge (Trestle St crosses at z -1635 on its own deck, streetMeshes.ts), so no walkable floor where it was. */
+export const DECKS: MRect[] = NEW ? [FOOTBRIDGE] : [ROAD_BRIDGE, FOOTBRIDGE, RAIL_TRESTLE];
 
 // ── Height of the natural ground ─────────────────────────────────────────────
 

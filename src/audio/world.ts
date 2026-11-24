@@ -11,6 +11,7 @@
 import type { Game } from '../core/game';
 import type { PropKind } from '../world/collide';
 import { BREAKWATER, BRIDGE, LIGHTHOUSE, PIER, PIER_HEAD, islandSD } from '../world/plan';
+import { RAILWAY, onRailDeck } from '../world/railway';
 import { FOOTBRIDGE, HILL, MAIN_SPLIT_Z, MXS, RAIL, RAIL_TRESTLE, RAIL_Z, ROAD_BRIDGE, SITES, coastSD, hillAt, waterDist } from '../world/mainland';
 import type { AudioCore, Bus } from './audio';
 import { hiss, ping, thud, type Rand } from './sfx';
@@ -512,7 +513,7 @@ export class WorldSounds {
     if (rectDist(x, z, BREAKWATER) < 4) return 'concrete';
     if (z < MAIN_SPLIT_Z) {
       if (rectDist(x, z, FOOTBRIDGE) === 0) return 'wood';
-      if (rectDist(x, z, RAIL_TRESTLE) === 0 || rectDist(x, z, ROAD_BRIDGE) === 0) return 'metal';
+      if (rectDist(x, z, RAIL_TRESTLE) === 0 || rectDist(x, z, ROAD_BRIDGE) === 0 || onRailDeck(x, z)) return 'metal';
       const d = this.game.plan.districtAt(x, z);
       if (d === null) return coastSD(x, z) > -25 ? 'sand' : 'grass';
       return d === 'lake' || d === 'college' || d === 'sister' ? 'grass' : 'concrete';
@@ -598,10 +599,11 @@ export class WorldSounds {
       this.trainT = 80 + r() * 110;
       // Somewhere down the line, east or west, and then the crossing if she is near enough to hear it.
       const tx = Math.max(RAIL.x0, Math.min(RAIL.x1, p.x + (r() < 0.5 ? -1 : 1) * (350 + r() * 250)));
-      const sp = c.place(tx, 4, RAIL_Z, { bus: 'ambience', ref: 140, max: 2400, wet: 0.7 });
+      const rl = RAILWAY ? RAILWAY.main : null, ri = rl ? Math.floor(r() * (rl.length / 2 - 1)) : 0;
+      const sp = c.place(rl ? rl[2 * ri] : tx, 4, rl ? rl[2 * ri + 1] : RAIL_Z, { bus: 'ambience', ref: 140, max: 2400, wet: 0.7 });
       if (sp && c.claim('train', 1, 9)) {
         const len = trainHorn(c, t + 0.1, sp.in);
-        const cr = c.place(MXS[7], 4, RAIL_Z, { bus: 'ambience', ref: 14, max: 420, wet: 0.3 });
+        const cr = c.place(rl ? rl[2 * ri] : MXS[7], 4, rl ? rl[2 * ri + 1] : RAIL_Z, { bus: 'ambience', ref: 14, max: 420, wet: 0.3 });
         if (cr) crossingBell(c, t + 1, cr.in, len + 4);
       }
     }

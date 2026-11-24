@@ -14,6 +14,7 @@
 //   * Each lot has its own RNG seeded from its index.
 //   * mainlandPlaces.ts (landmarks) draws into the same kit and calls kit.finish() last.
 
+import { RAILWAY } from './railway';
 import * as THREE from 'three';
 import { CAMPUS_BOXES } from './dithersPlan';
 import type { Game } from '../core/game';
@@ -405,7 +406,8 @@ const RESERVED: Rect[] = STREETS_NEW ? [
   NEW_SITES.square, NEW_SITES.hall, NEW_SITES.hp,
   { x0: 200, z0: -2250, x1: 228, z1: -2214 },   // the Dead Letter Office
   { x0: -153, z0: -1320, x1: -104, z1: -1274 }, // Our Lady (set at an angle to Tarnish St)
-  { x0: 136, z0: -2160, x1: 205, z1: -2126 },   // the depot and water tower by the line
+  { x0: 222, z0: -1768, x1: 262, z1: -1664 },   // the depot, its platform and the water tower by the west-bank line
+  ...(RAILWAY ? RAILWAY.reserved : []),          // the railway's corridor (world/railway.ts): no lot on the track, the yard or the lead
   { x0: 176, z0: -1568, x1: 252, z1: -1196 },   // Threadbare mill yards, Water St to the river walk
   { x0: 176, z0: -1896, x1: 290, z1: -1884 },   // the walk from Front St to the footbridge
   ...CAMPUS_BOXES.map((b): Rect => ({ x0: b[0], z0: b[1], x1: b[2], z1: b[3] })), // Dithers College (dithersPlan.ts)
