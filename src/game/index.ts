@@ -19,6 +19,7 @@ import { Derby } from './derby';
 import { Shops } from './shops';
 import { Menu } from '../ui/menu';
 import { Navigator } from './nav';
+import { Cab } from './travel';
 import { ARRIVE, places, type Place } from '../world/business';
 import { ShopSigns } from '../world/shopSigns';
 
@@ -44,6 +45,8 @@ export class ThingsToDo {
   /** The demolition derby at Flounder Field (fun queue item 13). */
   readonly derby: Derby;
   readonly shops: Shops;
+  /** The Calamity Courtesy Cab: fast travel from the map (game/travel.ts). */
+  readonly travel: Cab;
   readonly menu: Menu;
   private wasDown = false;
   /** Set from the map: somewhere the player asked to be shown the way to. */
@@ -77,6 +80,7 @@ export class ThingsToDo {
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.shops = new Shops(game, this.markers);
     this.signs = new ShopSigns(game);
+    this.travel = new Cab(game, this);
     this.menu = new Menu(game, this);
 
     game.on('enter', (e) => {
@@ -155,6 +159,7 @@ export class ThingsToDo {
   update(dt: number): void {
     const g = this.game;
     if (g.state !== 'play') return;
+    this.travel.update(dt);
     this.tally(dt);
     this.markers.begin(dt);
     this.missions.update(dt);

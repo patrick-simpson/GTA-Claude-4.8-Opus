@@ -48,6 +48,12 @@ export class ShaderWarmup {
     this.ok = on;
   }
 
+  /** True when no compile is in flight (a fast-travel arrival waits for it; always true where the extension is missing). */
+  get idle(): boolean { return !this.busy; }
+
+  /** Scan the scene on the next update instead of at the next second (fast travel has just moved the view). */
+  flush(): void { this.next = 0; }
+
   update(): void {
     if (!this.ok || this.busy) return;
     const now = performance.now();

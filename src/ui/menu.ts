@@ -63,7 +63,8 @@ const CONTROLS: [string, string, string, string][] = [
   ['Camera / look back', 'V / C', 'D-pad left / R3', 'CAMERA'],
   ['Replay the last 10 s', 'J', '', 'REPLAY'],
   ['Photo mode', 'O', '', 'PHOTO'],
-  ['Map', 'M or Tab', 'Back', 'Pause, then MAP'],
+  ['Map and Places', 'M or Tab', 'Back', 'Pause, then MAP'],
+  ['Fast travel (Courtesy Cab)', 'Map: pick a place, Travel there', 'Back, pick, Travel there', 'MAP, pick, Travel there'],
   ['Pause', 'Esc or P', 'Start', 'Pause key'],
   ['Unstick', 'Hold Backspace', '', ''],
 ];
@@ -105,7 +106,7 @@ export class Menu {
   <div class="mn-tabs" role="tablist">${TABS.map((t, i) => `<button type="button" class="mn-tab" role="tab" data-tab="${i}"><small>${i + 1}</small>${t}</button>`).join('')}</div>
   <div class="mn-body">
     <section class="mn-pane mn-map"><canvas></canvas>
-      <div class="mn-maphelp mn-lbl">Drag to move · wheel or pinch to zoom · click to set a waypoint · click it again to clear</div>
+      <div class="mn-maphelp mn-lbl">Drag to move · wheel or pinch to zoom · click to set a waypoint · click it again to clear · Places: pick one, then Travel there</div>
     </section>
     <section class="mn-pane mn-scroll"></section>
     <section class="mn-pane mn-scroll"></section>
@@ -113,6 +114,7 @@ export class Menu {
     <section class="mn-pane mn-scroll"></section>
     <section class="mn-pane mn-scroll mn-wd"></section>
   </div>
+  <div class="mn-trv"></div>
   <div class="mn-ft"><button type="button" class="mn-btn mn-resume">Resume</button><span class="mn-or">or press Esc</span><button type="button" class="mn-btn mn-new">New game</button></div>
 </div>
 <div class="mn-confirm">
@@ -135,6 +137,8 @@ export class Menu {
     root.addEventListener('click', (e) => {
       const t = e.target as HTMLElement, tab = t.closest<HTMLElement>('.mn-tab');
       if (tab) { this.setTab(Number(tab.dataset.tab)); return; }
+      const trv = t.closest<HTMLElement>('[data-trv]');
+      if (trv) { const d = this.todo.travel.recent[Number(trv.dataset.trv)]; if (d && !(trv as HTMLButtonElement).disabled) this.todo.travel.go(d); return; }
       if (t.closest('.mn-resume')) { this.resume(); return; }
       if (t.closest('.mn-new')) { this.confirmEl.classList.add('on'); (root.querySelector('.mn-keep') as HTMLElement).focus(); return; }
       if (t.closest('.mn-keep')) { this.confirmEl.classList.remove('on'); return; }
@@ -161,6 +165,7 @@ export class Menu {
     this.root.classList.toggle('touch', this.game.input.touch);
     this.confirmEl.classList.remove('on');
     this.setTab(this.tab);
+    this.travelRow();
     const loop = (): void => { if (!this.open) return; this.raf = requestAnimationFrame(loop); this.pollPad(); };
     cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(loop);
@@ -213,7 +218,7 @@ export class Menu {
       case 'Equal': case 'NumpadAdd': this.zoom(1.25); break;
       case 'Minus': case 'NumpadSubtract': this.zoom(0.8); break;
       case 'Enter': case 'Space': this.setWay(this.cx, this.cz); break;
-      case 'Backspace': case 'Delete': this.todo.waypoint = null; break;
+      case 'Backspace': case 'Delete': this.todo.waypoint = null; this.placesPanel.refresh(); break;
       default: return;
     }
     e.preventDefault();
@@ -362,8 +367,16 @@ export class Menu {
   private setWay(x: number, z: number): void {
     const w = this.todo.waypoint;
     // A second press on the mark takes it away.
-    if (w && Math.hypot(w.x - x, w.z - z) * this.k < 16) { this.todo.waypoint = null; return; }
+    if (w && Math.hypot(w.x - x, w.z - z) * this.k < 16) { this.todo.waypoint = null; this.placesPanel.refresh(); return; }
     this.todo.waypoint = { x, z };
+    this.placesPanel.refresh();
+  }
+
+  /** The Courtesy Cab's shortcut under every tab: the last three places she was taken to. */
+  private travelRow(): void {
+    const el = this.root.querySelector('.mn-trv') as HTMLElement, cab = this.todo.travel;
+    el.innerHTML = cab.recent.length ? `<span class="mn-lbl">Travel</span>` + cab.recent.map((d, i) => { const l = cab.label(d); return `<button type="button" class="mn-btn mn-trvb" data-trv="${i}" ${l.ok ? '' : 'disabled'} title="${esc(l.ok ? l.text : l.text)}"><b>${esc(d.name)}</b><small>${esc(l.ok ? l.text.replace('Travel there, ', '') : l.text)}</small></button>`; }).join('') : '';
+    el.classList.toggle('on', cab.recent.length > 0);
   }
 
   private bindMap(): void {
@@ -772,7 +785,7 @@ export class Menu {
   <div class="mn-sec mn-wide">
     <h3>Form K-1 · Attached: quick reference</h3>
     <table class="mn-keys"><thead><tr><th></th><th>Keyboard</th><th>Gamepad</th><th>Touch</th></tr></thead><tbody>${rows}</tbody></table>
-    <p class="mn-note">In this dossier: 1 to 5 or [ ] change tabs (LB / RB on a pad); on the map, arrows move, + and − zoom, Enter sets a waypoint.</p>
+    <p class="mn-note">In this dossier: 1 to 5 or [ ] change tabs (LB / RB on a pad); on the map, arrows move, + and − zoom, Enter sets a waypoint. Any place or waypoint on the map can be reached by the Calamity Courtesy Cab (Travel there): $5 and $1 per 100 m, free in kid mode, not while wanted or on a job.</p>
   </div>
 </div>`;
   }

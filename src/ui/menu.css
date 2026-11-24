@@ -251,3 +251,13 @@ body.reduced-motion .mn-card, body.reduced-motion .mn-slip { animation: none; }
 
 /* Multiplayer: the current made-up name is the button's label; it may wrap on a narrow phone. */
 .mn-name { white-space: normal; text-align: right; }
+
+/* The Courtesy Cab's shortcut: the last three places she was taken to (game/travel.ts). */
+.mn-trv { display: none; align-items: center; gap: 0.6em; margin-top: 0.7em; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.mn-trv.on { display: flex; }
+.mn-trv .mn-lbl { flex: none; }
+.mn-trvb { flex: 0 1 auto; min-width: 0; display: inline-flex; flex-direction: column; align-items: flex-start; font-size: 1em; padding: 0.25em 0.8em 0.3em; text-align: left; }
+.mn-trvb b { font-size: 0.95em; white-space: nowrap; max-width: 14em; overflow: hidden; text-overflow: ellipsis; }
+.mn-trvb small { font: 600 0.7em "IBM Plex Mono", monospace; opacity: 0.85; max-width: 20em; }
+.mn-trvb:disabled { opacity: 0.55; cursor: not-allowed; }
+#menu.touch .mn-trvb { min-height: 44px; font-size: 1.2em; }

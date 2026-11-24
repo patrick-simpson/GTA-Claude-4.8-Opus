@@ -221,6 +221,17 @@ export class Net {
     return true;
   }
 
+  /** Fast travel puffs: events sent and heard. */
+  cabsSent = 0;
+  cabsGot = 0;
+  /** Fast travel (game/travel.ts): tell the others this player is leaving (0) or has arrived (1), for the taxi-drop puff. */
+  cab(arg: 0 | 1): boolean {
+    if (!this.canSay) return false;
+    if (!this.conn.send(encodePlayerEvent(PlayerEvent.Cab, arg))) return false;
+    this.cabsSent++;
+    return true;
+  }
+
   /** The say key: the next line in turn. */
   sayCycle(): void {
     const i = this.sayNext;
@@ -334,6 +345,16 @@ export class Net {
       if (e.code === PlayerEvent.Look) {
         const l = decodeLookEvent(buf);
         if (l) { this.looksGot++; this.remotes.get(l.id)?.setLook(l.look); }
+        return;
+      }
+      if (e.code === PlayerEvent.Cab) {
+        const r = this.remotes.get(e.id);
+        this.cabsGot++;
+        if (r && r.seen) {
+          const fx = this.game.fx.emitters;
+          for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2, s = 1.4 + (i % 3) * 0.5; fx.dust(r.x + Math.sin(a) * 0.8, r.y + 0.2, r.z + Math.cos(a) * 0.8, Math.sin(a) * s, Math.cos(a) * s, 0.7, false); }
+          fx.sparks(r.x, r.y + 1, r.z, 0, 1, 0, 6, 4);
+        }
         return;
       }
       if (e.code === PlayerEvent.Emote) {

@@ -103,3 +103,11 @@
 #menu.touch .pl-chip { padding: 0.55em 0.9em; }
 #menu.touch .pl-q { font-size: 16px; }
 #menu.touch .pl-tab { padding: 0.65em 1.1em; }
+
+/* Fast travel (game/travel.ts): the Travel button on the route card, and the chip for the cab's hub stops. */
+.pl-btns { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.3em; }
+.pl-btns .pl-clear { margin-top: 0; }
+.pl-go { flex: 1 1 auto; min-width: 0; padding: 0.4em 0.7em; font: 700 0.9em "IBM Plex Mono", monospace; color: var(--bone); background: var(--vermilion); border: var(--rule) solid var(--ink); cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.pl-go:hover:not(:disabled), .pl-go:focus-visible { background: var(--ink); outline: none; }
+.pl-go:disabled { background: #d8cfb4; color: var(--ink); opacity: 0.85; cursor: not-allowed; font-weight: 600; }
+#menu.touch .pl-go, #menu.touch .pl-clear { min-height: 44px; }

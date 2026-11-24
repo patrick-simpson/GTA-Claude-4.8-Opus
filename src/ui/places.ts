@@ -8,6 +8,7 @@ import type { ThingsToDo } from '../game/index';
 import { distText } from '../game/nav';
 import { CATEGORIES, CATEGORY_NAME, findPlaces, type Category, type Place } from '../world/business';
 import { CAT_COLOR } from '../world/shopSigns';
+import { asDest, hubs, type Dest } from '../game/travel';
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
 
@@ -25,6 +26,9 @@ export class PlacesPanel {
   private readonly foot: HTMLElement;
   private readonly sel: HTMLElement;
   private cat: Category | null = null;
+  /** The chip "Cab stops" is on: the list is the Courtesy Cab's hub stops. */
+  private hub = false;
+  private hubList: Place[] = [];
   private shown: Place[] = [];
   private decided = false;
 
@@ -46,7 +50,7 @@ export class PlacesPanel {
     this.list = el.querySelector('.pl-list') as HTMLElement;
     this.foot = el.querySelector('.pl-foot') as HTMLElement;
     this.sel = el.querySelector('.pl-sel') as HTMLElement;
-    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
+    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
 
     (el.querySelector('.pl-tab') as HTMLElement).addEventListener('click', () => this.fold(!el.classList.contains('fold')));
     // Typing here is not steering the map: keep the menu's and the game's key handlers out of it (Escape still reaches them).
@@ -57,7 +61,8 @@ export class PlacesPanel {
     this.chips.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('.pl-chip');
       if (!b) return;
-      this.cat = (b.dataset.cat || null) as Category | null;
+      this.hub = b.dataset.cat === 'hubs';
+      this.cat = this.hub ? null : ((b.dataset.cat || null) as Category | null);
       this.chips.querySelectorAll('.pl-chip').forEach((c) => c.classList.toggle('on', c === b));
       this.refresh();
     });
@@ -66,7 +71,10 @@ export class PlacesPanel {
       if (li) this.pick(this.shown[Number(li.dataset.i)]);
     });
     this.sel.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('.pl-clear')) { this.todo.go(null); this.refresh(); this.view.redraw(); }
+      const t = e.target as HTMLElement;
+      if (t.closest('.pl-clear')) { this.todo.go(null); this.refresh(); this.view.redraw(); return; }
+      const go = t.closest<HTMLButtonElement>('.pl-go');
+      if (go && !go.disabled) { const d = this.routeDest(); if (d) this.todo.travel.go(d); }
     });
   }
 
@@ -84,24 +92,41 @@ export class PlacesPanel {
     if (!this.decided) { this.decided = true; this.fold(this.game.input.touch); }
     const p = this.game.player, all = this.todo.places();
     const placed = all.filter((x) => x.placed);
-    const found = findPlaces(all, this.q.value, this.cat);
-    found.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
+    const found = this.hub ? this.hubPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : findPlaces(all, this.q.value, this.cat);
+    if (!this.hub) found.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
     this.shown = found.slice(0, 80);
     this.list.innerHTML = this.shown.map((x, i) => {
       const d = Math.hypot(x.x - p.x, x.z - p.z);
-      return `<li><button type="button" class="pl-row${this.todo.dest === x ? ' on' : ''}" data-i="${i}"><i style="background:${CAT_COLOR[x.cat]}"></i><span class="pl-nm">${esc(x.name)}</span><span class="pl-sub">${esc(CATEGORY_NAME[x.cat])} · ${distText(d)}</span></button></li>`;
+      const fare = this.todo.travel.fareTo(x), on = this.todo.dest === x || (this.hub && this.todo.dest?.name === x.name);
+      return `<li><button type="button" class="pl-row${on ? ' on' : ''}" data-i="${i}"><i style="background:${CAT_COLOR[x.cat]}"></i><span class="pl-nm">${esc(x.name)}</span><span class="pl-sub">${esc(this.hub ? 'Cab stop' : CATEGORY_NAME[x.cat])} · ${distText(d)} · cab ${fare === 0 ? 'free' : '$' + fare}</span></button></li>`;
     }).join('') || `<li class="pl-none">Nothing by that name. Try a kind of place: pizza, bank, church, bakery.</li>`;
     this.foot.textContent = `${found.length > 80 ? 'Nearest 80 of ' : ''}${found.length} of ${placed.length} places in town` + (all.length > placed.length ? ` · ${all.length - placed.length} more not built yet` : '');
     this.showSel();
   }
 
   private showSel(): void {
-    const d = this.todo.dest, nv = this.todo.navigator;
+    const d = this.routeDest(), nv = this.todo.navigator;
     if (!d || this.todo.waypoint === null) { this.sel.innerHTML = ''; this.sel.classList.remove('on'); return; }
     const turns = nv.turns.filter((t) => t.dir !== 'straight').length;
-    const how = nv.ok ? `${distText(nv.total)} by road, ${turns} turn${turns === 1 ? '' : 's'}` : 'No road there yet';
+    const p = this.game.player, how = d.custom ? `${distText(Math.hypot(d.x - p.x, d.z - p.z))} away` : nv.ok ? `${distText(nv.total)} by road, ${turns} turn${turns === 1 ? '' : 's'}` : 'No road there yet';
+    const cab = this.todo.travel.label(d);
     this.sel.classList.add('on');
-    this.sel.innerHTML = `<b>${esc(d.name)}</b><span>${esc(how)}</span><button type="button" class="pl-clear">Clear route</button>`;
+    this.sel.innerHTML = `<b>${esc(d.name)}</b><span>${esc(how)}</span><div class="pl-btns"><button type="button" class="pl-go" ${cab.ok ? '' : 'disabled'} title="Calamity Courtesy Cab">${esc(cab.text)}</button><button type="button" class="pl-clear">Clear route</button></div>`;
+  }
+
+  /** Where the route card's Travel button would go: the place picked from the list or the map, or a waypoint set by hand. */
+  routeDest(): (Dest & { custom?: boolean }) | null {
+    const w = this.todo.waypoint;
+    if (!w) return null;
+    const d = this.todo.dest;
+    if (d && Math.hypot(w.x - d.x, w.z - d.z) < 1) return asDest(d);
+    return { name: `Waypoint on ${this.game.plan.streetAt(w.x, w.z)}`, x: w.x, z: w.z, nx: 0, nz: 0, custom: true };
+  }
+
+  /** The hub stops as places, so that picking one sets a route like any other. */
+  private hubPlaces(): Place[] {
+    if (!this.hubList.length) this.hubList = hubs(this.game).map((h, i) => ({ id: -1 - i, name: h.name, cat: 'civic' as Category, x: h.x, z: h.z, nx: h.nx, nz: h.nz, wx: h.x, wz: h.z, rx: h.x, rz: h.z, placed: true, open: false, game: true, sign: false, at: 'cab stop' }));
+    return this.hubList;
   }
 
   /** Choose a place: centre the map on its door, set the waypoint, say how far. */

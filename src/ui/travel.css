@@ -1,0 +1,21 @@
+/* The Calamity Courtesy Cab (ui/travel.ts): a black veil with Form FT-1 on it. */
+#cab { position: fixed; inset: 0; z-index: 900; display: none; align-items: center; justify-content: center; background: rgba(8, 10, 16, var(--veil, 0)); pointer-events: auto; touch-action: none; }
+#cab.on { display: flex; }
+.cab-card {
+  opacity: var(--card, 0);
+  width: min(26em, calc(100% - 32px));
+  padding: 1em 1.2em 0.9em;
+  background: var(--bone, #f2e8cf);
+  color: var(--ink, #14213d);
+  border: 3px solid var(--ink, #14213d);
+  box-shadow: 4px 4px 0 var(--ink, #14213d);
+  font: 500 clamp(13px, 2.2vmin, 17px)/1.35 var(--f-text, 'Barlow Semi Condensed', sans-serif);
+  transform: rotate(-0.6deg);
+}
+.cab-lbl { font: 600 0.78em var(--f-mono, 'IBM Plex Mono', monospace); letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; }
+.cab-t { margin: 0.2em 0 0.5em; font: 800 2.1em/1 var(--f-head, 'Big Shoulders Display', sans-serif); letter-spacing: 0.04em; color: var(--vermilion, #e4572e); border-bottom: 2px solid var(--ink, #14213d); padding-bottom: 0.15em; }
+.cab-body dl { display: grid; grid-template-columns: 4em 1fr; gap: 0.25em 0.6em; margin: 0; }
+.cab-body dt { font: 600 0.8em var(--f-mono, 'IBM Plex Mono', monospace); text-transform: uppercase; opacity: 0.7; padding-top: 0.15em; }
+.cab-body dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.cab-sm { margin-top: 0.7em; font: 500 0.78em var(--f-mono, 'IBM Plex Mono', monospace); opacity: 0.7; }
+body.reduced-motion .cab-card { transform: none; }
