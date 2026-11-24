@@ -24,6 +24,9 @@ const SC = {
   mainst: { land: 1, time: 13, at: [80, -1300, 3.14] },
   park: { time: 13, at: [140, -110, 1.57] },
   hood: { land: 1, time: 13, at: [-182, -1296, 1.06 + 3.14] },
+  winslow: { land: 1, time: 13, at: [455, -2190, 1.57] },
+  strip: { land: 1, time: 13, at: [-640, -1200, 3.14] },
+  north: { land: 1, time: 13, at: [100, -2450, 0] },
   hood2: { land: 1, time: 13, at: [-240, -1850, -1.86 + 3.14] },
 }[name];
 const query = ['q=' + (opt.q ?? 'high'), 'save=0', 'net=0', (typeof opt.query === 'string' && /xmas=/.test(opt.query) ? '' : 'xmas=0'), SC.land ? 'bridge=8&stage=4' : '', typeof opt.query === 'string' ? opt.query : ''].filter(Boolean).join('&');

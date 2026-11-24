@@ -11,3 +11,10 @@ and is offered under the ODbL; the game's code, art and other content are not.
 No map tiles, photographs or textures were used; all wall textures are painted by `src/world/dithersCampus.ts`.
 
 **In game:** `MAP_CREDIT` in `src/core/credits.ts`, shown in the pause menu's Settings notes beside the voice credit.
+
+# OpenStreetMap data (building footprints, item 19b fix C)
+
+**Source:** the same Overpass extract of Waterville (2026-11-24). **Licence:** ODbL 1.0, credit "(c) OpenStreetMap contributors".
+**What was derived:** `src/world/footprintData.ts`, 775 building footprints (position warped to the game by the street plan's spline,
+long and short side in real metres, heading, a kit code from the OSM building tag, land use and area, and a LiDAR height). No names or
+other tags are kept. It is a Derivative Database offered under the ODbL; the game's code and art are not. Generator: `tools/buildings/fp.py`.

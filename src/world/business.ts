@@ -9,7 +9,7 @@
 // is near. Signs: world/shopSigns.ts.
 
 import { CATEGORIES, CATEGORY_NAME, DIRECTORY, type Category } from './directory';
-import { mainlandLots } from './mainlandBuildings';
+import { mainlandLots, type OLot } from './mainlandBuildings';
 import { CAMPUS_BUILDINGS } from './dithersPlan';
 import { CIVIC } from './civicAssets';
 import { HQ } from './speedscanHQ';
@@ -45,7 +45,7 @@ export interface Place {
   at: string;
 }
 
-interface Bld { name: string; cx: number; cz: number; kind: 'lot' | 'campus'; x0: number; z0: number; x1: number; z1: number; face: number; w: number; d: number; a: number; pen: number }
+interface Bld { name: string; cx: number; cz: number; kind: 'lot' | 'campus'; x0: number; z0: number; x1: number; z1: number; face: number; w: number; d: number; a: number; pen: number; lot?: OLot }
 
 const dirOf = (face: number): [number, number] => (face === 0 ? [0, -1] : face === 1 ? [1, 0] : face === 2 ? [0, 1] : [-1, 0]);
 
@@ -82,7 +82,7 @@ export function places(plan: CityPlan, again = false): Place[] {
   for (const l of mainlandLots(plan)) {
     const r = l.rect, [fx, fz] = dirOf(l.face);
     void fx; void fz;
-    blds.push({ name: 'lot', kind: 'lot', cx: (r.x0 + r.x1) / 2, cz: (r.z0 + r.z1) / 2, x0: r.x0, z0: r.z0, x1: r.x1, z1: r.z1, face: l.face, w: r.x1 - r.x0, d: r.z1 - r.z0, a: 0, pen: l.district === 'stacks' ? 10 : 0 });
+    blds.push({ name: 'lot', kind: 'lot', cx: (r.x0 + r.x1) / 2, cz: (r.z0 + r.z1) / 2, x0: r.x0, z0: r.z0, x1: r.x1, z1: r.z1, face: l.face, w: r.x1 - r.x0, d: r.z1 - r.z0, a: 0, pen: l.district === 'stacks' && !(l.osm && l.osm.t !== 0) ? 10 : 0, lot: l.ori ? l : undefined });
   }
   const campus: Bld[] = [];
   for (const [, , , name, rr] of CAMPUS_BUILDINGS) {
@@ -128,7 +128,14 @@ export function places(plan: CityPlan, again = false): Place[] {
   const near = (x: number, z: number): { b: Bld | null; d: number } => {
     let best: Bld | null = null, bd = SNAP + 1;
     for (const b of blds) {
-      const dx = Math.max(b.x0 - x, 0, x - b.x1), dz = Math.max(b.z0 - z, 0, z - b.z1), d = Math.hypot(dx, dz) + b.pen;
+      let dx = Math.max(b.x0 - x, 0, x - b.x1), dz = Math.max(b.z0 - z, 0, z - b.z1);
+      const o = b.lot?.ori;
+      if (o) {
+        // A building at its own angle: distance to the turned rectangle itself.
+        const fx = Math.sin(o.h), fz = Math.cos(o.h), ex = x - o.cx, ez = z - o.cz, lu = ex * fz - ez * fx, lq = ex * fx + ez * fz;
+        dx = Math.max(Math.abs(lu) - o.w / 2, 0); dz = Math.max(Math.abs(lq) - o.d / 2, 0);
+      }
+      const d = Math.hypot(dx, dz) + b.pen;
       if (d < bd) { bd = d; best = b; }
     }
     for (const b of campus) { const d = cdist(b, x, z); if (d < bd) { bd = d; best = b; } }
@@ -148,6 +155,20 @@ export function places(plan: CityPlan, again = false): Place[] {
     if (b.kind === 'campus') {
       const d = campusDoor(b);
       push({ ...base, x: d.x, z: d.z, nx: d.nx, nz: d.nz, wx: d.wx, wz: d.wz, placed: true, sign: true, at: b.name });
+      continue;
+    }
+    const lo = b.lot, oo = lo?.ori;
+    if (lo && oo) {
+      // A building at its own angle: the door on its real front wall (the lot's `wall` once built, else the lot's front edge), at the spot nearest the business.
+      const fx = Math.sin(oo.h), fz = Math.cos(oo.h), tx = fz, tz = -fx;
+      let wx: number, wz: number, nx: number, nz: number;
+      if (lo.wall && !(lo.osm && lo.osm.t !== 0)) { wx = lo.wall.x; wz = lo.wall.z; nx = lo.wall.nx; nz = lo.wall.nz; }
+      else {
+        const hw = Math.max(oo.w / 2 - 2.5, 0), along = Math.max(-hw, Math.min(hw, (x - oo.cx) * tx + (z - oo.cz) * tz));
+        const q = lo.wall ? 0 : 0;
+        wx = oo.cx + fx * oo.d / 2 + tx * along + fx * q; wz = oo.cz + fz * oo.d / 2 + tz * along + fz * q; nx = fx; nz = fz;
+      }
+      push({ ...base, x: wx + nx * 2.5, z: wz + nz * 2.5, nx, nz, wx, wz, placed: true, sign: true, at: lo.osm ? 'footprint' : 'lot' });
       continue;
     }
     const [nx, nz] = dirOf(b.face);

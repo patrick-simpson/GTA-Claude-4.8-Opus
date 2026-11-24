@@ -23,7 +23,9 @@ import type { CityMaterials, Surface } from './materials';
 import { Batch } from './batch';
 import { CURB, groundAt, type Block, type CityPlan, type Lot, type Rect } from './plan';
 import { STREETS_NEW } from './streets';
-import { EXTRA_LOTS, FOOTBRIDGE_Z } from './mainland';
+import { EXTRA_LOTS, FOOTBRIDGE_Z, waterDist, coastSD } from './mainland';
+import { FOOTPRINTS, FP_STRIDE } from './footprintData';
+import { DIRECTORY } from './directory';
 import { FENCE_UV, MAIN_SHOPS, MWALL, makeMainlandTextures, mwallV, signKey, type MainlandTextures } from './textures';
 import { RNG } from '../core/util';
 import { FASCIA_OUT, MS_XE, MS_XW, MainStreet } from './mainStreetAssets';
@@ -424,7 +426,43 @@ const MAIN_ROWS: Record<'w' | 'e', [number, number][]> = {
 /** A lot at its own angle: centre, heading of its front (forward = (sin h, cos h)), frontage w across it, depth d. */
 export interface Ori { cx: number; cz: number; h: number; w: number; d: number }
 /** A lot, and for houses that stand at the street's own angle (houseAssets.ts) the oriented lot they stand on. */
-export interface OLot extends Lot { ori?: Ori }
+export interface OLot extends Lot {
+  ori?: Ori;
+  /** Built from a real OSM footprint (footprintData.ts): kit code (0 house .. 9 hall), the LiDAR height in metres (0 unknown) and the footprint's index. */
+  osm?: { t: number; hm: number; i: number };
+  /** Where the front wall stands once built (hood() and osm() fill it in): the wall's foot and the unit normal out of the front. Businesses hang their signs here. */
+  wall?: { x: number; z: number; nx: number; nz: number };
+}
+let MASK: Map<number, Ori[]> | null = null;
+/** Builds the footprint buildings' spatial hash (20 m cells): trees and street furniture ask `buildingNear` so nothing grows through a store. Call before the trees are planted. */
+export function primeBuildingMask(plan: CityPlan): void {
+  if (MASK || !plan.streets) return;
+  MASK = new Map();
+  for (const l of mainlandLots(plan)) {
+    const o = l.ori;
+    if (!o || !l.osm || l.osm.t === 0) continue;
+    const r = Math.hypot(o.w, o.d) / 2 + 4;
+    for (let cx = Math.floor((o.cx - r) / 20); cx <= Math.floor((o.cx + r) / 20); cx++) for (let cz = Math.floor((o.cz - r) / 20); cz <= Math.floor((o.cz + r) / 20); cz++) {
+      const k = cx * 4096 + cz;
+      const a = MASK.get(k);
+      if (a) a.push(o); else MASK.set(k, [o]);
+    }
+  }
+}
+/** Whether (x, z) is within m metres of a footprint building (after primeBuildingMask). */
+export function buildingNear(x: number, z: number, m: number): boolean {
+  if (!MASK) return false;
+  const a = MASK.get(Math.floor(x / 20) * 4096 + Math.floor(z / 20));
+  if (!a) return false;
+  for (const o of a) {
+    const fx = Math.sin(o.h), fz = Math.cos(o.h), ex = x - o.cx, ez = z - o.cz;
+    if (Math.abs(ex * fz - ez * fx) < o.w / 2 + m && Math.abs(ex * fx + ez * fz) < o.d / 2 + m) return true;
+  }
+  return false;
+}
+
+/** `?osm=0`: the street graph's lots only, as before the footprints (for comparing). */
+const OSM_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('osm') !== '0';
 const oriCorners = (o: Ori, m = 0): number[] => {
   const fx = Math.sin(o.h), fz = Math.cos(o.h), rx = fz, rz = -fx, hw = o.w / 2 + m, hd = o.d / 2 + m;
   return [o.cx + fx * hd + rx * hw, o.cz + fz * hd + rz * hw, o.cx + fx * hd - rx * hw, o.cz + fz * hd - rz * hw,
@@ -444,6 +482,20 @@ function oriHit(a: Ori, b: Ori, m: number): boolean {
   return true;
 }
 const rectOri = (r: Rect): Ori => ({ cx: (r.x0 + r.x1) / 2, cz: (r.z0 + r.z1) / 2, h: 0, w: r.x1 - r.x0, d: r.z1 - r.z0 });
+
+
+/**
+ * Where the real town is open and the street plan's frontage lots would build it solid (audit #12): Water St's 30-lot row over the
+ * real ponds goes, and the South End and West End keep about a quarter of their lots (more where a real footprint stands: those are
+ * placed first and keep their ground). Deterministic per lot.
+ */
+function keepStack(x: number, z: number, block: number): boolean {
+  if (x > 120 && x < 172 && z > -1595 && z < -1115) return false;
+  const south = z > -1640 && x < 120, west = x < 20 && z < -1640 && z > -2060 && x > -700;
+  if (!south && !west) return true;
+  const h = Math.imul(Math.round(x * 7) ^ Math.imul(Math.round(z * 13), 2654435761) ^ block, 2246822519) >>> 0;
+  return (h % 1000) / 1000 < 0.25;
+}
 
 let LOTS: OLot[] | null = null;
 /** The lots the builders here and mainlandPlaces.ts build on: plan.mainlandLots, or under the new streets the converted ones. */
@@ -489,9 +541,72 @@ export function mainlandLots(plan: CityPlan): OLot[] {
       }
     }
   }
+  // Real footprints (OSM, warped with the street plan; footprintData.ts): a building where a real one stands, turned to face the
+  // nearest street, sized like the real one. Set pieces, roads, water and the rail corridor keep their ground; these go in before the
+  // graph's own lots, which then give way where a footprint stands (and thin out where the real town is open: see `keepStack`).
+  if (OSM_ON) {
+    const idx: number[] = [];
+    for (let i = 0; i < FOOTPRINTS.length / FP_STRIDE; i++) idx.push(i);
+    // Big and civic things first, houses last, so a mill never loses its ground to the sheds around it.
+    const rank = (i: number): number => { const t = FOOTPRINTS[i * FP_STRIDE + 5]; return t === 0 ? 2 : t === 1 ? 1 : 0; };
+    idx.sort((a, b) => rank(a) - rank(b) || FOOTPRINTS[b * FP_STRIDE + 2] * FOOTPRINTS[b * FP_STRIDE + 3] - FOOTPRINTS[a * FP_STRIDE + 2] * FOOTPRINTS[a * FP_STRIDE + 3]);
+    const landOk = (x: number, z: number): boolean => coastSD(x, z) < -6 && waterDist(x, z) > 9;
+    for (const i of idx) {
+      const b = i * FP_STRIDE, cx = FOOTPRINTS[b], cz = FOOTPRINTS[b + 1], L = FOOTPRINTS[b + 2], W = FOOTPRINTS[b + 3], ha = FOOTPRINTS[b + 4], t = FOOTPRINTS[b + 5], hm = FOOTPRINTS[b + 6] / 10;
+      if (RESERVED.some((q) => cx > q.x0 && cx < q.x1 && cz > q.z0 && cz < q.z1)) continue;
+      if (!landOk(cx, cz)) continue;
+      const ne = G.nearestEdge(cx, cz, (e) => !e.deck), pp = G.pointAt(ne.edge, ne.s);
+      let dx = pp.x - cx, dz = pp.z - cz; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+      // The face looking most nearly at the street.
+      const ax = Math.sin(ha), az = Math.cos(ha), cands: [number, number, boolean][] = [[ax, az, true], [-ax, -az, true], [az, -ax, false], [-az, ax, false]];
+      let best = cands[0], bd = -2;
+      for (const c of cands) { const v = c[0] * dx + c[1] * dz; if (v > bd) { bd = v; best = c; } }
+      const h = Math.atan2(best[0], best[1]);
+      let w = best[2] ? W : L, d = best[2] ? L : W;
+      const house = t === 0;
+      if (house) { w = Math.max(7, Math.min(w, 11)); d = Math.max(7, Math.min(d, 12)); }
+      else if (t === 1) { w = Math.max(9, Math.min(w, 24)); d = Math.max(9, Math.min(d, 20)); }
+      else { w = Math.max(10, Math.min(w, 85)); d = Math.max(9, Math.min(d, 60)); }
+      let got: Ori | null = null;
+      const roadM = house ? 2.4 : 3.2;
+      /** Whether an oriented footprint (or house lot) stands on free ground: off the set pieces, the other buildings, the roads and the water. */
+      const fits = (o: Ori): number => {
+        if (RESERVED.some((q) => oriHit(o, rectOri(q), 0.5))) return 1;
+        if (taken.some((q) => oriHit(o, rectOri(q), house ? 0 : 1)) || takenO.some((q) => oriHit(o, q, house ? 0 : 1))) return 2;
+        const cs = oriCorners(o);
+        for (let c = 0; c < 8; c += 2) {
+          const mx = (cs[c] + cs[(c + 2) % 8]) / 2, mz = (cs[c + 1] + cs[(c + 3) % 8]) / 2;
+          if (!landOk(cs[c], cs[c + 1])) return 4;
+          if (!G.clearOfRoads(cs[c], cs[c + 1], roadM) || !G.clearOfRoads(mx, mz, roadM)) return 3;
+        }
+        return G.clearOfRoads(o.cx, o.cz, 3) ? 0 : 3;
+      };
+      // The game's streets are wider than the real ones, so a real frontage often lands on the sidewalk: slide the building straight back from the nearest street until it clears.
+      for (const k of house ? [1] : [1, 0.85, 0.7]) {
+        if (got) break;
+        const kw = w * k, kd = d * k;
+        for (const bk of [0, 1.5, 3, 4.5, 6, 8, 10]) {
+          const sx = -dx * bk, sz = -dz * bk;
+          const o: Ori = house
+            ? { cx: cx + sx + Math.sin(h) * (kd / 2 + 4.2 - (kd + 6.5) / 2), cz: cz + sz + Math.cos(h) * (kd / 2 + 4.2 - (kd + 6.5) / 2), h, w: Math.max(kw + 1.8, 9.8), d: Math.max(kd + 6.5, 15) }
+            : { cx: cx + sx, cz: cz + sz, h, w: kw, d: kd };
+          const f = fits(o);
+          if (f === 0) { got = o; break; }
+          if (f === 1 || f === 2) break;
+        }
+      }
+      if (!got) continue;
+      const cs = oriCorners(got);
+      const rect: Rect = { x0: Math.min(cs[0], cs[2], cs[4], cs[6]), z0: Math.min(cs[1], cs[3], cs[5], cs[7]), x1: Math.max(cs[0], cs[2], cs[4], cs[6]), z1: Math.max(cs[1], cs[3], cs[5], cs[7]) };
+      const fx2 = Math.sin(got.h), fz2 = Math.cos(got.h), face = Math.abs(fz2) >= Math.abs(fx2) ? (fz2 < 0 ? 0 : 2) : (fx2 > 0 ? 1 : 3);
+      out.push({ rect, block: 101000 + i, district: 'stacks', face, interior: false, ori: got, osm: { t, hm, i } });
+      takenO.push(got);
+    }
+  }
   // Every other frontage lot of the graph, squared to the axes.
   for (const l of G.lots) {
     const fx = Math.sin(l.h), fz = Math.cos(l.h);
+    if (OSM_ON && l.district === 'stacks' && !keepStack(l.cx, l.cz, l.block)) continue;
     // Houses (houseAssets.ts) stand on the oriented lot itself, at its own angle, not on a squared-off part of it.
     if (HOUSES_ON && l.district === 'stacks') {
       let got: Ori | null = null;
@@ -539,6 +654,44 @@ export function mainlandLots(plan: CityPlan): OLot[] {
     if (!clear(x.rect, 2.5)) continue;
     out.push({ rect: x.rect, block: -1, district: x.district, face: x.face, interior: false });
     taken.push(x.rect);
+  }
+  // Businesses OSM has no building for (the real shop is in an unmapped or merged footprint): a generic shop, hall or church on free ground
+  // beside the nearest street at its spot, so the directory never points at bare ground (item 19b, business.ts SNAP).
+  if (OSM_ON) {
+    const dist = (x: number, z: number): number => {
+      let best = 1e9;
+      for (const l of out) {
+        const o = l.ori;
+        let d: number;
+        if (o) { const fx = Math.sin(o.h), fz = Math.cos(o.h), ex = x - o.cx, ez = z - o.cz; d = Math.hypot(Math.max(Math.abs(ex * fz - ez * fx) - o.w / 2, 0), Math.max(Math.abs(ex * fx + ez * fz) - o.d / 2, 0)); }
+        else d = Math.hypot(Math.max(l.rect.x0 - x, 0, x - l.rect.x1), Math.max(l.rect.z0 - z, 0, z - l.rect.z1));
+        if (d < best) best = d;
+      }
+      for (const b of CAMPUS_BOXES) best = Math.min(best, Math.hypot(Math.max(b[0] - x, 0, x - b[2]), Math.max(b[1] - z, 0, z - b[3])));
+      return best;
+    };
+    let n = 0;
+    for (const [, ci, x, z, open] of DIRECTORY) {
+      if (open || dist(x, z) <= 26) continue;
+      const ne = G.nearestEdge(x, z, (e) => !e.deck);
+      if (ne.d > 110) continue;
+      const pp = G.pointAt(ne.edge, ne.s);
+      let dx = pp.x - x, dz = pp.z - z; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+      const h = Math.atan2(dx, dz), t = ci === 4 ? 7 : ci === 5 ? 8 : 2, w = ci === 4 ? 13 : 12, d = ci === 4 ? 16 : 9.5;
+      for (const bk of [0, 3, 6, 9, 12, 15, 20, 26, 32, 40, 50]) {
+        const o: Ori = { cx: x - dx * bk, cz: z - dz * bk, h, w, d };
+        if (RESERVED.some((q) => oriHit(o, rectOri(q), 0.5)) || taken.some((q) => oriHit(o, rectOri(q), 1)) || takenO.some((q) => oriHit(o, q, 1))) continue;
+        const cs = oriCorners(o);
+        let ok = G.clearOfRoads(o.cx, o.cz, 3) && coastSD(o.cx, o.cz) < -6 && waterDist(o.cx, o.cz) > 9;
+        for (let c = 0; ok && c < 8; c += 2) ok = G.clearOfRoads(cs[c], cs[c + 1], 3.2) && G.clearOfRoads((cs[c] + cs[(c + 2) % 8]) / 2, (cs[c + 1] + cs[(c + 3) % 8]) / 2, 3.2) && waterDist(cs[c], cs[c + 1]) > 9;
+        if (!ok) continue;
+        const rect: Rect = { x0: Math.min(cs[0], cs[2], cs[4], cs[6]), z0: Math.min(cs[1], cs[3], cs[5], cs[7]), x1: Math.max(cs[0], cs[2], cs[4], cs[6]), z1: Math.max(cs[1], cs[3], cs[5], cs[7]) };
+        const fx2 = Math.sin(h), fz2 = Math.cos(h), face = Math.abs(fz2) >= Math.abs(fx2) ? (fz2 < 0 ? 0 : 2) : (fx2 > 0 ? 1 : 3);
+        out.push({ rect, block: 102000 + n, district: 'stacks', face, interior: false, ori: o, osm: { t, hm: 0, i: 5000 + n } });
+        takenO.push(o); n++;
+        break;
+      }
+    }
   }
   LOTS = out;
   return out;
@@ -830,7 +983,7 @@ class Builder {
     const pick = (tx: number, tz: number, fr: number, dp: number): number => {
       let best = -1, bd = 1e9;
       lots.forEach((l, i) => {
-        if (l.district !== 'stacks' || l.interior || taken.has(i)) return;
+        if (l.district !== 'stacks' || l.interior || taken.has(i) || l.osm) return;
         const [a, b] = size(l);
         if (a < fr || b < dp) return;
         const d = Math.hypot((l.rect.x0 + l.rect.x1) / 2 - tx, (l.rect.z0 + l.rect.z1) / 2 - tz);
@@ -847,6 +1000,7 @@ class Builder {
     lots.forEach((lot, i) => {
       const sister = lot.district === 'sister';
       if (lot.district !== 'stacks' && !(sister && lot.rect.z0 > -1420) && i !== churchA && i !== churchB) return;
+      if (lot.osm && lot.osm.t !== 0) return;
       const r = lot.rect, cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2, y = groundAt(cx, cz), rng = new RNG(91000 + first + i);
       k.at(cx, cz);
       if (lot.interior) { this.backLot(r, y, rng); return; }
@@ -894,6 +1048,8 @@ class Builder {
     const bag = ['td', 'cape', 'gf', 'vic'], tot = bag.reduce((a, b) => a + wt[b], 0);
     let r0 = rng.range(0, tot), first = 'td';
     for (const b of bag) { r0 -= wt[b]; if (r0 <= 0) { first = b; break; } }
+    // A real footprint with a LiDAR height picks its storeys: tall is a triple-decker, middling a gable-front or Victorian, low a cape.
+    if (lot.osm && lot.osm.hm > 0) first = lot.osm.hm > 8.2 ? 'td' : lot.osm.hm > 6.3 ? (rng.chance(0.7) ? 'gf' : 'vic') : 'cape';
     kinds.push(first as Kind, 'gf', 'cape', 'td');
     let name = '';
     for (const kd of kinds) {
@@ -916,6 +1072,7 @@ class Builder {
     const sy = gy(0, o.d / 2);
     // Front walk from the door to the street, and the drive (with its garage if there is one).
     const doorU = u0 + (mir ? W - D.door : D.door);
+    lot.wall = { x: loc(doorU, set)[0], z: loc(doorU, set)[1], nx, nz };
     const qEnd = set - D.front - 1.0;
     if (qEnd > 0.5) k.hq(k.F, F, doorU - 0.6 + o.w / 2, doorU + 0.6 + o.w / 2, -qEnd, 0.6, gy(doorU, qEnd / 2) + 0.04, true, 0xb9b5ab, 1);
     const ud = ds * (o.w / 2 - 1.9);
@@ -966,6 +1123,174 @@ class Builder {
       let at = -hw;
       for (const [a, b] of gaps) { if (a - at > 1) run(at, 0.4, a, 0.4, 'picket'); at = Math.max(at, b); }
       if (hw - at > 1) run(at, 0.4, hw, 0.4, 'picket');
+    }
+  }
+
+  // ── Real footprints: the generic commercial, industrial and civic kits (OSM footprints, footprintData.ts) ──────────────────────
+  //
+  // Every kit here is quads on oriented Frames (no axis-aligned boxes), so a building stands at the real footprint's own angle. One
+  // box per building, walls from the mainland's wall sheet, a flat roof, the street side dressed by kit: shopfronts (shops and strip
+  // malls), a vestibule under a big sign (big-box stores, with their parking), loading doors (industrial), brick bays (mills,
+  // apartments), plain windows (halls). The LiDAR height (hm, metres) picks the storeys; without one a kit has its own default.
+
+  /** The four wall frames of an oriented rectangle, front (the side facing out along o.h) first, then clockwise seen from above. */
+  private oframes(o: Ori): Frame[] {
+    const nx = Math.sin(o.h), nz = Math.cos(o.h), tx = nz, tz = -nx, out: Frame[] = [];
+    const nn: [number, number][] = [[nx, nz], [tx, tz], [-nx, -nz], [-tx, -tz]];
+    for (let s = 0; s < 4; s++) {
+      const [ax, az] = nn[s], bx = az, bz = -ax, len = s & 1 ? o.d : o.w, half = s & 1 ? o.w / 2 : o.d / 2;
+      out.push({ ox: o.cx + ax * half - bx * len / 2, oz: o.cz + az * half - bz * len / 2, tx: bx, tz: bz, nx: ax, nz: az, len, depth: s & 1 ? o.w : o.d });
+    }
+    return out;
+  }
+
+  /** A closed box of walls on an oriented rect, top included, all in the flat colour batch (rooftop plant, tower shafts). */
+  private obox(o: Ori, y0: number, y1: number, hex: number, shade = 1): void {
+    const k = this.k, fr = this.oframes(o);
+    for (let s = 0; s < 4; s++) k.vq(k.F, fr[s], 0, fr[s].len, y0, y1, 0, hex, 0, 0, 1, 1, shade * (s === 0 ? 1 : s === 2 ? 0.8 : 0.9));
+    k.hq(k.F, fr[0], 0, fr[0].len, -o.d, 0, y1, true, dim(hex, 0.85), shade);
+  }
+
+  /** A shopfront on an oriented frame: glass bays and a door from the sheet's shop row, a fascia in a colour with the sign, sometimes an awning. */
+  private oshop(f: Frame, s0: number, s1: number, y: number, HS: number, rng: RNG, blockId: number, sign?: string, awn = true): void {
+    const k = this.k, col = rng.pick(SHOPCOL), tint = blend(col, 0xffffff, 0.5), gh = Math.min(3.0, HS - 0.9), [v0, v1] = mwallV(ROW.shop, 2);
+    const pw = 0.4, a = s0 + pw, b = s1 - pw, dw = 1.9, n = Math.max(1, Math.round((b - a - dw) / 2.6)), bw = (b - a - dw) / n, doorAt = rng.int(0, n);
+    const cell = (sa: number, sb: number, c: number): void => k.vq(k.W, f, sa, sb, y + 0.02, y + gh, 0.02, tint, (c + 0.01) / 16, v0, (c + 0.99) / 16, v1);
+    let s = a;
+    const c0 = rng.int(0, 11);
+    for (let i = 0; i <= n; i++) {
+      if (i === doorAt) { cell(s, s + dw, 12 + rng.int(0, 3)); s += dw; }
+      if (i < n) { cell(s, s + bw, (c0 + i * 5) % 12); s += bw; }
+    }
+    k.vq(k.F, f, s0, a, y, y + HS - 0.25, 0.06, col, 0, 0, 1, 1, 0.92); k.vq(k.F, f, b, s1, y, y + HS - 0.25, 0.06, col, 0, 0, 1, 1, 0.92);
+    k.vq(k.F, f, s0, s1, y + gh, y + HS - 0.04, 0.1, dim(col, 1.1));
+    const sw = Math.min(s1 - s0 - 1.2, 4.6), sh = Math.min(HS - gh - 0.3, sw / 4);
+    if (sw > 1.5 && sh > 0.3) k.signAt(f, (s0 + s1) / 2, y + gh + (HS - gh - 0.04 - sh) / 2, sh * 4, 0.14, sign ?? this.shopName(blockId), sh);
+    if (awn && rng.chance(0.35) && s1 - s0 > 4) {
+      const ac = rng.pick(AWNING), y1 = y + gh + 0.05, y0 = y + 2.5, out = 1.4;
+      k.sq(k.F, f, s0 + 0.5, s1 - 0.5, 0.08, y1, out, y0, ac);
+      k.sq(k.F, f, s0 + 0.5, s1 - 0.5, 0.08, y1 - 0.02, out, y0 - 0.02, ac, 0.6, 0, 0, 1, 1, true);
+    }
+  }
+
+  /** Slices an oriented box into axis boxes along its length for the collision grid. */
+  private osolid(o: Ori, top: number, base: number): void {
+    const k = this.k, nx = Math.sin(o.h), nz = Math.cos(o.h), tx = nz, tz = -nx;
+    const alongT = o.w >= o.d, long = alongT ? o.w : o.d, n = Math.max(1, Math.ceil(long / 4));
+    if (Math.min(Math.abs(nx), Math.abs(nz)) < 0.02) {
+      const cs = oriCorners(o);
+      k.solid({ x0: Math.min(cs[0], cs[2], cs[4], cs[6]), z0: Math.min(cs[1], cs[3], cs[5], cs[7]), x1: Math.max(cs[0], cs[2], cs[4], cs[6]), z1: Math.max(cs[1], cs[3], cs[5], cs[7]) }, top, base);
+      return;
+    }
+    for (let i = 0; i < n; i++) {
+      const u = ((i + 0.5) / n - 0.5) * long;
+      const sub: Ori = { cx: o.cx + (alongT ? tx : nx) * u, cz: o.cz + (alongT ? tz : nz) * u, h: o.h, w: alongT ? long / n : o.w, d: alongT ? o.d : long / n };
+      const cs = oriCorners(sub), sh = Math.min(sub.w, sub.d) * 0.14;
+      k.solid({ x0: Math.min(cs[0], cs[2], cs[4], cs[6]) + sh, z0: Math.min(cs[1], cs[3], cs[5], cs[7]) + sh, x1: Math.max(cs[0], cs[2], cs[4], cs[6]) - sh, z1: Math.max(cs[1], cs[3], cs[5], cs[7]) - sh }, top, base);
+    }
+  }
+
+  osm(lots: OLot[], first: number): void {
+    const k = this.k, G = this.game.plan.streets, lean = !!this.game.quality.lean;
+    for (const lot of lots) {
+      const q = lot.osm, o = lot.ori;
+      if (!q || !o || q.t === 0) continue;
+      const rng = new RNG(88000 + first + q.i), fr = this.oframes(o), cs = oriCorners(o);
+      let gmin = 1e9, gmax = -1e9, gsum = 0;
+      for (const [px, pz] of [[cs[0], cs[1]], [cs[2], cs[3]], [cs[4], cs[5]], [cs[6], cs[7]], [o.cx, o.cz]]) { const g = groundAt(px, pz); gmin = Math.min(gmin, g); gmax = Math.max(gmax, g); gsum += g; }
+      if (gmax - gmin > 3.6) continue;
+      const y = gsum / 5, base = gmin - 0.4, w = o.w, d = o.d, t = q.t, hm = q.hm;
+      k.at(o.cx, o.cz);
+      const FH = t === 6 ? 3.6 : t === 4 || t === 5 ? 4.2 : 3.1;
+      const floorsOf = (def: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, hm > 0 ? Math.round(hm / FH) : def));
+      const hex = t === 6 ? MWALL.redBrick : t === 7 ? WHITE : rng.pick(BRICKS), seed = rng.int(0, 31);
+      let top = y + 4.8, HS = 4.35, fl = 1;
+      const roofHex = rng.pick(ROOF);
+      // The walls below the floor line hide the slope.
+      const under = (): void => { for (const f of fr) k.band(f, 0, f.len, base, y, hex, ROW.granite, base, 0.9); };
+      if (t === 2 || t === 3 || t === 1 || t >= 7) {
+        const shop = t === 2 || t === 3;
+        fl = t === 1 ? floorsOf(3, 2, 4) : t === 2 ? floorsOf(w * d > 280 ? 2 : 1, 1, 3) : t === 3 ? 1 : floorsOf(2, 1, 3);
+        HS = shop ? (t === 3 ? 4.2 : 4.35) : FH;
+        top = y + HS + (fl - 1) * FH + 0.55;
+        under();
+        const f0 = fr[0];
+        if (shop) {
+          const units = t === 3 ? Math.max(2, Math.round(w / 7.5)) : Math.max(1, Math.round(w / 11)), uw = w / units;
+          for (let u = 0; u < units; u++) this.oshop(f0, u * uw, (u + 1) * uw, y, HS, rng, 101000 + q.i + u, undefined, true);
+          if (fl > 1) k.facade(f0, 0, w, y + HS, FH, fl - 1, hex, 1, WIN.sash, 3.3, seed);
+          else k.band(f0, 0, w, y + HS, top, hex, ROW.brick, y + HS, 1);
+        } else {
+          const wr = t === 7 ? ROW.clap : ROW.brick, st = t === 7 ? WIN.house : WIN.sash;
+          k.facade(f0, 0, w, y, FH, fl, hex, 1, st, t === 7 ? 3.0 : 3.3, seed, t === 7 ? WHITE : 0xffffff, wr);
+          k.band(f0, 0, w, y + fl * FH, top, hex, wr, y + fl * FH, 1);
+          k.piece(f0, w / 2 - 0.55, 1.1, y, 2.3, 0.03, ROW.door, 0, 0xffffff, 1);
+        }
+        for (let s = 1; s < 4; s++) {
+          const f = fr[s], wr = t === 7 ? ROW.clap : ROW.brick, floors = shop ? Math.max(fl - 1, 0) : fl;
+          k.plainWall(f, 0, f.len, y, top, hex, s === 2 ? 0.92 : 0.96, wr, floors > 0 ? { st: t === 7 ? WIN.house : WIN.sash, yb: y + (shop ? HS : 0), fh: FH, floors, pitch: 3.6, seed: seed + s, trim: 0xffffff } : undefined);
+        }
+        k.cornice(f0, 0, w, top, hex, 1);
+      } else if (t === 4) {
+        // Big-box store: a tall plain box, a glazed entrance under a big sign, and the car park in front.
+        HS = Math.max(6.2, hm > 0 ? Math.min(hm, 11) : 8); top = y + HS; under();
+        const gh = 0xc8c6bf, f0 = fr[0], ew = Math.min(14, w * 0.5), e0 = rng.chance(0.5) ? w * 0.18 : w - w * 0.18 - ew;
+        for (let s = 0; s < 4; s++) k.band(fr[s], 0, fr[s].len, y, top, gh, ROW.brick, y, s === 2 ? 0.86 : 0.97);
+        this.oshop(f0, e0, e0 + ew, y, 5.2, rng, 101000 + q.i, undefined, false);
+        k.vq(k.F, f0, e0 - 0.8, e0 + ew + 0.8, y + 5.2, y + HS - 0.5, 0.2, rng.pick([0x1f3d6e, 0x7a1f1c, 0x1d5a3a, 0xc08a1a]));
+        k.signAt(f0, e0 + ew / 2, y + 5.45, Math.min(ew + 0.4, 10), 0.24, signKey(MAIN_SHOPS[(q.i * 5) % MAIN_SHOPS.length][0]), Math.min(1.8, HS - 5.9));
+        k.cornice(f0, 0, w, top, gh, 1, 0.5, 0.1);
+        this.parkingLot(o, f0, lean, G);
+        if (!lean) this.roofPlant(o, top, rng, Math.floor(w * d / 700));
+      } else if (t === 5) {
+        // Industrial shed: metal-sided, loading doors along the street side, a few roof vents.
+        HS = Math.max(5.5, hm > 0 ? Math.min(hm, 10) : 6.5); top = y + HS; under();
+        const mh = rng.pick([0x8d9aa3, 0xb5a98a, 0x9aa59a, 0xa4a8a5]);
+        for (let s = 0; s < 4; s++) k.band(fr[s], 0, fr[s].len, y, top, mh, ROW.clap, y, s === 2 ? 0.86 : 0.97);
+        for (const s of [0, 1]) { const f = fr[s], n = Math.max(1, Math.floor(f.len / 14)); for (let i = 0; i < n; i++) k.piece(f, (i + 0.5) * f.len / n - 1.4, 2.8, y, 3.2, 0.03, ROW.door, i % 2 ? 5 : 7, 0xffffff, 1); }
+        k.cornice(fr[0], 0, w, top, mh, 1, 0.4, 0.08);
+        if (!lean) this.roofPlant(o, top, rng, Math.floor(w * d / 500));
+      } else if (t === 6) {
+        // Mill: red brick bays on every wall, five floors at most, a stair tower and a chimney on the big ones.
+        fl = floorsOf(3, 2, 5); top = y + fl * FH + 0.6; under();
+        for (let s = 0; s < 4; s++) { const f = fr[s]; k.facade(f, 0, f.len, y, FH, fl, hex, 1, WIN.mill, 3.4, seed + s * 3, 0xffffff, ROW.brick); }
+        k.cornice(fr[0], 0, w, top, hex, 1);
+        const nx = Math.sin(o.h), nz = Math.cos(o.h), tx = nz, tz = -nx;
+        if (w * d > 800 && !lean) this.obox({ cx: o.cx + nx * (d / 2 + 0.2) - tx * (w / 2 - 4), cz: o.cz + nz * (d / 2 + 0.2) - tz * (w / 2 - 4), h: o.h, w: 5, d: 5 }, base, top + 5, hex, 0.95);
+        if (w * d > 1200 && !lean) this.obox({ cx: o.cx - nx * d / 2 + tx * (w / 3), cz: o.cz - nz * d / 2 + tz * (w / 3), h: o.h, w: 3.4, d: 3.4 }, base, top + 14, dim(hex, 0.9), 0.95);
+      }
+      k.hq(k.F, fr[0], 0, fr[0].len, -d, 0, top, true, roofHex);
+      this.osolid(o, top, base - 0.6);
+      // The front wall the businesses hang their signs on.
+      lot.wall = { x: fr[0].ox + fr[0].tx * w / 2, z: fr[0].oz + fr[0].tz * w / 2, nx: fr[0].nx, nz: fr[0].nz };
+    }
+  }
+
+  /** Asphalt in front of a store, clipped back until it stands clear of the roads, with a row of bay lines. */
+  private parkingLot(o: Ori, f0: Frame, lean: boolean, G: CityPlan['streets']): void {
+    const k = this.k;
+    let dep = 18;
+    const ok = (dd: number): boolean => {
+      if (!G) return true;
+      for (const s of [0.5, o.w * 0.5, o.w - 0.5]) for (const oo of [dd, dd * 0.5]) if (!G.clearOfRoads(PX(f0, s, oo), PZ(f0, s, oo), 1.5)) return false;
+      return true;
+    };
+    while (dep > 6 && !ok(dep)) dep -= 3;
+    if (dep <= 6) return;
+    let gy = -1e9;
+    for (const s of [0, o.w]) for (const oo of [0, dep]) gy = Math.max(gy, groundAt(PX(f0, s, oo), PZ(f0, s, oo)));
+    if (gy - groundAt(PX(f0, o.w / 2, dep / 2), PZ(f0, o.w / 2, dep / 2)) > 1.2) return;
+    k.hq(k.F, f0, 0, o.w, 0.05, dep, gy + 0.04, true, TAR, 1);
+    if (lean) return;
+    const n = Math.min(14, Math.floor(o.w / 3));
+    for (let i = 1; i < n; i++) k.hq(k.F, f0, (i * o.w) / n - 0.06, (i * o.w) / n + 0.06, dep - 5.5, dep - 0.6, gy + 0.05, true, 0xe9e7df, 1);
+  }
+
+  /** Air handlers and vents on a flat roof. */
+  private roofPlant(o: Ori, top: number, rng: RNG, n: number): void {
+    for (let i = 0; i < Math.min(n, 6); i++) {
+      const u = rng.range(-0.35, 0.35) * o.w, v = rng.range(-0.3, 0.3) * o.d, nx = Math.sin(o.h), nz = Math.cos(o.h);
+      this.obox({ cx: o.cx + nz * u + nx * v, cz: o.cz - nx * u + nz * v, h: o.h, w: rng.range(1.8, 3.2), d: rng.range(1.5, 2.4) }, top, top + rng.range(0.9, 1.5), 0x9ea2a4, 0.95);
     }
   }
 
@@ -1564,6 +1889,7 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
   b.pickChurches(lots);
   b.main(lots, plan.blocks, plan.lots.length);
   b.stacks(lots, plan.blocks, plan.lots.length);
+  b.osm(lots, plan.lots.length);
   b.mill(lots, plan.lots.length);
   if (STREETS_NEW && b.rf) b.holdingPatternWest();
   // No kit.finish() here: mainlandPlaces.ts draws the landmarks into the same batches and builds the meshes.
