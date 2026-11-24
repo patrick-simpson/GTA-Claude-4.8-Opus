@@ -60,6 +60,11 @@ const BODY_R = 0.62;
 
 const RURAL = new Set(['The Thruway', 'Town Line Rd', 'Upriver Rd', 'Far Bank Rd', 'Offramp Rd', 'Chapel Hill Rd']);
 const ISLAND_EDGE = new Set(['Anchor Ave', 'Keel Row', 'Gull Heights Rd']);
+/**
+ * The new streets (streets.ts): the plan's moose places (tepid-streets-plan.json moose_places) lie on these. Second Thought Ave
+ * only out past the exit toward the lake; the town's own streets never.
+ */
+const RURAL_NEW = new Set(['The Thruway', 'Upriver Rd', 'Far Bank Rd', 'Offramp Rd', 'Chapel Hill Rd', 'Cherry Tree St', 'Dithers Loop', 'Blockhouse Rd', 'Second Thought Ave']);
 
 const FIRST_HIT = 'You hit a moose. The moose is fine. The car is not.';
 const HIT = ['The moose would like a word with your insurer.', 'Moose: 1. Car: 0.', 'It is still standing. Your bumper is not.', 'Like hitting a sofa made of granite.'];
@@ -138,7 +143,27 @@ export class Moose implements WorldPart {
 
   private pickSites(): void {
     const p = this.game.plan;
+    const G = p.streets;
+    if (G) {
+      // Mainland crossings from the new graph: the longest straight piece of each rural road's edge, at least 40 m.
+      for (let i = G.isle.edges; i < G.edges.length; i++) {
+        const e = G.edges[i], pts = e.pts;
+        if (!pts || e.deck || e.kind === 'ramp' || e.kind === 'bridge') continue;
+        let best = -1, bl = 40;
+        for (let k = 0; k + 3 < pts.length; k += 2) { const l = Math.hypot(pts[k + 2] - pts[k], pts[k + 3] - pts[k + 1]); if (l > bl) { bl = l; best = k; } }
+        if (best < 0) continue;
+        const ax = pts[best], az = pts[best + 1], bx = pts[best + 2], bz = pts[best + 3], mx = (ax + bx) / 2, mz = (az + bz) / 2;
+        const ok = RURAL_NEW.has(e.name) ? e.name !== 'Second Thought Ave' || mx < -760 : Math.hypot(mx - LAKE.x, mz - LAKE.z) < 520 && e.kind !== 'arterial';
+        if (!ok) continue;
+        const dx = (bx - ax) / bl, dz = (bz - az) / bl;
+        let dry = true;
+        for (const s of [-1, 1]) for (const d of [8, 18, OFF]) if (isWater(mx - dz * d * s, mz + dx * d * s)) dry = false;
+        if (!dry) continue;
+        this.sites.push({ x: mx, z: mz, dx, dz, hw: e.hw, len: bl, land: 1, name: e.name });
+      }
+    }
     for (const e of p.edges) {
+      if (G && e.land === 1) continue;
       if (e.deck) continue;
       const a = p.nodes[e.a], b = p.nodes[e.b];
       const len = Math.hypot(b.x - a.x, b.z - a.z);

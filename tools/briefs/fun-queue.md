@@ -76,3 +76,21 @@ boots with no errors at high, low and the phone layout; nothing gory.
     proper UVs, baked normal/roughness/AO maps from high-poly versions on the RTX, PBR materials,
     better levels of detail, side-by-side pictures before and after for each. Keep the phone and
     frame budgets (measure each).
+
+20. THE PROMO (owner, Nov 24; LAST, after everything including the quality pass): a 60-second promo that
+    plays on load, "highest quality you can muster", that makes players think they are about to play an
+    epic game; any key (or tap) skips straight into the game. Music: "Swing Machine" from the owner's
+    YouTube link https://youtu.be/Rtahc_olXjE (confirm the title and artist from the video page first).
+    Play it the way Claude FM is played (src/audio/claudefm.ts): the YouTube IFrame player, hidden, streaming
+    from YouTube; never download or copy the audio into the repo. Browsers only allow sound after a click or
+    key, so the promo starts on the title card's first click/tap (which already exists), and if YouTube
+    can't be reached it plays silent with the game's own music bed.
+    Build it as a REAL-TIME in-engine cinematic (no video file to download): a scripted sequence of shots
+    from the actual game cut to the song's beats (measure the beat grid from the track's tempo): the
+    SpeedScan tower with its stink lines, a car chase with police and the helicopter, ragdolls and the
+    cannon, the stunt-park loop, boats and the duck, moose on a snowy road, the derby crowd, the tornado,
+    fireworks over the pier, Tepid Falls' Main St, the store interior, multiplayer racers at the lights;
+    cinematic cameras (dolly, crane, orbit, slow-motion at the drop), letterbox, title cards in the game's
+    paperwork style with punchy lines, and the logo at the end with "PRESS ANY KEY". Every shot pre-warmed
+    (src/core/warmup.ts) so nothing hitches; phones get a shorter, lighter cut. Shown once per new edition
+    or first visit, with a menu option to replay it.

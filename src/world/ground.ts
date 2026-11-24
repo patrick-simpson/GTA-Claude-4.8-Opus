@@ -1903,7 +1903,8 @@ class Ground implements WorldPart {
       }
     };
     track(RAIL.x0, RAIL.x1, RAIL.z, false);
-    for (const dz of [-4.6, 4.6]) track(MXS[3] + 12, MXS[8] - 12, RAIL.z + dz, true);
+    // New streets: the sidings lie beside the depot, between Tuition Ave and Front St (mainlandPlaces.ts).
+    for (const dz of [-4.6, 4.6]) if (this.newPlan) track(136, 214, RAIL.z + dz, true); else track(MXS[3] + 12, MXS[8] - 12, RAIL.z + dz, true);
     const tl = RAIL_TRESTLE.x1 - RAIL_TRESTLE.x0, tm = (RAIL_TRESTLE.x0 + RAIL_TRESTLE.x1) / 2;
     flat.box(tm, Y - 0.5, RAIL.z, tl, 0.5, 4.4, TIMB, 0, 7);
     for (let x = RAIL_TRESTLE.x0 + 8; x < RAIL_TRESTLE.x1 - 4; x += 14) {

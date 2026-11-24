@@ -229,8 +229,10 @@ export const board: { current: Leaderboard | null } = { current: null };
 function signSpots(game: Game): { x: number; z: number; h: number }[] {
   const plan = game.plan, out: { x: number; z: number; h: number }[] = [];
   out.push(plan.sidewalkPoint(5, 6, 2, 0.9));
-  const tf = plan.blockAt(39, 40);
-  if (tf) out.push(plan.sidewalkPoint(39, 40, 3, 0.5));
+  // Tepid Falls: on Main St's east sidewalk. New streets: at the south end of downtown, where the street opens up from
+  // Trestle St (Main St's half-width 7 plus half the sidewalk), facing the street.
+  if (plan.streets) out.push({ x: 70 + 7 + 1.75, z: -1652, h: -Math.PI / 2 });
+  else if (plan.blockAt(39, 40)) out.push(plan.sidewalkPoint(39, 40, 3, 0.5));
   return out;
 }
 

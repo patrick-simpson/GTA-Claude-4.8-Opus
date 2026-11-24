@@ -21,6 +21,13 @@ import { smooth } from '../core/util';
 export interface MRect { x0: number; z0: number; x1: number; z1: number }
 
 export const TOWN_NAME = 'Tepid Falls';
+
+/**
+ * The new streets after real Waterville (streets.ts STREETS_NEW, repeated here: streets.ts imports this file). Unit 4 of
+ * tepid-streets.md moves the built things with them: the hill and the college site north-west to Mayflower Hill, the
+ * footbridge above the dam, the railway north of downtown. ?streets=old keeps every old place.
+ */
+const NEW = typeof location === 'undefined' || new URLSearchParams(location.search).get('streets') !== 'old';
 /** Height of the town plateau above the island's streets. */
 export const MAIN_Y = 5;
 /** Where terrainAt()/groundAt() hand over from the island to the mainland: mid-channel, where both sea floors are at full depth. */
@@ -144,7 +151,7 @@ export function mainlandSD(x: number, z: number): number {
 // ── Dithers Hill ─────────────────────────────────────────────────────────────
 
 /** The hill's footprint (a rounded rectangle), its height over the town, and the width of the slope all round. */
-export const HILL = { x0: -680, x1: -370, z0: -1820, z1: -1525, h: 12, band: 100 };
+export const HILL = NEW ? { x0: -625, x1: -315, z0: -2568, z1: -2272, h: 12, band: 100 } : { x0: -680, x1: -370, z0: -1820, z1: -1525, h: 12, band: 100 };
 const HCX = (HILL.x0 + HILL.x1) / 2, HCZ = (HILL.z0 + HILL.z1) / 2;
 const HHX = (HILL.x1 - HILL.x0) / 2, HHZ = (HILL.z1 - HILL.z0) / 2;
 
@@ -167,13 +174,19 @@ export function hillAt(x: number, z: number): number {
 
 /** Trestle St's road bridge, the Exact Change Footbridge, and the railway trestle. All level with the town. */
 export const ROAD_BRIDGE: MRect = { x0: 176, x1: 464, z0: MZS[3] - 6, z1: MZS[3] + 6 };
-export const FOOTBRIDGE_Z = -1345;
-export const FOOTBRIDGE: MRect = { x0: 250, x1: 376, z0: FOOTBRIDGE_Z - 1.4, z1: FOOTBRIDGE_Z + 1.4 };
-export const RAIL_Z = -1897;
-export const RAIL_TRESTLE: MRect = { x0: 294, x1: 422, z0: RAIL_Z - 2.2, z1: RAIL_Z + 2.2 };
+/** New streets: the real Two Cent Bridge is above the dam at Temple St (Pocket Change St), so the footbridge spans the pond there. */
+export const FOOTBRIDGE_Z = NEW ? -1890 : -1345;
+// (its east anchor lands just short of Upriver Rd, which hugs the far bank there)
+const FBX = NEW ? 271 : 250;
+export const FOOTBRIDGE: MRect = { x0: FBX, x1: FBX + 126, z0: FOOTBRIDGE_Z - 1.4, z1: FOOTBRIDGE_Z + 1.4 };
+/** New streets: the line runs just north of downtown, clear of Front St, crossing the river where it bends east. */
+export const RAIL_Z = NEW ? -2150 : -1897;
+const RTX = NEW ? 305 : 294;
+export const RAIL_TRESTLE: MRect = { x0: RTX, x1: RTX + 128, z0: RAIL_Z - 2.2, z1: RAIL_Z + 2.2 };
 /** The railway: one track east-west across the north of town, from the buffer stop by the Thruway to the far bank. */
-export const RAIL = { z: RAIL_Z, x0: -660, x1: 640, hw: 9 };
-export const DECKS: MRect[] = [ROAD_BRIDGE, FOOTBRIDGE, RAIL_TRESTLE];
+export const RAIL = { z: RAIL_Z, x0: NEW ? -640 : -660, x1: 640, hw: 9 };
+/** New streets: no old road bridge (Trestle St crosses at z -1635 on its own deck, streetMeshes.ts), so no walkable floor where it was. */
+export const DECKS: MRect[] = NEW ? [FOOTBRIDGE, RAIL_TRESTLE] : [ROAD_BRIDGE, FOOTBRIDGE, RAIL_TRESTLE];
 
 // ── Height of the natural ground ─────────────────────────────────────────────
 
@@ -201,6 +214,8 @@ export function naturalTerrain(x: number, z: number): number {
     // The island's own beach profile, so the waterline and the foam sit at the same distance from "the coast".
     h = sd < 40 ? -3.4 * smooth((sd + 26) / 66) : -3.4 - Math.min((sd - 40) * 0.06, 6);
   } else h = sd > -56 ? MAIN_Y * smooth((-26 - sd) / 30) : MAIN_Y;
+  // New streets: the hill stands north of the flat town box above.
+  if (NEW && h >= MAIN_Y - 0.01) h += hillAt(x, z);
   if (h > -3.4) {
     const d = waterDist(x, z);
     if (d < BANK) h = Math.min(h, d <= -10 ? -3.4 : MAIN_Y - (MAIN_Y + 3.4) * smooth((BANK - d) / (BANK + 10)));
@@ -230,7 +245,7 @@ export const SITES = {
   dam: { x: 316, z: DAM_Z },
   footbridgeWest: { x: FOOTBRIDGE.x0, z: FOOTBRIDGE_Z },
   footbridgeEast: { x: FOOTBRIDGE.x1, z: FOOTBRIDGE_Z },
-  square: { x: 20, z: -1452 },
+  square: NEW ? { x: 131, z: -1807 } : { x: 20, z: -1452 },
   hilltop: { x: HCX, z: HCZ },
   lake: { x: LAKE.x, z: LAKE.z },
 };

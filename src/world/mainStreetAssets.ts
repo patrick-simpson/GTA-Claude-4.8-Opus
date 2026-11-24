@@ -20,6 +20,7 @@ import type { Game } from '../core/game';
 import { assets } from '../core/assets';
 import { progress } from './progress';
 import { BRIDGE_SPANS } from './plan';
+import { STREETS_NEW } from './streets';
 
 export interface MSDesign { w: number; D: number; top: number; HS: number; signs: number[][] }
 
@@ -53,7 +54,11 @@ const ORDER: Record<'w' | 'e', string[]> = {
   e: ['secondguess', 'secondguess', 'hemming', 'monotony', 'lukewarm', 'bleached', 'hemming', 'chaperone', 'gridbear', 'barrel'],
 };
 /** The stretch of Main St given over to the models: from Front St to Bobbin St (Quorum Square). */
-const Z_SOUTH = -1075, Z_NORTH = -1508;
+// The new streets (streets.ts) have downtown 565 m north, above the dam (Trestle St to Dutch Elm St / Tuition Ave), and a
+// narrower Main St (arterial, half-width 7): the rows' wall lines move in to 70 -+ 10.5.
+const Z_SOUTH = STREETS_NEW ? -1640 : -1075, Z_NORTH = STREETS_NEW ? -2073 : -1508;
+/** The wall lines of the west and east rows (the frontages the models fill). */
+export const MS_XW = STREETS_NEW ? 59.5 : 56.5, MS_XE = STREETS_NEW ? 80.5 : 83.5;
 const NEAR1 = 48, NEAR2 = 150;
 const BRICK_W = 1.6, BRICK_H = 1.0075;
 
@@ -151,8 +156,8 @@ export class MainStreet {
     if (Math.abs(f.nx) < 0.9) return null;
     const z0 = f.oz, z1 = f.oz + f.tz * f.len;
     if (Math.max(z0, z1) > Z_SOUTH || Math.min(z0, z1) < Z_NORTH) return null;
-    if (f.nx > 0 && Math.abs(f.ox - 56.5) < 2) return 'w';
-    if (f.nx < 0 && Math.abs(f.ox - 83.5) < 2) return 'e';
+    if (f.nx > 0 && Math.abs(f.ox - MS_XW) < 2) return 'w';
+    if (f.nx < 0 && Math.abs(f.ox - MS_XE) < 2) return 'e';
     return null;
   }
 

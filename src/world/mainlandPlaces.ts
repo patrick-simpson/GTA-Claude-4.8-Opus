@@ -19,9 +19,22 @@ import { RNG } from '../core/util';
 import { DAM_Z, FOOTBRIDGE, FOOTBRIDGE_Z, LAKE, MAIN_Y, POND_Y, RAIL, riverX } from './mainland';
 import { groundAt, type Lot, type Rect } from './plan';
 import { FENCE_UV, MWALL } from './textures';
-import { OPERA, PX, PZ, WIN, cut, dim, frameOf, frect, mainKit, type Frame, type MainKit, type WinStyle } from './mainlandBuildings';
+import { NEW_SITES, OPERA, PX, PZ, mainlandLots, WIN, cut, dim, frameOf, frect, mainKit, type Frame, type MainKit, type WinStyle } from './mainlandBuildings';
 import { RIVER_ON } from './riverfrontAssets';
 import { CIVIC, civic } from './civicAssets';
+import { STREETS_NEW, thruwayX } from './streets';
+
+/**
+ * Quorum Square's layout. Old grid: 86 m of walk north-south between Bobbin St and Quorum St, a cross walk out to the streets.
+ * New streets: the block east of Main St at Bobbin St, behind the east row (mainlandBuildings.ts NEW_SITES), smaller in step.
+ */
+const SQ = STREETS_NEW ? {
+  cx: 131, cz: -1807, n: -1838.5, s: -1777, w: 103.5, e: 159, mz: -1786, wz: -1834,
+  benchZ: [-1829, -1819, -1797], lampZ: [-1834, -1781], lampX: [107, 119, 143, 155], benchX: [109, 153], hallZ: -1852,
+} : {
+  cx: 20, cz: -1452, n: -1495.5, s: -1409.5, w: -16.5, e: 56.5, mz: -1430, wz: -1491,
+  benchZ: [-1484, -1470, -1420], lampZ: [-1486, -1412], lampX: [-12, 4, 36, 52], benchX: [-6, 42], hallZ: -1530,
+};
 
 const R = MWALL.rows, RED = MWALL.redBrick, TAU = Math.PI * 2;
 const STONE = 0xcfcac0, GRAN = 0xb5b1a6, TAR = 0x4a4b4d, IRON = 0x2e3338, WHITE = 0xf1ede2, SLATE = 0x596068, PATH = 0xc9c1ad, WOOD = 0x6a4a32, CONC = 0xa9a69c;
@@ -70,23 +83,25 @@ function civicSquare(k: MainKit, cx: number, cz: number, y: number, mz: number):
   const cv = civic!, col = k.game.col;
   cv.prop('sq_monument', cx, y, mz, 0);
   col.addBox(cx - 2.2, mz - 2.2, cx + 2.2, mz + 2.2, y + 8.8, y - 1);
-  const wz = -1491;
+  const wz = SQ.wz;
   cv.prop('sq_memorial', cx, y + 0.04, wz, 0);
   col.addBox(cx - 4.2, wz - 1.6, cx + 4.2, wz + 0.4, y + 3.6, y - 1);
   col.addProp(cx - 2.9, wz - 1.3, 0.12, y + 9.5, 'post', false); col.addProp(cx + 2.9, wz - 1.3, 0.12, y + 9.5, 'post', false);
   const seat = (x: number, z: number, rot: number): void => { cv.prop('sq_bench', x, y + 0.04, z, rot); col.addProp(x, z, 0.7, y + 0.9, 'bench', false); };
-  for (const bz of [-1484, -1470, -1420]) { seat(cx - 2.3, bz, Math.PI / 2); seat(cx + 2.3, bz + 5, -Math.PI / 2); }
-  for (const bx of [-6, 42]) seat(bx, cz - 2.3, 0);
+  for (const bz of SQ.benchZ) { seat(cx - 2.3, bz, Math.PI / 2); seat(cx + 2.3, bz + 5, -Math.PI / 2); }
+  for (const bx of SQ.benchX) seat(bx, cz - 2.3, 0);
   const lamp = (x: number, z: number): void => { cv.prop('sq_lamp', x, y + 0.04, z, 0); col.addProp(x, z, 0.24, y + 4.6, 'post', false); };
-  for (let z = -1486; z <= -1412; z += 15) if (Math.abs(z - cz) > 9 && Math.abs(z - mz) > 4) { lamp(cx - 2.4, z); lamp(cx + 2.4, z + 7); }
-  for (const x of [-12, 4, 36, 52]) { lamp(x, cz - 2.4); lamp(x + 7, cz + 2.4); }
+  for (let z = SQ.lampZ[0]; z <= SQ.lampZ[1]; z += 15) if (Math.abs(z - cz) > 9 && Math.abs(z - mz) > 4) { lamp(cx - 2.4, z); lamp(cx + 2.4, z + 7); }
+  for (const x of SQ.lampX) { lamp(x, cz - 2.4); lamp(x + (STREETS_NEW ? 3.5 * Math.sign(SQ.cx - x) : 7), cz + 2.4); }
 }
 
 function square(k: MainKit): void {
-  const cx = 20, cz = -1452, y = groundAt(cx, cz), col = k.game.col, P = FENCE_UV.picket;
+  const cx = SQ.cx, cz = SQ.cz, y = groundAt(cx, cz), col = k.game.col, P = FENCE_UV.picket;
   k.at(cx, cz);
-  k.F.floor(cx - 1.4, -1495.5, cx + 1.4, -1409.5, y + 0.04, PATH);
-  k.F.floor(-16.5, cz - 1.4, cx - 1.4, cz + 1.4, y + 0.04, PATH); k.F.floor(cx + 1.4, cz - 1.4, 56.5, cz + 1.4, y + 0.04, PATH);
+  // New streets: the block is the graph's, not a grid square block ground.ts lays as lawn, so lay the lawn here.
+  if (STREETS_NEW) { const q = NEW_SITES.square; k.F.floor(q.x0, q.z0, q.x1, q.z1, y + 0.03, 0x5f6e45, 1, 1, 1); }
+  k.F.floor(cx - 1.4, SQ.n, cx + 1.4, SQ.s, y + 0.04, PATH);
+  k.F.floor(SQ.w, cz - 1.4, cx - 1.4, cz + 1.4, y + 0.04, PATH); k.F.floor(cx + 1.4, cz - 1.4, SQ.e, cz + 1.4, y + 0.04, PATH);
   k.F.cyl(cx, y - 0.2, cz, 7.5, 7.5, 0.27, PATH, 16, true);
 
   // The bandstand: eight posts on a stone drum, a green roof, a rail all round but for the steps.
@@ -107,7 +122,7 @@ function square(k: MainKit): void {
   col.addBox(cx - 3.6, cz - 3.6, cx + 3.6, cz + 3.6, ry, y - 1);
 
   // The soldier's monument: a private of volunteers on a granite shaft, facing the bridge he did not live to see started.
-  const mz = -1430, BRONZE = 0x55685a;
+  const mz = SQ.mz, BRONZE = 0x55685a;
   if (civic) { civicSquare(k, cx, cz, y, mz); return; }
   k.F.box(cx, y, mz, 4.4, 0.4, 4.4, GRAN); k.F.box(cx, y + 0.4, mz, 3.4, 0.4, 3.4, GRAN); k.F.box(cx, y + 0.8, mz, 2.2, 2.2, 2.2, 0xc4c0b6); k.F.box(cx, y + 3, mz, 2.6, 0.3, 2.6, GRAN);
   k.frustum(sqr(cx, mz, 0.8), y + 3.3, sqr(cx, mz, 0.55), y + 6.6, 0xc4c0b6);
@@ -118,15 +133,15 @@ function square(k: MainKit): void {
   k.signAt(frameOf(sqr(cx, mz, 1.1), 2), 1.1, y + 1.45, 1.9, 0.02, 'm-monument');
   col.addBox(cx - 2.2, mz - 2.2, cx + 2.2, mz + 2.2, y + 7, y - 1);
 
-  for (const bz of [-1486, -1470, -1420]) { bench(k, cx - 2.2, bz, y, false); bench(k, cx + 2.2, bz + 5, y, false); }
-  for (const bx of [-6, 42]) bench(k, bx, cz - 2.2, y, true);
+  for (const bz of SQ.benchZ) { bench(k, cx - 2.2, bz, y, false); bench(k, cx + 2.2, bz + 5, y, false); }
+  for (const bx of SQ.benchX) bench(k, bx, cz - 2.2, y, true);
 }
 
 /** Postponement Hall: city offices below, the opera house above, a clock tower over the door. */
 function opera(k: MainKit): void {
-  const B: Rect = { x0: OPERA.x0 + 2, z0: OPERA.z0 + 1, x1: OPERA.x1 - 2, z1: OPERA.z1 - 3.5 }, y = groundAt(20, -1530);
+  const HX = (OPERA.x0 + OPERA.x1) / 2, B: Rect = { x0: OPERA.x0 + 2, z0: OPERA.z0 + 1, x1: OPERA.x1 - 2, z1: OPERA.z1 - 3.5 }, y = groundAt(HX, SQ.hallZ);
   const b0 = y + 1.4, f1 = 7.4, f2 = 5.2, top = b0 + f1 + f2 + 1;
-  k.at(20, -1530);
+  k.at(HX, SQ.hallZ);
   if (civic) {
     k.F.floor(OPERA.x0, OPERA.z0, OPERA.x1, OPERA.z1, y + 0.03, 0xbdb6a4);
     civic.place('ph', CIVIC.hall.x0, y, CIVIC.hall.z, 1, 0, 0, 1);
@@ -146,7 +161,7 @@ function opera(k: MainKit): void {
   k.frustum(grow(B, 0.3), top, { x0: B.x0 + 9, z0: B.z0 + 9, x1: B.x1 - 9, z1: B.z1 - 9 }, top + 3.2, 0x5f7a6a, R.seam);
   k.F.floor(B.x0 + 9, B.z0 + 9, B.x1 - 9, B.z1 - 9, top + 3.2, 0x4a5f54);
 
-  const T: Rect = { x0: 16, z0: B.z1 - 4, x1: 24, z1: B.z1 + 2.5 }, tt = top + 11, tf = frameOf(T, 2);
+  const T: Rect = { x0: HX - 4, z0: B.z1 - 4, x1: HX + 4, z1: B.z1 + 2.5 }, tt = top + 11, tf = frameOf(T, 2);
   k.solid({ ...T, z1: T.z1 + 2.4 }, y + 1.4, y - 1);
   k.solid(T, tt, y - 1);
   for (let s = 0; s < 4; s++) {
@@ -160,15 +175,17 @@ function opera(k: MainKit): void {
   }
   k.piece(tf, 4 - 1.5, 3, b0, 4.2, 0.04, R.door, MWALL.doors.hall, 0x5a3a28);
   k.signAt(tf, 4, b0 + 4.5, 6.6, 0.06, 'm-opera');
-  for (let i = 0; i < 4; i++) k.F.box(20, y, T.z1 + 0.3 + i * 0.55, 9, 1.4 - i * 0.35, 0.6, GRAN);
-  k.frustum(grow(T, 0.3), tt, sqr(20, (T.z0 + T.z1) / 2, 0.05), tt + 7.5, 0x4a5f54);
-  k.F.cyl(20, tt + 7.4, (T.z0 + T.z1) / 2, 0.06, 0.03, 3, IRON, 5, false);
+  for (let i = 0; i < 4; i++) k.F.box(HX, y, T.z1 + 0.3 + i * 0.55, 9, 1.4 - i * 0.35, 0.6, GRAN);
+  k.frustum(grow(T, 0.3), tt, sqr(HX, (T.z0 + T.z1) / 2, 0.05), tt + 7.5, 0x4a5f54);
+  k.F.cyl(HX, tt + 7.4, (T.z0 + T.z1) / 2, 0.06, 0.03, 3, IRON, 5, false);
 }
 
 /** What ground.ts's footbridge lacks: braced towers on stone piers, more hangers, anchor blocks, and somebody to pay. */
 function footbridge(k: MainKit): void {
   const fb = FOOTBRIDGE, fz = FOOTBRIDGE_Z, Y = MAIN_Y, T0 = fb.x0 + 7, T1 = fb.x1 - 7, TOP = Y + 9.5, IRONC = 0x4f5a63, col = k.game.col;
   const sag = (x: number): number => { const u = (x - T0) / (T1 - T0); return TOP - (TOP - Y - 1.5) * 4 * u * (1 - u); };
+  // New streets: a walk from Front St out to the west landing (the old grid's sidewalks reached it on their own).
+  if (STREETS_NEW) { const wy = groundAt(220, fz); k.at(220, fz); k.F.floor(180.5, fz - 1.4, fb.x0, fz + 1.4, wy + 0.04, PATH); }
   // The riverfront models (riverfrontAssets.ts) bring their own towers, piers, cables and anchors: keep only the toll hut here.
   if (!RIVER_ON) for (const tx of [T0, T1]) {
     k.at(tx, fz);
@@ -201,11 +218,16 @@ function footbridge(k: MainKit): void {
 }
 
 /** Dithers College: a brick chapel with a white spire at the head of a lawn, a hall down each side, a gate at the foot. */
+/** New streets: the old chapel and halls go with Dithers Hill to Mayflower Hill (mainland.ts HILL), until the campus unit. */
+const CX = STREETS_NEW ? 65 : 0, CZ = STREETS_NEW ? -750 : 0;
+/** New streets: the depot moves with the line (RAIL_Z -2150) to between Tuition Ave and Front St, the sidings beside it. */
+const DX = STREETS_NEW ? 60 : 0, DZ = STREETS_NEW ? -253 : 0;
+
 function college(k: MainKit): void {
-  const y = groundAt(-535, -1670), col = k.game.col;
+  const y = groundAt((-535 + CX), (-1670 + CZ)), col = k.game.col;
   // The chapel.
-  const C: Rect = { x0: -546, z0: -1717, x1: -524, z1: -1691 }, b0 = y + 1, wt = b0 + 9.5, cf = frameOf(C, 2);
-  k.at(-535, -1700);
+  const C: Rect = { x0: (-546 + CX), z0: (-1717 + CZ), x1: (-524 + CX), z1: (-1691 + CZ) }, b0 = y + 1, wt = b0 + 9.5, cf = frameOf(C, 2);
+  k.at((-535 + CX), (-1700 + CZ));
   k.solid(C, wt + 3, y - 1);
   for (let s = 0; s < 4; s++) {
     const f = frameOf(C, s);
@@ -220,7 +242,7 @@ function college(k: MainKit): void {
   portico(k, cf, 4, 18, y, b0, 7, 3, 4);
   k.solid(frect(cf, 3.5, 18.5, 0, 3.4), b0, y - 1);
   // Tower, lantern, belfry, spire: brick to above the ridge, then white all the way up.
-  const tx = -535, tz = -1694.5, t1 = wt + 7, t2 = t1 + 5.2, t3 = t2 + 4.2, tip = t3 + 25;
+  const tx = (-535 + CX), tz = (-1694.5 + CZ), t1 = wt + 7, t2 = t1 + 5.2, t3 = t2 + 4.2, tip = t3 + 25;
   for (let s = 0; s < 4; s++) {
     const a = frameOf(sqr(tx, tz, 3), s), b = frameOf(sqr(tx, tz, 2.4), s), c = frameOf(sqr(tx, tz, 1.9), s);
     k.band(a, 0, a.len, wt - 1, t1, RED, R.brick, wt - 1, 1);
@@ -237,9 +259,9 @@ function college(k: MainKit): void {
   k.F.box(tx, tip + 1.2, tz, 0.9, 0.08, 0.08, 0xc9a24a);
 
   // The halls: three floors of sashes under a long roof, white doorcase to the lawn.
-  for (const [x0, side] of [[-578, 1], [-510, 3]]) {
-    const B: Rect = { x0, z0: -1686, x1: x0 + 14, z1: -1638 }, fh = 3.6, h0 = y + 0.9, ht = h0 + 3 * fh;
-    k.at(x0 + 7, -1662);
+  for (const [x0, side] of [[(-578 + CX), 1], [(-510 + CX), 3]]) {
+    const B: Rect = { x0, z0: (-1686 + CZ), x1: x0 + 14, z1: (-1638 + CZ) }, fh = 3.6, h0 = y + 0.9, ht = h0 + 3 * fh;
+    k.at(x0 + 7, (-1662 + CZ));
     k.solid(B, ht + 2.5, y - 1);
     for (let s = 0; s < 4; s++) {
       const f = frameOf(B, s);
@@ -258,29 +280,29 @@ function college(k: MainKit): void {
   }
 
   // The lawn's paths, benches, and the gate at the foot of it.
-  k.at(-535, -1660);
+  k.at((-535 + CX), (-1660 + CZ));
   const py = y + 0.05;
-  strip(k, -562, -1686, -510, -1640, 2.2, py, PATH); strip(k, -562, -1640, -510, -1686, 2.2, py + 0.004, PATH);
-  k.F.floor(-536.1, -1686.6, -533.9, -1629, py + 0.008, PATH);
-  k.F.floor(-534, -1631.2, -486.5, -1629, py + 0.008, PATH);
-  for (const bz of [-1676, -1650]) { bench(k, -538.2, bz, y, false); bench(k, -531.8, bz, y, false); }
-  for (const gx of [-537.6, -532.4]) {
-    k.F.box(gx, y, -1629, 0.95, 3.2, 0.95, dim(RED, 0.95)); k.F.box(gx, y + 3.2, -1629, 1.15, 0.22, 1.15, STONE); k.F.cyl(gx, y + 3.42, -1629, 0.3, 0.05, 0.5, STONE, 6, false);
-    col.addBox(gx - 0.5, -1629.5, gx + 0.5, -1628.5, y + 3.4, y - 1);
+  strip(k, (-562 + CX), (-1686 + CZ), (-510 + CX), (-1640 + CZ), 2.2, py, PATH); strip(k, (-562 + CX), (-1640 + CZ), (-510 + CX), (-1686 + CZ), 2.2, py + 0.004, PATH);
+  k.F.floor((-536.1 + CX), (-1686.6 + CZ), (-533.9 + CX), (-1629 + CZ), py + 0.008, PATH);
+  k.F.floor((-534 + CX), (-1631.2 + CZ), (-486.5 + CX), (-1629 + CZ), py + 0.008, PATH);
+  for (const bz of [(-1676 + CZ), (-1650 + CZ)]) { bench(k, (-538.2 + CX), bz, y, false); bench(k, (-531.8 + CX), bz, y, false); }
+  for (const gx of [(-537.6 + CX), (-532.4 + CX)]) {
+    k.F.box(gx, y, (-1629 + CZ), 0.95, 3.2, 0.95, dim(RED, 0.95)); k.F.box(gx, y + 3.2, (-1629 + CZ), 1.15, 0.22, 1.15, STONE); k.F.cyl(gx, y + 3.42, (-1629 + CZ), 0.3, 0.05, 0.5, STONE, 6, false);
+    col.addBox(gx - 0.5, (-1629.5 + CZ), gx + 0.5, (-1628.5 + CZ), y + 3.4, y - 1);
   }
   for (let i = 0; i < 6; i++) {
     const a0 = Math.PI * (i / 6), a1 = Math.PI * ((i + 1) / 6);
-    k.pipe(k.F, -535 - Math.cos(a0) * 2.6, y + 3.3 + Math.sin(a0) * 1.5, -1629, -535 - Math.cos(a1) * 2.6, y + 3.3 + Math.sin(a1) * 1.5, -1629, 0.05, IRON, 5);
+    k.pipe(k.F, (-535 + CX) - Math.cos(a0) * 2.6, y + 3.3 + Math.sin(a0) * 1.5, (-1629 + CZ), (-535 + CX) - Math.cos(a1) * 2.6, y + 3.3 + Math.sin(a1) * 1.5, (-1629 + CZ), 0.05, IRON, 5);
   }
-  for (const s of [0, 2]) { const f = frameOf({ x0: -537, z0: -1629.04, x1: -533, z1: -1628.96 }, s); k.signAt(f, 2, y + 3.45, 3.9, 0.01, 'm-college'); }
+  for (const s of [0, 2]) { const f = frameOf({ x0: (-537 + CX), z0: (-1629.04 + CZ), x1: (-533 + CX), z1: (-1628.96 + CZ) }, s); k.signAt(f, 2, y + 3.45, 3.9, 0.01, 'm-college'); }
 }
 
 /** The depot, its platform, a water tower, and what was left on the sidings. */
 function depot(k: MainKit): void {
-  const D: Rect = { x0: 92, z0: -1887, x1: 122, z1: -1878.5 }, y = groundAt(107, -1882), col = k.game.col, BUFF = 0xcdb37a, GREEN = 0x3a5244, wt = y + 4.1;
-  k.at(107, -1885);
-  k.F.box(107, y, -1889, 48, 0.42, 4, CONC);
-  col.addBox(83, -1891, 131, -1887, y + 0.42, y - 1);
+  const D: Rect = { x0: (92 + DX), z0: (-1887 + DZ), x1: (122 + DX), z1: (-1878.5 + DZ) }, y = groundAt((107 + DX), (-1882 + DZ)), col = k.game.col, BUFF = 0xcdb37a, GREEN = 0x3a5244, wt = y + 4.1;
+  k.at((107 + DX), (-1885 + DZ));
+  k.F.box((107 + DX), y, (-1889 + DZ), 48, 0.42, 4, CONC);
+  col.addBox((83 + DX), (-1891 + DZ), (131 + DX), (-1887 + DZ), y + 0.42, y - 1);
   k.solid(D, wt + 2, y - 1);
   for (let s = 0; s < 4; s++) {
     const f = frameOf(D, s), n = Math.floor(f.len / 3.4);
@@ -297,17 +319,17 @@ function depot(k: MainKit): void {
   const nf = frameOf(D, 0);
   k.fbox(nf, 13.6, 16.4, 0, 0.8, y, wt, BUFF, 4);
   k.piece(nf, 14.3, 1.4, y + 1.1, 1.9, 0.81, R.house, 6, WHITE);
-  k.frustum(grow(D, 3.2), wt - 0.5, { x0: D.x0 + 5, z0: -1882.85, x1: D.x1 - 5, z1: -1882.65 }, wt + 3.3, 0x6a7a70, R.seam);
-  k.board(107, -1890.5, 0, y + 0.42, 3.4, 'm-depot', 2.3, 0x3a5244);
+  k.frustum(grow(D, 3.2), wt - 0.5, { x0: D.x0 + 5, z0: (-1882.85 + DZ), x1: D.x1 - 5, z1: (-1882.65 + DZ) }, wt + 3.3, 0x6a7a70, R.seam);
+  k.board((107 + DX), (-1890.5 + DZ), 0, y + 0.42, 3.4, 'm-depot', 2.3, 0x3a5244);
   if (!k.low) {
     const [u, v] = [D.x0 - 3.2, D.z0 - 3.2];
     k.F.quad(u, wt - 0.53, v, D.x1 + 3.2, wt - 0.53, v, D.x1 + 3.2, wt - 0.53, D.z1 + 3.2, u, wt - 0.53, D.z1 + 3.2, 0xd9d4c4, 0, 0, 1, 1, 0.8);
     for (let s = 2; s < 30; s += 5.2) for (const o of [0.05, 8.45]) k.pipe(k.F, D.x0 + s, wt - 2, D.z0 + o, D.x0 + s, wt - 0.9, D.z0 + o + (o < 1 ? -2.6 : 2.6), 0.07, GREEN, 4);
   }
-  for (const bx of [88, 126]) bench(k, bx, -1888.2, y + 0.42, true);
+  for (const bx of [88 + DX, 126 + DX]) bench(k, bx, (-1888.2 + DZ), y + 0.42, true);
 
   // The water tower: a cedar tank on six legs.
-  const wx = 138, wz = -1882, ty = y + 7.5;
+  const wx = (138 + DX), wz = (-1882 + DZ), ty = y + 7.5;
   k.at(wx, wz);
   for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; k.pipe(k.F, wx + Math.cos(a) * 3.3, y, wz + Math.sin(a) * 3.3, wx + Math.cos(a) * 2.6, ty, wz + Math.sin(a) * 2.6, 0.14, 0x4a3a2c, 5); }
   k.F.cyl(wx, ty, wz, 3.1, 3.1, 0.25, 0x4a3a2c, 12, false);
@@ -319,7 +341,7 @@ function depot(k: MainKit): void {
 
   // Boxcars and a flat on the sidings, clear of every crossing.
   const CAR = [0x7a3b2e, 0x6a4a36, 0x3f5a4a, 0x8a6a2e, 0x55606a];
-  const cars: [number, number, number][] = [[2, -4.6, 3], [100, -4.6, 2], [-196, 4.6, 2], [-88, 4.6, 1], [112, 4.6, 0]];
+  const cars: [number, number, number][] = STREETS_NEW ? [[148, -4.6, 3], [166, 4.6, 0]] : [[2, -4.6, 3], [100, -4.6, 2], [-196, 4.6, 2], [-88, 4.6, 1], [112, 4.6, 0]];
   let n = 0;
   for (const [x0, dz, count] of cars) for (let i = 0; i < Math.max(1, count); i++, n++) {
     const x = x0 + i * 13.6, z = RAIL.z + dz, g = groundAt(x, z) + 0.3, hex = CAR[n % CAR.length], flatcar = count === 0;
@@ -386,8 +408,11 @@ function truckStop(k: MainKit, lot: Lot): void {
 
 function thruway(k: MainKit, lots: Lot[], first: number): void {
   // Gantries over both carriageways: the sign reads toward whoever is coming up to the exit.
-  const X = -700, y = groundAt(X, -1240), GREY = 0x8d9296;
-  for (const [z, face, name, extra] of [[-1238, 2, 'm-exit1', 'm-thru'], [-1352, 0, 'm-exit1', ''], [-1898, 2, 'm-exit2', 'm-thru'], [-2012, 0, 'm-exit2', '']] as [number, number, string, string][]) {
+  // New streets: the Thruway bends and its exit 127 ramps run beside it, so one gantry for each exit where it runs clear.
+  const GANTRIES = (STREETS_NEW ? [[-1600, 0, 'm-exit1', ''], [-2480, 2, 'm-exit2', 'm-thru']] : [[-1238, 2, 'm-exit1', 'm-thru'], [-1352, 0, 'm-exit1', ''], [-1898, 2, 'm-exit2', 'm-thru'], [-2012, 0, 'm-exit2', '']]) as [number, number, string, string][];
+  const GREY = 0x8d9296;
+  for (const [z, face, name, extra] of GANTRIES) {
+    const X = STREETS_NEW ? thruwayX(z) : -700, y = groundAt(X, STREETS_NEW ? z : -1240);
     k.at(X, z);
     for (const px of [X - 11.6, X + 11.6]) { k.F.box(px, y, z, 0.45, 7.6, 0.45, GREY, 0, 5); k.game.col.addProp(px, z, 0.35, y + 7.6, 'post', false).hard = true; }
     k.F.box(X, y + 6.4, z, 23.6, 0.16, 0.5, GREY); k.F.box(X, y + 7.4, z, 23.6, 0.16, 0.5, GREY);
@@ -516,6 +541,7 @@ function duckling(k: MainKit): void {
 
 export function buildMainlandPlaces(lots: Lot[], first: number): WorldPart {
   const k = mainKit();
+  if (k.game.plan.streets) lots = mainlandLots(k.game.plan);
   square(k);
   opera(k);
   footbridge(k);

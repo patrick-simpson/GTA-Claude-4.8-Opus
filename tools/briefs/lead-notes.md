@@ -183,3 +183,6 @@ owner's ground rules for the takeover and the running state.
 - Nov 23: OWNER: Dithers College must look just like Colby College (added to tepid-waterville.md); Blender lane after the churches.
 - Nov 23: OWNER: Tepid Falls street network and traffic must match real Waterville. Brief tools/briefs/tepid-streets.md. Runs in the Blender/mainland lane after the churches, BEFORE Colby (Colby's roads depend on it).
 - Nov 23: phone quality worker done (governor.ts, api.ts, boot.ts, vehicle.ts lean, mainStreetAssets/riverfrontAssets lean). NOT pushed yet: vehicle.ts also holds the kid pass-through worker's in-progress edits; push both together when it reports. PLAN.md's 700 px phone note is outdated (now 600).
+- Nov 24: streets unit 1 committed LOCALLY, not pushed (invisible behind ?streets=new; push with the next visible change so the WHAT'S NEW card makes sense). Mini PC tunnel up (v5, bot:false: owner has not run the install line).
+- Nov 24: OWNER: show the Waterville rebuild live as it goes, glitches accepted. New streets become the default from unit 2 (?streets=old for the old mainland); push each unit as it lands.
+- Nov 24: OWNER: 60 s promo on load with 'Swing Machine' (YouTube Rtahc_olXjE, hidden embed like Claude FM), any key skips; fun-queue item 20, LAST.

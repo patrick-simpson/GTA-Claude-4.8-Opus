@@ -22,20 +22,31 @@ import type { Game } from '../core/game';
 import { assets } from '../core/assets';
 import { progress } from './progress';
 import { BRIDGE_SPANS, type Rect } from './plan';
+import { STREETS_NEW } from './streets';
 import { brickUV, buildingMaterial, loadTexture } from './mainStreetAssets';
 
 export const CIVIC_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('civic') !== '0';
 
 /** Where the fixed civic buildings stand (world meters; the model's front-left corner and its frontage). */
+// New streets (tepid-streets unit 4): the hall north of Quorum Square, now east of Main St at Bobbin St (real City Hall and
+// Castonguay Square at Main x Common St); the post office at the north end of downtown between Tuition Ave and Front St (the
+// real federal building), facing west; Our Lady on Tarnish St (real Silver St), facing the street, set square to it.
+const TARNISH = { x: -155.8, z: -1312, ux: 0.487, uz: -0.873 };
+const LADY_N = { x: -TARNISH.uz, z: TARNISH.ux };
 export const CIVIC = {
   /** Postponement Hall: front wall on z = -1518 facing south over the square, x 0..40, 24 m deep. */
-  hall: { x0: 0, z: -1518, W: 40, D: 24 },
-  /** The Dead Letter Office: front wall on x = -49 facing east toward the square, z -1414..-1444, 22 m deep. */
-  dlo: { x: -49, z0: -1414, W: 30, D: 22 },
+  hall: STREETS_NEW ? { x0: 111, z: -1839.5, W: 40, D: 24 } : { x0: 0, z: -1518, W: 40, D: 24 },
+  /** The Dead Letter Office: front wall on x = -49 facing east toward the square, z -1414..-1444, 22 m deep (new: on x = 203 facing west, z -2247..-2217). */
+  dlo: STREETS_NEW ? { x: 203, z0: -2247, W: 30, D: 22 } : { x: -49, z0: -1414, W: 30, D: 22 },
   /** Our Lady of Perpetual Hesitation: front on z = -1412 facing south onto Quorum St, x -110..-88, 34 m deep. */
   lady: { x0: -110, z: -1412, W: 22, D: 34 },
+  /** New streets: Our Lady's front-left corner, frontage direction t and front normal n (toward Tarnish St, 14 m off its centreline). */
+  ladyNew: {
+    x: TARNISH.x + LADY_N.x * 14 + LADY_N.z * 11, z: TARNISH.z + LADY_N.z * 14 - LADY_N.x * 11,
+    tx: -LADY_N.z, tz: LADY_N.x, nx: -LADY_N.x, nz: -LADY_N.z,
+  },
   /** The lots given over to Our Lady and the post office: Lower Main's builder leaves them alone. */
-  block: { x0: -120, z0: -1449, x1: -43, z1: -1409 } as Rect,
+  block: (STREETS_NEW ? { x0: 1e6, z0: 1e6, x1: 1e6 + 1, z1: 1e6 + 1 } : { x0: -120, z0: -1449, x1: -43, z1: -1409 }) as Rect,
   /** The churches on The Stacks' lots: frontage and depth each needs, and its setback from the street. */
   chw: { W: 13, D: 20, SB: 4.4 },
   chs: { W: 11, D: 22, SB: 3.0 },
@@ -119,6 +130,18 @@ export class Civic {
     const col = this.game.col, p = new THREE.Vector3(), q = new THREE.Vector3();
     for (const [x0, x1, z0, z1, top] of BOXES[name] ?? []) {
       p.set(x0, 0, z0).applyMatrix4(m); q.set(x1, 0, z1).applyMatrix4(m);
+      if (Math.abs(tx) > 0.01 && Math.abs(tz) > 0.01) {
+        // Set at an angle: the box as strips along its depth, each the bounds of its own slice (collide.ts has only axis boxes).
+        const n = Math.max(2, Math.ceil(Math.max(x1 - x0, z1 - z0) / 4));
+        for (let i = 0; i < n; i++) {
+          const za = z0 + ((z1 - z0) * i) / n, zb = z0 + ((z1 - z0) * (i + 1)) / n;
+          let ax = 1e9, az = 1e9, bx = -1e9, bz = -1e9;
+          for (const [u, w] of [[x0, za], [x1, za], [x0, zb], [x1, zb]]) { p.set(u, 0, w).applyMatrix4(m); ax = Math.min(ax, p.x); az = Math.min(az, p.z); bx = Math.max(bx, p.x); bz = Math.max(bz, p.z); }
+          const sh = Math.min(bx - ax, bz - az) * 0.18;
+          col.addBox(ax + sh, az + sh, bx - sh, bz - sh, y + top, y - 1);
+        }
+        continue;
+      }
       col.addBox(Math.min(p.x, q.x), Math.min(p.z, q.z), Math.max(p.x, q.x), Math.max(p.z, q.z), y + top, y - 1);
       this.casters.push(new THREE.BoxGeometry(x1 - x0, top - 0.6, z1 - z0).translate((x0 + x1) / 2, (top - 0.6) / 2, (z0 + z1) / 2)
         .applyMatrix4(m).deleteAttribute('uv').deleteAttribute('normal'));

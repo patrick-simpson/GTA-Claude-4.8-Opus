@@ -34,6 +34,7 @@ import type { WorldPart } from '../core/api';
 import { flip } from '../core/flip';
 import { clamp, pickRand } from '../core/util';
 import { groundAt } from './plan';
+import { STREETS_NEW } from './streets';
 import { waterLevelAt } from './mainland';
 import { HIP } from '../ent/character';
 import { save } from '../game/save';
@@ -79,7 +80,8 @@ const SITES: SiteDef[] = [
     target: 'paint', paint: 0x8a6440, trim: 0x2d2d30, blurb: 'Siege engine, municipal' },
   { id: 'avenue', name: 'SpeedScan Overnight', kind: 'cannon', x: -47.6, z: 14, h: 2.99, roof: true, booth: { x: -42.2, z: 20, h: -Math.PI / 2 },
     v0: 12, v1: 34, power: 0.55, pitch: 0.45, p0: 0.1, p1: 1.0, target: null, paint: 0x1d4f9c, trim: 0xf28c28, blurb: 'Parcel cannon. You are the parcel' },
-  { id: 'fort', name: 'Fort Reluctance Catapult', kind: 'catapult', x: 428, z: -1444, h: Math.PI / 2 + 0.1, v0: 12, v1: 32, power: 0.55, pitch: 0.75, p0: 0.35, p1: 1.15,
+  // New streets: Far Bank Rd runs past the blockhouse's east side, so the catapult stands back between them.
+  { id: 'fort', name: 'Fort Reluctance Catapult', kind: 'catapult', x: STREETS_NEW ? 416 : 428, z: STREETS_NEW ? -1438 : -1444, h: Math.PI / 2 + 0.1, v0: 12, v1: 32, power: 0.55, pitch: 0.75, p0: 0.35, p1: 1.15,
     target: 'paint', paint: 0x7a5636, trim: 0x2b2a28, blurb: 'Built 1754. Finally used' },
   { id: 'river', name: 'The Muddle River Crossing', kind: 'catapult', x: 243.8, z: -1250, h: Math.PI / 2, v0: 16, v1: 40, power: 0.62, pitch: 0.72, p0: 0.35, p1: 1.15,
     target: 'paint', paint: 0x55703c, trim: 0x2b2a28, blurb: 'A ferry, in the broad sense' },

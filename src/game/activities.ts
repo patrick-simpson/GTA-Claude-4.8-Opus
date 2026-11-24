@@ -43,7 +43,8 @@ export function taper(n: number): { cash: number; points: number } {
  */
 export interface RaceDef { name: string; par: number; cps: Pt[]; start: Pt; laps: number; loop: boolean; edges: number[]; idx: number }
 // (ml: on the mainland, nodes counted from MI0/MJ0. Append only: a route's index is its town record's fact key.)
-// The Tepid Falls Loop runs on the CURRENT mainland streets; re-trace it when the new street graph goes live.
+// The Tepid Falls Loop: under the new streets (plan.streets) its checkpoints are NEW_LOOP below, round downtown; the old grid
+// route still gives its edges, so it opens with the mainland as before.
 const RACES: { name: string; par: number; via: [number, number][]; laps?: number; ml?: boolean }[] = [
   { name: 'The Ledger Loop', par: 78, via: [[4, 4], [4, 3], [5, 3], [5, 2], [6, 2], [6, 4], [4, 4]] },
   { name: 'Strand Sprint', par: 64, via: [[0, 7], [3, 7], [6, 7], [9, 7]] },
@@ -55,6 +56,9 @@ const RACES: { name: string; par: number; via: [number, number][]; laps?: number
   { name: 'The Coast Run', par: 100, via: [[0, 4], [0, 8], [5, 8], [10, 8], [10, 5]] },
   { name: 'Tepid Falls Loop', par: 110, laps: 2, ml: true, via: [[5, 4], [7, 4], [7, 7], [5, 7], [5, 4]] },
 ];
+
+/** Tepid Falls Loop on the new streets: up Main St from Trestle St, east on Applejack St (one-way that way), down Front St, back along Trestle St. */
+const NEW_LOOP: Pt[] = [{ x: 70, z: -1640 }, { x: 70, z: -1955 }, { x: 166, z: -1975 }, { x: 170, z: -1625 }, { x: 70, z: -1640 }];
 
 const RAMP_NAMES = ['Low Tide Beach', 'the container yard', 'the park pond', 'the arena lot', 'the cannery', 'Pelican Pier', 'the end of the bridge'];
 const JUMP_LINES = [
@@ -157,8 +161,9 @@ export class Activities {
         }
       }
       if (!ok || cps.length < 3) return;
+      if (r.ml && plan.streets) { cps.length = 0; cps.push(...NEW_LOOP.map((p) => ({ ...p }))); }
       const loop = Math.hypot(cps[0].x - cps[cps.length - 1].x, cps[0].z - cps[cps.length - 1].z) < 1;
-      this.races.push({ name: r.name, par: r.par, start: cps[0], cps: cps.slice(1), laps: loop ? r.laps ?? 1 : 1, loop, edges, idx });
+      this.races.push({ name: r.name, par: r.ml && plan.streets ? 92 : r.par, start: cps[0], cps: cps.slice(1), laps: loop ? r.laps ?? 1 : 1, loop, edges, idx });
     });
     const m = BUILDING_SITES.marlowe, d = BUILDING_SITES.dockOffice;
     this.yards.push({ at: { x: m ? m.x : -396.7, z: (m ? m.z : 275.9) + 8 }, name: 'Marlowe Towing, Strand Blvd' });

@@ -34,6 +34,7 @@ import type { WorldPart } from '../core/api';
 import type { RoadEdge as Edge } from './plan';
 import { clamp01, smooth } from '../core/util';
 import { groundAt } from './plan';
+import { STREETS_NEW } from './streets';
 import { MAIN_Y, RIVER_HW, TRIB_HW, riverX, tribZ } from './mainland';
 import { absHours, floatCar, hash01, stormSky } from './stormSky';
 import { StormSound } from '../audio/storm';
@@ -49,7 +50,8 @@ export const FLOOD_PEAK = MAIN_Y + 0.75;
 /** Deeper than this over the ground and a car floats. */
 const FLOAT = 0.62;
 /** The flooded part of town: the river's whole run through it. */
-const X0 = 140, X1 = 570, Z0 = -1965, Z1 = -1078;
+// New streets: downtown and Front St run up the river to Tuition Ave, and the depot sits by the line at z -2150.
+const X0 = 140, X1 = 570, Z0 = STREETS_NEW ? -2200 : -1965, Z1 = -1078;
 /** How far from the river's edge the water reaches, m: the banks (22 m) until it is over the top, then out to ~120. */
 export function floodReach(level: number): number {
   return level <= MAIN_Y ? 22 : 22 + 100 * smooth((level - MAIN_Y) / (FLOOD_PEAK - MAIN_Y));

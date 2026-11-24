@@ -19,10 +19,12 @@ import type { Game } from '../core/game';
 import type { WorldPart } from '../core/api';
 import type { CityMaterials, Surface } from './materials';
 import { Batch } from './batch';
-import { CURB, groundAt, type Block, type Lot, type Rect } from './plan';
+import { CURB, groundAt, type Block, type CityPlan, type Lot, type Rect } from './plan';
+import { STREETS_NEW } from './streets';
+import { EXTRA_LOTS, FOOTBRIDGE_Z } from './mainland';
 import { FENCE_UV, MAIN_SHOPS, MWALL, makeMainlandTextures, mwallV, signKey, type MainlandTextures } from './textures';
 import { RNG } from '../core/util';
-import { FASCIA_OUT, MainStreet } from './mainStreetAssets';
+import { FASCIA_OUT, MS_XE, MS_XW, MainStreet } from './mainStreetAssets';
 import { LACKWOOL, RIVER_ON, Riverfront } from './riverfrontAssets';
 import { PardonsStore } from './pardonsStore';
 import { CIVIC, civic, makeCivic } from './civicAssets';
@@ -379,7 +381,118 @@ export function mainKit(): MainKit {
 const onMain = (l: Lot): boolean => l.district === 'mill' && l.block >= 0 && !l.interior && l.face === 3 && Math.abs(l.rect.x0 - 83.5) < 1.5;
 
 /** Where Postponement Hall stands (mainlandPlaces.ts), north of the square across Bobbin St: Lower Main's builder leaves these lots alone. */
-export const OPERA: Rect = { x0: -2, z0: -1543, x1: 42, z1: -1514.5 };
+export const OPERA: Rect = STREETS_NEW ? { x0: 109, z0: -1866, x1: 153, z1: -1837.5 } : { x0: -2, z0: -1543, x1: 42, z1: -1514.5 };
+
+// ── The new streets' lots (tepid-streets.md unit 4) ──────────────────────────
+//
+// Under the new streets (streets.ts) every building stands on the street graph's oriented frontage lots instead of the old
+// grid's. The builders here draw in axis-aligned rects, so each lot becomes the biggest axis rect, facing the side nearest its
+// heading, that keeps a sidewalk clear of every road and of its neighbours. Main St's two rows are laid out on their own (the
+// Blender models fill them), and the set pieces keep their sites (NEW_SITES): nothing else is built there.
+
+/** The set pieces' sites under the new streets. */
+export const NEW_SITES = {
+  /** Quorum Square: east of Main St at Bobbin St (real Castonguay Square, Main x Common St), behind the east row. */
+  square: { x0: 103, z0: -1839, x1: 159.5, z1: -1776.5 } as Rect,
+  /** Postponement Hall and its forecourt, north of the square across its north walk, facing south over it. */
+  hall: { x0: 109, z0: -1866, x1: 153, z1: -1837.5 } as Rect,
+  /** The Holding Pattern: west of Main St from Tarnish St to Applejack St, between Dutch Elm St and the west row's backs (the real Concourse). */
+  hp: { x0: 15, z0: -1935, x1: 48, z1: -1772 } as Rect,
+};
+const RESERVED: Rect[] = STREETS_NEW ? [
+  NEW_SITES.square, NEW_SITES.hall, NEW_SITES.hp,
+  { x0: 200, z0: -2250, x1: 228, z1: -2214 },   // the Dead Letter Office
+  { x0: -153, z0: -1320, x1: -104, z1: -1274 }, // Our Lady (set at an angle to Tarnish St)
+  { x0: 136, z0: -2160, x1: 205, z1: -2126 },   // the depot and water tower by the line
+  { x0: 176, z0: -1568, x1: 252, z1: -1196 },   // Threadbare mill yards, Water St to the river walk
+  { x0: 176, z0: -1896, x1: 290, z1: -1884 },   // the walk from Front St to the footbridge
+  { x0: -520, z0: -2475, x1: -410, z1: -2370 }, // the old college buildings on the moved hill
+] : [];
+
+const hitsR = (a: Rect, b: Rect, m = 0): boolean => a.x0 < b.x1 + m && a.x1 > b.x0 - m && a.z0 < b.z1 + m && a.z1 > b.z0 - m;
+
+/** Main St's frontages between the cross streets: z from, z to (south to north), per side. */
+const MAIN_ROWS: Record<'w' | 'e', [number, number][]> = {
+  w: [[-1643, -1757], [-1777, -1865], [-1885, -1948], [-1969, -2048]],
+  e: [[-1640, -1757], [-1777, -1864], [-1884, -1950], [-1988, -2062]],
+};
+
+let LOTS: Lot[] | null = null;
+/** The lots the builders here and mainlandPlaces.ts build on: plan.mainlandLots, or under the new streets the converted ones. */
+export function mainlandLots(plan: CityPlan): Lot[] {
+  const G = plan.streets;
+  if (!G) return plan.mainlandLots;
+  if (LOTS) return LOTS;
+  const out: Lot[] = [], taken: Rect[] = [];
+  const clear = (r: Rect, margin: number): boolean => {
+    if (r.x1 - r.x0 < 4 || r.z1 - r.z0 < 4) return false;
+    for (const q of RESERVED) if (hitsR(r, q)) return false;
+    for (const q of taken) if (hitsR(r, q, 0.6)) return false;
+    const nx = Math.ceil((r.x1 - r.x0) / 3), nz = Math.ceil((r.z1 - r.z0) / 3);
+    for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
+      if (i > 0 && i < nx && j > 0 && j < nz) continue;
+      if (!G.clearOfRoads(r.x0 + ((r.x1 - r.x0) * i) / nx, r.z0 + ((r.z1 - r.z0) * j) / nz, margin)) return false;
+    }
+    return G.clearOfRoads((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2, margin);
+  };
+  // Main St: wall-to-wall rows on both sides, cut into lots of about 36 m, as deep as the street behind allows.
+  for (const side of ['w', 'e'] as const) for (const [za, zb] of MAIN_ROWS[side]) {
+    const n = Math.max(1, Math.round((za - zb) / 36)), step = (za - zb) / n;
+    for (let i = 0; i < n; i++) {
+      const Z1 = za - i * step - (i ? 0.3 : 0), Z0 = za - (i + 1) * step + (i < n - 1 ? 0.3 : 0);
+      // Where a cross street comes in at an angle it cuts the corner: shorten the end lot rather than lose it.
+      let placed = false;
+      for (const trim of [0, 6, 12, 18]) {
+        if (placed) break;
+        const z1 = i === 0 ? Z1 - trim : Z1, z0 = i === n - 1 ? Z0 + trim : Z0;
+        if ((i !== 0 && i !== n - 1 && trim) || z1 - z0 < 12) continue;
+      for (let D = 24; D >= 10; D -= 1) {
+        const r: Rect = side === 'w' ? { x0: MS_XW - D, z0, x1: MS_XW, z1 } : { x0: MS_XE, z0, x1: MS_XE + D, z1 };
+        // The fronts sit on the sidewalk's back edge, so test only the back three quarters against the roads.
+        const back: Rect = side === 'w' ? { ...r, x1: r.x1 - D / 4 } : { ...r, x0: r.x0 + D / 4 };
+        if (!clear(back, 3.0)) continue;
+        out.push({ rect: r, block: 100000 + (side === 'w' ? 900 : 950) + Math.round(-za / 100), district: 'main', face: side === 'w' ? 1 : 3, interior: false });
+        // An alley behind: neighbours keep 3 m off the backs.
+        taken.push(side === 'w' ? { ...r, x0: r.x0 - 3 } : { ...r, x1: r.x1 + 3 });
+        placed = true;
+        break;
+      }
+      }
+    }
+  }
+  // Every other frontage lot of the graph, squared to the axes.
+  for (const l of G.lots) {
+    const fx = Math.sin(l.h), fz = Math.cos(l.h);
+    const face = Math.abs(fz) >= Math.abs(fx) ? (fz < 0 ? 0 : 2) : (fx > 0 ? 1 : 3);
+    const fnx = face === 1 ? 1 : face === 3 ? -1 : 0, fnz = face === 2 ? 1 : face === 0 ? -1 : 0;
+    let done = false;
+    for (const k of [1, 0.9, 0.8, 0.7, 0.6]) {
+      for (const back of [0, 2, 4]) {
+        const w = l.w * k, d = l.d * k;
+        const hx = (face & 1 ? d : w) / 2, hz = (face & 1 ? w : d) / 2;
+        // Keep the front where the lot's front was, pushed back when a diagonal street cuts the corner.
+        const fcx = l.cx + fx * l.d / 2 - fnx * back, fcz = l.cz + fz * l.d / 2 - fnz * back;
+        const cx = fcx - fnx * hx, cz = fcz - fnz * hz;
+        const r: Rect = { x0: cx - hx, z0: cz - hz, x1: cx + hx, z1: cz + hz };
+        if (!clear(r, 3.0)) continue;
+        out.push({ rect: r, block: 100000 + l.block, district: l.district, face, interior: false });
+        taken.push(r);
+        done = true;
+        break;
+      }
+      if (done) break;
+    }
+  }
+  // Lesser Tepid's houses across the river and the blockhouse lot, where no new road crosses them.
+  for (const x of EXTRA_LOTS) {
+    if (x.district !== 'sister') continue;
+    if (!clear(x.rect, 2.5)) continue;
+    out.push({ rect: x.rect, block: -1, district: x.district, face: x.face, interior: false });
+    taken.push(x.rect);
+  }
+  LOTS = out;
+  return out;
+}
 
 // ── Lower Main ───────────────────────────────────────────────────────────────
 
@@ -412,21 +525,44 @@ class Builder {
     return signKey(MAIN_SHOPS[0][0]);
   }
 
+  /** New streets: lots main() leaves for the churches stacks() puts there. */
+  private churchLots = new Set<number>();
+  private churchA = -1;
+  private churchB = -1;
+  /** Under the new streets, pick the two churches' lots near the plan's candidates, of any district in town. */
+  pickChurches(lots: Lot[]): void {
+    if (!STREETS_NEW) return;
+    const near = (tx: number, tz: number): number => {
+      let best = -1, bd = 1e9;
+      lots.forEach((l, i) => {
+        if ((l.district !== 'main' && l.district !== 'stacks') || l.block < 100000 || l.block >= 100900 || this.churchLots.has(i)) return;
+        const w = l.rect.x1 - l.rect.x0, d = l.rect.z1 - l.rect.z0, [a, b] = l.face & 1 ? [d, w] : [w, d];
+        if (a < 15 || b < 22) return;
+        const dd = Math.hypot((l.rect.x0 + l.rect.x1) / 2 - tx, (l.rect.z0 + l.rect.z1) / 2 - tz);
+        if (dd < bd) { bd = dd; best = i; }
+      });
+      if (best >= 0) this.churchLots.add(best);
+      return best;
+    };
+    this.churchA = near(-15, -1954); this.churchB = near(-34, -2042);
+  }
+
   main(lots: Lot[], blocks: Block[], first: number): void {
     const k = this.k;
     // The two set pieces go on Main St itself: the bank just north of the square, the picture house just south of it.
     const pickNear = (x: number, z: number): number => {
       let best = -1, bd = 1e9;
       lots.forEach((l, i) => {
-        if (l.district !== 'main' || l.interior || l.face !== 1 || Math.abs(l.rect.x1 - 56.5) > 2) return;
+        if (l.district !== 'main' || l.interior || l.face !== 1 || Math.abs(l.rect.x1 - MS_XW) > 2) return;
         const d = Math.hypot((l.rect.x0 + l.rect.x1) / 2 - x, (l.rect.z0 + l.rect.z1) / 2 - z);
         if (d < bd) { bd = d; best = i; }
       });
       return best;
     };
-    const bankLot = pickNear(50, -1592), movieLot = pickNear(50, -1350);
+    const bankLot = STREETS_NEW ? pickNear(50, -1905) : pickNear(50, -1592), movieLot = STREETS_NEW ? pickNear(50, -1700) : pickNear(50, -1350);
     lots.forEach((lot, i) => {
       if (lot.district !== 'main' && !onMain(lot)) return;
+      if (this.churchLots.has(i)) return;
       if (lot.rect.x0 < OPERA.x1 && lot.rect.x1 > OPERA.x0 && lot.rect.z0 < OPERA.z1 && lot.rect.z1 > OPERA.z0) return;
       const cb = CIVIC.block;
       if (civic && lot.rect.x0 < cb.x1 && lot.rect.x1 > cb.x0 && lot.rect.z0 < cb.z1 && lot.rect.z1 > cb.z0) return;
@@ -653,12 +789,14 @@ class Builder {
       if (best >= 0) taken.add(best);
       return best;
     };
-    const churchA = pick(-290, -1450, 15, 25), churchB = pick(-430, -1240, 15, 25), school = pick(-200, -1680, 24, 19);
+    // New streets: the two smaller churches go to the plan's candidates on Dutch Elm St (real First Baptist on Elm St) and
+    // north of it (real Pleasant St Methodist); main() has left those lots alone (churchLots).
+    const churchA = STREETS_NEW ? this.churchA : pick(-290, -1450, 15, 25), churchB = STREETS_NEW ? this.churchB : pick(-430, -1240, 15, 25), school = pick(-200, -1680, 24, 19);
     const storeOn = new Set<number>();
     let stores = 0;
     lots.forEach((lot, i) => {
       const sister = lot.district === 'sister';
-      if (lot.district !== 'stacks' && !(sister && lot.rect.z0 > -1420)) return;
+      if (lot.district !== 'stacks' && !(sister && lot.rect.z0 > -1420) && i !== churchA && i !== churchB) return;
       const r = lot.rect, cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2, y = groundAt(cx, cz), rng = new RNG(91000 + first + i);
       k.at(cx, cz);
       if (lot.interior) { this.backLot(r, y, rng); return; }
@@ -1036,8 +1174,8 @@ class Builder {
       const z1 = Math.min(z + 59, -1204);
       k.at(246, (z + z1) / 2);
       k.F.floor(244, z, 247.6, z1, y + 0.08, 0xb9b3a4, 1, 1, 0.97);
-      for (const [a, b] of z < -1345 && z1 > -1345 ? [[z, -1348], [-1342, z1]] : [[z, z1]]) k.fenceRun({ x0: 247.8, z0: a, x1: 247.8, z1: b }, y, 'rail');
-      if (!k.low) for (const bz of [z + 14, z + 44]) if (Math.abs(bz + 1345) > 6 && bz < z1) {
+      for (const [a, b] of z < FOOTBRIDGE_Z && z1 > FOOTBRIDGE_Z ? [[z, FOOTBRIDGE_Z - 3], [FOOTBRIDGE_Z + 3, z1]] : [[z, z1]]) k.fenceRun({ x0: 247.8, z0: a, x1: 247.8, z1: b }, y, 'rail');
+      if (!k.low) for (const bz of [z + 14, z + 44]) if (Math.abs(bz - FOOTBRIDGE_Z) > 6 && bz < z1) {
         k.F.box(244.5, y + 0.4, bz, 0.45, 0.07, 1.7, 0x6a4a32); k.F.box(244.3, y + 0.47, bz, 0.07, 0.42, 1.7, 0x6a4a32);
         k.F.box(244.5, y, bz - 0.7, 0.4, 0.4, 0.08, IRON, 0, 4); k.F.box(244.5, y, bz + 0.7, 0.4, 0.4, 0.08, IRON, 0, 4);
       }
@@ -1082,7 +1220,7 @@ class Builder {
       let rr = r;
       // The Holding Pattern: behind the east side of Main St from the square's cross street to Trestle St, every block is
       // Main St's wall of shops and the lot behind it.
-      if (this.rf && r.x0 > 82 && r.x1 < 162 && r.z0 > -1500 && r.z1 < -1185) {
+      if (!STREETS_NEW && this.rf && r.x0 > 82 && r.x1 < 162 && r.z0 > -1500 && r.z1 < -1185) {
         if (Math.abs(r.x0 - 83.5) < 1.5) this.row({ ...r, x1: r.x0 + 17 }, 3, ly, rng, lot.block, true, null);
         if (!this.hpDone.has(lot.block)) {
           this.hpDone.add(lot.block);
@@ -1093,7 +1231,7 @@ class Builder {
         return;
       }
       // A lot that touches Main St but faces a cross street gives its west 17 m to Main St's wall of shops.
-      if (Math.abs(r.x0 - 83.5) < 1.5 && r.x1 - r.x0 > 44) { this.row({ ...r, x1: r.x0 + 17 }, 3, ly, rng, lot.block, true, null); rr = { ...r, x0: r.x0 + 19 }; }
+      if (!STREETS_NEW && Math.abs(r.x0 - 83.5) < 1.5 && r.x1 - r.x0 > 44) { this.row({ ...r, x1: r.x0 + 17 }, 3, ly, rng, lot.block, true, null); rr = { ...r, x0: r.x0 + 19 }; }
       if (rng.chance(0.55)) this.tenement(rr, lot.face, ly, rng); else this.smallMill(rr, lot.face, ly, rng);
     });
   }
@@ -1118,6 +1256,52 @@ class Builder {
     for (let s = 1; s < 4; s++) { const sf = frameOf(br, face + s); k.plainWall(sf, 0, sf.len, y, top, RED, shade * 0.94, ROW.brick, wins); }
     k.F.floor(br.x0 + 0.05, br.z0 + 0.05, br.x1 - 0.05, br.z1 - 0.05, top - 0.2, TAR);
     if (!k.low) for (let s = 4; s < w - 2; s += 8.1) k.F.box(PX(f, s, -D / 2), top - 0.2, PZ(f, s, -D / 2), 0.9, 1.5, 0.9, dim(RED, 0.85), 0, 5, shade);
+  }
+
+  /**
+   * New streets: The Holding Pattern west of Main St (owner's decision: the real Concourse's place). Its lanes are the graph's
+   * Holding Pattern Ln, so the lot is the tarmac between them and Dutch Elm St: strips clear of every road, stalls nose-in
+   * from the lanes, lamp standards on the widest strips, dumpsters by the west row's back doors.
+   */
+  holdingPatternWest(): void {
+    const k = this.k, rf = this.rf!, col = k.game.col, G = this.game.plan.streets!, R = NEW_SITES.hp, PAINT = 0xe2ded0;
+    const rng = new RNG(91777), y = groundAt((R.x0 + R.x1) / 2, (R.z0 + R.z1) / 2);
+    const ok = (x: number, z: number): boolean => G.clearOfRoads(x, z, 0.4);
+    let lampAt = R.z0 + 8;
+    for (let z = R.z0; z < R.z1 - 0.01; z += 2) {
+      const za = z, zb = Math.min(z + 2, R.z1), zm = (za + zb) / 2;
+      k.at((R.x0 + R.x1) / 2, zm);
+      let run = -1;
+      for (let x = R.x0; x <= R.x1 + 0.01; x += 0.5) {
+        const inside = x < R.x1 && ok(x, za + 0.1) && ok(x, zb - 0.1);
+        if (inside && run < 0) run = x;
+        if ((!inside || x >= R.x1) && run >= 0) {
+          const xa = run, xb = x;
+          run = -1;
+          if (xb - xa < 3) continue;
+          k.F.floor(xa, za, xb, zb, y + 0.04, 0x47484b, 1, 1, rng.range(0.95, 1.03));
+          if (k.low) continue;
+          // Stall lines every 2.75 m, 5 m long, from each side of a strip wide enough to park in.
+          const lines = (Math.round(za / 2.75) !== Math.round(zb / 2.75));
+          if (lines && xb - xa >= 5.6) k.F.floor(xa + 0.2, zm - 0.06, xa + 5.2, zm + 0.06, y + 0.046, PAINT);
+          if (lines && xb - xa >= 11.4) k.F.floor(xb - 5.2, zm - 0.06, xb - 0.2, zm + 0.06, y + 0.046, PAINT);
+          if (xb - xa >= 12 && zm > lampAt) {
+            lampAt = zm + 28;
+            const lx = (xa + xb) / 2;
+            rf.lamp(lx, y + 0.04, zm, 0);
+            col.addProp(lx, zm, 0.35, y + 9, 'post', false);
+          }
+        }
+      }
+    }
+    // The backs of Main St's west row, with their dumpsters where the lane leaves room.
+    for (let zc = R.z0 + 6; zc < R.z1 - 4; zc += rng.range(11, 17)) {
+      const dx = MS_XW - 12.4;
+      if (!G.clearOfRoads(dx, zc, 1.3)) continue;
+      k.at(dx, zc);
+      rf.dumpster(dx, y + 0.04, zc, -Math.PI / 2);
+      col.addBox(dx - 0.7, zc - 1.05, dx + 0.6, zc + 1.05, y + 1.25, y - 0.5);
+    }
   }
 
   /**
@@ -1203,13 +1387,22 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
   // mainlandPlaces.ts, the two smaller churches on The Stacks' lots below.
   const cv = makeCivic(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   if (cv) {
-    const d = CIVIC.dlo, l = CIVIC.lady;
-    cv.place('dlo', d.x, groundAt(d.x - d.D / 2, d.z0 - d.W / 2), d.z0, 0, -1, 1, 0);
-    cv.place('chb', l.x0, groundAt(l.x0 + l.W / 2, l.z - l.D / 2), l.z, 1, 0, 0, 1);
+    const d = CIVIC.dlo, l = CIVIC.lady, ln = CIVIC.ladyNew;
+    if (STREETS_NEW) {
+      // Facing west onto Tuition Ave, and Our Lady square to Tarnish St.
+      cv.place('dlo', d.x, groundAt(d.x + d.D / 2, d.z0 + d.W / 2), d.z0, 0, 1, -1, 0);
+      cv.place('chb', ln.x, groundAt(ln.x - ln.nx * 17, ln.z - ln.nz * 17), ln.z, ln.tx, ln.tz, ln.nx, ln.nz);
+    } else {
+      cv.place('dlo', d.x, groundAt(d.x - d.D / 2, d.z0 - d.W / 2), d.z0, 0, -1, 1, 0);
+      cv.place('chb', l.x0, groundAt(l.x0 + l.W / 2, l.z - l.D / 2), l.z, 1, 0, 0, 1);
+    }
   }
-  b.main(plan.mainlandLots, plan.blocks, plan.lots.length);
-  b.stacks(plan.mainlandLots, plan.blocks, plan.lots.length);
-  b.mill(plan.mainlandLots, plan.lots.length);
+  const lots = mainlandLots(plan);
+  b.pickChurches(lots);
+  b.main(lots, plan.blocks, plan.lots.length);
+  b.stacks(lots, plan.blocks, plan.lots.length);
+  b.mill(lots, plan.lots.length);
+  if (STREETS_NEW && b.rf) b.holdingPatternWest();
   // No kit.finish() here: mainlandPlaces.ts draws the landmarks into the same batches and builds the meshes.
   const pd = new PardonsStore(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   return {
