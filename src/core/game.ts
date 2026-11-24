@@ -33,6 +33,7 @@ import { Governor, pickQuality } from './governor';
 import { GameAudio } from '../audio/index';
 import { Net } from '../net/index';
 import { Emotes } from '../game/emotes';
+import { Leaderboard } from '../game/leaderboard';
 import { Photo } from '../fx/photo';
 
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
@@ -199,6 +200,7 @@ export class Game {
     this.systems.push((this.net = new Net(this)));
     // Emotes and horn tunes (fun queue item 9): after the net, so what others did this frame is heard at once.
     this.systems.push((this.emotes = new Emotes(this)));
+    this.systems.push(new Leaderboard(this)); // fun queue item 15: the town leaderboard (billboards, menu, town facts)
     this.photo = new Photo(this);
     // Shader programs compiled in the background before they are first drawn (core/warmup.ts).
     this.systems.push((this.warmup = new ShaderWarmup(this)));

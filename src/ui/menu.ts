@@ -30,6 +30,7 @@ import { kid } from '../core/kid';
 import { PEER_COLOR } from '../net/names';
 import { PARDONS_AT, PARDONS_RED } from './hud';
 import { Wardrobe } from './wardrobe';
+import { boardHtml } from '../game/leaderboard';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
 type VolKey = 'volMaster' | 'volMusic' | 'volSfx' | 'volAmbience';
@@ -595,6 +596,7 @@ export class Menu {
     <div class="mn-row mn-mistakes"><span class="mn-lbl">Mistakes made</span><span>0*</span></div>
     <p class="mn-note">* As reported by the applicant. Anything typed is not counted.</p>
   </div>
+  ${boardHtml(this.game)}
 </div>`;
   }
 
