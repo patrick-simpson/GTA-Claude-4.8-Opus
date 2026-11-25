@@ -21,6 +21,7 @@ import { groundAt } from '../world/plan';
 import { save } from './save';
 import { taper } from './activities';
 import type { Moose } from '../world/moose';
+import type { Fauna } from '../world/fauna';
 
 export interface Target { x: number; y: number; z: number; r: number }
 interface Subject {
@@ -34,6 +35,9 @@ interface Subject {
 }
 
 const pondC = ((): { x: number; z: number } => { let x = 0, z = 0; const n = POND_SHORE.length / 2; for (let i = 0; i < POND_SHORE.length; i += 2) { x += POND_SHORE[i]; z += POND_SHORE[i + 1]; } return { x: x / n, z: z / n }; })();
+
+/** Wildlife (world/fauna.ts) the shutter can ask for: the shown deer, geese in a flock, gulls. */
+const fauna = (kind: 'deer' | 'goose' | 'gull') => (g: Game, out: Target[]): void => { (g as unknown as { fauna?: Fauna }).fauna?.targets(kind, out); };
 
 const hero = (names: string[]) => (g: Game, out: Target[]): void => { void g; if (civicHero) for (const b of civicHero.bounds()) if (names.includes(b.name)) out.push(b); };
 const heroExists = (names: string[]) => (): boolean => !!civicHero && civicHero.bounds().some((b) => names.includes(b.name));
@@ -52,6 +56,12 @@ export const SUBJECTS: Subject[] = [
     exists: (g) => g.ferry.ferries.length > 0, targets: (g, out) => { for (const f of g.ferry.ferries) out.push({ x: f.x, y: f.y + 4, z: f.z, r: 14 }); } },
   { id: 'moose', name: 'A moose', hint: 'moose cross the country roads around dusk and dawn; the Moose Festival has some too', pay: 170, min: 0.05, max: 90,
     exists: () => true, targets: (g, out) => { const m = (g as unknown as { moose?: Moose }).moose; if (!m) return; const v = new THREE.Vector3(); for (const o of m.standing()) { o.getWorldPosition(v); out.push({ x: v.x, y: v.y + 1.6, z: v.z, r: 2.4 }); } } },
+  { id: 'deer', name: 'A deer', hint: 'deer graze at the edges of the woods and along the river, and cross the country roads at dawn and dusk; keep still and get close', pay: 150, min: 0.04, max: 80,
+    exists: () => true, targets: fauna('deer') },
+  { id: 'geese', name: 'Geese on the water', hint: 'a flock on Johnson Pond or the river: they take off if you walk up, so stay back and zoom', pay: 120, min: 0.06, max: 110,
+    exists: () => STREETS_NEW, targets: fauna('goose') },
+  { id: 'gull', name: 'A gull', hint: 'the harbour, the pier rails and lamps and the breakwater: before they scatter', pay: 90, min: 0.03, max: 45,
+    exists: () => true, targets: fauna('gull') },
   { id: 'bus', name: 'A bus at its stop', hint: 'a Harbor Line bus standing at a stop', pay: 90, min: 0.07, max: 100,
     exists: (g) => g.bus.on, targets: (g, out) => { for (const v of g.bus.vehicles) for (const s of g.bus.stations) if (Math.hypot(v.x - s.x, v.z - s.z) < 18) { out.push({ x: v.x, y: v.y + 1.8, z: v.z, r: 6 }); break; } } },
   { id: 'event', name: 'The town event', hint: 'this evening\'s event, while it is on', pay: 160, min: 0.2, max: 220,
@@ -91,7 +101,7 @@ export class Shots {
     if (b['ph.day'] !== this.day) { b['ph.day'] = this.day; b['ph.mask'] = 0; }
     const pool = SUBJECTS.filter((s) => s.id !== 'event' && s.exists(g)).map((s) => s.id);
     const ids = dayPick(this.day, pool);
-    if (SUBJECTS[SUBJECTS.length - 1].exists(g)) ids.push('event');
+    if (SUBJECTS.find((s) => s.id === 'event')!.exists(g)) ids.push('event');
     return ids;
   }
 
