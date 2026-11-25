@@ -18,7 +18,7 @@ import type { Look, Person, Vehicle } from '../core/api';
 import type { Game } from '../core/game';
 import { RNG } from '../core/util';
 import { PlayerMode } from '../net/protocol';
-import { CUSHION, PASSENGER_SEATS, SEAT_BACK, isBoatKind, type VehicleKind } from './vehicleSpecs';
+import { CUSHION, PASSENGER_SEATS, SEAT_BACK, isBoatKind, isCycleKind, type VehicleKind } from './vehicleSpecs';
 
 /** Cars nearer the camera than this get their occupants drawn, meters. */
 export const OCC_R = 40;
@@ -136,14 +136,14 @@ export class Occupants {
     // Other players riding: seated against the car as it is drawn this frame (net/ride.ts decides who sits where).
     g.net?.ride.seatOthers();
     for (const d of this.demo) if (!d.v.removed && seatSpot(d.v, d.seat, this.at)) { const p = d.p; p.x = this.at.x; p.y = this.at.y; p.z = this.at.z; p.h = d.v.h; if (p.pose !== 'sit') { p.pose = 'sit'; this.game.people.settle(p); } p.bench = true; p.speed = 0; p.visible = true; }
-    if (!this.on) return;
+    // (The rental cycles' riders are drawn on every preset: there is no glass to see them through, and no other way to see who rides.)
     const st = ++this.stamp, eye = g.view ? g.view.pos : g.camera.position, r2 = OCC_R * OCC_R;
     const cand = this.cand, dist = this.dist;
     cand.length = 0; dist.clear();
     const look = (list: readonly Vehicle[]): void => {
       for (const v of list) {
         const dx = v.x - eye.x, dy = v.y - eye.y, dz = v.z - eye.z, d = dx * dx + dy * dy + dz * dz;
-        if (d < r2 && this.driven(v)) { cand.push(v); dist.set(v, d); }
+        if (d < r2 && (this.on || isCycleKind(v.spec.kind)) && this.driven(v)) { cand.push(v); dist.set(v, d); }
       }
     };
     look(g.vehicles.list);
@@ -159,7 +159,8 @@ export class Occupants {
       if (p.look !== l) p.look = l;
       driverSpot(v, this.at);
       p.x = this.at.x; p.y = this.at.y; p.z = this.at.z; p.h = v.h;
-      p.pose = 'sit'; p.bench = false; p.speed = 0; p.visible = true; p.health = 100;
+      // A scooter's rider stands on the deck; a bike's sits on the saddle.
+      p.pose = v.spec.kind === 'scooter' ? 'stand' : 'sit'; p.bench = false; p.speed = 0; p.visible = true; p.health = 100;
     }
     this.drawn = cand.length;
   }

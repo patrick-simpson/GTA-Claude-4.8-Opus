@@ -20,6 +20,8 @@ import { Weapons } from './weapons';
 import { kid } from '../core/kid';
 import { Boats, type Boat } from './boat';
 import { trains } from '../world/train';
+import { rentalHook } from '../world/rentals';
+import { isCycleKind } from './vehicleSpecs';
 
 const RADIUS = 0.35;
 const WALK = 1.8, JOG = 4.3, SPRINT = 7;
@@ -242,6 +244,8 @@ export class Player implements PlayerApi {
 
   enter(v: Vehicle, instant = false): void {
     if (this.car === v) return;
+    // A rental cycle's fare (world/rentals.ts).
+    if (rentalHook.beforeEnter && !rentalHook.beforeEnter(v)) return;
     // A boat is boarded where she stands (from the dock, the pier or the water): no walk round to a door.
     if (this.boats.has(v) || trains.cur?.isCab(v)) { if (instant || this.mode === 'foot') { if (this.car) this.release(this.car); this.seat(v); } return; }
     if (this.car) this.release(this.car);
@@ -293,7 +297,8 @@ export class Player implements PlayerApi {
     if (!v) return;
     if (this.boats.has(v) && v === this.car) { this.leaveBoat(v); return; }
     const per = this.person, p = this.p;
-    const sp = safe ? 0 : Math.hypot(v.vx, v.vz);
+    // A cycle is hopped off, whatever its speed (nine m/s on a bike is no bail-out).
+    const sp = safe || isCycleKind(v.spec.kind) ? 0 : Math.hypot(v.vx, v.vz);
     this.pickExit(v);
     const outX = p.x, outZ = p.z;
     this.release(v);

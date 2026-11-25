@@ -163,12 +163,12 @@ try {
         const colors = SPECS[kind].colors;
         want.push({ kind, color: colors[Math.floor(tint * colors.length)], x: s.x, z: s.z, h: s.h });
       }
-      const list = g.vehicles.list.filter((v) => v.driver === null);
+      const list = g.vehicles.list.filter((v) => v.driver === null && v.spec.kind !== 'bike' && v.spec.kind !== 'scooter');
       let found = 0;
       for (const w of want) if (list.some((v) => v.spec.kind === w.kind && v.color === w.color && Math.abs(v.x - w.x) < 0.01 && Math.abs(v.z - w.z) < 0.01 && Math.abs(v.h - w.h) < 0.001 && !v.shared)) found++;
       // In the order they were parked: the cars after the four that open the game.
       let inOrder = 0;
-      const all = g.vehicles.list;
+      const all = g.vehicles.list.filter((v) => v.spec.kind !== 'bike' && v.spec.kind !== 'scooter');
       for (let i = 0; i < want.length; i++) { const v = all[i + 4]; if (v && v.spec.kind === want[i].kind && v.color === want[i].color && v.x === want[i].x && v.z === want[i].z) inOrder++; }
       return { want: want.length, found, inOrder, standing: list.length, places: plan.parking.length, spots: g.parkSpots.length, first: all.slice(0, 4).map((v) => v.spec.kind).join(' ') };
     });

@@ -68,6 +68,9 @@ export const ENGINES: Record<VehicleKind, EngineSpec> = {
   // jet ski a buzzy, bright twin.
   speedboat: { cyl: 6, idle: 720, redline: 6000, gears: [1.08], shift: 0, p: 0.75, half: 0.45, low: 0.25, odd: 0.1, bright: 3200, breath: 0.7, clatter: 0, beat: 0.007, level: 1 },
   jetski: { cyl: 2, idle: 1300, redline: 7800, gears: [1.05], shift: 0, p: 0.45, half: 0.3, low: 0.35, odd: 0.15, bright: 6500, breath: 0.6, clatter: 0, beat: 0.004, level: 0.85 },
+  // The rental cycles: the bicycle is silent (the tyres and the chain are the street's business); the scooter's motor is a faint whine.
+  bike: { cyl: 2, idle: 1500, redline: 2400, gears: [1], shift: 0, p: 0.3, half: 0.1, low: 0.1, odd: 0.1, bright: 6000, breath: 0.2, clatter: 0, beat: 0.002, level: 0 },
+  scooter: { cyl: 2, idle: 1700, redline: 4200, gears: [1], shift: 0, p: 0.3, half: 0.1, low: 0.1, odd: 0.2, bright: 6500, breath: 0.2, clatter: 0, beat: 0.002, level: 0.14 },
   train: { cyl: 16, idle: 330, redline: 900, gears: [1], shift: 0, p: 0.5, half: 0.4, low: 0.8, odd: 0.1, bright: 1200, breath: 0.2, clatter: 0, beat: 0.01, level: 0 },
 };
 
@@ -350,6 +353,9 @@ export const HORNS: Record<VehicleKind, HornSpec> = {
   // A boat's horn is a low single blast; the jet ski's a toy beeper.
   speedboat: { f: [233, 294], attack: 0.06, bright: 1500, level: 0.95 },
   jetski: { f: [740], attack: 0.006, bright: 3800, level: 0.6 },
+  // A handlebar bell: two bright rings.
+  bike: { f: [2870, 3640], attack: 0.003, bright: 7000, level: 0.5 },
+  scooter: { f: [1980, 2640], attack: 0.003, bright: 6500, level: 0.5 },
   train: { f: [311, 370, 440, 554, 622], attack: 0.03, bright: 2400, level: 0.6 },
 };
 

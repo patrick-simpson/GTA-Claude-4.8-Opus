@@ -38,6 +38,7 @@ import { Net } from '../net/index';
 import { Emotes } from '../game/emotes';
 import { Chat } from '../game/chat';
 import { Leaderboard } from '../game/leaderboard';
+import { Rentals } from '../world/rentals';
 import { Photo } from '../fx/photo';
 import { Spectate } from '../fx/spectate';
 
@@ -69,6 +70,8 @@ export class Game {
   people!: People;
   /** Drivers and riders drawn in their seats through the car glass (ent/occupants.ts). */
   occupants!: Occupants;
+  /** The rental bikes and scooters (world/rentals.ts). */
+  rentals!: Rentals;
   player!: Player;
   cam!: CameraRig;
   /** Photo mode (fx/photo.ts): while open it has the frame instead of the simulation. */
@@ -221,6 +224,7 @@ export class Game {
     this.systems.push((this.emotes = new Emotes(this)));
     this.systems.push((this.chat = new Chat(this))); // fun queue item 21: safe chat
     this.systems.push((this.christmas = new Christmas(this))); // fun queue item 17: the Christmas update (world/christmas.ts)
+    this.systems.push((this.rentals = new Rentals(this))); // fun queue 2, item 9: Dithers Wheels and Riverside Rides
     this.systems.push(new Leaderboard(this)); // fun queue item 15: the town leaderboard (billboards, menu, town facts)
     this.photo = new Photo(this);
     this.spectate = new Spectate(this);

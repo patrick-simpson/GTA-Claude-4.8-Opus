@@ -20,7 +20,7 @@
 // into rounded corners while the large panels stay flat.
 
 import * as THREE from 'three';
-import { SPECS, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
+import { SPECS, isCycleKind, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
 import { clamp01, lerp, smooth } from '../core/util';
 
 export interface VehicleModel {
@@ -642,7 +642,79 @@ function dress(c: Car, o: Dress): void {
   for (let i = 0; i < ex; i++) c.box(T, [-(c.hw * 0.55) + i * 0.13, o.by[0] - 0.035, zR + 0.05], [0.08, 0.07, 0.24], STEEL);
 }
 
+/**
+ * The two rental cycles (world/rentals.ts), as plain tubes and boxes. The frame takes the paint; the saddle, bars, mudguards and
+ * lamp are trim. Four wheel slots, as every kind has: a cycle's front pair and rear pair sit on the centre line, one on the other
+ * (the same instance twice), so the one wheel is drawn and the car code needs no special case.
+ */
+function buildCycle(kind: VehicleKind): VehicleModel {
+  const s = SPECS[kind], m = new Mesher(), P = m.paint, T = m.trim;
+  const fa = s.wheelbase / 2, R = s.wheelR;
+  const BLACK = rgb(0x1b1c1f), GRIP = rgb(0x111214), ALU = rgb(0xaeb2b4), TAN = rgb(0x8a5a38), LENS = rgb(0xfff4d4);
+  m.shade = (y) => 0.72 + 0.28 * Math.min(1, y / 0.9);
+  if (kind === 'bike') {
+    const bb: V3 = [0, 0.3, -0.1], seatTop: V3 = [0, 0.84, -0.24], topRear: V3 = [0, 0.76, -0.2], head1: V3 = [0, 0.84, 0.4], head0: V3 = [0, 0.62, 0.45];
+    const rear: V3 = [0, R, -fa], front: V3 = [0, R, fa];
+    m.beam(P, bb, seatTop, 0.038, 0.038, WHITE);
+    m.beam(P, topRear, [0, 0.8, 0.41], 0.036, 0.036, WHITE);
+    m.beam(P, head0, head1, 0.05, 0.05, WHITE);
+    m.beam(P, bb, [0, 0.64, 0.44], 0.046, 0.046, WHITE);
+    for (const x of [0.04, -0.04]) {
+      m.beam(P, [x * 0.5, 0.3, -0.1], [x, R, -fa], 0.022, 0.022, WHITE);
+      m.beam(P, [x * 0.4, 0.76, -0.2], [x, R, -fa], 0.018, 0.018, WHITE);
+      m.beam(P, [x * 0.5, 0.82, 0.41], [x, R, fa], 0.026, 0.026, WHITE);
+    }
+    // Mudguards over both wheels, in paint.
+    for (const [z, d] of [[-fa, -1], [fa, 1]] as const) {
+      for (let i = 0; i < 6; i++) {
+        const a = (0.15 + i * 0.28) * d, b = (0.15 + (i + 1) * 0.28) * d, r = R + 0.035;
+        m.beam(P, [0, R + r * Math.cos(a), z + r * Math.sin(a)], [0, R + r * Math.cos(b), z + r * Math.sin(b)], 0.08, 0.012, WHITE);
+      }
+    }
+    m.box(T, [0, 0.9, -0.25], [0.12, 0.05, 0.27], BLACK);
+    m.beam(T, [0, 0.84, -0.24], [0, 0.9, -0.24], 0.025, 0.025, ALU);
+    m.beam(T, head1, [0, 1.0, 0.36], 0.03, 0.03, ALU);
+    m.box(T, [0, 1.0, 0.36], [0.5, 0.025, 0.03], ALU);
+    for (const x of [0.27, -0.27]) m.box(T, [x, 1.0, 0.34], [0.09, 0.03, 0.03], GRIP);
+    // Cranks and pedals, a chainring, and the wicker basket every rental has.
+    m.beam(T, [0.07, 0.3, -0.1], [0.07, 0.2, -0.04], 0.02, 0.02, ALU);
+    m.beam(T, [-0.07, 0.3, -0.1], [-0.07, 0.4, -0.16], 0.02, 0.02, ALU);
+    m.box(T, [0.11, 0.2, -0.04], [0.07, 0.015, 0.1], BLACK);
+    m.box(T, [-0.11, 0.4, -0.16], [0.07, 0.015, 0.1], BLACK);
+    m.box(T, [0.03, 0.3, -0.1], [0.012, 0.15, 0.15], ALU);
+    for (const [c, sz] of [[[0, 0.78, 0.56], [0.3, 0.02, 0.22]], [[0.15, 0.88, 0.56], [0.02, 0.2, 0.22]], [[-0.15, 0.88, 0.56], [0.02, 0.2, 0.22]], [[0, 0.88, 0.67], [0.3, 0.2, 0.02]], [[0, 0.88, 0.45], [0.3, 0.2, 0.02]]] as [V3, V3][]) m.box(T, c, sz, TAN);
+    m.box(m.glass, [0, 0.95, 0.4], [0.05, 0.05, 0.04], LENS);
+    m.box(T, [0, 0.52, -fa - 0.1], [0.06, 0.04, 0.05], rgb(0xc9301c));
+    return cycleModel(m, s, fa, R, new THREE.Vector3(0, 0.95, 0.4), new THREE.Vector3(0, 0.52, -fa - 0.1), new THREE.Vector3(0, 0.9, -0.24));
+  }
+  // The electric kick scooter: a deck on two small wheels, a battery in the stem foot, a bar and a thumb throttle.
+  m.box(P, [0, 0.17, -0.05], [0.2, 0.05, 0.62], WHITE);
+  m.box(P, [0, 0.2, 0.3], [0.13, 0.12, 0.24], WHITE);
+  m.beam(P, [0, 0.22, 0.38], [0, 1.03, 0.33], 0.045, 0.045, WHITE);
+  for (const x of [0.035, -0.035]) m.beam(P, [x, 0.3, 0.4], [x, R, fa], 0.025, 0.025, WHITE);
+  m.box(T, [0, 0.2, -0.05], [0.16, 0.012, 0.56], GRIP);
+  // The rear mudguard is a brake plate.
+  m.box(P, [0, 0.24, -fa + 0.02], [0.12, 0.012, 0.22], WHITE);
+  m.box(T, [0, 0.11, -fa + 0.14], [0.1, 0.05, 0.2], BLACK);
+  m.box(T, [0, 1.03, 0.33], [0.46, 0.025, 0.03], ALU);
+  for (const x of [0.25, -0.25]) m.box(T, [x, 1.03, 0.33], [0.09, 0.03, 0.03], GRIP);
+  m.box(T, [0.2, 1.06, 0.32], [0.04, 0.03, 0.05], rgb(0x2a9d8f));
+  m.box(m.glass, [0, 0.9, 0.38], [0.06, 0.05, 0.04], LENS);
+  m.box(T, [0, 0.2, -fa - 0.02], [0.05, 0.03, 0.04], rgb(0xc9301c));
+  return cycleModel(m, s, fa, R, new THREE.Vector3(0, 0.9, 0.38), new THREE.Vector3(0, 0.2, -fa - 0.02), new THREE.Vector3(0, 0.2, -0.05));
+}
+
+function cycleModel(m: Mesher, s: VehicleSpec, fa: number, R: number, head: THREE.Vector3, tail: THREE.Vector3, seat: THREE.Vector3): VehicleModel {
+  const w = (z: number): THREE.Vector3 => new THREE.Vector3(0, R, z);
+  void s;
+  return {
+    paint: finish(m.paint, 50, true), trim: finish(m.trim, 40, false), glass: finish(m.glass, 30, false),
+    wheels: [w(fa), w(fa), w(-fa), w(-fa)], head: [head], tail: [tail], beacon: null, seat,
+  };
+}
+
 function build(kind: VehicleKind): VehicleModel {
+  if (isCycleKind(kind)) return buildCycle(kind);
   const s = SPECS[kind];
   const zF = s.length / 2 - 0.08, fa = s.wheelbase / 2, H = s.height;
   let c: Car;
@@ -695,7 +767,7 @@ function build(kind: VehicleKind): VehicleModel {
     }
     // The Bolt's stand-in until bolt.glb arrives is the hatch's shape at the Bolt's size: no rack, no tailpipe.
     // (Boats are drawn by ent/boat.ts; this stand-in shape only exists so every kind has one.)
-    case 'hatch': case 'bolt': case 'cmax': case 'speedboat': case 'jetski': case 'train': {
+    case 'hatch': case 'bolt': case 'cmax': case 'speedboat': case 'jetski': case 'train': case 'bike': case 'scooter': {
       const cab: Cab = { z0: -zF + 0.05, zr0: -zF + 0.42, zr1: 0.1, z1: 0.85, roof: H, pillars: [-0.4] };
       c = new Car(s, cfg({
         top: [[-zF, 0.94], [-fa, 1.0], [fa - 0.45, 0.98], [fa + 0.25, 0.9], [zF, 0.78]],

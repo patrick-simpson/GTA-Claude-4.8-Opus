@@ -24,6 +24,7 @@ import { MAIN_SPLIT_Z } from '../world/mainland';
 import { railOff } from '../sim/streetTraffic';
 import { isBoatKind } from '../ent/vehicleSpecs';
 import { trains } from '../world/train';
+import { RAILWAY } from '../world/railway';
 import { kid } from '../core/kid';
 import { money } from '../core/util';
 import { CabCard } from '../ui/travel';
@@ -53,7 +54,8 @@ export function hubs(game: Game): Dest[] {
   return [
     D('The Island Landing, Strand Blvd', land.x, land.z, 0, 1),
     D('Downtown Port Calamity, Ledger District', down.x, down.z, 0, 1),
-    D('Tepid Falls Depot (Trains, In Principle)', 170, -2124.5, 0, 1),
+    // The platform of the real depot on the realigned line (world/railway.ts); the old Front St corner when the old streets are on.
+    D('Tepid Falls Depot (Trains, In Principle)', RAILWAY ? RAILWAY.depot.x - 4.4 : 170, RAILWAY ? Math.round(RAILWAY.depot.z) : -2124.5, RAILWAY ? 1 : 0, RAILWAY ? 0 : 1),
     D('Quorum Square', 131, -1808, 0, 1),
     D('Dithers College', -380.8, -2256.1, 0, 1),
     D("Pardon's Surplus & Salvage", -612, -1160, 0, 1),

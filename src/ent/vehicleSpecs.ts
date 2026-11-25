@@ -12,7 +12,9 @@ export type VehicleKind =
   // Boats (ent/boat.ts): last, so every car keeps its index in KINDS (the network sends kinds by index).
   | 'speedboat' | 'jetski'
   // The Budget Line's locomotive (world/train.ts drives it; never in traffic, never spawned).
-  | 'train';
+  | 'train'
+  // Dithers Wheels and Riverside Rides (world/rentals.ts): a pedal bike and an electric kick scooter. Appended last: kinds go on the wire by index.
+  | 'bike' | 'scooter';
 
 export interface VehicleSpec {
   kind: VehicleKind;
@@ -155,7 +157,23 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
     mass: 120000, topSpeed: 27, accel: 0.6, brake: 1.2, grip: 2, steer: 0.1, drive: 'rwd',
     colors: [0x5c1212], common: 0,
   },
+  // Light, quick off the line, nothing to hold a bend (the rider leans it). The collision box is the bike's footprint.
+  bike: {
+    kind: 'bike', name: 'Dithers Wheels bicycle',
+    length: 1.75, width: 0.6, height: 1.1, wheelbase: 1.08, track: 0, wheelR: 0.34, wheelW: 0.06,
+    mass: 95, topSpeed: 9, accel: 5.5, brake: 7, grip: 9, steer: 0.62, drive: 'rwd',
+    colors: [0x2a9d8f, 0xe4572e, 0xf0a202, 0x14213d, 0x8a9a6b], common: 0,
+  },
+  scooter: {
+    kind: 'scooter', name: 'Dithers Wheels e-scooter',
+    length: 1.15, width: 0.55, height: 1.15, wheelbase: 0.92, track: 0, wheelR: 0.13, wheelW: 0.05,
+    mass: 75, topSpeed: 7, accel: 3.4, brake: 6, grip: 9, steer: 0.62, drive: 'rwd',
+    colors: [0x7fb0bd, 0xe4572e, 0xf0a202, 0x5b3a4a], common: 0,
+  },
 };
+
+/** The two rental cycles (world/rentals.ts). */
+export const isCycleKind = (k: VehicleKind): boolean => k === 'bike' || k === 'scooter';
 
 /** The kinds ent/boat.ts owns. */
 export const BOAT_KINDS: readonly VehicleKind[] = ['speedboat', 'jetski'];
@@ -187,7 +205,7 @@ export const PASSENGER_SEATS: Record<VehicleKind, readonly (readonly [number, nu
   // The runabout's passenger seat beside the helm and its stern bench; the jet ski's pillion behind the rider.
   speedboat: [[1.0, 0, 0], [0.5, -1.55, 0], [-0.2, -1.55, 0]],
   jetski: [[0.4, -0.6, 0.06]],
-  train: [],
+  train: [], bike: [], scooter: [],
 };
 
 /**
@@ -199,6 +217,8 @@ export const CUSHION: Record<VehicleKind, number> = {
   tow: 0.9, bus: 1.25, cruiser: 0.44, bolt: 0.55, cmax: 0.56,
   // Above the waterline (a boat's y): the helm seat and the jet ski's saddle.
   speedboat: 0.46, jetski: 0.7, train: 2.6,
+  // Saddle height; the scooter rider stands on the deck (its top, 0.19 m).
+  bike: 0.9, scooter: 0.19,
 };
 /** Seats this far behind the driver's door (the model's seat), meters: the tow truck's door line is ahead of its cab's seats. */
 export const SEAT_BACK: Partial<Record<VehicleKind, number>> = { tow: 0.75 };

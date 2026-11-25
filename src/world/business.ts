@@ -14,6 +14,7 @@ import { CAMPUS_BUILDINGS } from './dithersPlan';
 import { CIVIC } from './civicAssets';
 import { HQ } from './speedscanHQ';
 import { STREETS_NEW } from './streets';
+import { RAILWAY } from './railway';
 import { groundAt, type CityPlan } from './plan';
 
 export { CATEGORIES, CATEGORY_NAME };
@@ -61,7 +62,8 @@ function landmarks(): [string, Category, number, number, number, number][] {
     ['Our Lady of Perpetual Hesitation', 'worship', L.x + L.tx * 11 + L.nx * 2.5, L.z + L.tz * 11 + L.nz * 2.5, L.nx, L.nz],
     ['The Holding Pattern', 'shops', 50.5, -1850, 1, 0],
     ['Lackwool Mill', 'offices', 207, -1461, -1, 0],
-    ['Tepid Falls Depot (Trains, In Principle)', 'civic', 170, -2124.5, 0, 1],
+    // The depot stands on the realigned west-bank line (world/railway.ts): its platform, not the old Front St corner.
+    ['Tepid Falls Depot (Trains, In Principle)', 'civic', RAILWAY ? RAILWAY.depot.x - 4.4 : 170, RAILWAY ? Math.round(RAILWAY.depot.z) : -2124.5, RAILWAY ? 1 : 0, RAILWAY ? 0 : 1],
     ['Quorum Square', 'leisure', 131, -1808, 0, 1],
     ['Dithers College', 'schools', -380.8, -2256.1, 0, 1],
     ['SpeedScan Headquarters', 'offices', HQ.x, HQ.z + 18, 0, 1],

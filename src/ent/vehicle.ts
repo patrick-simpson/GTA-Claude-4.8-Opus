@@ -25,7 +25,7 @@ import type { Game } from '../core/game';
 import { kid } from '../core/kid';
 import type { Vehicle, VehicleControls, VehiclesApi } from '../core/api';
 import { RNG, clamp, clamp01, damp, smooth } from '../core/util';
-import { SPECS, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
+import { SPECS, isCycleKind, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
 import { vehicleModel, wheelGeometry, type VehicleModel } from './vehicleModels';
 import { loadVehicleAssets, SHEET_TEXELS, type CarMaps, type SendCell, type VehicleAsset } from './vehicleAssets';
 import { BRIDGE, groundAt, setGroundHint, terrainAt, WATER_Y } from '../world/plan';
@@ -44,7 +44,7 @@ const ACCEL_K = 0.63;
 // The bus tops out at 60 mph, so its 0-60 time is nearly its whole run; without
 // help it takes most of a minute.
 // The sedan and the hatch are what a stranger drives first, so they get a little more than their sheet says.
-const ACCEL_TUNE: Partial<Record<VehicleKind, number>> = { bus: 1.7, tow: 1.15, van: 1.1, sedan: 1.13, hatch: 1.14 };
+const ACCEL_TUNE: Partial<Record<VehicleKind, number>> = { bike: 1.5, scooter: 1.25, bus: 1.7, tow: 1.15, van: 1.1, sedan: 1.13, hatch: 1.14 };
 /** Feet off the pedals, the heavy ones lose speed faster. */
 const COAST: Partial<Record<VehicleKind, number>> = { bus: 1.5, tow: 1.5, van: 1.2 };
 /** The engine's pull would run out this far past top speed; a governor cuts it at top speed instead, so cars reach their figure rather than creep up on it. */
@@ -1512,7 +1512,11 @@ export class Vehicles implements VehiclesApi {
     c.susp += c.suspV * dt;
     if (c.susp > 0.15) { c.susp = 0.15; c.suspV = 0; } else if (c.susp < -0.08) { c.susp = -0.08; c.suspV = 0; }
     const lat = c.onGround ? c.yawRate * vf : 0;
-    c.rollV = damp(c.rollV, clamp(lat * 0.0075, -0.08, 0.08), 7, dt);
+    // A cycle leans INTO the bend (a car's body rolls out of it), and what it sends the network is the lean: c.roll carries it.
+    if (isCycleKind(sp.kind)) {
+      c.rollV = damp(c.rollV, c.onGround ? clamp(-lat * 0.045, -0.5, 0.5) : 0, 8, dt);
+      c.roll = c.groundRoll + c.rollV;
+    } else c.rollV = damp(c.rollV, clamp(lat * 0.0075, -0.08, 0.08), 7, dt);
     c.pitchV = damp(c.pitchV, clamp(c.along * 0.0055, -0.07, 0.05), 7, dt);
     const turn = vf * dt / sp.wheelR;
     c.spinF = (c.spinF + turn) % (Math.PI * 2);
@@ -2176,7 +2180,8 @@ export class Vehicles implements VehiclesApi {
     _q.setFromEuler(_e);
     _p.set(c.x, c.y + c.lift - c.susp, c.z);
     // The wheels follow the road, not the body, so the gap in the arches opens and closes.
-    _e.set(-c.pitch, c.h, c.groundRoll);
+    // (A cycle's wheels lean with it: they are the bottom of the frame.)
+    _e.set(-c.pitch, c.h, c.groundRoll + (sp.track === 0 ? c.rollV : 0));
     _qg.setFromEuler(_e);
     _o.set(c.x, c.y + c.lift, c.z);
     if (carHooks.pose !== null && c.driver === 'player') carHooks.pose(c, _q, _p, _qg, _o);
@@ -2188,7 +2193,7 @@ export class Vehicles implements VehiclesApi {
       _p.copy(w).applyQuaternion(_qg);
       _p.add(_o);
       // Right-hand wheels are turned about so the same hub faces outward, which reverses their spin.
-      _qw.setFromAxisAngle(Y_AXIS, (front ? -c.steerAng : 0) + (left ? 0 : Math.PI));
+      _qw.setFromAxisAngle(Y_AXIS, (front && sp.track !== 0 ? -c.steerAng : 0) + (left ? 0 : Math.PI));
       _qs.setFromAxisAngle(X_AXIS, (front ? c.spinF : c.spinR) * (left ? 1 : -1));
       _q.copy(_qg).multiply(_qw).multiply(_qs);
       // A burst tyre sits on its rim: the wheel shrinks and drops toward the road.
