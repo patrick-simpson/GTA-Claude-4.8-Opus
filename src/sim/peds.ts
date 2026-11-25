@@ -22,6 +22,7 @@ import type { StreetGraph } from '../world/streets';
 import type { Prop } from '../world/collide';
 import { signalState } from '../world/signals';
 import { spawnOk, type Anchor, type RoadPed } from './traffic';
+import { setEmote } from '../ent/character';
 
 /** Head counts at full density. */
 const WALKERS = 54, STROLLERS = 6;
@@ -128,6 +129,8 @@ export interface Walker extends RoadPed {
   pe: RoadEdge | null; px: number; pz: number; ps: number; pdir: number; psd: number;
   /** Multiplayer: their number on the wire (0 until this browser has been in a shared town), and which group of players they are nearest. */
   wid: number; grp: number;
+  /** Fun queue 2, item 32: seconds left of cheering at (cx, cz), seconds of a startled hop, and seconds before they react to anything again. */
+  cheer: number; cx: number; cz: number; hop: number; react: number;
 }
 
 export class Peds {
@@ -220,7 +223,7 @@ export class Peds {
         pace: rng.chance(0.2) ? rng.range(0.9, 1.15) : rng.chance(0.25) ? rng.range(1.6, 1.95) : rng.range(1.2, 1.6),
         mode: WALK, timer: 0, tx: 0, tz: 0, nb: null, nside: 0, nt: 0, node: null, crossH: false, cs: 1.5, cnode: null, ced: [],
         jay: rng.chance(0.14), spot: null, face: 0, flee: 0, hurry: 0, hard: false,
-        ax: 0, az: 0, asideX: 0, asideZ: 0, asideT: 0, stuck: 0, sideT: 0, sideS: 1,
+        cheer: 0, cx: 0, cz: 0, hop: 0, react: 0, ax: 0, az: 0, asideX: 0, asideZ: 0, asideT: 0, stuck: 0, sideT: 0, sideS: 1,
         cool: rng.range(4, 40), scan: rng.next() * 0.5, cars: [], inRoad: false, hitCool: 0,
         x: 0, z: 0, vx: 0, vz: 0, wid: 0, grp: 0,
         e: null, es: 0, sd: 1, pe: null, px: 0, pz: 0, ps: 0, pdir: 1, psd: 1,
@@ -254,6 +257,76 @@ export class Peds {
     const cnt = this.nearBlocks.length + this.nearEdges.length;
     f = cnt ? Math.min(1, f / cnt * 1.15) : 0;
     return Math.round(n * f * (this.game.sky.weather === 'rain' ? 0.55 : 1));
+  }
+
+  /** Fun queue 2, item 32: told when the player's car passes a walker close by (the crowd shouts). */
+  onFlinch: ((w: Walker, v: Vehicle) => void) | null = null;
+  /** The walkers cheerAt() has just turned to watch. */
+  readonly cheerers: Walker[] = [];
+  /** The other half of the pair chatterNear() last returned. */
+  partner: Walker | null = null;
+
+  /**
+   * Item 32: up to `max` people within `radius` of (x, z) stop, turn to watch it and clap or cheer for `secs`. Only people
+   * strolling or standing about: not those crossing, sitting, running or down. Returns how many.
+   */
+  cheerAt(x: number, z: number, radius: number, max: number, secs: number): number {
+    const out = this.cheerers;
+    out.length = 0;
+    if (this.guest) return 0;
+    const r2 = radius * radius;
+    for (const w of this.walkers) {
+      if (out.length >= max) break;
+      if (!w.active || w.pier || w.flee > 0 || w.cheer > 0 || (w.mode !== WALK && w.mode !== IDLE)) continue;
+      const dx = w.p.x - x, dz = w.p.z - z;
+      if (dx * dx + dz * dz > r2) continue;
+      this.leave(w);
+      w.mode = IDLE; w.timer = 0; w.cool = secs * 2 + 0.6; w.cheer = secs; w.cx = x; w.cz = z; w.vx = w.vz = 0;
+      w.p.speed = 0; w.hop = 0;
+      setEmote(w.p, this.rng.chance(0.5) ? 5 : 6);
+      out.push(w);
+    }
+    return out.length;
+  }
+
+  /**
+   * Item 32: two people strolling or standing within 3 m of each other, near (x, z), free to talk. Returns one and leaves the
+   * other in `partner`, or null. Nothing changes until converse() is called on them.
+   */
+  chatterNear(x: number, z: number, radius: number): Walker | null {
+    if (this.guest) return null;
+    const ws = this.walkers, n = ws.length, r2 = radius * radius, off = Math.floor(this.rng.next() * n);
+    for (let ii = 0; ii < n; ii++) {
+      const a = ws[(ii + off) % n];
+      if (!this.chatty(a)) continue;
+      const ax = a.p.x - x, az = a.p.z - z;
+      if (ax * ax + az * az > r2) continue;
+      for (let jj = 1; jj < n; jj++) {
+        const b = ws[(ii + off + jj) % n];
+        if (!this.chatty(b)) continue;
+        const dx = b.p.x - a.p.x, dz = b.p.z - a.p.z;
+        if (dx * dx + dz * dz > 9) continue;
+        this.partner = b;
+        return a;
+      }
+    }
+    return null;
+  }
+
+  /** The two stop and face each other for `secs`. */
+  converse(a: Walker, b: Walker, secs: number): void {
+    const dx = b.p.x - a.p.x, dz = b.p.z - a.p.z;
+    this.hush(a, secs); this.hush(b, secs);
+    a.face = Math.atan2(dx, dz); b.face = Math.atan2(-dx, -dz);
+  }
+
+  private hush(w: Walker, secs: number): void {
+    this.leave(w);
+    w.mode = IDLE; w.timer = 0; w.cool = secs * 2; w.react = secs + 10; w.vx = w.vz = 0; w.p.speed = 0;
+  }
+
+  private chatty(w: Walker): boolean {
+    return w.active && !w.pier && w.react <= 0 && w.flee <= 0 && w.cheer <= 0 && !w.inRoad && (w.mode === WALK || w.mode === IDLE);
   }
 
   /** A crash, a bang: everyone within earshot runs from it. */
@@ -415,6 +488,7 @@ export class Peds {
 
       if ((w.scan -= dt) <= 0) { w.scan = 0.5; this.look(w); }
       if (w.hitCool > 0) w.hitCool -= dt;
+      if (w.react > 0) w.react -= dt;
       this.traffic(w);
       if (w.mode === DOWN) { this.lie(w, dt); if (w.active) this.note(w); else out--; continue; }
       if (w.flee > 0) w.flee -= dt;
@@ -479,11 +553,13 @@ export class Peds {
           // IDLE and SIT: on the spot until the mood passes.
           w.timer += dt;
           p.pose = w.mode === SIT ? 'sit' : 'stand'; p.speed = 0;
+          if (w.cheer > 0) { w.cheer -= dt; w.face = Math.atan2(w.cx - p.x, w.cz - p.z); }
           p.h = dampAngle(p.h, w.face, 5, dt);
           w.vx = w.vz = 0;
           if (run || w.timer > w.cool || (w.spot && !w.spot.prop.alive)) { this.leave(w); w.cool = rng.range(15, 45); }
         }
       }
+      if (w.hop > 0) { w.hop -= dt; p.pose = 'jump'; }
       this.note(w);
     }
   }
@@ -778,6 +854,7 @@ export class Peds {
   /** Give up whatever they were doing (a seat, a wait, a crossing not yet begun) and go back to walking. */
   private leave(w: Walker): void {
     w.p.bench = false;
+    if (w.cheer > 0) { w.cheer = 0; setEmote(w.p, 0); }
     if (w.spot) { w.spot.n--; w.spot = null; }
     if (w.mode === DOWN) return;
     if (w.mode === CROSS) return;
@@ -1093,6 +1170,10 @@ export class Peds {
       if (down) continue;
       // How far ahead of the way it is going (it may be reversing).
       const ahead = v.speed < 0 ? -lf : lf, d2 = dx * dx + dz * dz;
+      // Item 32: the player's car brushing past close by: a jump back and a shout, once in a while.
+      if (w.react <= 0 && this.onFlinch && m.sp > 4 && al < v.hl + 2.5 && ar < v.hw + 1.3 && v.driver === 'player') {
+        w.react = 9; w.hop = 0.5; this.scare(w, v.x, v.z, 2); this.onFlinch(w, v);
+      }
       if (m.sp > 15.5 && d2 < 196 && ar < 7 && (ahead > 0 || d2 < 36)) { this.scare(w, v.x, v.z, 4); continue; }
       if (m.sp > 1 && ahead > 0 && ahead < v.hl + 1 + m.sp * 1.5 && ar < v.hw + 0.8) {
         if (w.inRoad) w.hurry = 0.6;

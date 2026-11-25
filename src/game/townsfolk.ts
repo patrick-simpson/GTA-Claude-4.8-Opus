@@ -20,6 +20,7 @@ import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { Look, Person } from '../core/api';
 import { dampAngle } from '../core/util';
+import { setEmote } from '../ent/character';
 import { groundAt } from '../world/plan';
 import { STREETS_NEW } from '../world/streets';
 import type { RoadPed } from '../sim/traffic';
@@ -347,6 +348,17 @@ export class Townsfolk {
       this.prompt = `[G] Greet ${f.name}, ${f.role}`;
       if (g.input.eat('interact')) this.greet(near);
     }
+  }
+
+  /** Fun queue 2, item 32: named people standing about within `r` metres of (x, z) turn to the player and clap or cheer. Returns how many. */
+  cheer(x: number, z: number, r: number, secs: number): number {
+    if (!this.on) return 0;
+    let n = 0;
+    for (const l of this.live) {
+      if (!l.p || l.at.moving || Math.hypot(l.at.x - x, l.at.z - z) > r) continue;
+      l.talk = secs; setEmote(l.p, (n & 1) ? 6 : 5); n++;
+    }
+    return n;
   }
 
   /** The line for a person right now, and say it. */

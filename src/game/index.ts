@@ -33,6 +33,7 @@ import { Derby } from './derby';
 import { TownEvents } from './events';
 import { Finds } from './finds';
 import { Townsfolk } from './townsfolk';
+import { Crowd } from './crowd';
 import { TownProject } from './project';
 import { Shops } from './shops';
 import { Menu } from '../ui/menu';
@@ -99,6 +100,8 @@ export class ThingsToDo {
   readonly project: TownProject;
   /** Twelve named townsfolk who keep a day on the town clock (fun queue 2, item 30). */
   readonly townsfolk: Townsfolk;
+  /** Pedestrians who cheer stunts, flinch from close cars and gossip about what you did (fun queue 2, item 32). */
+  readonly crowd: Crowd;
   readonly shops: Shops;
   /** The Calamity Courtesy Cab: fast travel from the map (game/travel.ts). */
   readonly travel: Cab;
@@ -145,6 +148,7 @@ export class ThingsToDo {
     this.finds = new Finds(game);
     this.project = new TownProject(game);
     this.townsfolk = new Townsfolk(game, () => this.busy === null);
+    this.crowd = new Crowd(game);
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.gigs = new Gigs(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.plow = new Plow(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
@@ -260,6 +264,7 @@ export class ThingsToDo {
     this.finds.update(dt);
     this.project.update();
     this.townsfolk.update(dt);
+    this.crowd.update(dt);
     this.delivery.update(dt);
     this.plow.update(dt);
     this.snow.update(dt);
