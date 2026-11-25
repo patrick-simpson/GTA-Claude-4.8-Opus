@@ -101,6 +101,7 @@ const INSTALL = ({ W, H, RW, RH }) => {
     game.camera.fov = fov;
     game.camera.updateProjectionMatrix();
   };
+  P.placeDefault = P.place; // a shot's setup may replace P.place with its own camera; the next shot starts from this one again
   /** One output frame: sub sub-frames from shot time s0 to s1 (0..1), each advancing the world by dt. */
   P.frame = async (cam, s0, s1, sub, dt, wantPng) => {
     for (let i = 0; i < sub; i++) {
@@ -145,7 +146,8 @@ for (const shot of list) {
   // Setup: place the world (teleport, time, weather, spawns), then let it settle and the models arrive in real time.
   // A setup that throws is logged and the shot is still captured (as whatever the camera sees), so one bad shot never stops a run.
   const bad = await t.page.evaluate(`(async () => { const g = window.__game, P = window.__promo;
-    for (const k of Object.keys(P)) if (k !== 'place' && k !== 'frame') delete P[k];
+    for (const k of Object.keys(P)) if (k !== 'place' && k !== 'frame' && k !== 'placeDefault') delete P[k];
+    P.place = P.placeDefault;
     g.game.view = null; try { ${shot.setup ?? ''} } catch (e) { return String(e); } return ''; })()`);
   if (bad) console.log(`${shot.id}: setup failed: ${bad}`);
   // Keys held from the warm-up to the end of the shot (a car's throttle): real key events the game's input reads.

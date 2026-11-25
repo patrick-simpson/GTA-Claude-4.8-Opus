@@ -729,35 +729,22 @@
   {
    "id": "15_tornado",
    "beats": 8,
-   "move": "wide: the tornado touches down beyond the town, slow push",
-   "setup": "g.stage(4); g.game.sky.ask(15, 'clear', true); P.tw = { x: 180, y: 5, z: -1950 }; const T = window.__storm.tornado; T.start(180, -1950); P.each = () => { const p = T.pos; if (p && (p.x || p.z)) { P.tw.x = p.x; P.tw.z = p.z; } }; g.teleport(110, -1760, 3.14);",
+   "move": "wide and low: the tornado crosses an open lot beyond a house, a dark funnel against a pale sky, debris swirling at its foot, lightning",
+   "setup": "const CFG = {\"hour\":16,\"x\":-250,\"z\":-1276,\"d\":[0,1],\"phi\":0.5,\"pale\":13620178,\"sky\":[[\"uZen\",5004918,0.9],[\"uMid\",9676472,0.9],[\"uHor\",14735816,0.9],[\"uGlow\",15785140,0.8],[\"uCloudShade\",7042692,0.7],[\"uCloudLit\",15131870,0.8]],\"fog\":0.1,\"fogMix\":0.85,\"rain\":0.3,\"fk\":0.22,\"fa\":1.6,\"sk\":1.8,\"flash\":[0.9,2.3,3.2],\"lookY\":105,\"lookY2\":110,\"fov\":48,\"camH\":1.8,\"debris\":1400,\"ds\":2,\"dh\":70,\"dr\":1.2,\"bolt\":[80,-70],\"cam0\":[-690,0,-1480],\"cam1\":[-675,0,-1482]};\ng.stage(4); g.game.sky.ask(CFG.hour, 'clear', true);\nconst T = window.__storm.tornado, S = g.game.sky, U = S.uniforms, SS = window.__storm.sky;\nP.tw = { x: CFG.x, y: 5, z: CFG.z };\nT.start(CFG.x, CFG.z); T.forced.dx = CFG.d[0]; T.forced.dz = CFG.d[1]; T.forced.phi = CFG.phi;\nconst gh = (x, z) => { g.teleport(x, z, 0); g.step(20); return g.game.player.y; };\nconst Y0 = gh(CFG.cam0[0], CFG.cam0[2]), Y1 = gh(CFG.cam1[0], CFG.cam1[2]);\ng.teleport(CFG.px ?? CFG.x, CFG.pz ?? CFG.z, 0);\nconst CC = S.fogFlat.constructor, c1 = new CC(), V3 = g.game.camera.position.constructor;\nconst pal = (h) => new CC(h);\nconst PALE = pal(CFG.pale), DK = pal(CFG.dkTop ?? 0x000000);\n// A swirl of boards, shingles and brush at the funnel's foot: my own instanced mesh, in world space.\nconst N = CFG.debris ?? 900, DB = T.debris;\nconst dm = new DB.constructor(DB.geometry, DB.material.clone(), N);\ndm.frustumCulled = false; dm.castShadow = false;\nconst M4 = DB.matrix.constructor, Q = T.root.quaternion.constructor, E = T.root.rotation.constructor;\nconst m = new M4(), q = new Q(), e = new E(), vp = new V3(), vs = new V3();\nconst hs = (i, k) => { const x = Math.sin(i * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };\nconst cols = [0x2b2118, 0x3b2d20, 0x4a3a2a, 0x6a5a44, 0xb9ad94, 0xd8d0bd, 0x7a2f22, 0x303a2a];\nfor (let i = 0; i < N; i++) { const r = hs(i, 1); dm.setColorAt(i, c1.setHex(cols[Math.floor(r * r * cols.length)])); }\ndm.material.roughness = 0.95;\nT.root.parent.add(dm);\nP.mine = dm; dm.onBeforeRender = function () { if (P.mine !== dm) this.visible = false; };\nconst gy = () => T.root.position.y + 2;\nconst swirl = (t) => {\n  for (let i = 0; i < N; i++) {\n    const h0 = hs(i, 11), h1 = hs(i, 12), h2 = hs(i, 13), h3 = hs(i, 14);\n    const cyc = 5 + h1 * 9, u = (t / cyc + h0) % 1;\n    const hmax = (CFG.dh ?? 55) * (0.25 + h2 * h2 * 1.4);\n    const y = Math.pow(u, 0.8) * hmax;\n    const r = (5 + h1 * 16 + y * (0.18 + 0.2 * h3)) * (CFG.dr ?? 1);\n    const a = h2 * 6.283 + t * (1.3 + 26 / (r + 4)) * (0.8 + h3 * 0.4) + u * 2;\n    const sc = (CFG.ds ?? 1) * (0.35 + h0 * h0 * 1.9) * (1 - Math.pow(u, 6));\n    e.set(t * (1 + h0 * 4), t * (2 + h1 * 3), t * h2 * 3); q.setFromEuler(e);\n    vp.set(P.tw.x + Math.cos(a) * r, gy() + 0.6 + y, P.tw.z + Math.sin(a) * r);\n    vs.set(sc * (0.4 + h3), sc * (0.12 + h1 * 0.25), sc * (1 + h2 * 2.2));\n    m.compose(vp, q, vs); dm.setMatrixAt(i, m);\n  }\n  dm.instanceMatrix.needsUpdate = true;\n};\nconst T0 = {};\nconst grade = () => {\n  // Sky: lighter and cooler behind the funnel, with less haze between camera and funnel.\n  const L = (n, hex, a) => { const v = U[n] && U[n].value; if (v) v.lerp(c1.setHex(hex), a); };\n  for (const [n, hex, a] of CFG.sky) L(n, hex, a);\n  S.fog.density *= CFG.fog;\n  for (const k of ['horBase', 'horGlow', 'fogFlat']) S[k].lerp(PALE, CFG.fogMix);\n  if (CFG.rain != null && S.rainU) S.rainU.uAmount.value *= CFG.rain;\n  // Funnel: darker, more opaque.\n  const sh = T.shellU || [];\n  for (let i = 0; i < sh.length; i++) { sh[i].uCol.value.multiplyScalar(CFG.fk ?? 0.5); if (CFG.fa) sh[i].uAlpha.value = Math.min(1, sh[i].uAlpha.value * CFG.fa); }\n  if (T.skirtU && CFG.sk) { T.skirtU.uAlpha.value *= CFG.sk; }\n};\nconst flashes = CFG.flash || [];\n// Lightning: a jagged bolt (thin emissive boxes) from the wall cloud, and a flicker of the whole sky.\nconst NB = 16, bolt = new DB.constructor(DB.geometry, DB.material.clone(), NB);\nbolt.frustumCulled = false; bolt.castShadow = false; bolt.count = 0;\nbolt.material.color.setHex(0xffffff); bolt.material.emissive.setHex(0xcfe0ff); bolt.material.emissiveIntensity = 6; bolt.material.toneMapped = false; bolt.material.fog = false;\nfor (let i = 0; i < NB; i++) bolt.setColorAt(i, c1.setHex(0xffffff));\nT.root.parent.add(bolt);\nbolt.onBeforeRender = function () { if (P.mine !== dm) this.visible = false; };\nconst Yax = new V3(0, 1, 0), pa = new V3(), pb = new V3(), dd = new V3();\nlet boltAt = -9, bseed = 1;\nconst strike = () => {\n  bseed++; const bx = P.tw.x + (CFG.bolt?.[0] ?? -140), bz = P.tw.z + (CFG.bolt?.[1] ?? 40);\n  let x = bx + (hs(bseed, 1) - 0.5) * 60, y = 235, z = bz;\n  const gx = bx + (hs(bseed, 2) - 0.5) * 30, gzz = bz + (hs(bseed, 3) - 0.5) * 30, g0 = gy();\n  for (let i = 0; i < NB; i++) {\n    const f = (i + 1) / NB, nx = x + (gx + (hs(bseed, 10 + i) - 0.5) * 26 * (1 - f) - x) * 0.5 + (hs(bseed, 30 + i) - 0.5) * 16, ny = 235 + (g0 - 235) * f, nz = z + (gzz - z) * 0.3 + (hs(bseed, 50 + i) - 0.5) * 10;\n    pa.set(x, y, z); pb.set(nx, ny, nz); dd.copy(pb).sub(pa); const len = dd.length(); dd.normalize();\n    q.setFromUnitVectors(Yax, dd); vp.copy(pa).add(pb).multiplyScalar(0.5); vs.set(0.9 + 0.6 * (1 - f), len, 0.9 + 0.6 * (1 - f));\n    m.compose(vp, q, vs); bolt.setMatrixAt(i, m);\n    x = nx; y = ny; z = nz;\n  }\n  bolt.instanceMatrix.needsUpdate = true; bolt.count = NB;\n};\nconst flashK = (t) => { let k = 0; for (const f of flashes) { const a = t - f; if (a >= 0) k = Math.max(k, Math.max(0, 1 - a / 0.2) * (0.6 + 0.4 * Math.sin(a * 90) ** 2)); } return k; };\n\nP.each = (dt) => {\n  const p = T.pos; if (p && (p.x || p.z)) { P.tw.x = p.x; P.tw.z = p.z; }\n  grade(); swirl(P.t);\n  for (const f of flashes) if (P.t >= f && P.t < f + dt * 1.5) strike();\n  const fk2 = flashK(P.t); bolt.visible = fk2 > 0.25;\n  if (fk2 > 0) { for (const n of ['uZen','uMid','uHor','uCloudShade','uCloudLit']) U[n]?.value.lerp(c1.setHex(0xf2f6ff), 0.55 * fk2); S.hemi.intensity += 2.2 * fk2; S.sun.intensity += 1.2 * fk2; for (const k of ['horBase','horGlow','fogFlat']) S[k].lerp(c1.setHex(0xe8eeff), 0.5 * fk2); }\n};\n// Camera: a fixed dolly in world space that keeps the funnel framed.\nconst ease = (x) => x * x * (3 - 2 * x);\nP.place = (cam, s) => {\n  const a = CFG.cam0, b = CFG.cam1, u = ease(s);\n  const pos = [0, 1, 2].map((i) => a[i] + (b[i] - a[i]) * u); pos[1] = Y0 + (Y1 - Y0) * u + CFG.camH;\n  const sh = CFG.shake ? Math.sin(s * 53) * CFG.shake : 0;\n  g.game.view = { pos: new V3(pos[0] + sh, pos[1] + (gy() - 5) * 0 + sh * 0.6, pos[2]), target: new V3(P.tw.x, CFG.lookY + (CFG.lookY2 - CFG.lookY) * u, P.tw.z) };\n  g.game.camera.fov = CFG.fov + ((CFG.fov2 ?? CFG.fov) - CFG.fov) * u;\n  g.game.camera.updateProjectionMatrix();\n};\n",
    "wait": 5000,
    "warm": 40,
    "cam": {
-    "follow": "tw",
-    "world": true,
-    "offset": [
-     -110,
-     18,
-     240
-    ],
-    "look": [
-     0,
-     25,
-     0
-    ],
-    "fov": 55
+    "custom": "the shot setup replaces P.place (a fixed low dolly that keeps the funnel framed)"
    },
    "card": {
     "form": "ADVISORY W-9",
     "dept": "WEATHER OFFICE",
     "line": "Conditions: adverse",
     "in": 1,
-    "out": 7.5,
-    "pos": "high"
+    "out": 4,
+    "pos": "low"
    },
-   "query": "season=summer",
-   "preroll": "const T = window.__storm.tornado; P.each = () => { const p = T.pos; if (p && (p.x || p.z)) { P.tw.x = p.x; P.tw.z = p.z; } };"
+   "query": "season=summer"
   },
   {
    "id": "16_xmas",
