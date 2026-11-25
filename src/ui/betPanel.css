@@ -1,0 +1,35 @@
+/* The bet slip (ui/betPanel.ts): pick a driver, pick a stake, place a friendly bet with play money. And the little BETS tag. */
+.bt-back { position: fixed; inset: 0; z-index: 41; display: none; align-items: center; justify-content: center; background: rgba(20, 33, 61, 0.55); }
+.bt-back.on { display: flex; }
+.bt-card {
+  width: min(36em, calc(100% - 1.2em)); max-height: calc(100% - 1.2em); overflow: auto;
+  background: var(--bone, #f2e8cf); color: var(--ink, #14213d); border: 3px solid var(--ink, #14213d);
+  box-shadow: 0.35em 0.35em 0 rgba(20, 33, 61, 0.55); padding: 0.9em 1.1em 1em;
+  font: 500 15px/1.35 var(--f-body, 'Barlow Semi Condensed', sans-serif);
+}
+.bt-card h2 { margin: 0; font: 800 1.7em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.04em; text-transform: uppercase; }
+.bt-card h3 { margin: 0.8em 0 0.25em; font: 700 0.95em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.1em; text-transform: uppercase; border-bottom: 2px solid var(--ink, #14213d); padding-bottom: 0.2em; }
+.bt-sub { opacity: 0.75; margin: 0.25em 0 0.2em; }
+.bt-tabs { display: flex; gap: 0.4em; flex-wrap: wrap; margin: 0.6em 0 0.2em; }
+.bt-tab { font: 700 0.8em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.06em; text-transform: uppercase; padding: 0.45em 0.7em; border: 2px solid var(--ink, #14213d); background: transparent; color: var(--ink, #14213d); cursor: pointer; }
+.bt-tab.on { background: var(--ink, #14213d); color: var(--bone, #f2e8cf); }
+.bt-row { display: flex; align-items: center; gap: 0.6em; padding: 0.35em 0.2em; border-bottom: 1px dotted rgba(20, 33, 61, 0.35); cursor: pointer; }
+.bt-row.on { background: rgba(240, 162, 2, 0.35); }
+.bt-row b { flex: 1 1 auto; }
+.bt-row i { font-style: normal; font-weight: 800; min-width: 3.4em; text-align: right; }
+.bt-row small { opacity: 0.7; }
+.bt-row input { margin: 0; }
+.bt-chips { display: flex; gap: 0.4em; flex-wrap: wrap; margin: 0.4em 0; }
+.bt-chip { font: 700 0.9em/1 var(--f-head, 'Arial Narrow', sans-serif); padding: 0.55em 0.8em; min-width: 3.6em; border: 2px solid var(--ink, #14213d); background: transparent; color: var(--ink, #14213d); cursor: pointer; }
+.bt-chip.on { background: var(--mustard, #f0a202); }
+.bt-chip[disabled] { opacity: 0.35; cursor: default; }
+.bt-btn { font: 700 0.9em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.08em; text-transform: uppercase; padding: 0.55em 0.95em; min-height: 2.4em; border: 2px solid var(--ink, #14213d); background: var(--mustard, #f0a202); color: var(--ink, #14213d); cursor: pointer; }
+.bt-btn.alt { background: transparent; }
+.bt-btn[disabled] { opacity: 0.4; cursor: default; }
+.bt-bar { display: flex; gap: 0.5em; flex-wrap: wrap; margin-top: 0.7em; justify-content: space-between; align-items: center; }
+.bt-msg { color: #a3211c; min-height: 1.3em; font-weight: 700; }
+.bt-ok { font-weight: 700; margin: 0.4em 0; }
+.bt-note { opacity: 0.7; font-size: 0.85em; margin-top: 0.6em; }
+/* The tag over the town while a window is open (tap it on a phone). */
+#bt-tag { position: fixed; z-index: 30; left: 50%; top: 4.2em; transform: translateX(-50%); display: none; font: 800 0.95em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.06em; text-transform: uppercase; padding: 0.55em 0.9em; border: 2px solid var(--ink, #14213d); background: var(--mustard, #f0a202); color: var(--ink, #14213d); box-shadow: 0.2em 0.2em 0 rgba(20, 33, 61, 0.55); cursor: pointer; white-space: nowrap; max-width: calc(100% - 1.4em); overflow: hidden; text-overflow: ellipsis; }
+#bt-tag.on { display: block; }

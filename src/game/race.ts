@@ -244,6 +244,7 @@ export class Racing {
   got(from: number, m: RaceWire): void {
     this.stats.got++;
     const now = performance.now(), r = this.byIdx(m.route);
+    this.bets(from, m, r);
     if (m.kind === RK.Call) {
       if (from !== m.caller || !r) return;
       if (this.phase === 'joined' && this.caller === m.caller) { this.until = now + m.secs * 1000; return; }
@@ -282,8 +283,18 @@ export class Racing {
     else if (m.kind === RK.Done) this.done(x, m.how, m.ms, m.lap);
   }
 
+  /** The bet slip hears every call, go, finish and call-off, racing or not (game/betting.ts). */
+  private bets(from: number, m: RaceWire, r: RaceDef | null): void {
+    const bt = this.game.todo.betting, names = (ids: number[]): string[] => ids.map((id) => this.nameOf(id));
+    if (m.kind === RK.Call) { if (from === m.caller && r && r.idx < BUILT_LOCAL) bt.raceCall(m.caller, `${r.name} (race)`, m.ids, names(m.ids), m.secs, this.record(r)?.raceBy ?? ''); }
+    else if (m.kind === RK.Go) { if (from === m.caller) bt.raceGo(m.caller, m.ids, names(m.ids)); }
+    else if (m.kind === RK.Done) bt.raceDone(m.caller, from, m.how, m.ms);
+    else if (m.kind === RK.Off) { if (from === m.caller) bt.raceOff(m.caller); }
+  }
+
   /** A player left town. */
   dropped(id: number): void {
+    this.game.todo.betting.dropped(id);
     this.invites.delete(id);
     if (this.phase === 'joined' && this.caller === id) { this.end(); this.game.hud.toast('The race caller left town. Race off.', 5); return; }
     if (this.phase === 'calling') { this.racers.delete(id); this.sendCall(); return; }
@@ -293,6 +304,7 @@ export class Racing {
 
   /** Off the network: whoever else was racing is out; this player's own race goes on. */
   offline(): void {
+    this.game.todo.betting.offline();
     this.invites.clear();
     if (this.phase === 'joined') { this.end(); return; }
     for (const x of this.racers.values()) if (x.id !== this.me && !x.how) this.done(x, 2, 0, 0);

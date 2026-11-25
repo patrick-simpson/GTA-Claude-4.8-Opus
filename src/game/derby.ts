@@ -60,7 +60,7 @@ export interface DerbyLink {
 }
 export const DK = { Call: 1, Join: 2, Go: 3, Cars: 4, Dents: 5, Stat: 6, End: 7, Done: 8, Off: 9 } as const;
 
-type Phase = 'idle' | 'calling' | 'joined' | 'count' | 'fight' | 'done' | 'podium';
+type Phase = 'idle' | 'calling' | 'joined' | 'bets' | 'count' | 'fight' | 'done' | 'podium';
 interface Ent {
   id: number; num: number; name: string; ai: boolean;
   car: Vehicle | null; kind: VehicleKind; color: number;
@@ -93,6 +93,19 @@ const PA = {
   win: ['Number {n} wins. The car is a total loss, which is the point.', 'Your winner, number {n}. Drive home carefully. You cannot.'],
 };
 const pick = <T>(a: T[]): T => a[Math.floor(Math.random() * a.length)];
+/** The AI drivers' names for a seed: the first draws of the seed's generator, the same on every screen. */
+const shuffled = (rng: RNG): string[] => {
+  const names = AI_NAMES.slice();
+  for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rng.next() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
+  return names;
+};
+/** Who is in a derby by its Go frame: the players in grid order, then the AI (id AI_BASE + k), numbered from 1. Names are the AI's (betting.ts). */
+export function derbyField(ids: number[], ai: number, seed: number): { id: number; num: number; name: string }[] {
+  const names = shuffled(new RNG(seed * 7919));
+  return [...ids, ...Array.from({ length: ai }, (_, k) => AI_BASE + k)].map((id, k) => ({ id, num: k + 1, name: id >= AI_BASE ? names[(id - AI_BASE) % names.length] : '' }));
+}
+/** Seconds of a derby of eight locals (no player in it). */
+const WATCH_ROUND_S = 150;
 const clock = (ms: number): string => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const clamp = (v: number, a: number, b: number): number => v < a ? a : v > b ? b : v;
 const wrap = (a: number): number => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
@@ -129,6 +142,9 @@ export class Derby {
   private paAt = 0;
   private cheer = 0;
   private told = new Set<string>();
+  /** A derby of eight locals with the player on the sidelines, to bet on (betting.ts): no frames are sent, nothing is paid but the bets. */
+  private watching = false;
+  private watchSeed = 0;
   /** Game time, ms: the round runs on the simulation's clock (stepped tests, a paused game). */
   private clk = 0;
 
@@ -146,11 +162,11 @@ export class Derby {
   private nameOf(id: number): string { return id >= AI_BASE ? this.ents.get(id)?.name ?? 'AI' : this.link ? this.link.nameOf(id) : 'You'; }
   private get amCaller(): boolean { return this.caller === this.me; }
   /** Derby Night (game/events.ts, Fridays evening): the night's title, a double purse, fireworks after. */
-  private get night(): boolean { return this.game.todo.events?.derbyNight ?? false; }
+  private get night(): boolean { return !this.watching && (this.game.todo.events?.derbyNight ?? false); }
   private get inRound(): boolean { return this.phase === 'count' || this.phase === 'fight' || this.phase === 'done'; }
   private get vx(): VehiclesX { return this.game.vehicles as unknown as VehiclesX; }
   private send(m: Partial<DerbyWire> & { kind: number }): void {
-    if (!this.link) return;
+    if (!this.link || this.watching) return;
     this.link.send({ caller: this.caller, a: 0, b: 0, c: 0, ms: 0, bytes: [], ...m });
     this.stats.sent++;
   }
@@ -170,10 +186,31 @@ export class Derby {
     if (!(d < AT_M && Math.abs(p.speed) < 4 && this.isFree() && p.health > 0)) return;
     const many = this.link ? this.link.others().length : 0, rec = this.link?.record();
     const recT = rec ? ` · records: ${rec.wins} win${rec.wins === 1 ? '' : 's'} by ${rec.winsBy}, ${rec.hits} hits by ${rec.hitsBy}` : '';
-    this.prompt = many ? `[G] Call a demolition derby: ${many} other${many > 1 ? 's' : ''} in town get ${JOIN_S} s to drive in${recT}`
-      : `[G] Demolition derby: you and ${CARS - 1} locals. Last car running wins${recT}`;
+    this.prompt = (many ? `[G] Call a demolition derby: ${many} other${many > 1 ? 's' : ''} in town get ${JOIN_S} s to drive in${recT}`
+      : `[G] Demolition derby: you and ${CARS - 1} locals. Last car running wins${recT}`) + ' · [Z] Bet on a derby of eight locals';
     if (!g.input.eat('interact')) return;
     this.call(many);
+  }
+
+  /** At the gate, free, on the ground: Z may put on a derby to watch and bet on (betting.ts). */
+  watchOffer(): boolean {
+    const p = this.game.player;
+    return this.phase === 'idle' && this.isFree() && p.health > 0 && Math.hypot(p.x - DERBY.gateX, p.z - DERBY.gateZ) < AT_M + 6 && Math.abs(p.speed) < 4;
+  }
+
+  /** Eight locals and nobody of ours: a 25 s window to bet in (betting.ts), then the same derby, run by this browser alone. */
+  watch(): void {
+    if (!this.watchOffer()) return;
+    this.caller = this.me;
+    this.ents.clear(); this.invites.clear();
+    this.watching = true;
+    this.watchSeed = 1 + Math.floor(Math.random() * 250);
+    this.phase = 'bets';
+    this.until = this.clk + this.game.todo.betting.localSecs() * 1000;
+    this.setBusy('derby');
+    this.stats.called++;
+    this.game.todo.betting.openLocalDerby(this.watchSeed, CARS);
+    this.game.hud.stamp('DERBY OF LOCALS', 'Eight local drivers, nobody of ours. Back a driver on the slip (Z); play money only. It starts when the clock runs out.');
   }
 
   call(many = 0): void {
@@ -237,8 +274,7 @@ export class Derby {
     this.clearCars();
     this.ents.clear();
     this.seed = seed; this.roundS = round; this.outOrder = []; this.told.clear();
-    const names = AI_NAMES.slice();
-    for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rng.next() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
+    const names = shuffled(rng);
     const all = [...ids, ...Array.from({ length: ai }, (_, k) => AI_BASE + k)];
     all.forEach((id, k) => {
       const e = this.addEnt(id, k + 1);
@@ -273,7 +309,8 @@ export class Derby {
     this.recBefore = this.link?.record() ?? null;
     this.statSent = { hp: -1, out: false, hits: -1, at: 0 };
     const mine = this.ents.get(this.me);
-    g.hud.stamp(this.night ? `DERBY NIGHT · CAR #${mine?.num ?? '?'}` : `CAR #${mine?.num ?? '?'}`, `${all.length} cars · last one running wins · a car that sits still for ${STILL_S} s is out${this.night ? ' · double purse tonight' : ''}`);
+    if (this.watching) g.hud.stamp('THE LOCALS', `${all.length} cars · last one running wins · bets are closed`);
+    else g.hud.stamp(this.night ? `DERBY NIGHT · CAR #${mine?.num ?? '?'}` : `CAR #${mine?.num ?? '?'}`, `${all.length} cars · last one running wins · a car that sits still for ${STILL_S} s is out${this.night ? ' · double purse tonight' : ''}`);
     this.pa(pick(PA.open), true);
   }
 
@@ -292,6 +329,7 @@ export class Derby {
   got(from: number, m: DerbyWire): void {
     this.stats.got++;
     const now = this.clk;
+    this.bets(from, m);
     if (m.kind === DK.Call) {
       if (from !== m.caller) return;
       if (this.phase === 'joined' && this.caller === m.caller) { this.until = now + m.a * 1000; return; }
@@ -353,6 +391,16 @@ export class Derby {
       order.forEach((id, i) => { const e = this.ents.get(id >= 200 ? id : id); if (e) { e.hits = Math.max(e.hits, hits[i] ?? 0); } });
       this.podium(order);
     }
+  }
+
+  /** The bet slip hears every call, go, end and call-off, in the derby or not (game/betting.ts). */
+  private bets(from: number, m: DerbyWire): void {
+    if (from !== m.caller || m.caller === this.me) return;
+    const bt = this.game.todo.betting, names = (ids: number[]): string[] => ids.map((id) => this.nameOf(id));
+    if (m.kind === DK.Call) bt.derbyCall(m.caller, m.bytes, names(m.bytes), m.a, this.link?.record()?.winsBy ?? '');
+    else if (m.kind === DK.Go) bt.derbyGo(m.caller, m.bytes, m.a, m.b, names(m.bytes));
+    else if (m.kind === DK.End && m.bytes.length >= 2) bt.derbyEnd(m.caller, m.bytes[0]);
+    else if (m.kind === DK.Off) bt.derbyOff(m.caller);
   }
 
   dropped(id: number): void {
@@ -467,6 +515,17 @@ export class Derby {
       if (now > this.until + 10000) { this.end(); g.hud.toast('The derby never started.', 4); }
       return;
     }
+    if (this.phase === 'bets') {
+      const left = Math.max(0, (this.until - now) / 1000);
+      this.markers.put(DERBY.gateX, DERBY.gateZ, 'goal', 9, 60);
+      g.hud.objective(`Bets are open on a derby of eight locals. Z for the slip. It starts in ${Math.ceil(left)} s.`);
+      if (!(p.health > 0) || Math.hypot(p.x - DERBY.gateX, p.z - DERBY.gateZ) > 250) { this.game.todo.betting.voidLocal('You walked away, so the derby is off.'); this.end(); g.hud.toast('Derby off.', 4); return; }
+      if (left <= 0) {
+        this.game.todo.betting.closeLocal();
+        this.start([], CARS, this.watchSeed, this.testRound || WATCH_ROUND_S);
+      }
+      return;
+    }
     if (this.phase === 'podium') {
       this.plates();
       if (now > this.podiumUntil || g.input.eat('interact')) this.leave();
@@ -477,10 +536,12 @@ export class Derby {
   }
 
   private tick(dt: number, now: number): void {
-    const g = this.game, p = g.player, me = this.ents.get(this.me);
-    if (!me) { this.end(); return; }
-    if (p.heat > 0) p.heat = 0;
-    if (p.health > 0 && p.health < 100) p.health = 100;
+    const g = this.game, p = g.player, mine = this.ents.get(this.me), me = mine as Ent;
+    if (!mine && !this.watching) { this.end(); return; }
+    if (!this.watching) {
+      if (p.heat > 0) p.heat = 0;
+      if (p.health > 0 && p.health < 100) p.health = 100;
+    }
     const count = this.phase === 'count';
     // Everybody this browser drives: kept in the bowl; the AI driven; the still ones counted out.
     for (const e of this.ents.values()) {
@@ -503,11 +564,11 @@ export class Derby {
       } else if (e.ai) this.poseGhost(e, dt);
     }
     // My car left behind: out.
-    if (!count && !me.out && p.vehicle !== me.car) this.setOut(me, true, now);
+    if (!this.watching && !count && !me.out && p.vehicle !== me.car) this.setOut(me, true, now);
     if (count) {
       const left = this.goAt - now;
       g.hud.timer('Derby starts', String(Math.max(1, Math.ceil(left / 1000))), true);
-      g.hud.objective(`Car #${me.num}. Wait for it…`);
+      g.hud.objective(this.watching ? 'The cars are on the grid.' : `Car #${me.num}. Wait for it…`);
       if (left <= 0) {
         this.phase = 'fight';
         for (const e of this.ents.values()) { e.sampleAt = now; e.still = 0; if (e.car) { e.sx = e.car.x; e.sz = e.car.z; } }
@@ -515,6 +576,12 @@ export class Derby {
         this.pa(pick(PA.go), true);
         this.whoop(1);
       }
+    } else if (this.phase === 'fight' && this.watching) {
+      const left = this.endAt - now, run = this.running();
+      g.hud.timer(`${run} running`, clock(left), left < 30000);
+      g.hud.objective('Watching the derby of locals.');
+      this.sendCars(now);
+      if (run <= 1 || left <= 0) this.callEnd();
     } else if (this.phase === 'fight') {
       const left = this.endAt - now, run = this.running();
       g.hud.timer(`#${me.num} · HP ${me.out ? 'OUT' : me.hp} · hits ${me.hits} · ${run} running`, clock(left), left < 30000);
@@ -658,6 +725,7 @@ export class Derby {
     for (const e of this.ents.values()) if (!order.includes(e)) order.push(e);
     this.sendCars(now - 1000);
     this.send({ kind: DK.End, bytes: [...order.map((e) => e.id), ...order.map((e) => Math.min(255, e.hits))] });
+    if (this.watching && order[0]) this.game.todo.betting.derbyEnd(-1, order[0].id);
     this.podium(order.map((e) => e.id));
   }
 
@@ -675,6 +743,7 @@ export class Derby {
     });
     this.lastRows = rows;
     const wins = won ? save.bump('derbyWins') : save.count('derbyWins');
+    const watching = this.watching;
     const rec = this.recBefore, notes: string[] = [];
     const humans = rows.filter((r) => r.id < AI_BASE);
     const w = rows[0];
@@ -684,9 +753,10 @@ export class Derby {
     if (won) notes.push(`Your derby wins: ${wins}`);
     this.lastNotes = notes;
     if (pay > 0) { g.player.money += pay; save.credit(pay); save.data.stats.earned += pay; }
-    save.bump('derby');
+    if (!watching) save.bump('derby');
     this.send({ kind: DK.Done, a: wins, c: myHits });
     if (night) { notes.push('Derby Night: the purse is doubled.'); this.game.todo.events.derbyOver(); }
+    if (watching) notes.push('A derby of locals: nobody of ours was in it. Bets are settled on the slip (Z).');
     this.lastNotes = notes;
     this.ui.podium({ rows, notes, pay, night });
     if (w) this.pa(pick(PA.win).replace(/\{n\}/g, String(w.num)), true);
@@ -710,9 +780,10 @@ export class Derby {
       if (car.health < 30) car.health = 30;
       this.vx.wake(car);
       if (p.vehicle !== car) { if (p.vehicle) p.exit(true); p.enter(car, true); }
-    } else if (Math.hypot(p.x - DERBY.x, p.z - DERBY.z) < 50) p.teleport(DERBY.gateX - 4, DERBY.gateZ);
-    g.cam.snap();
+    } else if (!this.watching && Math.hypot(p.x - DERBY.x, p.z - DERBY.z) < 50) p.teleport(DERBY.gateX - 4, DERBY.gateZ);
+    if (!this.watching) g.cam.snap();
     this.phase = 'idle';
+    this.watching = false;
     this.ents.clear();
   }
 
@@ -728,8 +799,9 @@ export class Derby {
 
   private end(): void {
     const was = this.phase;
+    if (this.watching) this.game.todo.betting.voidLocal('The derby was called off.');
     if (this.inRound || was === 'podium') { this.ui.podium(null); this.leave(); }
-    this.phase = 'idle'; this.ents.clear();
+    this.phase = 'idle'; this.ents.clear(); this.watching = false;
     this.game.hud.objective(null); this.game.hud.timer(null);
     if (was !== 'idle' && was !== 'podium') this.setBusy(null);
   }

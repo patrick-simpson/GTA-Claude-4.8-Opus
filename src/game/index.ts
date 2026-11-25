@@ -25,6 +25,8 @@ import { Coop } from './coop';
 import { Convoy } from './convoy';
 import { Stores } from './stores';
 import { StorePanel } from '../ui/storePanel';
+import { Betting } from './betting';
+import { BetPanel } from '../ui/betPanel';
 import { Derby } from './derby';
 import { TownEvents } from './events';
 import { Finds } from './finds';
@@ -75,6 +77,10 @@ export class ThingsToDo {
   readonly stores: Stores;
   /** The shop card. */
   readonly storePanel: StorePanel;
+  /** Spectator betting with play money on derbies and street races (fun queue 2, item 26). */
+  readonly betting: Betting;
+  /** The bet slip. */
+  readonly betPanel: BetPanel;
   /** The demolition derby at Flounder Field (fun queue item 13). */
   readonly derby: Derby;
   /** The weekly town events: Derby Night, the Moose Festival, the Regatta, the Christmas Fair (fun queue 2, item 19). */
@@ -120,6 +126,8 @@ export class ThingsToDo {
     this.convoy = new Convoy(game, this.markers);
     this.stores = new Stores(game, this.markers);
     this.storePanel = new StorePanel(game, this.stores);
+    this.betting = new Betting(game);
+    this.betPanel = new BetPanel(game, this.betting);
     this.derby = new Derby(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.events = new TownEvents(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.finds = new Finds(game);
@@ -229,6 +237,8 @@ export class ThingsToDo {
     this.stores.update(dt);
     this.storePanel.update();
     this.derby.update(dt);
+    this.betting.update(dt);
+    this.betPanel.update();
     this.events.update(dt);
     this.finds.update(dt);
     this.delivery.update(dt);
