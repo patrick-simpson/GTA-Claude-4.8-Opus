@@ -60,6 +60,19 @@ export const PHRASES: readonly Phrase[] = [
   P('Race you to %. No cutting corners.', 'Race you to %!'),
   P("Let's go to %. It is on the list.", "Let's go to %!"),
   P('Where is %? Asking for a form.', 'Where is %?'),
+  // 36 to 47 (fun queue 2, item 29): 36 lights the sender's car for others (game/follow.ts); the rest are plain lines.
+  P('Follow me!'),
+  P('Nice driving!'),
+  P('Race you there!'),
+  P('Need a lift?'),
+  P('Wait up!'),
+  P('Over here!'),
+  P('Thanks!'),
+  P('Sorry!'),
+  P("Let's do a co-op job!"),
+  P('Snowball fight?'),
+  P('Good game!'),
+  P('Anyone for a race?'),
 ];
 /** Place index meaning "none" on the wire. */
 export const NO_PLACE = 255;
@@ -79,6 +92,12 @@ export const ROOT: Node[] = [
   { label: 'Race you to...', more: 33 },
   { label: "Let's go to...", more: 34 },
   { label: 'Where is...', more: 35 },
+  { label: 'Follow me!', phrase: 36 },
+  { label: 'More...', kids: [
+    { label: 'Out and about', kids: range(37, 41) },
+    { label: 'Thanks and sorry', kids: range(42, 43) },
+    { label: 'Plans and play', kids: range(44, 47) },
+  ] },
 ];
 
 /** The places a place phrase can name: a fixed order, so an index means the same on every screen (this build's table). */

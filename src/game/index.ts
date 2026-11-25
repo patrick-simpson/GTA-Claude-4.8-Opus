@@ -311,6 +311,7 @@ export class ThingsToDo {
       this.finds.blips(out);
       this.project.blips(out);
       this.shops.blips(out);
+      g.chat.blips(out); // fun queue 2, item 29: Follow me badges (game/follow.ts)
       const w = this.waypoint;
       if (w) { if (Math.hypot(p.x - w.x, p.z - w.z) < 14) this.waypoint = null; else out.push({ x: w.x, z: w.z, kind: 'way' }); }
       let sig = '';

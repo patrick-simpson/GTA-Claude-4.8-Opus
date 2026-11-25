@@ -13,6 +13,8 @@ import type { Remote } from '../net/remote';
 import { nameText } from '../net/names';
 import { NO_PLACE, PHRASES, PLACE_GROUPS, ROOT, isPlacePhrase, phraseText, placeTable } from './chatLines';
 import type { Node, Place } from './chatLines';
+import { FOLLOW_PHRASE, FOLLOW_S, FollowBeacons } from './follow';
+import type { Blip } from '../ui/hud';
 
 export const PING_S = 30;
 const LOG_MAX = 5, LOG_S = 9;
@@ -57,8 +59,11 @@ export class Chat {
   private readonly logEl: HTMLDivElement;
   private readonly rows: { el: HTMLDivElement; at: number }[] = [];
   private lastSig = '';
+  /** Follow me (game/follow.ts): the cars lit for others, from their line 36. */
+  private readonly follow: FollowBeacons;
 
   constructor(private readonly game: Game) {
+    this.follow = new FollowBeacons(game.scene);
     const st = document.createElement('style');
     st.textContent = CSS;
     document.head.appendChild(st);
@@ -170,6 +175,7 @@ export class Chat {
     if (r === 'alone') { g.hud.toast('Nobody else is in town to hear that.', 2.5); return; }
     this.said.push(line);
     this.addLog('You', line);
+    if (phrase === FOLLOW_PHRASE) g.hud.toast(`${g.player.vehicle ? 'Your car' : 'You'} ${g.player.vehicle ? 'is' : 'are'} lit up for everybody in town for ${FOLLOW_S} s.`, 3);
   }
 
   /** A built-in phrase from another player, already validated and not muted (net/chat.ts): a bubble, a log line, and a ping. */
@@ -180,6 +186,7 @@ export class Chat {
     r.showSay(line, performance.now());
     const who = nameText(r.name);
     this.addLog(who, line);
+    if (phrase === FOLLOW_PHRASE) this.follow.start(r, performance.now());
     if (place && isPlacePhrase(phrase)) {
       const i = this.pings.findIndex((p) => p.id === r.id);
       const ping = { id: r.id, x: place.x, z: place.z, who, until: performance.now() + PING_S * 1000 };
@@ -224,6 +231,7 @@ export class Chat {
       for (let i = this.pings.length - 1; i >= 0; i--) if (now > this.pings[i].until || !here.has(this.pings[i].id)) this.pings.splice(i, 1);
       this.syncPings();
     } else if (this.lastSig) { this.lastSig = ''; g.hud.nav.pings = []; g.hud.nav.rev++; }
+    this.follow.update(now, g.net.peers.map((r) => r.id));
 
     const playing = g.state === 'play';
     if (!playing) this.close();
@@ -249,8 +257,11 @@ export class Chat {
     }
   }
 
+  /** The radar's F badges for the cars lit by Follow me (called from the navigation pass in game/index.ts). */
+  blips(out: Blip[]): void { this.follow.blips(out); }
+
   /** For tests (tools/net tests, scratch scripts). */
   info(): Record<string, unknown> {
-    return { open: this.open, phrases: PHRASES.length, pings: this.pings.map((p) => ({ who: p.who, x: Math.round(p.x), z: Math.round(p.z) })), said: this.said, log: this.log, heard: this.heardCount };
+    return { open: this.open, phrases: PHRASES.length, beacons: this.follow.info(), pings: this.pings.map((p) => ({ who: p.who, x: Math.round(p.x), z: Math.round(p.z) })), said: this.said, log: this.log, heard: this.heardCount };
   }
 }
