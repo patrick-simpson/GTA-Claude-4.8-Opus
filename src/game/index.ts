@@ -212,7 +212,7 @@ export class ThingsToDo {
       if (sig !== this.navSig) { this.navSig = sig; nav.blips = out.slice(); nav.rev++; }
     }
     const to = this.missions.target ?? this.delivery.target ?? this.jobs.target ?? this.waypoint;
-    const named = to === this.waypoint && this.dest ? this.dest.name : null;
+    const named = to === this.waypoint && this.dest ? this.dest.name : to === this.jobs.target ? this.jobs.targetName : null;
     g.hud.turn(this.navigator.update(dt, g.plan, p.x, p.z, to, named, nav));
   }
 

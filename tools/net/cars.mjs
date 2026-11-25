@@ -148,12 +148,14 @@ try {
       const g = window.__game.game, plan = g.plan;
       const { RNG } = await import('/src/core/util.ts');
       const { SPECS, commonKind } = await import('/src/ent/vehicleSpecs.ts');
+      const { cabSpots } = await import('/src/game/cabRank.ts');
       // The rule as it was before this step (core/game.ts, placeStart), worked out again here.
       const truck = plan.curbPoint(5, 6, 2, 0.45), coupe = plan.curbPoint(5, 6, 2, 0.62), bolt = plan.curbPoint(5, 6, 2, 0.30), cmax = plan.curbPoint(6, 3, 2, 0.5);
-      const rng = new RNG(4021), want = [];
+      const rng = new RNG(4021), want = [], cabs = cabSpots(plan, plan.parking, 0);
       for (const s of plan.parking) {
-        const keep = rng.chance(0.55 * g.quality.density);
-        const kind = commonKind(rng.next());
+        // (The cab ranks, game/cabRank.ts: a taxi always stands in the places nearest each rank.)
+        const keep = rng.chance(0.55 * g.quality.density) || cabs.has(s);
+        const dice = commonKind(rng.next()), kind = cabs.has(s) ? 'taxi' : dice;
         const tint = rng.next();
         if (!keep) continue;
         if (Math.abs(s.x - truck.x) < 16 && Math.abs(s.z - truck.z) < 16) continue;

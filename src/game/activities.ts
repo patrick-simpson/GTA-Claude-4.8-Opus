@@ -26,6 +26,8 @@ import { commonKind } from '../ent/vehicleSpecs';
 import { RNG, money } from '../core/util';
 import type { Look } from '../core/api';
 import { save } from './save';
+import { Taxi } from './taxi';
+import { rankPoints } from './cabRank';
 import { clearOf, clock, type Markers, type Pt } from './script';
 
 const FEET = 3.28084;
@@ -65,13 +67,6 @@ const JUMP_LINES = [
   'The judges are a gull.', 'Nobody signed for that.', 'Insurance has been informed, and has left the country.',
   'It counts. Nobody can say why.', 'Technically a flight. Technically a landing.', 'The truck would like a word.',
 ];
-const FARE_HELLO = [
-  'Gull & Void Insurance, and step on it. I have a claim to deny.', 'Do you know the island? No? Good, neither do I.',
-  'Take the scenic route. I am billing someone.', 'I left the oven on. This is unrelated to where we are going.',
-  'My last driver went off the pier. Five stars.', 'Drive like the meter is somebody else\'s.',
-];
-const FARE_BUMP = ['That was my good spine.', 'I felt that in my deposit.', 'Was that a person or a policy?', 'I will be mentioning that in the review.', 'The tip saw that.'];
-const FARE_BYE = ['Keep the change. There is no change.', 'I have had worse. I was driving.', 'You should do this for a living. Somebody should.', 'Here. Do not thank me, I resent it.'];
 
 // Roughly where each duck is hidden; snapped at start-up to the nearest clear, dry, walkable spot.
 const DUCK_ISLAND: [number, number][] = [
@@ -102,7 +97,6 @@ export interface JobView {
 export class Activities {
   /** Multiplayer (net/jobs.ts): true in a shared town on the main service, where a fare's look is made from a seed. */
   shared: (() => boolean) | null = null;
-  private riderSeed = 0;
   private parcelsTotal = 0;
   private readonly viewRec: JobView = { job: '', rider: null, riderSeed: 0, aboard: false, parcels: 0, total: 0, towed: null, hooked: false };
   prompt: string | null = null;
@@ -117,11 +111,12 @@ export class Activities {
   private readonly duckMesh: THREE.Group[] = [];
   private t = 0;
   private awayT = 0;
-  // taxi
-  private phase = 0;
-  private rider: Person | null = null;
-  private dest: Pt | null = null;
-  private fare = 0; private tip = 0; private tip0 = 0; private parT = 0; private rideT = 0;
+  // taxi (game/taxi.ts): the fares, the meter and the shift
+  private readonly ranks: { x: number; z: number }[][] = [];
+  /** The Calamity Courtesy Cab job. */
+  readonly cab: Taxi;
+  /** What the next stop is called (a taxi fare's business), for the turn card; else null. */
+  targetName: string | null = null;
   // courier
   private drops: Pt[] = [];
   private clockT = 0; private haul = 0;
@@ -189,12 +184,7 @@ export class Activities {
     for (const [x, z] of rough.slice(0, DUCKS)) this.ducks.push(this.clearSpot(x, z));
     this.buildDucks();
 
-    game.on('impact', (e) => {
-      if (this.job !== 'taxi' || this.phase !== 1 || e.speed < 4) return;
-      if (e.vehicle.driver !== 'player' && e.other?.driver !== 'player') return;
-      this.tip = Math.max(0, this.tip - this.tip0 * 0.2);
-      game.hud.subtitle('FARE', FARE_BUMP[this.lines++ % FARE_BUMP.length], 3);
-    });
+    this.cab = new Taxi(game, { corner: (f, lo, hi) => this.corner(f, lo, hi), pay: (k, c, p) => this.pay(k, c, p), stop: (why) => this.stop(why), shared: () => !!this.shared?.(), look: (s) => riderLook(game, s) });
     game.on('booked', () => this.stop('The Harbor Patrol has ended your shift for you.'));
   }
 
@@ -273,14 +263,14 @@ export class Activities {
   stop(why?: string): void {
     if (!this.job) return;
     const g = this.game;
-    if (this.rider) { g.people.remove(this.rider); this.rider = null; }
+    if (this.job === 'taxi') this.cab.end(true);
     this.hold(null);
     if (this.towed) this.towed.held = false;
     if (this.towed && g.vehicles.list.includes(this.towed) && g.player.vehicle !== this.towed) {
       if (this.job === 'tow' && !this.hooked) g.vehicles.remove(this.towed);
     }
-    this.towed = null; this.hooked = false; this.race = null; this.drops = []; this.dest = null;
-    this.job = ''; this.target = null;
+    this.towed = null; this.hooked = false; this.race = null; this.drops = [];
+    this.job = ''; this.target = null; this.targetName = null;
     g.hud.objective(null); g.hud.timer(null);
     if (why) g.hud.toast(why, 5);
     this.setBusy(null);
@@ -290,7 +280,7 @@ export class Activities {
   view(): JobView {
     const w = this.viewRec, j = this.job;
     w.job = j === 'taxi' || j === 'courier' || j === 'tow' ? j : '';
-    w.rider = j === 'taxi' ? this.rider : null; w.riderSeed = this.riderSeed; w.aboard = j === 'taxi' && this.phase === 1;
+    w.rider = j === 'taxi' ? this.cab.rider : null; w.riderSeed = this.cab.riderSeed; w.aboard = j === 'taxi' && this.cab.phase === 1;
     w.parcels = j === 'courier' ? this.drops.length : 0; w.total = j === 'courier' ? this.parcelsTotal : 0;
     w.towed = j === 'tow' ? this.towed : null; w.hooked = j === 'tow' && this.hooked;
     return w;
@@ -302,6 +292,11 @@ export class Activities {
       else if (this.target) out.push({ x: this.target.x, z: this.target.z, kind: 'goal' });
       return;
     }
+    // The cab ranks near her (a yellow cab stands at each: game/cabRank.ts), a T on the radar.
+    if (this.isFree()) {
+      const p = this.game.player, land = p.z < -900 ? 1 : 0;
+      for (const r of this.ranks[land] ??= rankPoints(this.game.plan, land as 0 | 1)) if (Math.hypot(r.x - p.x, r.z - p.z) < 450) out.push({ x: r.x, z: r.z, kind: 'job', label: 'T' });
+    }
     // (Race starts are game/race.ts's.)
   }
 
@@ -311,6 +306,7 @@ export class Activities {
     const g = this.game, p = g.player, v = p.vehicle;
     this.prompt = null;
     this.t += dt;
+    if (this.job !== 'taxi') this.cab.tickCard(dt);
     this.tickDucks(dt);
     this.tickJumps(v);
     if (!this.job) { this.target = null; if (this.isFree()) this.offer(v); return; }
@@ -339,7 +335,7 @@ export class Activities {
     void p;
     if (!v || p.speed > 3 || p.heat > 0) return;
     const k = v.spec.kind;
-    if (k === 'taxi') { this.prompt = '[G] Take fares in the cab'; if (g.input.eat('interact')) this.startJob('taxi'); }
+    if (k === 'taxi') { this.prompt = '[G] Go on duty in the cab'; if (g.input.eat('interact')) this.startJob('taxi'); }
     else if (k === 'van') { this.prompt = '[G] Start a courier run in the van'; if (g.input.eat('interact')) this.startJob('courier'); }
     else if (k === 'tow') { this.prompt = '[G] Take a towing job'; if (g.input.eat('interact')) this.startJob('tow'); }
   }
@@ -351,8 +347,7 @@ export class Activities {
     if (job === 'taxi') {
       if (v.spec.kind !== 'taxi') return false;
       this.begin('taxi');
-      if (!this.nextFare()) { this.stop('Nobody wants a cab out here.'); return false; }
-      g.hud.toast('On the clock. Fares pay by the length of the route; the tip melts while you dawdle.', 6);
+      if (!this.cab.begin()) { this.stop('Nobody wants a cab out here.'); return false; }
     } else if (job === 'courier') {
       if (v.spec.kind !== 'van') return false;
       const drops: Pt[] = [];
@@ -412,49 +407,10 @@ export class Activities {
 
   // ── Taxi ───────────────────────────────────────────────────────────────────
 
-  private nextFare(): boolean {
-    const g = this.game, p = g.player;
-    const c = this.corner({ x: p.x, z: p.z }, 90, 360);
-    if (!c) return false;
-    this.phase = 0; this.dest = c.at;
-    // (In a shared town the fare's look comes from a seed the others are told, so they draw the same person.)
-    this.riderSeed = Math.floor(Math.random() * 256);
-    this.rider = g.people.spawn(c.at.x, c.at.z, Math.atan2(p.x - c.at.x, p.z - c.at.z), this.shared?.() ? riderLook(g, this.riderSeed) : undefined);
-    this.rider.pose = 'stand';
-    return true;
-  }
-
   private tickTaxi(dt: number, v: Vehicle): void {
-    const g = this.game, p = g.player, hud = g.hud, d = this.dest as Pt;
-    this.target = d;
-    this.markers.put(d.x, d.z, 'job', 6, 26);
-    const here = Math.hypot(p.x - d.x, p.z - d.z) < 9 && Math.abs(v.speed) < 2;
-    if (this.phase === 0) {
-      hud.objective(`Pick up the fare on ${g.plan.streetAt(d.x, d.z)}. Stop beside them.`);
-      hud.timer(null);
-      if (!here) return;
-      if (this.rider) { g.people.remove(this.rider); this.rider = null; }
-      const c = this.corner(d, 280, 900);
-      if (!c) { this.stop('The fare changed their mind. So did the town.'); return; }
-      this.dest = c.at; this.phase = 1;
-      this.fare = Math.round(18 + c.len * 0.2);
-      this.tip0 = this.tip = Math.round(this.fare * 0.6);
-      this.parT = c.len / 10 + 14; this.rideT = 0;
-      hud.subtitle('FARE', FARE_HELLO[this.lines++ % FARE_HELLO.length], 4.5);
-      return;
-    }
-    this.rideT += dt;
-    // The tip holds for the par time, then melts to nothing over as long again.
-    if (this.rideT > this.parT) this.tip = Math.max(0, this.tip - (this.tip0 / this.parT) * dt);
-    hud.objective(`Take the fare to ${g.plan.placeName(d.x, d.z)}, ${g.plan.streetAt(d.x, d.z)}. Fare ${money(this.fare)}.`);
-    hud.timer('Tip', money(this.tip), this.tip < this.tip0 * 0.4);
-    if (!here) return;
-    const paid = this.pay('taxi', this.fare + this.tip, 14);
-    save.data.stats.fares++;
-    hud.subtitle('FARE', FARE_BYE[this.lines++ % FARE_BYE.length], 4);
-    hud.toast(`Fare ${save.data.stats.fares}: ${money(paid.cash)} with the tip, ${paid.points} toward the bridge.`, 5);
-    hud.timer(null);
-    if (!this.nextFare()) this.stop('That was the last fare in town.');
+    this.cab.tick(dt, v);
+    this.target = this.cab.dest; this.targetName = this.cab.phase === 1 ? this.cab.destName : null;
+    this.prompt = this.cab.prompt;
   }
 
   // ── Courier ────────────────────────────────────────────────────────────────
@@ -649,6 +605,6 @@ export class Activities {
 
   /** For the tests: what the job in hand wants. */
   want(): { job: string; at: Pt | null; phase: number; hooked: boolean; drops: Pt[] } {
-    return { job: this.job, at: this.target, phase: this.phase, hooked: this.hooked, drops: this.drops.slice() };
+    return { job: this.job, at: this.target, phase: this.cab.phase, hooked: this.hooked, drops: this.drops.slice() };
   }
 }

@@ -29,6 +29,7 @@ import { Batch } from './batch';
 import type { Vehicle } from '../core/api';
 import { RNG, money } from '../core/util';
 import { commonKind, type VehicleKind } from '../ent/vehicleSpecs';
+import { cabSpots } from '../game/cabRank';
 import { BRIDGE_SPANS, groundAt, roadY, setBridgeSpans, type CityPlan } from './plan';
 import { SITES, STAGE_NAMES, TOWN_NAME } from './mainland';
 
@@ -429,8 +430,11 @@ export class ProgressWorks {
     // roll, so that a shared town can choose its own share of them.)
     // With the new streets (plan.streets) the kerbs are theirs, and `edge` is an edge of that graph.
     const rng = new RNG(4022), plan = game.plan, sg = plan.streets;
-    for (const s of sg ? sg.parking : plan.mainlandParking) {
-      const roll = rng.next(), kind = commonKind(rng.next()), tint = rng.next();
+    const lot = sg ? sg.parking : plan.mainlandParking, cabs = cabSpots(plan, lot, 1);
+    for (const s of lot) {
+      let roll = rng.next(), kind = commonKind(rng.next()), tint = rng.next();
+      // The cab ranks (game/cabRank.ts): a taxi stands here, always.
+      if (cabs.has(s)) { kind = 'taxi'; roll = 0; tint = 0; }
       this.parked.push({ x: s.x, z: s.z, h: s.h, kind, tint, edge: (sg ?? plan).nearestEdge(s.x, s.z).edge.id, v: null, roll });
     }
   }

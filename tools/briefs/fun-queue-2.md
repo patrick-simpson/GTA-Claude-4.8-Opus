@@ -26,7 +26,7 @@ GETTING AROUND
 [x] 7. Bus routes you can ride as a passenger, stops along the real streets.
 [x] 8. Ride the Budget Line passenger train between stations as fast travel.
 [x] 9. Bikes and scooters for the campus and the river walk.
-[ ] 10. Taxi missions: drive the Calamity Courtesy Cab for fares.
+[x] 10. Taxi missions: drive the Calamity Courtesy Cab for fares.
 [ ] 11. Boat taxi: island harbour <-> Tepid Falls river landing.
 [ ] 12. "Drive me there" autopilot along the navigation route (phones).
 THINGS TO DO

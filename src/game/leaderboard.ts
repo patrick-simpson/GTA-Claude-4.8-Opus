@@ -47,6 +47,7 @@ export const CATEGORIES: readonly Category[] = [
   { key: 'ducks', title: 'Ducks returned', max: 100_000, fmt: (v) => String(v) },
   { key: 'moose', title: 'Moose met', max: 100_000, fmt: (v) => String(v) },
   { key: 'presents', title: 'Presents found', max: 25, fmt: (v) => `${v} of 25` },
+  { key: 'taxi', title: 'Best taxi shift', max: 1_000_000, fmt: (v) => money(v) },
 ];
 export const CAT = Object.fromEntries(CATEGORIES.map((c, i) => [c.key, i])) as Record<string, number>;
 
@@ -81,6 +82,7 @@ export function myBest(game: Game, cat: number): number | null {
     // (The derby, fun queue item 13, counts its wins under one of these, once it exists.)
     case 'derby': return pos(c.derbyWins ?? c.derby ?? b['lb.derby']);
     case 'rush': return pos(b.rush);
+    case 'taxi': return pos(b.taxi);
     case 'money': return pos(Math.max(b['lb.money'] ?? 0, game.player ? game.player.money : 0));
     case 'ducks': return pos(c.ducksReturned);
     case 'moose': return pos(c.moose);

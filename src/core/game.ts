@@ -13,6 +13,7 @@ import { Christmas } from '../world/christmas';
 import { Sky } from '../world/sky';
 import { Vehicles } from '../ent/vehicle';
 import { SPECS, commonKind } from '../ent/vehicleSpecs';
+import { cabSpots } from '../game/cabRank';
 import { People } from '../ent/character';
 import { Ragdolls } from '../ent/ragdoll';
 import { Occupants } from '../ent/occupants';
@@ -264,15 +265,17 @@ export class Game {
     // Every kerb place is noted with the car that belongs in it, parked here or not: in a shared town (src/net/cars.ts)
     // every browser parks the same ones, and a car's place in this list is its number there.
     const rng = new RNG(4021), spots = this.parkSpots, share = 0.55 * this.quality.density;
+    const cabs = cabSpots(plan, plan.parking, 0);
     for (const s of plan.parking) {
       let roll = rng.next();
-      const kind = commonKind(rng.next());
+      const dice = commonKind(rng.next()), kind = cabs.has(s) ? 'taxi' as const : dice;
       const tint = rng.next();
       const colors = SPECS[kind].colors;
       const spot: ParkedSpot = { x: s.x, z: s.z, h: s.h, kind, color: colors[Math.floor(tint * colors.length)], roll, v: null };
       spots.push(spot);
       if ((Math.abs(s.x - truck.x) < 16 && Math.abs(s.z - truck.z) < 16) || (Math.abs(s.x - coupe.x) < 9 && Math.abs(s.z - coupe.z) < 9)
         || (Math.abs(s.x - bolt.x) < 9 && Math.abs(s.z - bolt.z) < 9) || (Math.abs(s.x - cmax.x) < 9 && Math.abs(s.z - cmax.z) < 9)) roll = spot.roll = 2;
+      if (cabs.has(s) && roll < 2) roll = spot.roll = 0;
       if (roll >= share) continue;
       const v = spot.v = this.vehicles.spawn(kind, s.x, s.z, s.h);
       v.color = spot.color;
