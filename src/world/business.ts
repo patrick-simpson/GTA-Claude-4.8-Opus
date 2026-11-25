@@ -9,7 +9,7 @@
 // is near. Signs: world/shopSigns.ts.
 
 import { CATEGORIES, CATEGORY_NAME, DIRECTORY, type Category } from './directory';
-import { mainlandLots, type Door, type OLot } from './mainlandBuildings';
+import { mainlandLots, PLACE_FIX, type Door, type OLot } from './mainlandBuildings';
 import { CAMPUS_BUILDINGS } from './dithersPlan';
 import { CIVIC } from './civicAssets';
 import { HQ } from './speedscanHQ';
@@ -147,7 +147,8 @@ export function places(plan: CityPlan, again = false): Place[] {
   };
   // No two places in town go by one name: where the directory repeats one (the college's four "Stands"), the later ones take their street's name too.
   const named = new Set(out.map((p) => p.name));
-  for (const [name0, ci, x, z, open] of DIRECTORY) {
+  for (const [name0, ci, x0, z0, open] of DIRECTORY) {
+    const fix = open ? undefined : PLACE_FIX.get(name0), x = fix ? fix[0] : x0, z = fix ? fix[1] : z0;
     const cat = CATEGORIES[ci];
     let name = name0;
     if (named.has(name)) {
@@ -156,7 +157,7 @@ export function places(plan: CityPlan, again = false): Place[] {
       for (let k = 2; named.has(name); k++) name = `${name0} ${k}`;
     }
     named.add(name);
-    const base = { name, cat, rx: x, rz: z, open: open === 1, game: false };
+    const base = { name, cat, rx: x0, rz: z0, open: open === 1, game: false };
     if (open) {
       // Open ground: placed where it stands, if a street is near enough to get to it.
       const ne = G.nearestEdge(x, z);

@@ -21,7 +21,7 @@ FINISH WHAT'S HALF-DONE
 [x] 3. Ease Chapel Hill's grade, or add a switchback.
 [x] 4. Re-shoot the trailer's tornado shot so the funnel reads clearly.
 [x] 5. Unique hero models for churches, schools and civic halls (steeples, clock towers).
-[ ] 6. Real doors for the 9 businesses still without a building.
+[x] 6. Real doors for the 9 businesses still without a building.
 GETTING AROUND
 [ ] 7. Bus routes you can ride as a passenger, stops along the real streets.
 [ ] 8. Ride the Budget Line passenger train between stations as fast travel.

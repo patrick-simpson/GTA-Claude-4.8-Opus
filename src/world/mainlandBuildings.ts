@@ -437,6 +437,9 @@ export const OPERA: Rect = STREETS_NEW ? { x0: 109, z0: -1866, x1: 153, z1: -183
 // heading, that keeps a sidewalk clear of every road and of its neighbours. Main St's two rows are laid out on their own (the
 // Blender models fill them), and the set pieces keep their sites (NEW_SITES): nothing else is built there.
 
+/** Directory places the gap-fill building stands away from (name to the building's centre): business.ts snaps them from there instead of the real spot. */
+export const PLACE_FIX = new Map<string, [number, number]>();
+
 /** The set pieces' sites under the new streets. */
 export const NEW_SITES = {
   /** Quorum Square: east of Main St at Bobbin St (real Castonguay Square, Main x Common St), behind the east row. */
@@ -728,31 +731,69 @@ export function mainlandLots(plan: CityPlan): OLot[] {
         let d: number;
         if (o) { const fx = Math.sin(o.h), fz = Math.cos(o.h), ex = x - o.cx, ez = z - o.cz; d = Math.hypot(Math.max(Math.abs(ex * fz - ez * fx) - o.w / 2, 0), Math.max(Math.abs(ex * fx + ez * fz) - o.d / 2, 0)); }
         else d = Math.hypot(Math.max(l.rect.x0 - x, 0, x - l.rect.x1), Math.max(l.rect.z0 - z, 0, z - l.rect.z1));
+        // A plain house in the stacks does not count as the shop's building (business.ts adds the same 10 m), so a shop beside one still gets its own.
+        if (l.district === 'stacks' && !(l.osm && l.osm.t !== 0)) d += 10;
         if (d < best) best = d;
       }
       for (const b of CAMPUS_BOXES) best = Math.min(best, Math.hypot(Math.max(b[0] - x, 0, x - b[2]), Math.max(b[1] - z, 0, z - b[3])));
       return best;
     };
     let n = 0;
-    for (const [, ci, x, z, open] of DIRECTORY) {
+    for (const [name, ci, x, z, open] of DIRECTORY) {
       if (open || dist(x, z) <= 26) continue;
       const ne = G.nearestEdge(x, z, (e) => !e.deck);
-      if (ne.d > 110) continue;
+      if (ne.d > 400) continue;
       const pp = G.pointAt(ne.edge, ne.s);
       let dx = pp.x - x, dz = pp.z - z; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
-      const h = Math.atan2(dx, dz), t = ci === 4 ? 7 : ci === 5 ? 8 : 2, w = ci === 4 ? 13 : 12, d = ci === 4 ? 16 : 9.5;
-      for (const bk of [0, 3, 6, 9, 12, 15, 20, 26, 32, 40, 50]) {
-        const o: Ori = { cx: x - dx * bk, cz: z - dz * bk, h, w, d };
-        if (RESERVED.some((q) => oriHit(o, rectOri(q), 0.5)) || taken.some((q) => oriHit(o, rectOri(q), 1)) || takenO.some((q) => oriHit(o, q, 1))) continue;
+      // A place far from every street (remote in the real town, or on a road the game has not drawn) is brought to the street: its frontage starts 12 m back from the nearest road.
+      const far = ne.d > 24, ax = far ? pp.x - dx * 12 : x, az = far ? pp.z - dz * 12 : z;
+      const t = ci === 4 ? 7 : ci === 5 ? 8 : 2, w = ci === 4 ? 13 : 12, d = ci === 4 ? 16 : 9.5;
+      const tryAt = (cx: number, cz: number, h: number): boolean => {
+        const o: Ori = { cx, cz, h, w, d };
+        if (RESERVED.some((q) => oriHit(o, rectOri(q), 0.5)) || taken.some((q) => oriHit(o, rectOri(q), 1)) || takenO.some((q) => oriHit(o, q, 1))) return false;
         const cs = oriCorners(o);
         let ok = G.clearOfRoads(o.cx, o.cz, 3) && coastSD(o.cx, o.cz) < -6 && waterDist(o.cx, o.cz) > 9;
         for (let c = 0; ok && c < 8; c += 2) ok = G.clearOfRoads(cs[c], cs[c + 1], 3.2) && G.clearOfRoads((cs[c] + cs[(c + 2) % 8]) / 2, (cs[c + 1] + cs[(c + 3) % 8]) / 2, 3.2) && waterDist(cs[c], cs[c + 1]) > 9;
-        if (!ok) continue;
+        if (!ok) return false;
+        // The door must have a street in front of it (a slide along a road that has ended finds none).
+        if (G.nearestEdge(cx + Math.sin(h) * (d / 2 + 2.5), cz + Math.cos(h) * (d / 2 + 2.5), (e) => !e.deck).d > 14) return false;
         const rect: Rect = { x0: Math.min(cs[0], cs[2], cs[4], cs[6]), z0: Math.min(cs[1], cs[3], cs[5], cs[7]), x1: Math.max(cs[0], cs[2], cs[4], cs[6]), z1: Math.max(cs[1], cs[3], cs[5], cs[7]) };
         const fx2 = Math.sin(h), fz2 = Math.cos(h), face = Math.abs(fz2) >= Math.abs(fx2) ? (fz2 < 0 ? 0 : 2) : (fx2 > 0 ? 1 : 3);
         out.push({ rect, block: 102000 + n, district: 'stacks', face, interior: false, ori: o, osm: { t, hm: 0, i: 5000 + n } });
         takenO.push(o); n++;
-        break;
+        if (Math.hypot(cx - x, cz - z) > 14) PLACE_FIX.set(name, [cx, cz]); // business.ts snaps this business from here
+        return true;
+      };
+      const lats = [0, 6, -6, 12, -12, 20, -20, 30, -30, 45, -45, 60, -60, 80, -80, 100, -100, 125, -125];
+      const around = (px: number, pz: number, ux: number, uz: number, lat: number[]): boolean => {
+        const h = Math.atan2(ux, uz);
+        // Nearest the road first: setback plus half the slide along it.
+        const opts: [number, number][] = [];
+        for (const l of lat) for (const bk of [0, 3, 6, 9, 12, 16, 22, 30]) opts.push([bk, l]);
+        opts.sort((p, q) => p[0] + Math.abs(p[1]) * 0.5 - q[0] - Math.abs(q[1]) * 0.5);
+        for (const [bk, l] of opts) if (tryAt(px - ux * bk - uz * l, pz - uz * bk + ux * l, h)) return true;
+        return false;
+      };
+      let done = around(ax, az, dx, dz, lats);
+      // The nearest road has no room (reserved ground, ramps, water): face any other road within reach, nearest first.
+      if (!done) {
+        const seen = new Set<string>(), cand: [number, number, number, number, number][] = [];
+        for (let rr = 15; rr <= 150; rr += 15) for (let a = 0; a < 360; a += 15) {
+          const sx = x + Math.cos(a * Math.PI / 180) * rr, sz = z + Math.sin(a * Math.PI / 180) * rr, e2 = G.nearestEdge(sx, sz, (e) => !e.deck);
+          if (e2.d > 5) continue;
+          const q = G.pointAt(e2.edge, e2.s), key = Math.round(q.x / 14) + ',' + Math.round(q.z / 14);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          // The front looks along the road's normal, toward the side the business is on.
+          const q1 = G.pointAt(e2.edge, e2.s - 2), q2 = G.pointAt(e2.edge, e2.s + 2);
+          let nx = -(q2.z - q1.z), nz = q2.x - q1.x; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+          if (nx * (x - q.x) + nz * (z - q.z) < 0) { nx = -nx; nz = -nz; }
+          cand.push([q.x, q.z, Math.hypot(q.x - x, q.z - z), -nx, -nz]);
+        }
+        cand.sort((p, q) => p[2] - q[2]);
+        for (const [qx, qz, , ux, uz] of cand) {
+          if (around(qx - ux * 12, qz - uz * 12, ux, uz, [0, 6, -6, 12, -12, 20, -20, 30, -30])) { done = true; break; }
+        }
       }
     }
   }
