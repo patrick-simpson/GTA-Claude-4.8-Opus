@@ -1,0 +1,25 @@
+/* The shop panel (ui/storePanel.ts): rent a storefront, stock and price your finds, take the till; or browse another player's. */
+.sp-back { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center; background: rgba(20, 33, 61, 0.55); }
+.sp-back.on { display: flex; }
+.sp-card {
+  width: min(44em, calc(100% - 1.2em)); max-height: calc(100% - 1.2em); overflow: auto;
+  background: var(--bone, #f2e8cf); color: var(--ink, #14213d); border: 3px solid var(--ink, #14213d);
+  box-shadow: 0.35em 0.35em 0 rgba(20, 33, 61, 0.55); padding: 0.9em 1.1em 1em;
+  font: 500 15px/1.35 var(--f-body, 'Barlow Semi Condensed', sans-serif);
+}
+.sp-card h2 { margin: 0; font: 800 1.7em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.04em; text-transform: uppercase; }
+.sp-card h3 { margin: 0.8em 0 0.25em; font: 700 0.95em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.1em; text-transform: uppercase; border-bottom: 2px solid var(--ink, #14213d); padding-bottom: 0.2em; }
+.sp-sub { opacity: 0.75; margin: 0.2em 0 0.4em; }
+.sp-row { display: flex; align-items: center; gap: 0.6em; padding: 0.3em 0; border-bottom: 1px dotted rgba(20, 33, 61, 0.35); flex-wrap: wrap; }
+.sp-row > b { flex: 1 1 11em; min-width: 8em; }
+.sp-row small { opacity: 0.7; display: block; font-weight: 500; }
+.sp-row input[type=number] { width: 5.2em; }
+.sp-card input[type=text], .sp-card input[type=number] { font: inherit; padding: 0.25em 0.4em; border: 2px solid var(--ink, #14213d); background: #fffaf0; color: var(--ink, #14213d); }
+.sp-name { width: 100%; max-width: 20em; font-size: 1.1em; }
+.sp-btn { font: 700 0.9em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.08em; text-transform: uppercase; padding: 0.5em 0.9em; min-height: 2.2em; border: 2px solid var(--ink, #14213d); background: var(--mustard, #f0a202); color: var(--ink, #14213d); cursor: pointer; }
+.sp-btn.alt { background: transparent; }
+.sp-btn[disabled] { opacity: 0.4; cursor: default; }
+.sp-bar { display: flex; gap: 0.5em; flex-wrap: wrap; margin-top: 0.7em; justify-content: space-between; align-items: center; }
+.sp-msg { color: #a3211c; min-height: 1.3em; font-weight: 700; }
+.sp-tag { display: inline-block; padding: 0 0.4em; border: 1.5px solid var(--ink, #14213d); font-size: 0.75em; letter-spacing: 0.06em; text-transform: uppercase; margin-left: 0.3em; }
+.sp-tag.uncommon { background: #8fd0a6; } .sp-tag.rare { background: #8fb3e0; } .sp-tag.ultra { background: var(--mustard, #f0a202); }

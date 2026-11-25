@@ -70,6 +70,21 @@ export interface SavedPlayer {
   owned: boolean[]; mags: number[]; spare: number[]; slot: number;
 }
 
+/** The player's rented storefront (game/stores.ts, fun queue 2 item 25), or null. */
+export interface ShopDoc {
+  /** Which storefront (the index in game/stores.ts SITES). */
+  site: number;
+  name: string;
+  /** What is on the shelves: a Pardon's find index and the price asked. */
+  stock: { id: number; price: number }[];
+  /** Takings not yet collected, and rent missed. */
+  till: number; owed: number;
+  /** Game hours traded into the current rent day (0 .. 24). */
+  acc: number;
+  /** Sold so far and the money it brought. */
+  sales: number; earned: number;
+}
+
 export interface SaveDoc {
   v: number;
   /** Date.now() of the last write. */
@@ -86,6 +101,7 @@ export interface SaveDoc {
   best: Record<string, number>;
   stats: Stats;
   settings: Settings;
+  shop: ShopDoc | null;
 }
 
 const num = (v: unknown, d: number, lo = -Infinity, hi = Infinity): number =>
@@ -110,7 +126,7 @@ export function freshSettings(): Settings {
   return { sens: 1, invertY: false, quality: 'auto', fsTap: true, reducedMotion: false, season: 'auto', volMaster: 0.8, volMusic: 0.7, volSfx: 0.8, volAmbience: 0.8, station: 0, radioV: 1 };
 }
 function fresh(): SaveDoc {
-  return { v: SAVE_VERSION, when: 0, player: null, missions: [], ducks: [], jumps: [], counts: {}, best: {}, stats: freshStats(), settings: freshSettings() };
+  return { v: SAVE_VERSION, when: 0, player: null, missions: [], ducks: [], jumps: [], counts: {}, best: {}, stats: freshStats(), settings: freshSettings(), shop: null };
 }
 
 /** Whatever was in storage, made into a document that can be trusted. Exported for the tests. */
@@ -144,6 +160,15 @@ export function sanitize(raw: unknown): SaveDoc {
   d.best = table(r.best);
   const s = obj(r.stats), ds = d.stats as unknown as Record<string, number>;
   for (const k of Object.keys(ds)) ds[k] = num(s[k], 0, 0);
+  const sh = obj(r.shop);
+  if (typeof sh.name === 'string' && Number.isInteger(sh.site) && (sh.site as number) >= 0 && (sh.site as number) < 32) {
+    const stock: { id: number; price: number }[] = [];
+    if (Array.isArray(sh.stock)) for (const e of sh.stock) {
+      const o = obj(e), id = o.id;
+      if (typeof id === 'number' && Number.isInteger(id) && id >= 0 && id < 30 && !stock.some((q) => q.id === id) && stock.length < 20) stock.push({ id, price: Math.round(num(o.price, 1, 1, 9999)) });
+    }
+    d.shop = { site: sh.site as number, name: sh.name.replace(/[^ -~]/g, '').slice(0, 20) || 'Odds & Ends', stock, till: Math.round(num(sh.till, 0, 0, 1e7)), owed: Math.round(num(sh.owed, 0, 0, 1e6)), acc: num(sh.acc, 0, 0, 24), sales: Math.round(num(sh.sales, 0, 0, 1e6)), earned: Math.round(num(sh.earned, 0, 0, 1e9)) };
+  }
   const t = obj(r.settings);
   d.settings.sens = num(t.sens, 1, 0.3, 2.5);
   d.settings.invertY = bool(t.invertY, false);

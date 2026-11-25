@@ -407,7 +407,7 @@ export function readDmgTail(buf: ArrayBuffer, out: Uint8Array): boolean {
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21, Cab: 22, Built: 23, Coop: 24, Convoy: 25 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21, Cab: 22, Built: 23, Coop: 24, Convoy: 25, Store: 26 } as const;
 // Emote (4 bytes): [kind, id, 15, emote id] (game/emotes.ts EMOTES; 0 = stopped). Sent when a player starts or stops one,
 // and again every few seconds while a looping one runs, for anybody who arrives. Relayed unread by the service; a page
 // that does not know code 15 hands it to the weapons code, which ignores codes it does not know: no new version.
@@ -2080,6 +2080,47 @@ export function decodeConvoy(buf: ArrayBuffer): ConvoyMsg | null {
   if (!Number.isFinite(m.x) || !Number.isFinite(m.z) || Math.abs(m.x) > 20000 || Math.abs(m.z) > 20000) return null;
   for (let i = 0; i < Math.min(u[15], CONVOY_MAX) && 16 + i < buf.byteLength; i++) m.ids.push(u[16 + i]);
   return m;
+}
+
+// ---- Player-run shops (fun queue 2, item 25; net/stores.ts, game/stores.ts) ----
+//
+// Event frames (byte 2 PlayerEvent.Store = 26), relayed unread by both services like Coop = 24 and Convoy = 25 (room.ts
+// copies any Event frame of up to MAX_PLAYER_FRAME_BYTES = 96; a page from before this hands code 26 to fight.ts, which
+// ignores codes it does not know). Still protocol v6, no service change, no new fact key. One layout, 13 + L + 3n bytes:
+//   3 kind (StoreKind)  4 owner u8 (whose shop)  5 buyer u8  6 site u8 (which storefront)  7 reason u8 (Deny)
+//   8 item u8 (a Pardon's find index)  9..10 price u16  11 L u8 (name length)  12 n u8 (stock count)
+//   13.. L name bytes (printable ASCII)  then n x (item u8, price u16)
+//   Open:  the owner's word, on every change and about every 5 s: the shop name and what is on the shelves
+//   Close: the owner gave the storefront up
+//   Buy:   a customer asks to buy `item` at `price` from `owner`
+//   Sold:  the owner sold it to `buyer` (the customer's browser then keeps the item)
+//   Deny:  the owner refused (reason 1 gone, 2 price changed, 3 too far, 4 closed)
+export const StoreKind = { Open: 1, Close: 2, Buy: 3, Sold: 4, Deny: 5 } as const;
+export const STORE_MAX_NAME = 20, STORE_MAX_STOCK = 20;
+export interface StoreMsg { id: number; kind: number; owner: number; buyer: number; site: number; reason: number; item: number; price: number; name: string; stock: { item: number; price: number }[] }
+
+export function encodeStore(m: StoreMsg): ArrayBuffer {
+  const name = m.name.replace(/[^\x20-\x7e]/g, '').slice(0, STORE_MAX_NAME), stock = m.stock.slice(0, STORE_MAX_STOCK);
+  const buf = makeFrame(Frame.Event, 13 + name.length + 3 * stock.length - FRAME_HEADER_BYTES);
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  u[2] = PlayerEvent.Store; u[3] = m.kind & 0xff; u[4] = m.owner & 0xff; u[5] = m.buyer & 0xff; u[6] = m.site & 0xff; u[7] = m.reason & 0xff;
+  u[8] = m.item & 0xff; d.setUint16(9, Math.max(0, Math.min(65535, Math.round(m.price))), true); u[11] = name.length; u[12] = stock.length;
+  for (let i = 0; i < name.length; i++) u[13 + i] = name.charCodeAt(i);
+  stock.forEach((s, i) => { const o = 13 + name.length + 3 * i; u[o] = s.item & 0xff; d.setUint16(o + 1, Math.max(0, Math.min(65535, Math.round(s.price))), true); });
+  return buf;
+}
+
+export function decodeStore(buf: ArrayBuffer): StoreMsg | null {
+  if (buf.byteLength < 13) return null;
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Store || u[3] < 1 || u[3] > 5) return null;
+  const L = Math.min(u[11], STORE_MAX_NAME), n = Math.min(u[12], STORE_MAX_STOCK);
+  if (13 + L + 3 * n > buf.byteLength) return null;
+  let name = '';
+  for (let i = 0; i < L; i++) { const c = u[13 + i]; if (c >= 32 && c < 127) name += String.fromCharCode(c); }
+  const stock: { item: number; price: number }[] = [];
+  for (let i = 0; i < n; i++) { const o = 13 + L + 3 * i; stock.push({ item: u[o], price: d.getUint16(o + 1, true) }); }
+  return { id: u[1], kind: u[3], owner: u[4], buyer: u[5], site: u[6], reason: u[7], item: u[8], price: d.getUint16(9, true), name, stock };
 }
 
 // ---- Demolition derby at Flounder Field (fun queue item 13; net/derby.ts, game/derby.ts) ----
