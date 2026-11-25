@@ -32,6 +32,7 @@ import { BetPanel } from '../ui/betPanel';
 import { Derby } from './derby';
 import { TownEvents } from './events';
 import { Finds } from './finds';
+import { TownProject } from './project';
 import { Shops } from './shops';
 import { Menu } from '../ui/menu';
 import { Navigator } from './nav';
@@ -93,6 +94,8 @@ export class ThingsToDo {
   readonly events: TownEvents;
   /** Lost ducks and bridge-bond receipts hidden across Tepid Falls (fun queue 2, item 22). */
   readonly finds: Finds;
+  /** The town project: the Millpond Promenade, opened by everybody's points (fun queue 2, item 28). */
+  readonly project: TownProject;
   readonly shops: Shops;
   /** The Calamity Courtesy Cab: fast travel from the map (game/travel.ts). */
   readonly travel: Cab;
@@ -137,6 +140,7 @@ export class ThingsToDo {
     this.derby = new Derby(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.events = new TownEvents(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.finds = new Finds(game);
+    this.project = new TownProject(game);
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.gigs = new Gigs(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.plow = new Plow(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
@@ -250,6 +254,7 @@ export class ThingsToDo {
     this.betPanel.update();
     this.events.update(dt);
     this.finds.update(dt);
+    this.project.update();
     this.delivery.update(dt);
     this.plow.update(dt);
     this.snow.update(dt);
@@ -261,7 +266,7 @@ export class ThingsToDo {
     const w = this.waypoint;
     if (w) this.markers.put(w.x, w.z, 'goal', 5, 30);
     this.markers.end();
-    this.say(this.missions.prompt ?? this.semester.prompt ?? this.heist.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.coop.prompt ?? this.delivery.prompt ?? this.plow.prompt ?? this.snow.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.stores.prompt ?? this.events.prompt ?? this.fishing.prompt);
+    this.say(this.missions.prompt ?? this.semester.prompt ?? this.heist.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.coop.prompt ?? this.delivery.prompt ?? this.plow.prompt ?? this.snow.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.stores.prompt ?? this.events.prompt ?? this.project.prompt ?? this.fishing.prompt);
     // M or Tab (Back on a pad): straight to the map.
     if (g.input.eat('map')) { this.menu.tab = 0; g.setPaused(true); }
     const down = !(g.player.health > 0);
@@ -304,6 +309,7 @@ export class ThingsToDo {
       this.derby.blips(out);
       this.events.blips(out);
       this.finds.blips(out);
+      this.project.blips(out);
       this.shops.blips(out);
       const w = this.waypoint;
       if (w) { if (Math.hypot(p.x - w.x, p.z - w.z) < 14) this.waypoint = null; else out.push({ x: w.x, z: w.z, kind: 'way' }); }

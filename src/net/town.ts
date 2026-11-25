@@ -44,9 +44,8 @@
 
 import type { Game } from '../core/game';
 import type { Weather } from '../core/api';
-import { cmpStand, progress, type Stand } from '../world/progress';
+import { cmpStand, progress, stageName, type Stand } from '../world/progress';
 import { BRIDGE_SPANS } from '../world/plan';
-import { STAGE_NAMES } from '../world/mainland';
 import {
   FACT_BRIDGE, FACT_CLOCK, FACT_KID, FACT_WEATHER_SEED, GIVE_BYTES, KID_BYTES, decodeKid, encodeKid, MINE_BYTES, TOWN_WEATHERS, ToHostKind,
   decodeGive, decodeMine, encodeGive, encodeMine, encodeMsg,
@@ -215,7 +214,7 @@ export class Town {
   private finished(was: Stand, to: Stand, by: number): void {
     const span = to.spans > was.spans, stage = to.stage > was.stage;
     if (!span && !stage) return;
-    const what = stage ? `${STAGE_NAMES[to.stage] ?? `stage ${to.stage}`}` : `span ${to.spans} of ${BRIDGE_SPANS}`;
+    const what = stage ? stageName(to.stage) : `span ${to.spans} of ${BRIDGE_SPANS}`;
     const mine = by !== 0 && by === this.conn.id, r = by ? this.remotes.get(by) : undefined;
     const line = mine ? `Your points finished ${what} for the town.` : r ? `${r.text}'s points finished ${what}.` : `The town's points finished ${what}.`;
     this.lastFinish = line;

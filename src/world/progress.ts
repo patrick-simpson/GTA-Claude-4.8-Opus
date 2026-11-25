@@ -35,13 +35,26 @@ import { SITES, STAGE_NAMES, TOWN_NAME } from './mainland';
 
 const KEY = 'portcalamity.progress.v1';
 export const STAGES = 4;
-/** Price of span k (1..BRIDGE_SPANS) and of stage n (1..STAGES), in points. A dollar at the box is a point. */
+/**
+ * The next town project (game/project.ts, fun queue 2 item 28): the Millpond Promenade. It is the goals AFTER the four stages of
+ * Tepid Falls, in the same pool of points and the same fact (FACT_BRIDGE [spans, stage, bank, by]): stage 5, 6 and 7. A page of
+ * an older build reads them as the whole town open (it clamps to 4). ?streets=old has no ground for it, so no project goals.
+ */
+const NEW_STREETS = typeof location === 'undefined' || new URLSearchParams(location.search).get('streets') !== 'old';
+export const PROJECT_STAGES = NEW_STREETS ? 3 : 0;
+export const ALL_STAGES = STAGES + PROJECT_STAGES;
+export const PROJECT_NAME = 'Millpond Promenade';
+export const PROJECT_STAGE_NAMES = ['The Gates Open', 'The Lamps Are Lit', 'The Pavilion'];
+/** What stage n is called: Tepid Falls' own (1..STAGES), then the project's. */
+export const stageName = (n: number): string => n <= STAGES ? (STAGE_NAMES[n] ?? `Stage ${n}`) : (PROJECT_STAGE_NAMES[n - STAGES - 1] ?? `Stage ${n}`);
+/** Price of span k (1..BRIDGE_SPANS) and of stage n (1..ALL_STAGES), in points. A dollar at the box is a point. */
 export const spanCost = (k: number): number => 250 + 100 * (k - 1);
-export const stageCost = (n: number): number => 800 + 400 * n;
+export const stageCost = (n: number): number => n <= STAGES ? 800 + 400 * n : 1500 + 500 * (n - STAGES - 1);
 /** Meters driven per point of trickle. */
 const DRIVE_M = 60;
 
 export type ProgressChange = 'bridge' | 'stage';
+export type GoalKind = 'bridge' | 'stage' | 'project';
 /** How far along: spans, stage, and the points held toward the next goal. */
 export interface Stand { spans: number; stage: number; bank: number }
 /** The town this browser is in (net/town.ts). */
@@ -55,9 +68,9 @@ export function cmpStand(a: Stand, b: Stand): number { return a.spans - b.spans 
 
 /** What `s` is working toward: the goal's kind, number and price, or null when everything is open. */
 /** The goal a stand's points go toward next, or null when everything is open. */
-export function goalOf(s: Stand): { kind: ProgressChange; n: number; cost: number } | null {
+export function goalOf(s: Stand): { kind: GoalKind; n: number; cost: number } | null {
   if (s.spans < BRIDGE_SPANS) return { kind: 'bridge', n: s.spans + 1, cost: spanCost(s.spans + 1) };
-  if (s.stage < STAGES) return { kind: 'stage', n: s.stage + 1, cost: stageCost(s.stage + 1) };
+  if (s.stage < ALL_STAGES) return { kind: s.stage + 1 > STAGES ? 'project' : 'stage', n: s.stage + 1, cost: stageCost(s.stage + 1) };
   return null;
 }
 
@@ -73,7 +86,7 @@ function advance(s: Stand, points: number): number {
   if (!goalOf(s)) s.bank = 0;
   return done;
 }
-export interface Goal { kind: ProgressChange; n: number; label: string; cost: number; have: number }
+export interface Goal { kind: GoalKind; n: number; label: string; cost: number; have: number }
 
 class Progress {
   /** New spans built, 0..BRIDGE_SPANS. 0 is the original stub that stops in mid-air. */
@@ -107,15 +120,16 @@ class Progress {
       if (raw) {
         const s = JSON.parse(raw) as Partial<Progress>;
         this.spans = clampInt(s.spans, 0, BRIDGE_SPANS);
-        this.stage = this.spans < BRIDGE_SPANS ? 0 : clampInt(s.stage, 0, STAGES);
+        this.stage = this.spans < BRIDGE_SPANS ? 0 : clampInt(s.stage, 0, ALL_STAGES);
         this.bank = Math.max(0, Number(s.bank) || 0);
         this.total = Math.max(0, Number(s.total) || 0);
       }
     } catch { /* private browsing, or a save from some other shape: start from nothing */ }
-    const q = new URLSearchParams(location.search), qb = q.get('bridge'), qs = q.get('stage');
-    if (qb !== null || qs !== null) {
+    const q = new URLSearchParams(location.search), qb = q.get('bridge'), qs = q.get('stage'), qp = q.get('project');
+    if (qb !== null || qs !== null || qp !== null) {
       this.saving = false;
-      this.stage = clampInt(qs ?? 0, 0, STAGES);
+      // ?project=done (the whole promenade) or ?project=1..3 (that many of its stages): the bridge and Tepid Falls finished.
+      this.stage = qp !== null ? (qp === 'done' ? ALL_STAGES : STAGES + clampInt(qp, 0, PROJECT_STAGES)) : clampInt(qs ?? 0, 0, ALL_STAGES);
       this.spans = this.stage > 0 ? BRIDGE_SPANS : clampInt(qb ?? 0, 0, BRIDGE_SPANS);
       this.bank = 0;
     }
@@ -126,9 +140,11 @@ class Progress {
   attach(game: Game): void { this.game = game; }
 
   get complete(): boolean { return this.spans >= BRIDGE_SPANS; }
-  get allDone(): boolean { return this.complete && this.stage >= STAGES; }
+  get allDone(): boolean { return this.complete && this.stage >= ALL_STAGES; }
+  /** Stages of the town project open, 0..PROJECT_STAGES (game/project.ts). */
+  get project(): number { return this.complete ? Math.max(0, this.stage - STAGES) : 0; }
   /** Goals finished out of all of them, 0..1, for a progress readout. */
-  get fraction(): number { return (this.spans + this.stage) / (BRIDGE_SPANS + STAGES); }
+  get fraction(): number { return (this.spans + this.stage) / (BRIDGE_SPANS + ALL_STAGES); }
 
   /** What the points are going toward right now, or null when everything is open. */
   goal(): Goal | null {
@@ -136,9 +152,11 @@ class Progress {
       const n = this.spans + 1;
       return { kind: 'bridge', n, label: `Span ${n} of ${BRIDGE_SPANS}`, cost: spanCost(n), have: this.bank };
     }
-    if (this.stage < STAGES) {
+    if (this.stage < ALL_STAGES) {
       const n = this.stage + 1;
-      return { kind: 'stage', n, label: STAGE_NAMES[n], cost: stageCost(n), have: this.bank };
+      return n > STAGES
+        ? { kind: 'project', n, label: `${PROJECT_NAME}: ${stageName(n)}`, cost: stageCost(n), have: this.bank }
+        : { kind: 'stage', n, label: STAGE_NAMES[n], cost: stageCost(n), have: this.bank };
     }
     return null;
   }
@@ -151,7 +169,7 @@ class Progress {
    * on the screen is refused (false). `announce`: somebody in town has just earned it, so say so as if it were earned here.
    */
   showTown(t: Stand, announce: boolean): boolean {
-    const spans = clampInt(t.spans, 0, BRIDGE_SPANS), stage = spans < BRIDGE_SPANS ? 0 : clampInt(t.stage, 0, STAGES);
+    const spans = clampInt(t.spans, 0, BRIDGE_SPANS), stage = spans < BRIDGE_SPANS ? 0 : clampInt(t.stage, 0, ALL_STAGES);
     const to: Stand = { spans, stage, bank: Math.max(0, Number(t.bank) || 0) };
     if (!goalOf(to)) to.bank = 0;
     if (this.mine && cmpStand(to, this) < 0) return false;
@@ -165,7 +183,7 @@ class Progress {
     this.apply();
     this.quiet = !announce;
     try {
-      if (announce && this.game?.state === 'play') this.announce(staged ? { kind: 'stage', n: stage, label: STAGE_NAMES[stage], cost: 0, have: 0 } : { kind: 'bridge', n: spans, label: '', cost: 0, have: 0 });
+      if (announce && this.game?.state === 'play') this.announce(staged ? { kind: stage > STAGES ? 'project' : 'stage', n: stage, label: stageName(stage), cost: 0, have: 0 } : { kind: 'bridge', n: spans, label: '', cost: 0, have: 0 });
       if (bridge) this.emit('bridge');
       if (staged) this.emit('stage');
     } finally { this.quiet = false; }
@@ -209,7 +227,7 @@ class Progress {
       if (g.kind === 'bridge') this.spans++; else this.stage++;
       this.apply();
       this.announce(g);
-      this.emit(g.kind);
+      this.emit(g.kind === 'bridge' ? 'bridge' : 'stage');
       done++;
     }
     if (!this.goal()) this.bank = 0;
@@ -246,7 +264,7 @@ class Progress {
 
   /** Tests and cheats: open the mainland up to stage n. Any stage at all needs the whole bridge. */
   setStage(n: number): void {
-    const v = clampInt(n, 0, STAGES);
+    const v = clampInt(n, 0, ALL_STAGES);
     const m = this.mine;
     if (m) {
       if (v !== m.stage || (v > 0 && m.spans < BRIDGE_SPANS)) { m.stage = v; m.bank = 0; if (v > 0) m.spans = BRIDGE_SPANS; this.save(); }
@@ -297,12 +315,22 @@ class Progress {
         hud.toast(`Span ${g.n} of ${BRIDGE_SPANS} is in. The bridge now ends ${BRIDGE_SPANS - g.n === 1 ? 'one span' : `${BRIDGE_SPANS - g.n} spans`} short instead.`, 7);
         hud.tag(`Span ${g.n} of ${BRIDGE_SPANS} built`, 'The Perpetual Bridge', 6);
       }
+    } else if (g.kind === 'project') {
+      const k = g.n - STAGES - 1;
+      hud.toast(PROJECT_TOASTS[k] ?? `${g.label} is done.`, 8);
+      hud.tag(stageName(g.n), `${PROJECT_NAME}: ${g.n - STAGES} of ${PROJECT_STAGES}`, 7);
     } else {
       hud.toast(`${g.label} is open. The barriers have been moved somewhere else.`, 7);
       hud.tag(g.label, `${TOWN_NAME}: now open`, 6);
     }
   }
 }
+
+const PROJECT_TOASTS = [
+  'The Millpond Promenade is open. The fence has come down, the gate has been unchained, and a bench has been installed facing the wrong way.',
+  'The Promenade lamps are lit, and the string lights go on at dusk. The Harbor Authority has asked that nobody call it romantic.',
+  'The Millpond Pavilion is finished. The band has been booked. So has the pigeon.',
+];
 
 function clampInt(v: unknown, lo: number, hi: number): number {
   const n = Math.round(Number(v));
@@ -584,7 +612,8 @@ export class ProgressWorks {
 
     // The box in use: the bridge fund until the bridge is done, then the town's.
     const goal = progress.goal(), box = this.boxes[progress.complete ? 1 : 0];
-    const near = goal !== null && !pl.vehicle && Math.abs(pl.x - box.x) < 2.6 && Math.abs(pl.z - box.z) < 2.6;
+    // (The town project's own board takes the money for its goals: game/project.ts.)
+    const near = goal !== null && goal.kind !== 'project' && !pl.vehicle && Math.abs(pl.x - box.x) < 2.6 && Math.abs(pl.z - box.z) < 2.6;
     if (near && goal) {
       const need = Math.ceil(goal.cost - goal.have);
       // (In a shared town the fund is the town's; the player's own progress is said beside it.)

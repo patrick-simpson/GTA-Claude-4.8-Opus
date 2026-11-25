@@ -20,7 +20,7 @@ import type { ThingsToDo } from '../game/index';
 import { DISTRICT_NAME, EW_NAMES, NS_NAMES, RAMPS, XS, ZS, BRIDGE } from '../world/plan';
 import type { District } from '../world/plan';
 import { BRIDGE_SPANS } from '../world/plan';
-import { STAGES, goalOf, progress } from '../world/progress';
+import { PROJECT_NAME, PROJECT_STAGES, STAGES, goalOf, progress, stageName } from '../world/progress';
 import { STAGE_NAMES } from '../world/mainland';
 import { money } from '../core/util';
 import { DUCKS } from '../game/activities';
@@ -645,7 +645,7 @@ export class Menu {
     const town = progress.mine !== null, own = progress.own();
     const ownLine = (): string => {
       const g = goalOf(own);
-      return `${own.spans} of ${BRIDGE_SPANS} spans${own.stage ? `, ${esc(STAGE_NAMES[own.stage] ?? `stage ${own.stage}`)} open` : ''}${g ? ` · ${g.kind === 'bridge' ? `span ${g.n}` : esc(STAGE_NAMES[g.n] ?? `stage ${g.n}`)}: ${Math.floor(own.bank)} of ${g.cost} points` : ''}`;
+      return `${own.spans} of ${BRIDGE_SPANS} spans${own.stage ? `, ${esc(stageName(own.stage))} open` : ''}${g ? ` · ${g.kind === 'bridge' ? `span ${g.n}` : esc(stageName(g.n))}: ${Math.floor(own.bank)} of ${g.cost} points` : ''}`;
     };
     const row = (label: string, value: string): string => `<div class="mn-row"><span class="mn-lbl">${label}</span><span>${value}</span></div>`;
     const ms = todo.missions.missions.map((m, i) => {
@@ -656,6 +656,8 @@ export class Menu {
     const jumps = RAMP_NAMES.map((n, i) => `<div class="mn-check ${d.jumps.includes(i) ? 'done' : 'open'}"><i>${d.jumps.includes(i) ? '✕' : ''}</i><b>${n}</b><em>${d.best['jump:' + i] !== undefined ? `best ${d.best['jump:' + i]} pts` : ''}</em></div>`).join('');
     const races = todo.jobs.races.map((r) => { const b = d.best['race:' + r.name]; return `<div class="mn-check ${b !== undefined && b <= r.par ? 'done' : 'open'}"><i>${b !== undefined && b <= r.par ? '✕' : ''}</i><b>${esc(r.name)}</b><em>par ${clock(r.par)}${b !== undefined ? ` · best ${clock(b)}` : ''}</em></div>`; }).join('');
     const stages = Array.from({ length: STAGES }, (_, i) => `<div class="mn-check ${progress.stage > i ? 'done' : ''}"><i>${progress.stage > i ? '✕' : ''}</i><b>${esc(STAGE_NAMES[i + 1] ?? `Stage ${i + 1}`)}</b></div>`).join('');
+    const projectRows = PROJECT_STAGES > 0 ? Array.from({ length: PROJECT_STAGES }, (_, i) => `<div class="mn-check ${progress.stage > STAGES + i ? 'done' : ''}"><i>${progress.stage > STAGES + i ? '✕' : ''}</i><b>${esc(stageName(STAGES + i + 1))}</b></div>`).join('') : '';
+    const projectHead = town ? `${PROJECT_NAME}, the town's project` : `${PROJECT_NAME}, a town project`;
     return `
 <div class="mn-form">
   <div class="mn-sec">
@@ -666,6 +668,7 @@ export class Menu {
     ${row(town ? 'Your points to date' : 'Points to date', Math.floor(progress.total).toLocaleString('en-US'))}
     <h3>Section B · Tepid Falls</h3>
     ${stages}
+    ${PROJECT_STAGES > 0 ? `<h3>Section B2 · ${projectHead}</h3>${projectRows}${progress.stage < STAGES ? row('Opens', 'When every part of Tepid Falls is open') : ''}` : ''}
   </div>
   <div class="mn-sec">
     <h3>Section C · Business concluded (${d.missions.length} of ${todo.missions.missions.length})</h3>
