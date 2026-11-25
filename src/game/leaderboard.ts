@@ -57,6 +57,8 @@ export const CATEGORIES: readonly Category[] = [
   { key: 'gpa', title: 'Best GPA', max: 400, fmt: (v) => (v / 100).toFixed(2) },
   // Fun queue 2, item 17: a time, kept as 3600 minus the seconds so that, like every row, the biggest number wins. No run under 45 s is believable.
   { key: 'speedscan', title: 'Fastest Speed Scan', max: 3555, fmt: (v) => clock(3600 - v) },
+  // Fun queue 2, item 19: the Regatta's best time, kept the same way. No lap of that course is believable under 20 s. (Still 7 board facts: 20 rows fit in 7 of 3.)
+  { key: 'regatta', title: 'Regatta best time', max: 3580, fmt: (v) => clock(3600 - v) },
 ];
 export const CAT = Object.fromEntries(CATEGORIES.map((c, i) => [c.key, i])) as Record<string, number>;
 
@@ -100,6 +102,7 @@ export function myBest(game: Game, cat: number): number | null {
     case 'finds': return pos(findsCatalogued());
     case 'fish': return pos(heaviest());
     case 'gpa': return pos(gpaBoard());
+    case 'regatta': { const t = b['ev.regatta']; return t !== undefined && t > 0 ? pos(Math.max(1, Math.round(3600 - t))) : null; }
     case 'speedscan': { const t = b['hs.time']; return t !== undefined && t > 0 ? pos(Math.max(1, 3600 - t)) : null; }
     default: return null;
   }

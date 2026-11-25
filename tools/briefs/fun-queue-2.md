@@ -36,7 +36,7 @@ THINGS TO DO
 [x] 16. Dithers College semester: short campus missions.
 [x] 17. SpeedScan HQ heist using the floors and the elevator.
 [x] 18. Street-race builder: pick checkpoints, share with the town.
-[ ] 19. Weekly town events: derby night, Christmas fair, moose festival, regatta.
+[x] 19. Weekly town events: derby night, Christmas fair, moose festival, regatta. (game/events.ts: calendar from the real date in Maine + the town clock, evenings game hours 17-23: Wed Regatta, Fri Derby Night, Sat Christmas Fair in the holiday season, Sun Moose Festival; no new fact keys; ?event=moose|regatta|derby|fair forces one on; prizes ev.antler / ev.trophy / ev.cane / ev.regatta in the save; board row 20 'Regatta best time' adds no key.)
 [ ] 20. Snowplow and salt-truck jobs when snow is lying.
 [ ] 21. Photo-mode challenges.
 [ ] 22. Tepid Falls collectibles (lost ducks, bridge-bond receipts) with a tracker.

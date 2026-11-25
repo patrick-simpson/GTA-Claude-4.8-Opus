@@ -13,6 +13,7 @@ import { STATIONS } from '../world/railway';
 import { DOCKS } from '../world/ferryRoute';
 import { STREETS_NEW } from '../world/streets';
 import type { Gig } from '../game/gigs';
+import type { EventRow } from '../game/events';
 import { stationPoint, PLATFORM_IN, PLATFORM_W } from '../world/trainStations';
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
@@ -44,6 +45,9 @@ export class PlacesPanel {
   private gigs = false;
   private gigList: Gig[] = [];
   private gigSel: Gig | null = null;
+  /** The chip "Events" is on: this week's town events with their countdowns (game/events.ts). */
+  private events = false;
+  private evList: EventRow[] = [];
   private shown: Place[] = [];
   private decided = false;
 
@@ -65,9 +69,12 @@ export class PlacesPanel {
     this.list = el.querySelector('.pl-list') as HTMLElement;
     this.foot = el.querySelector('.pl-foot') as HTMLElement;
     this.sel = el.querySelector('.pl-sel') as HTMLElement;
-    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-gigchip" data-cat="gigs"><i style="background:#2a9d8f"></i>Gigs</button>`, `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...(STATIONS.length ? [`<button type="button" class="pl-chip pl-railchip" data-cat="rail"><i style="background:#2a7a45"></i>Train stations</button>`] : []), ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-ferrychip" data-cat="ferry"><i style="background:#1d5566"></i>Ferry</button>`] : []), ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
+    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-gigchip" data-cat="gigs"><i style="background:#2a9d8f"></i>Gigs</button>`, `<button type="button" class="pl-chip pl-evchip" data-cat="events"><i style="background:#b3262e"></i>Events</button>`, `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...(STATIONS.length ? [`<button type="button" class="pl-chip pl-railchip" data-cat="rail"><i style="background:#2a7a45"></i>Train stations</button>`] : []), ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-ferrychip" data-cat="ferry"><i style="background:#1d5566"></i>Ferry</button>`] : []), ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
 
     (el.querySelector('.pl-tab') as HTMLElement).addEventListener('click', () => this.fold(!el.classList.contains('fold')));
+    this.foot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.pl-ant')) { this.todo.events.setWearing(!this.todo.events.wearingAntlers); this.refresh(); } });
+    // The Events list counts down on the wall clock, paused or not.
+    window.setInterval(() => { if (this.events && el.offsetParent) this.refresh(); }, 1000);
     // Typing here is not steering the map: keep the menu's and the game's key handlers out of it (Escape still reaches them).
     const keep = (e: KeyboardEvent): void => { if (e.code !== 'Escape') e.stopPropagation(); };
     this.q.addEventListener('keydown', (e) => { keep(e); if (e.code === 'Enter') { e.preventDefault(); this.pick(this.shown[0]); this.q.blur(); } });
@@ -80,14 +87,16 @@ export class PlacesPanel {
       this.rail = b.dataset.cat === 'rail';
       this.ferry = b.dataset.cat === 'ferry';
       this.gigs = b.dataset.cat === 'gigs';
+      this.events = b.dataset.cat === 'events';
       this.gigSel = null;
-      this.cat = this.hub || this.rail || this.ferry || this.gigs ? null : ((b.dataset.cat || null) as Category | null);
+      this.cat = this.hub || this.rail || this.ferry || this.gigs || this.events ? null : ((b.dataset.cat || null) as Category | null);
       this.chips.querySelectorAll('.pl-chip').forEach((c) => c.classList.toggle('on', c === b));
       this.refresh();
     });
     this.list.addEventListener('click', (e) => {
       const li = (e.target as HTMLElement).closest<HTMLElement>('[data-i]');
       if (li && this.gigs) { this.pickGig(this.gigList[Number(li.dataset.i)]); return; }
+      if (li && this.events) { this.pickEvent(this.evList[Number(li.dataset.i)]); return; }
       if (li) this.pick(this.shown[Number(li.dataset.i)]);
     });
     this.sel.addEventListener('click', (e) => {
@@ -118,6 +127,7 @@ export class PlacesPanel {
     if (!this.decided) { this.decided = true; this.fold(this.game.input.touch); }
     const p = this.game.player, all = this.todo.places();
     if (this.gigs) { this.refreshGigs(); return; }
+    if (this.events) { this.refreshEvents(); return; }
     const placed = all.filter((x) => x.placed);
     const found = this.ferry ? this.ferryPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.rail ? this.railPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.hub ? this.hubPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : findPlaces(all, this.q.value, this.cat);
     if (!this.hub && !this.rail && !this.ferry) found.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
@@ -131,6 +141,28 @@ export class PlacesPanel {
     }).join('') || `<li class="pl-none">Nothing by that name. Try a kind of place: pizza, bank, church, bakery.</li>`;
     this.foot.textContent = `${found.length > 80 ? 'Nearest 80 of ' : ''}${found.length} of ${placed.length} places in town` + (all.length > placed.length ? ` · ${all.length - placed.length} more not built yet` : '');
     this.showSel();
+  }
+
+  /** This week's town events: the next to open first, with the countdown; picking one sets the waypoint to it. */
+  private refreshEvents(): void {
+    const p = this.game.player, ev = this.todo.events;
+    this.shown = [];
+    this.evList = ev.rows();
+    this.list.innerHTML = this.evList.map((x, i) => {
+      const d = Math.hypot(x.x - p.x, x.z - p.z);
+      return `<li><button type="button" class="pl-row${x.when.open ? ' on' : ''}" data-i="${i}"><i style="background:#b3262e"></i><span class="pl-nm">${esc(x.title)} · ${esc(x.day)}</span><span class="pl-sub">${esc(x.where)} · ${distText(d)} · ${esc(x.text)}</span></button></li>`;
+    }).join('');
+    this.foot.innerHTML = `Evenings, 5 pm to 11 pm on the town clock · the same for everyone · a toast tells you when one opens nearby${ev.hasAntlers ? ` · <button type="button" class="pl-ant">Antlers: ${ev.wearingAntlers ? 'on' : 'off'}</button>` : ''}`;
+    this.sel.innerHTML = ''; this.sel.classList.remove('on');
+  }
+
+  private pickEvent(x: EventRow | undefined): void {
+    if (!x) return;
+    this.todo.waypoint = { x: x.x, z: x.z };
+    this.todo.dest = null;
+    this.view.focus(x.x, x.z, 1.3);
+    this.refresh();
+    this.view.redraw();
   }
 
   /** The Gigs list: orders near her, nearest pickup first, with the pay; picking one sets the route to its pickup door. */
@@ -164,6 +196,7 @@ export class PlacesPanel {
   }
 
   private showSel(): void {
+    if (this.events) { this.sel.innerHTML = ''; this.sel.classList.remove('on'); return; }
     if (this.gigs) {
       const gg = this.todo.gigs, x = this.gigSel, act = gg.busy ? gg.info() : null;
       if (act) { this.sel.classList.add('on'); this.sel.innerHTML = `<b>On an order</b><span>${esc(act.phase === 0 ? 'Pickup: ' + act.from : 'Drop: ' + act.to)}</span><div class="pl-btns"><button type="button" class="pl-go pl-gigcancel">Cancel the order</button></div>`; return; }

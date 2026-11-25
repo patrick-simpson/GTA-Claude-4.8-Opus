@@ -546,6 +546,8 @@ export class Menu {
     for (const i of save.data.ducks) { const d = todo.jobs.ducks[i]; if (!d) continue; c.beginPath(); c.arc(X(d.x), Z(d.z), 3.5, 0, Math.PI * 2); c.fillStyle = '#f6c21a'; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke(); }
     for (let i = 0; i < RAMPS.length; i++) { if (i === RAMPS.length - 1 && progress.complete) continue; badge(RAMPS[i].x, RAMPS[i].z, save.data.jumps.includes(i) ? MUSTARD : BONE, 'J'); }
     for (const rc of todo.raceBuilder.all(todo.jobs.races)) badge(rc.start.x, rc.start.z, TEAL, 'R', false, BONE);
+    // The town events that are on tonight (game/events.ts): D derby, G regatta, X fair, M moose festival.
+    for (const ev of todo.events.badges()) badge(ev.x, ev.z, VERMILION, ev.letter, false, BONE);
     for (const y of todo.jobs.yards) badge(y.at.x, y.at.z, BONE, 'Y');
     for (const s of todo.shops.list) badge(s.at.x, s.at.z, BONE, s.letter);
     if (progress.complete) {

@@ -145,6 +145,8 @@ export class Derby {
   private get me(): number { return this.link ? this.link.me() : 0; }
   private nameOf(id: number): string { return id >= AI_BASE ? this.ents.get(id)?.name ?? 'AI' : this.link ? this.link.nameOf(id) : 'You'; }
   private get amCaller(): boolean { return this.caller === this.me; }
+  /** Derby Night (game/events.ts, Fridays evening): the night's title, a double purse, fireworks after. */
+  private get night(): boolean { return this.game.todo.events?.derbyNight ?? false; }
   private get inRound(): boolean { return this.phase === 'count' || this.phase === 'fight' || this.phase === 'done'; }
   private get vx(): VehiclesX { return this.game.vehicles as unknown as VehiclesX; }
   private send(m: Partial<DerbyWire> & { kind: number }): void {
@@ -184,7 +186,7 @@ export class Derby {
     this.phase = 'calling';
     this.until = this.clk + (this.testJoin || JOIN_S) * 1000;
     this.sendCall();
-    this.game.hud.stamp('DEMOLITION DERBY', `Flounder Field · everybody in town has ${JOIN_S} s to drive to the gate · G to start now`);
+    this.game.hud.stamp(this.night ? 'DERBY NIGHT' : 'DEMOLITION DERBY', `Flounder Field · everybody in town has ${JOIN_S} s to drive to the gate · G to start now`);
   }
 
   private sendCall(): void {
@@ -271,7 +273,7 @@ export class Derby {
     this.recBefore = this.link?.record() ?? null;
     this.statSent = { hp: -1, out: false, hits: -1, at: 0 };
     const mine = this.ents.get(this.me);
-    g.hud.stamp(`CAR #${mine?.num ?? '?'}`, `${all.length} cars · last one running wins · a car that sits still for ${STILL_S} s is out`);
+    g.hud.stamp(this.night ? `DERBY NIGHT · CAR #${mine?.num ?? '?'}` : `CAR #${mine?.num ?? '?'}`, `${all.length} cars · last one running wins · a car that sits still for ${STILL_S} s is out${this.night ? ' · double purse tonight' : ''}`);
     this.pa(pick(PA.open), true);
   }
 
@@ -661,7 +663,7 @@ export class Derby {
 
   private podium(order: number[]): void {
     if (this.phase === 'podium') return;
-    const g = this.game, t = taper(save.count('derby')).cash, me = this.me;
+    const g = this.game, night = this.night, t = taper(save.count('derby')).cash * (night ? 2 : 1), me = this.me;
     let pay = 0, won = false, myHits = 0;
     const rows: Row[] = order.map((id, i) => {
       const e = this.ents.get(id);
@@ -684,7 +686,9 @@ export class Derby {
     if (pay > 0) { g.player.money += pay; save.credit(pay); save.data.stats.earned += pay; }
     save.bump('derby');
     this.send({ kind: DK.Done, a: wins, c: myHits });
-    this.ui.podium({ rows, notes, pay });
+    if (night) { notes.push('Derby Night: the purse is doubled.'); this.game.todo.events.derbyOver(); }
+    this.lastNotes = notes;
+    this.ui.podium({ rows, notes, pay, night });
     if (w) this.pa(pick(PA.win).replace(/\{n\}/g, String(w.num)), true);
     this.whoop(1);
     this.stats.podiums++;
@@ -780,7 +784,7 @@ export class Derby {
     const g = this.game, eye = g.camera.position, d = Math.hypot(eye.x - DERBY.x, eye.z - DERBY.z);
     if (d > 400 && !this.crowd) return;
     if (!this.crowd) { this.crowd = new Crowd(g.scene, g.quality.name === 'low' ? 0.45 : 1); g.scene.add(dirtFloor()); }
-    this.cheer = Math.max(this.inRound || this.phase === 'podium' ? 0.15 : 0, this.cheer - dt * 0.35);
+    this.cheer = Math.max(this.inRound || this.phase === 'podium' ? 0.15 : this.night ? 0.12 : 0, this.cheer - dt * 0.35);
     this.crowd.update(dt, d < 400, this.cheer);
   }
 
@@ -985,12 +989,12 @@ class DerbyUi {
     this.paT = window.setTimeout(() => { this.paEl.style.display = 'none'; }, 6500);
   }
 
-  podium(c: { rows: Row[]; notes: string[]; pay: number } | null): void {
+  podium(c: { rows: Row[]; notes: string[]; pay: number; night?: boolean } | null): void {
     if (!c) { this.card.style.display = 'none'; return; }
     const esc = (s: string): string => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch] as string));
     const step = (r: Row | undefined, h: number): string => r ? `<div>#${r.num} ${esc(r.name)}${r.me ? ' (you)' : ''}<i style="height:${h}px">${r.place}</i></div>` : '<div></div>';
     const [a, b, d] = c.rows;
-    this.card.innerHTML = `<h2>DEMOLITION DERBY · RESULTS</h2><div class="pod">${step(b, 46)}${step(a, 70)}${step(d, 30)}</div><table>`
+    this.card.innerHTML = `<h2>${c.night ? 'DERBY NIGHT' : 'DEMOLITION DERBY'} · RESULTS</h2><div class="pod">${step(b, 46)}${step(a, 70)}${step(d, 30)}</div><table>`
       + c.rows.map((r) => `<tr class="${r.me ? 'me' : ''}"><td>${r.place}.</td><td>#${r.num}</td><td>${esc(r.name)}${r.me ? ' (you)' : ''}</td><td>${esc(r.how)}</td><td>${r.hits} hit${r.hits === 1 ? '' : 's'}</td><td>${r.me ? '$' + r.cash : ''}</td></tr>`).join('')
       + `</table>` + c.notes.map((n) => `<div class="n">${esc(n)}</div>`).join('')
       + `<div class="f">${c.pay > 0 ? `You earned $${c.pay}. ` : ''}G to close.</div>`;

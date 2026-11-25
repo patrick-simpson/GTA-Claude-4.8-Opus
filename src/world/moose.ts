@@ -135,6 +135,8 @@ export class Moose implements WorldPart {
   private seen = new Set<string>();
   /** Test hook: force a crossing at this place index, starting now (game minutes). */
   forced: { si: number; t0: number; bull: boolean; calf: boolean; stand: number; side: number } | null = null;
+  /** The Moose Festival (game/events.ts): while set, this many tame moose (cows and calves, never a bull) wander a slow ring round the point. A pure function of the town clock, so shared. */
+  festival: { x: number; z: number; n: number } | null = null;
 
   constructor(private readonly game: Game, parent: THREE.Group) {
     this.group.name = 'moose';
@@ -354,6 +356,22 @@ export class Moose implements WorldPart {
       consider(f.si, c, `forced:${f.si}:${f.t0}`);
     }
     for (let i = 0; i < this.sites.length; i++) { const c = this.cache[i]; if (c) consider(i, c, `${day}:${ep}:${i}`); }
+    const fest = this.festival;
+    if (fest) {
+      const site: Site = { x: fest.x, z: fest.z, dx: 1, dz: 0, hw: 0.1, len: 1, land: 1, name: 'festival' };
+      for (let k = 0; k < fest.n; k++) {
+        const rx = 24 + (k % 3) * 7, rz = 18 + (k % 2) * 9, dir = k % 2 ? -1 : 1, a = minutes * 0.045 * dir + k * 2.3;
+        pos.x = fest.x + Math.cos(a) * rx; pos.z = fest.z + Math.sin(a) * rz; pos.s = 99;
+        pos.h = Math.atan2(-Math.sin(a) * rx * dir, Math.cos(a) * rz * dir);
+        pos.anim = Math.sin(minutes * 0.2 + k * 1.7) > 0.8 ? 'graze' : 'walk';
+        if (Math.hypot(pos.x - cam.x, pos.z - cam.z) > SHOW_R) continue;
+        const key = `fest:${k}`;
+        want.add(key);
+        let b = this.byKey.get(key);
+        if (!b) { if (this.byKey.size >= MAX_SHOWN) continue; b = this.make(key, false, k % 3 === 2, false) ?? undefined; if (!b) continue; }
+        this.drive(b, site, pos, rate, dt);
+      }
+    }
     for (const b of this.beasts) if (b.used && !want.has(b.key)) this.release(b);
     this.stats.active = active;
     this.stats.shown = this.byKey.size;
