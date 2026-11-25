@@ -23,6 +23,7 @@ import { TownBoard } from '../net/leaderboard';
 import { presentsFound } from '../world/christmas';
 import { FIND_COUNT, findsCatalogued } from '../world/pardonsCatalogue';
 import { heaviest, weightText } from './fishData';
+import { gpaBoard } from './semesterData';
 
 const FEET = 3.28084;
 
@@ -53,7 +54,7 @@ export const CATEGORIES: readonly Category[] = [
   { key: 'finds', title: "Pardon's Finds catalogued", max: FIND_COUNT, fmt: (v) => `${v} of ${FIND_COUNT}` },
   { key: 'gig', title: 'Best delivery shift', max: 1_000_000, fmt: (v) => money(v) },
   { key: 'fish', title: 'Heaviest catch', max: 1600, fmt: (v) => weightText(v) },
-  { key: 'fish', title: 'Heaviest catch', max: 1600, fmt: (v) => weightText(v) },
+  { key: 'gpa', title: 'Best GPA', max: 400, fmt: (v) => (v / 100).toFixed(2) },
 ];
 export const CAT = Object.fromEntries(CATEGORIES.map((c, i) => [c.key, i])) as Record<string, number>;
 
@@ -96,6 +97,7 @@ export function myBest(game: Game, cat: number): number | null {
     case 'presents': return pos(presentsFound());
     case 'finds': return pos(findsCatalogued());
     case 'fish': return pos(heaviest());
+    case 'gpa': return pos(gpaBoard());
     default: return null;
   }
 }

@@ -280,3 +280,8 @@ body.reduced-motion .mn-card, body.reduced-motion .mn-slip { animation: none; }
 .mn-trvb small { font: 600 0.7em "IBM Plex Mono", monospace; opacity: 0.85; max-width: 20em; }
 .mn-trvb:disabled { opacity: 0.55; cursor: not-allowed; }
 #menu.touch .mn-trvb { min-height: 44px; font-size: 1.2em; }
+
+/* The Transcript (game/semesterData.ts): grades in the Progress page. */
+.mn-sec .sem-g { font-family: var(--f-mono, monospace); font-weight: 800; }
+.mn-sec .sem-A { color: #2a9d8f; } .mn-sec .sem-B { color: #4a8f3a; } .mn-sec .sem-C { color: #b8860b; } .mn-sec .sem-D { color: #d9822b; } .mn-sec .sem-F { color: var(--vermilion, #e4572e); }
+.mn-sec .sem-gpa { font-size: 1.25em; font-family: var(--f-mono, monospace); }

@@ -42,6 +42,7 @@ import { boardHtml } from '../game/leaderboard';
 import { findsLedgerHtml } from '../world/pardonsItems';
 import { dailyIds, hasFound } from '../world/pardonsCatalogue';
 import { fishLogHtml } from '../game/fishLog';
+import { transcriptHtml } from '../game/semesterData';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
 type VolKey = 'volMaster' | 'volMusic' | 'volSfx' | 'volAmbience';
@@ -661,6 +662,9 @@ export class Menu {
   </div>
   <div class="mn-sec mn-wide">
     ${fishLogHtml()}
+  </div>
+  <div class="mn-sec mn-wide">
+    ${transcriptHtml()}
   </div>
 </div>`;
   }
