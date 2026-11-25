@@ -407,7 +407,7 @@ export function readDmgTail(buf: ArrayBuffer, out: Uint8Array): boolean {
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21, Cab: 22, Built: 23, Coop: 24 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21, Cab: 22, Built: 23, Coop: 24, Convoy: 25 } as const;
 // Emote (4 bytes): [kind, id, 15, emote id] (game/emotes.ts EMOTES; 0 = stopped). Sent when a player starts or stops one,
 // and again every few seconds while a looping one runs, for anybody who arrives. Relayed unread by the service; a page
 // that does not know code 15 hands it to the weapons code, which ignores codes it does not know: no new version.
@@ -2042,6 +2042,43 @@ export function decodeCoop(buf: ArrayBuffer): CoopMsg | null {
   if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Coop || u[3] < 1 || u[3] > 6) return null;
   const m: CoopMsg = { id: u[1], kind: u[3], caller: u[4], mission: u[5], a: u[6], b: u[7], c: d.getUint16(8, true), ms: d.getUint32(10, true), ids: [] };
   for (let i = 0; i < Math.min(u[14], COOP_MAX) && 15 + i < buf.byteLength; i++) m.ids.push(u[15 + i]);
+  return m;
+}
+
+// ---- Convoys: a shared waypoint (fun queue 2, item 24; net/convoy.ts, game/convoy.ts) ----
+//
+// Event frames (byte 2 PlayerEvent.Convoy = 25), relayed unread by both services like Coop = 24 (room.ts copies any
+// Event frame of up to MAX_PLAYER_FRAME_BYTES; a page from before this hands code 25 to fight.ts, which ignores codes it
+// does not know). Still protocol v6, no service change, no new fact key. One layout, 16 + n bytes:
+//   3 kind (ConvoyKind)  4 leader u8 (whose convoy)  5 seq u8 (counts the leader's destination changes)
+//   6..9 x f32  10..13 z f32 (the destination)  14 flags u8 (bit 0: there is a destination)  15 n u8  16.. n ids u8
+//   Lead:   the leader's word, on every change and about every 3 s: the destination and who is in (the leader first)
+//   Join:   a player joins this leader's convoy
+//   Leave:  a member leaves it
+//   Hand:   the leader leaves and hands the lead on: `leader` is the new one, ids the ones still in
+//   Arrive: the leader judged the arrival: ids are the members close enough to the destination for the bonus
+//   End:    the leader ended it
+export const ConvoyKind = { Lead: 1, Join: 2, Leave: 3, Hand: 4, Arrive: 5, End: 6 } as const;
+export const CONVOY_MAX = 8;
+export interface ConvoyMsg { id: number; kind: number; leader: number; seq: number; x: number; z: number; flags: number; ids: number[] }
+
+export function encodeConvoy(m: ConvoyMsg): ArrayBuffer {
+  const ids = m.ids.slice(0, CONVOY_MAX);
+  const buf = makeFrame(Frame.Event, 16 + ids.length - FRAME_HEADER_BYTES);
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  u[2] = PlayerEvent.Convoy; u[3] = m.kind & 0xff; u[4] = m.leader & 0xff; u[5] = m.seq & 0xff;
+  d.setFloat32(6, m.x, true); d.setFloat32(10, m.z, true);
+  u[14] = m.flags & 0xff; u[15] = ids.length; ids.forEach((v, i) => { u[16 + i] = v & 0xff; });
+  return buf;
+}
+
+export function decodeConvoy(buf: ArrayBuffer): ConvoyMsg | null {
+  if (buf.byteLength < 16) return null;
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Convoy || u[3] < 1 || u[3] > 6) return null;
+  const m: ConvoyMsg = { id: u[1], kind: u[3], leader: u[4], seq: u[5], x: d.getFloat32(6, true), z: d.getFloat32(10, true), flags: u[14], ids: [] };
+  if (!Number.isFinite(m.x) || !Number.isFinite(m.z) || Math.abs(m.x) > 20000 || Math.abs(m.z) > 20000) return null;
+  for (let i = 0; i < Math.min(u[15], CONVOY_MAX) && 16 + i < buf.byteLength; i++) m.ids.push(u[16 + i]);
   return m;
 }
 

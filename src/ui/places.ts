@@ -115,6 +115,7 @@ export class PlacesPanel {
       const t = e.target as HTMLElement;
       if (t.closest('.pl-gigacc') && this.gigSel) { const gg = this.gigSel; if (this.todo.gigs.accept(gg)) { this.gigSel = null; this.todo.go(null); this.refresh(); this.view.redraw(); } return; }
       if (t.closest('.pl-gigcancel')) { this.todo.gigs.stop('Order cancelled. The counter shrugs.'); this.refresh(); this.view.redraw(); return; }
+      if (t.closest('.pl-cv')) { this.todo.convoy.press(); this.refresh(); this.view.redraw(); return; }
       if (t.closest('.pl-clear')) { this.todo.go(null); this.refresh(); this.view.redraw(); return; }
       const tr = t.closest<HTMLButtonElement>('.pl-train');
       if (tr && !tr.disabled) { const i = Number(tr.dataset.st); if (this.game.rail.travel(i) === '') this.refresh(); return; }
@@ -263,7 +264,11 @@ export class PlacesPanel {
       return;
     }
     const d = this.routeDest(), nv = this.todo.navigator;
-    if (!d || this.todo.waypoint === null) { this.sel.innerHTML = ''; this.sel.classList.remove('on'); return; }
+    if (!d || this.todo.waypoint === null) {
+      const cv = this.convoyHtml();
+      this.sel.innerHTML = cv; this.sel.classList.toggle('on', cv !== '');
+      return;
+    }
     const turns = nv.turns.filter((t) => t.dir !== 'straight').length;
     const p = this.game.player, how = d.custom ? `${distText(Math.hypot(d.x - p.x, d.z - p.z))} away` : nv.ok ? `${distText(nv.total)} by road, ${turns} turn${turns === 1 ? '' : 's'}` : 'No road there yet';
     const cab = this.todo.travel.label(d);
@@ -277,7 +282,14 @@ export class PlacesPanel {
     const ferry = fer ? `<button type="button" class="pl-go pl-ferry" data-dk="${fi}" ${fer.ok ? '' : 'disabled'} title="The Calamity Shuttle">${esc(fer.text)}</button>` : '';
     const train = rail ? `<button type="button" class="pl-go pl-train" data-st="${si}" ${rail.ok ? '' : 'disabled'} title="The Budget Line">${esc(rail.text)}</button>` : '';
     this.sel.classList.add('on');
-    this.sel.innerHTML = `<b>${esc(d.name)}</b><span>${esc(how)}</span>${extra}${ferExtra}<div class="pl-btns">${train}${ferry}<button type="button" class="pl-go" ${cab.ok ? '' : 'disabled'} title="Calamity Courtesy Cab">${esc(cab.text)}</button><button type="button" class="pl-clear">Clear route</button></div>`;
+    this.sel.innerHTML = `<b>${esc(d.name)}</b><span>${esc(how)}</span>${extra}${ferExtra}<div class="pl-btns">${train}${ferry}<button type="button" class="pl-go" ${cab.ok ? '' : 'disabled'} title="Calamity Courtesy Cab">${esc(cab.text)}</button><button type="button" class="pl-clear">Clear route</button></div>${this.convoyHtml()}`;
+  }
+
+  /** The convoy line and its button (game/convoy.ts): join an open one, lead one to the waypoint, leave the one in hand. */
+  private convoyHtml(): string {
+    const cv = this.todo.convoy, label = cv.label(), line = cv.status();
+    if (!label && !line) return '';
+    return `<b>Convoy</b>${line ? `<span>${esc(line)}</span>` : ''}${label ? `<div class="pl-btns"><button type="button" class="pl-go pl-cv">${esc(label)}</button></div>` : ''}`;
   }
 
   /** Where the route card's Travel button would go: the place picked from the list or the map, or a waypoint set by hand. */

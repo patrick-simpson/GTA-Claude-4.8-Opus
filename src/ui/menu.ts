@@ -113,7 +113,7 @@ export class Menu {
   <div class="mn-tabs" role="tablist">${TABS.map((t, i) => `<button type="button" class="mn-tab" role="tab" data-tab="${i}"><small>${i + 1}</small>${t}</button>`).join('')}</div>
   <div class="mn-body">
     <section class="mn-pane mn-map"><canvas></canvas>
-      <div class="mn-maphelp mn-lbl">Drag to move · wheel or pinch to zoom · click to set a waypoint · click it again to clear · Places: pick one, then Travel there · Race Builder: make your own street race</div>
+      <div class="mn-maphelp mn-lbl">Drag to move · wheel or pinch to zoom · click to set a waypoint · click it again to clear · Places: pick one, then Travel there · Race Builder: make your own street race · Convoy: set a waypoint, then press . (or the Places panel button) to lead one, or to join one in town</div>
     </section>
     <section class="mn-pane mn-scroll"></section>
     <section class="mn-pane mn-scroll"></section>
@@ -589,6 +589,14 @@ export class Menu {
       c.beginPath(); c.arc(px, py, 6, 0, Math.PI * 2); c.fillStyle = PEER_COLOR; c.fill();
       c.strokeStyle = BONE; c.lineWidth = 2; c.stroke(); c.strokeStyle = INK; c.lineWidth = 1; c.beginPath(); c.arc(px, py, 7.2, 0, Math.PI * 2); c.stroke();
       text(o.text, px, py - 14, 11, INK);
+    }
+
+    // The convoy in hand (game/convoy.ts): a teal ring and a V round each member, the leader's name under it.
+    for (const m of todo.convoy.roster()) {
+      const px = X(m.x), py = Z(m.z);
+      if (px < -20 || py < -20 || px > w + 20 || py > h + 20) continue;
+      c.beginPath(); c.arc(px, py, 10, 0, Math.PI * 2); c.strokeStyle = '#2a9d8f'; c.lineWidth = 3.5; c.stroke();
+      text(m.me ? 'V you' : m.lead ? 'V ' + m.name : 'V', px, py + 24, 11, INK);
     }
 
     // The train (world/train.ts), when there is one: a small square at its cab.
