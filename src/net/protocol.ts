@@ -407,7 +407,7 @@ export function readDmgTail(buf: ArrayBuffer, out: Uint8Array): boolean {
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21, Cab: 22, Built: 23 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21, Cab: 22, Built: 23, Coop: 24 } as const;
 // Emote (4 bytes): [kind, id, 15, emote id] (game/emotes.ts EMOTES; 0 = stopped). Sent when a player starts or stops one,
 // and again every few seconds while a looping one runs, for anybody who arrives. Relayed unread by the service; a page
 // that does not know code 15 hands it to the weapons code, which ignores codes it does not know: no new version.
@@ -2002,6 +2002,46 @@ export function decodePursuit(buf: ArrayBuffer): PursuitMsg | null {
   if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Pursuit || u[3] < 1 || u[3] > 8) return null;
   const m: PursuitMsg = { id: u[1], kind: u[3], caller: u[4], station: u[5], a: u[6], b: u[7], c: d.getUint16(8, true), ms: d.getUint32(10, true), ids: [] };
   for (let i = 0; i < Math.min(u[14], PURSUIT_MAX) && 15 + i < buf.byteLength; i++) m.ids.push(u[15 + i]);
+  return m;
+}
+
+// ---- Co-op missions for 2 to 4 players (fun queue 2, item 23; net/coop.ts, game/coop.ts) ----
+//
+// Event frames (byte 2 PlayerEvent.Coop = 24), relayed unread by both services (room.ts copies any Event frame of up to
+// MAX_PLAYER_FRAME_BYTES to everybody else and never reads the code); a page from before this hands code 24 to fight.ts,
+// which ignores codes it does not know. Still protocol v6, no service change, no new fact key. One layout, 15 + n bytes:
+//   3 kind (CoopKind)  4 caller u8 (whose mission)  5 mission u8 (1 convoy, 2 heist, 3 lights)
+//   6 a u8  7 b u8  8..9 c u16  10..13 ms u32  14 n u8  15.. n ids u8
+//   Call: a seconds left to join, ids who is in (the caller first)
+//   Join: a 1 joined, 0 left before the start
+//   Go:   c the time limit in seconds, ids the crew (the caller first; the order is the roles)
+//   Show: the caller's judgement, sent when it changes and about once a second: a stage, b progress 0..255, c seconds left,
+//         ms flags (bit k: crew member k is where they should be), ids the crew now (somebody who left is gone)
+//   End:  a how (1 passed, 2 failed, 3 set aside), b why (index in the mission's own list), c the pay each in dollars,
+//         ms the mission clock
+//   Off:  the caller called it off before the start
+export const CoopKind = { Call: 1, Join: 2, Go: 3, Show: 4, End: 5, Off: 6 } as const;
+export const COOP_MAX = 4;
+export interface CoopMsg { id: number; kind: number; caller: number; mission: number; a: number; b: number; c: number; ms: number; ids: number[] }
+
+export function encodeCoop(m: CoopMsg): ArrayBuffer {
+  const ids = m.ids.slice(0, COOP_MAX);
+  const buf = makeFrame(Frame.Event, 15 + ids.length - FRAME_HEADER_BYTES);
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  u[2] = PlayerEvent.Coop; u[3] = m.kind & 0xff; u[4] = m.caller & 0xff; u[5] = m.mission & 0xff;
+  u[6] = Math.max(0, Math.min(255, Math.round(m.a))); u[7] = Math.max(0, Math.min(255, Math.round(m.b)));
+  d.setUint16(8, clampU16(m.c), true);
+  d.setUint32(10, Math.max(0, Math.min(0xffffffff, Math.round(m.ms))), true);
+  u[14] = ids.length; ids.forEach((v, i) => { u[15 + i] = v & 0xff; });
+  return buf;
+}
+
+export function decodeCoop(buf: ArrayBuffer): CoopMsg | null {
+  if (buf.byteLength < 15) return null;
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Coop || u[3] < 1 || u[3] > 6) return null;
+  const m: CoopMsg = { id: u[1], kind: u[3], caller: u[4], mission: u[5], a: u[6], b: u[7], c: d.getUint16(8, true), ms: d.getUint32(10, true), ids: [] };
+  for (let i = 0; i < Math.min(u[14], COOP_MAX) && 15 + i < buf.byteLength; i++) m.ids.push(u[15 + i]);
   return m;
 }
 

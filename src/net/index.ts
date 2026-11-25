@@ -53,6 +53,7 @@ import { TownRide } from './ride';
 import { TownRace } from './race';
 import { TownRaces } from './townRaces';
 import { TownPursuit } from './pursuit';
+import { TownCoop } from './coop';
 import { TownDerby } from './derby';
 import { TownExtras } from './extras';
 import { TownChat } from './chat';
@@ -98,6 +99,8 @@ export class Net {
   readonly built: TownRaces;
   /** Hot Pursuit (fun queue item 12): the wire and the town's records. */
   readonly pursuit: TownPursuit;
+  /** Co-op missions (fun queue 2, item 23): the wire; the missions are game/coop.ts. */
+  readonly coop: TownCoop;
   /** The demolition derby (fun queue item 13): the wire and the town's records. */
   readonly derby: TownDerby;
   /** Shared fireworks you light yourself and the pushed loose duck (extras.ts). */
@@ -170,6 +173,7 @@ export class Net {
     this.built = new TownRaces(game, c, this.remotes);
     this.race.custom = this.built;
     this.pursuit = new TownPursuit(game, c, this.remotes);
+    this.coop = new TownCoop(game, c, this.remotes);
     this.derby = new TownDerby(game, c, this.remotes);
     this.extras = new TownExtras(game, c, this.remotes);
     this.chat = new TownChat(game, c, this.remotes);
@@ -281,6 +285,7 @@ export class Net {
     this.ride.refresh();
     this.race.refresh();
     this.pursuit.refresh();
+    this.coop.refresh();
     this.derby.refresh();
   }
 
@@ -296,6 +301,7 @@ export class Net {
     this.race.dropped(id);
     this.built.dropped(id);
     this.pursuit.dropped(id);
+    this.coop.dropped(id);
     this.derby.dropped(id);
     this.extras.dropped(id);
     this.chat.dropped(id);
@@ -314,6 +320,7 @@ export class Net {
     this.race.clear();
     this.built.clear();
     this.pursuit.clear();
+    this.coop.clear();
     this.derby.clear();
     this.held.clear();
     this.chat.clear();
@@ -377,6 +384,7 @@ export class Net {
       else if (e.code === PlayerEvent.Race) this.race.event(buf);
       else if (e.code === PlayerEvent.Built) this.built.event(buf);
       else if (e.code === PlayerEvent.Pursuit) this.pursuit.event(buf);
+      else if (e.code === PlayerEvent.Coop) this.coop.event(buf);
       else if (e.code === PlayerEvent.Derby) this.derby.event(buf);
       else if (e.code === PlayerEvent.Fireworks || e.code === PlayerEvent.Duck) this.extras.event(buf);
       else if (e.code === PlayerEvent.Chat) this.chat.event(buf);
@@ -666,6 +674,7 @@ export class Net {
       built: this.built.info(),
       // pursuit: Hot Pursuit frames, the town's records, and the round on this screen (game/pursuit.ts).
       pursuit: this.pursuit.info(),
+      coop: this.coop.info(),
       derby: this.derby.info(),
       extras: this.extras.info(),
       chat: this.chat.info(),
