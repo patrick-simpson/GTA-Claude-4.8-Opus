@@ -13,6 +13,7 @@ import { story } from './missions';
 import type { Blip } from '../ui/hud';
 import { Activities } from './activities';
 import { Racing } from './race';
+import { RaceBuilder } from './raceBuilder';
 import { Delivery } from './delivery';
 import { Gigs } from './gigs';
 import { Fishing } from './fishing';
@@ -43,6 +44,8 @@ export class ThingsToDo {
   readonly jobs: Activities;
   /** Races, alone or with others in town (fun queue item 11). */
   readonly racing: Racing;
+  /** The street race builder (game/raceBuilder.ts): the player's own races and the town's. */
+  readonly raceBuilder: RaceBuilder;
   /** Delivery Rush from SpeedScan HQ or Pardon's (fun queue item 14). */
   readonly delivery: Delivery;
   /** Gigs: delivery orders between the directory's businesses (fun queue 2, item 14). */
@@ -89,7 +92,8 @@ export class ThingsToDo {
     const st = story(game);
     this.missions = new Runner(game, this.markers, st.givers, st.missions, (id) => this.setBusy(id), () => this.busy === null);
     this.jobs = new Activities(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
-    this.racing = new Racing(game, this.markers, () => this.jobs.races, () => this.busy === null, (id) => this.setBusy(id));
+    this.raceBuilder = new RaceBuilder(game);
+    this.racing = new Racing(game, this.markers, () => this.raceBuilder.all(this.jobs.races), () => this.busy === null, (id) => this.setBusy(id));
     this.pursuit = new Pursuit(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.derby = new Derby(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
@@ -188,6 +192,7 @@ export class ThingsToDo {
     this.missions.update(dt);
     this.semester.update(dt);
     this.heist.update(dt);
+    this.raceBuilder.tick();
     this.racing.update(dt);
     this.pursuit.update(dt);
     this.derby.update(dt);

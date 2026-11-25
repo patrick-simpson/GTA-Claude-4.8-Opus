@@ -1,0 +1,67 @@
+/* The Race Builder panel on the map (ui/raceBuilder.ts): docked on the left, paper and ink like the Places panel. */
+.rb {
+  position: absolute;
+  top: 0.6em;
+  left: 0.6em;
+  bottom: 3.4em;
+  width: 19.5em;
+  max-width: calc(100% - 1.2em);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  pointer-events: none;
+  z-index: 4;
+  font-size: 0.86em;
+}
+.rb > * { pointer-events: auto; }
+.rb-tab {
+  padding: 0.45em 1em;
+  background: var(--ink);
+  color: var(--bone);
+  border: var(--rule) solid var(--ink);
+  font: 700 1em/1 "Big Shoulders Display", sans-serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.rb.open .rb-tab { background: #c8372d; }
+.rb-pane {
+  display: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  flex-direction: column;
+  background: var(--bone);
+  border: var(--rule) solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.rb.open .rb-pane { display: flex; }
+.rb-pages { display: flex; gap: 0.35em; padding: 0.5em; overflow-x: auto; flex: none; scrollbar-width: thin; }
+.rb-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.45em; padding: 0 0.5em 0.5em; overscroll-behavior: contain; touch-action: pan-y; }
+.rb-help { font: 600 0.88em "IBM Plex Mono", monospace; }
+.rb-stat { font: 600 0.92em "IBM Plex Mono", monospace; padding: 0.35em 0.5em; background: #fbe7a8; border: var(--rule) solid var(--ink); }
+.rb-row { display: flex; align-items: center; gap: 0.35em; flex-wrap: wrap; font: 700 0.92em "IBM Plex Mono", monospace; }
+.rb-row > span { min-width: 3.6em; }
+.rb-nm b { flex: 1 1 100%; font: 700 1.15em "Big Shoulders Display", sans-serif; letter-spacing: 0.04em; }
+.rb-seg, .rb-btn {
+  padding: 0.5em 0.8em;
+  min-height: 2.4em;
+  font: 700 0.95em "IBM Plex Mono", monospace;
+  color: var(--ink);
+  background: var(--bone);
+  border: var(--rule) solid var(--ink);
+  cursor: pointer;
+}
+.rb-seg.on { background: var(--ink); color: var(--bone); }
+.rb-btns { display: flex; gap: 0.4em; flex-wrap: wrap; }
+.rb-btn.rb-go { background: #2a9d8f; color: #fff; }
+.rb-seg:disabled, .rb-btn:disabled { opacity: 0.4; cursor: default; }
+.rb-msg { min-height: 1.3em; font: 600 0.88em "IBM Plex Mono", monospace; color: #8a1d14; }
+.rb-sel { display: flex; flex-direction: column; gap: 0.25em; padding: 0.45em 0.6em; background: #fbe7a8; border: var(--rule) solid var(--ink); }
+.rb-sel span { font: 600 0.88em "IBM Plex Mono", monospace; }
+.rb-list { flex: 1 1 auto; }
+/* While the builder is open the Places panel steps aside on a phone, and the builder is a sheet along the bottom. */
+.touch .mn-map.rb-on .pl { display: none; }
+.touch .rb { left: 0.4em; right: 0.4em; width: auto; max-width: none; top: auto; bottom: 3.4em; max-height: 58%; }
+.touch .rb.open { top: 40%; }
+.touch .rb-seg, .touch .rb-btn { min-height: 3em; font-size: 1.02em; padding: 0.55em 1em; }

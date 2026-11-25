@@ -12,12 +12,13 @@
 
 import type { Game } from '../core/game';
 import type { FactValue } from './protocol';
-import { RACE_FACT_PREFIX, decodeRace, encodeMsg, encodeRace, type RaceMsg } from './protocol';
+import { BUILT_ROUTE0, RACE_FACT_PREFIX, decodeRace, encodeMsg, encodeRace, type RaceMsg } from './protocol';
 import type { Connection } from './conn';
 import type { Remote } from './remote';
 import { myName, nameText } from './names';
 import type { RaceLink, RaceWire, TownRecord } from '../game/race';
 import type { Racing } from '../game/race';
+import type { TownRaces } from './townRaces';
 
 /** A time faster than this share of par is not believed (a test teleport, a broken page), and not written. */
 const FASTEST = 0.3;
@@ -28,6 +29,8 @@ export class TownRace implements RaceLink {
   readonly stats = { sent: 0, bytesSent: 0, got: 0, bytesGot: 0, written: 0 };
   private readonly recs = new Map<number, Rec>();
   private readonly known = new Map<string, string>();
+  /** The built races' wire (net/townRaces.ts): routes from BUILT_ROUTE0 are theirs, records and all. */
+  custom: TownRaces | null = null;
 
   constructor(private readonly game: Game, private readonly conn: Connection, private readonly remotes: Map<number, Remote>) {
     this.racing.link = this;
@@ -62,6 +65,7 @@ export class TownRace implements RaceLink {
     if (m.kind === 5) this.heard(this.conn.id, msg);
   }
   record(route: number): TownRecord | null {
+    if (route >= BUILT_ROUTE0) return this.custom?.record(route) ?? null;
     const r = this.recs.get(route);
     if (!r) return null;
     const nm = (n: number[]): string => n.length >= 2 ? nameText(n) : 'somebody';
@@ -98,6 +102,7 @@ export class TownRace implements RaceLink {
   /** The host: a racer has finished. A better time is written to the town. */
   private heard(id: number, m: RaceMsg): void {
     if (!this.host || m.how !== 1 || !(m.ms > 0)) return;
+    if (m.route >= BUILT_ROUTE0) { this.custom?.finished(id, m.route, m.ms, m.laps); return; }
     const r = this.game.todo.jobs.races.find((x) => x.idx === m.route);
     if (!r || m.laps !== r.laps || m.ms < r.par * 1000 * FASTEST) return;
     const name = id === this.conn.id ? [...myName()] : this.remotes.get(id)?.name.slice();

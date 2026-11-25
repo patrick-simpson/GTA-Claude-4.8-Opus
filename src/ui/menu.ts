@@ -36,6 +36,7 @@ import { PEER_COLOR } from '../net/names';
 import { PARDONS_AT, PARDONS_RED } from './hud';
 import { Wardrobe } from './wardrobe';
 import { PlacesPanel } from './places';
+import { RaceBuilderPanel } from './raceBuilder';
 import { CAT_COLOR } from '../world/shopSigns';
 import type { Place } from '../world/business';
 import { boardHtml } from '../game/leaderboard';
@@ -100,6 +101,8 @@ export class Menu {
   readonly wardrobe: Wardrobe;
   /** The Places panel on the map (ui/places.ts). */
   private readonly placesPanel: PlacesPanel;
+  /** The Race Builder on the map (ui/raceBuilder.ts). */
+  private readonly rbPanel: RaceBuilderPanel;
 
   constructor(private readonly game: Game, private readonly todo: ThingsToDo) {
     const root = document.createElement('div');
@@ -110,7 +113,7 @@ export class Menu {
   <div class="mn-tabs" role="tablist">${TABS.map((t, i) => `<button type="button" class="mn-tab" role="tab" data-tab="${i}"><small>${i + 1}</small>${t}</button>`).join('')}</div>
   <div class="mn-body">
     <section class="mn-pane mn-map"><canvas></canvas>
-      <div class="mn-maphelp mn-lbl">Drag to move · wheel or pinch to zoom · click to set a waypoint · click it again to clear · Places: pick one, then Travel there</div>
+      <div class="mn-maphelp mn-lbl">Drag to move · wheel or pinch to zoom · click to set a waypoint · click it again to clear · Places: pick one, then Travel there · Race Builder: make your own street race</div>
     </section>
     <section class="mn-pane mn-scroll"></section>
     <section class="mn-pane mn-scroll"></section>
@@ -158,6 +161,11 @@ export class Menu {
       focus: (x, z, k) => { this.fit0(); this.k = Math.max(this.k, k); this.clampView(); this.cx = x; this.cz = z; this.clampView(); this.cross = false; },
       redraw: () => this.drawMap(),
     });
+    this.rbPanel = new RaceBuilderPanel(root.querySelector('.mn-map') as HTMLElement, game, todo, {
+      focus: (x, z, k) => { this.fit0(); this.k = Math.max(this.k, k); this.clampView(); this.cx = x; this.cz = z; this.clampView(); this.cross = false; },
+      redraw: () => this.drawMap(),
+      resume: () => this.resume(),
+    });
     game.on('pause', (e) => { if (e.on) this.show(); else this.hide(); });
   }
 
@@ -177,6 +185,7 @@ export class Menu {
 
   private hide(): void {
     this.open = false;
+    this.rbPanel.reset();
     this.root.classList.remove('on', 'wd');
     this.wardrobe.hide();
     cancelAnimationFrame(this.raf);
@@ -413,7 +422,8 @@ export class Menu {
       if (e.type === 'pointerup' && this.dragMoved < 7 && this.pointers.size === 0) {
         const { w, h } = this.size();
         const hit = this.placeAt(at.x, at.y);
-        if (hit) this.placesPanel.pick(hit);
+        if (this.rbPanel.active) this.rbPanel.click(this.cx + (at.x - w / 2) / this.k, this.cz + (at.y - h / 2) / this.k);
+        else if (hit) this.placesPanel.pick(hit);
         else this.setWay(this.cx + (at.x - w / 2) / this.k, this.cz + (at.y - h / 2) / this.k);
         this.drawMap();
       }
@@ -535,7 +545,7 @@ export class Menu {
     // Ducks found: small gold dots. The ones still out there are nobody's business.
     for (const i of save.data.ducks) { const d = todo.jobs.ducks[i]; if (!d) continue; c.beginPath(); c.arc(X(d.x), Z(d.z), 3.5, 0, Math.PI * 2); c.fillStyle = '#f6c21a'; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke(); }
     for (let i = 0; i < RAMPS.length; i++) { if (i === RAMPS.length - 1 && progress.complete) continue; badge(RAMPS[i].x, RAMPS[i].z, save.data.jumps.includes(i) ? MUSTARD : BONE, 'J'); }
-    for (const rc of todo.jobs.races) badge(rc.start.x, rc.start.z, TEAL, 'R', false, BONE);
+    for (const rc of todo.raceBuilder.all(todo.jobs.races)) badge(rc.start.x, rc.start.z, TEAL, 'R', false, BONE);
     for (const y of todo.jobs.yards) badge(y.at.x, y.at.z, BONE, 'Y');
     for (const s of todo.shops.list) badge(s.at.x, s.at.z, BONE, s.letter);
     if (progress.complete) {
@@ -588,6 +598,10 @@ export class Menu {
         c.fillStyle = INK; c.beginPath(); c.arc(tx, ty, 2.4, 0, Math.PI * 2); c.fill();
       }
     }
+
+    // The Race Builder's route and checkpoints (ui/raceBuilder.ts), over the badges.
+    this.rbPanel.refresh();
+    this.rbPanel.draw(c, X, Z, { ink: INK, mustard: MUSTARD, bone: BONE, teal: TEAL });
 
     // Dess.
     c.save(); c.translate(X(p.x), Z(p.z)); c.rotate(Math.PI - p.h);

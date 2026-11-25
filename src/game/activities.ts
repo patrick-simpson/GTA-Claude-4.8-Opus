@@ -43,7 +43,8 @@ export function taper(n: number): { cash: number; points: number } {
  * pieces it runs on (a mainland route is offered only once they are open). Races are run by game/race.ts (fun queue
  * item 11: called at the marker, others in town invited, a grid, a countdown, laps, a podium, town records).
  */
-export interface RaceDef { name: string; par: number; cps: Pt[]; start: Pt; laps: number; loop: boolean; edges: number[]; idx: number }
+/** (dir: a built race's first heading along its street, where the grid stands; game/raceBuilder.ts. The old routes leave it out.) */
+export interface RaceDef { name: string; par: number; cps: Pt[]; start: Pt; laps: number; loop: boolean; edges: number[]; idx: number; dir?: Pt }
 // (ml: on the mainland, nodes counted from MI0/MJ0. Append only: a route's index is its town record's fact key.)
 // The Tepid Falls Loop: under the new streets (plan.streets) its checkpoints are NEW_LOOP below, round downtown; the old grid
 // route still gives its edges, so it opens with the mainland as before.

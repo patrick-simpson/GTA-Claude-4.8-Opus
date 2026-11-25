@@ -98,6 +98,16 @@ export class Navigator {
   }
   private last: Guidance | null = null;
 
+  /**
+   * The street race builder's preview (game/raceBuilder.ts): the way between two points on a Navigator of its own, with
+   * nothing else touched. The polyline (flat x,z), its length and the edge ids it uses; null when there is no way.
+   */
+  trace(plan: CityPlan, fx: number, fz: number, tx: number, tz: number): { poly: number[]; total: number; edges: number[] } | null {
+    this.heading = null;
+    if (!this.build(plan, fx, fz, tx, tz)) return null;
+    return { poly: this.poly.slice(), total: this.total, edges: this.legs.map((l) => l.e.id) };
+  }
+
   /** Ask for a fresh route from where she is now (the next update builds it). */
   reroute(): void { this.offT = 2; this.tBuild = 2; }
 

@@ -35,7 +35,7 @@ THINGS TO DO
 [x] 15. Fishing (pier, dam, riverbank) with a fish log.
 [x] 16. Dithers College semester: short campus missions.
 [x] 17. SpeedScan HQ heist using the floors and the elevator.
-[ ] 18. Street-race builder: pick checkpoints, share with the town.
+[x] 18. Street-race builder: pick checkpoints, share with the town.
 [ ] 19. Weekly town events: derby night, Christmas fair, moose festival, regatta.
 [ ] 20. Snowplow and salt-truck jobs when snow is lying.
 [ ] 21. Photo-mode challenges.

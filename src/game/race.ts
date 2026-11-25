@@ -28,6 +28,7 @@ import { money } from '../core/util';
 import { save } from './save';
 import { taper, type RaceDef } from './activities';
 import type { Markers, Pt } from './script';
+import { BUILT_LOCAL, BUILT_ROUTE0 } from '../net/protocol';
 
 /** Seconds others have to drive to the marker after a call. */
 export const JOIN_S = 30;
@@ -114,6 +115,8 @@ export class Racing {
     this.stats.sent++;
   }
   private byIdx(idx: number): RaceDef | null { return this.races().find((r) => r.idx === idx) ?? null; }
+  /** A route by its index (the old ones, and the town's built ones from BUILT_ROUTE0: game/raceBuilder.ts). */
+  def(idx: number): RaceDef | null { return this.byIdx(idx); }
   /** Every checkpoint of the race in order (laps times round). */
   private cpAt(k: number): Pt { const r = this.route as RaceDef; return r.cps[k % r.cps.length]; }
   private get total(): number { return this.route ? this.route.cps.length * this.laps : 0; }
@@ -129,13 +132,13 @@ export class Racing {
   /** Grid slot k: two by two on the first street, nose toward the first checkpoint. */
   slot(k: number): { x: number; z: number; h: number } {
     const r = this.route as RaceDef, s = r.start, c = r.cps[0];
-    const L = Math.hypot(c.x - s.x, c.z - s.z), dx = (c.x - s.x) / L, dz = (c.z - s.z) / L, h = Math.atan2(dx, dz);
+    const L = Math.hypot(c.x - s.x, c.z - s.z), dx = r.dir ? r.dir.x : (c.x - s.x) / L, dz = r.dir ? r.dir.z : (c.z - s.z) / L, h = Math.atan2(dx, dz);
     const row = Math.floor(k / 2), side = k % 2 ? 1 : -1, ahead = 30 - row * 8.5;
     return { x: s.x + dx * ahead + Math.cos(h) * 2.8 * side, z: s.z + dz * ahead - Math.sin(h) * 2.8 * side, h };
   }
   private line(): { x: number; z: number; h: number } {
     const r = this.route as RaceDef, s = r.start, c = r.cps[0];
-    const L = Math.hypot(c.x - s.x, c.z - s.z), dx = (c.x - s.x) / L, dz = (c.z - s.z) / L;
+    const L = Math.hypot(c.x - s.x, c.z - s.z), dx = r.dir ? r.dir.x : (c.x - s.x) / L, dz = r.dir ? r.dir.z : (c.z - s.z) / L;
     return { x: s.x + dx * 37, z: s.z + dz * 37, h: Math.atan2(dx, dz) };
   }
 
@@ -164,7 +167,7 @@ export class Racing {
     }
     if (!at) return;
     const rec = this.record(at), mine = save.data.best['race:' + at.name];
-    const many = this.link ? this.link.others().length : 0;
+    const many = this.link && at.idx < BUILT_LOCAL ? this.link.others().length : 0;
     const what = `${at.laps > 1 ? `${at.laps} laps · ` : ''}par ${fmt(at.par * 1000)}`;
     const recT = rec ? ` · record ${fmt(rec.race)} by ${rec.raceBy}${at.laps > 1 ? `, lap ${fmt(rec.lap)} by ${rec.lapBy}` : ''}` : ' · no record yet';
     this.prompt = `[G] ${many ? 'Call a race' : 'Race'}: "${at.name}" · ${what}${recT}${mine !== undefined && rec?.raceBy !== 'you' ? ` · your best ${fmt(mine * 1000)}` : ''}`;
@@ -180,7 +183,8 @@ export class Racing {
     this.invites.clear();
     this.setBusy('race');
     this.stats.called++;
-    if (!others.length) { this.grid([this.me], GRID_MS - 1500); return; }
+    // (A race from the player's own list was never published: nobody else has its route, so it is only ever run alone.)
+    if (!others.length || r.idx >= BUILT_LOCAL) { this.grid([this.me], GRID_MS - 1500); return; }
     this.phase = 'calling';
     this.until = performance.now() + JOIN_S * 1000;
     this.sendCall();
@@ -418,7 +422,7 @@ export class Racing {
       let cash = 0;
       if (x.how === 1) {
         const base = field > 1 ? PLACE_CASH[Math.min(i, 3)] : x.total <= r.par * 1000 ? PLACE_CASH[0] : PLACE_CASH[3];
-        cash = Math.round(base * (r.laps > 1 ? 1.3 : 1) * taper(save.count('race:' + r.name)).cash);
+        cash = Math.round(base * (r.laps > 1 ? 1.3 : 1) * taper(save.count('race:' + r.name)).cash * (r.idx >= BUILT_ROUTE0 ? 0.4 : 1));
       }
       if (x.id === this.me) pay = cash;
       return { id: x.id, name: x.name, place: i + 1, total: x.total, best: x.best, how: x.how, cash };

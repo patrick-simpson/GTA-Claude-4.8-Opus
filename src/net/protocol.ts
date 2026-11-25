@@ -407,7 +407,7 @@ export function readDmgTail(buf: ArrayBuffer, out: Uint8Array): boolean {
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21, Cab: 22 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21, Cab: 22, Built: 23 } as const;
 // Emote (4 bytes): [kind, id, 15, emote id] (game/emotes.ts EMOTES; 0 = stopped). Sent when a player starts or stops one,
 // and again every few seconds while a looping one runs, for anybody who arrives. Relayed unread by the service; a page
 // that does not know code 15 hands it to the weapons code, which ignores codes it does not know: no new version.
@@ -1872,6 +1872,93 @@ export function decodeRace(buf: ArrayBuffer): RaceMsg | null {
   else if (m.kind === RaceKind.Done) { if (n < 15) return null; m.how = u[6]; m.ms = d.getUint32(7, true); m.lap = d.getUint32(11, true); }
   else if (m.kind !== RaceKind.Off) return null;
   return m;
+}
+
+// ---- Street races you build (fun queue 2, item 18; game/raceBuilder.ts, net/townRaces.ts) ----
+//
+// A built race is 3..12 checkpoints picked on the map, the laps, and a name chosen from lists (an index, never text).
+// Coordinates travel quantised to BUILT_Q metres as cells: ix = (x - BUILT_OX) / BUILT_Q, iz = (z - BUILT_OZ) / BUILT_Q.
+// Published as an Event frame (byte 2 PlayerEvent.Built = 23), relayed unread by both services; a page from before
+// this hands code 23 to fight.ts, which ignores codes it does not know. Still protocol v6, no service change.
+//   3 kind u8 (1 publish)  4..5 name index u16  6 laps u8 (1..3)  7 flags u8 (bit 0: back to the start)  8 pins u8 (3..12)
+//   9.. pins x (ix u16, iz u16)
+// Whoever receives it checks everything (counts, bounds, name index, that every pin is on an open street and every leg
+// is drivable) before using it. The HOST also keeps the last BUILT_SLOTS published races as durable facts, two to a key:
+// BUILT_FACT_PREFIX + 0..BUILT_KEYS-1 = 16 numbers, 8 per race slot (key k, half h = slot 2k + h; 0s = empty):
+//   [head, best, cells0 .. cells5]
+//   head  = low + 2^18 * publisher + 2^36 * seq    low = name + 2^11 * (laps-1) + 2^13 * (pins-3) + 2^17 * back
+//           publisher = the made-up name packed as first + 64 second + 4096 (third + 1) (below 2^18); seq 1..255
+//   best  = packed name of the town's best + 2^18 * race tenths (0 = none yet)
+//   cells = four 11 bit numbers per value, in pin order: ix0 + 2^11 iz0 + 2^22 ix1 + 2^33 iz1 (a missing pin is 0)
+// The race frames (RaceKind) name a built race by route = BUILT_ROUTE0 + slot; a race from the player's own list that was
+// not published has route >= BUILT_LOCAL and is only ever run alone.
+export const BUILT_KIND_PUBLISH = 1;
+export const BUILT_Q = 4, BUILT_OX = -1100, BUILT_OZ = -3100;
+export const BUILT_MIN_PINS = 3, BUILT_MAX_PINS = 12, BUILT_MAX_LAPS = 3;
+export const BUILT_SLOTS = 10, BUILT_KEYS = 5;
+export const BUILT_FACT_PREFIX = 'rb.';
+export const BUILT_ROUTE0 = 64, BUILT_LOCAL = 80;
+/** Silly names: 16 x 16 x 8 = 2048 (game/raceBuilder.ts holds the words; append only). */
+export const BUILT_NAME_SIZES = [16, 16, 8] as const;
+export const BUILT_NAMES = BUILT_NAME_SIZES[0] * BUILT_NAME_SIZES[1] * BUILT_NAME_SIZES[2];
+export interface BuiltSpec { name: number; laps: number; back: boolean; /** ix, iz, ix, iz ... */ cells: number[] }
+export interface BuiltMsg extends BuiltSpec { id: number }
+
+export function encodeBuilt(m: BuiltSpec): ArrayBuffer {
+  const n = Math.min(BUILT_MAX_PINS, m.cells.length >> 1);
+  const buf = makeFrame(Frame.Event, 9 + 4 * n - FRAME_HEADER_BYTES);
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  u[2] = PlayerEvent.Built; u[3] = BUILT_KIND_PUBLISH;
+  d.setUint16(4, clampU16(m.name), true);
+  u[6] = m.laps & 0xff; u[7] = m.back ? 1 : 0; u[8] = n;
+  for (let i = 0; i < n * 2; i++) d.setUint16(9 + 2 * i, clampU16(m.cells[i]), true);
+  return buf;
+}
+
+/** Null for anything that is not exactly a well formed publish (that the pins are on streets is checked by the game). */
+export function decodeBuilt(buf: ArrayBuffer): BuiltMsg | null {
+  if (buf.byteLength < 9) return null;
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Built || u[3] !== BUILT_KIND_PUBLISH) return null;
+  const n = u[8], laps = u[6], name = d.getUint16(4, true);
+  if (n < BUILT_MIN_PINS || n > BUILT_MAX_PINS || buf.byteLength !== 9 + 4 * n) return null;
+  // (Two laps or more always run back to the start, so a frame that says otherwise is malformed.)
+  if (laps < 1 || laps > BUILT_MAX_LAPS || name >= BUILT_NAMES || u[7] > 1 || (laps > 1 && u[7] !== 1)) return null;
+  const cells: number[] = [];
+  for (let i = 0; i < n * 2; i++) { const c = d.getUint16(9 + 2 * i, true); if (c >= 2048) return null; cells.push(c); }
+  return { id: u[1], name, laps, back: u[7] === 1, cells };
+}
+
+/** The packing of the facts above (exact below 2^53). */
+export function packBuiltHead(s: BuiltSpec, pub: number, seq: number): number {
+  const low = s.name + 2048 * (s.laps - 1) + 8192 * (s.cells.length / 2 - 3) + 131072 * (s.back ? 1 : 0);
+  return low + 262144 * pub + 68719476736 * seq;
+}
+export function packBuiltCells(cells: number[]): number[] {
+  const out: number[] = [];
+  for (let k = 0; k < 6; k++) {
+    const g = (i: number): number => cells[i] ?? 0;
+    out.push(g(4 * k) + 2048 * g(4 * k + 1) + 4194304 * g(4 * k + 2) + 8589934592 * g(4 * k + 3));
+  }
+  return out;
+}
+/** One race slot's 8 numbers from `v` at `off`, or null when empty or not well formed. */
+export function unpackBuilt(v: number[], off: number): { spec: BuiltSpec; pub: number; seq: number; best: number } | null {
+  const head = v[off], best = v[off + 1];
+  if (!Number.isInteger(head) || head <= 0 || !Number.isInteger(best) || best < 0) return null;
+  const seq = Math.floor(head / 68719476736), rest = head - seq * 68719476736;
+  const pub = Math.floor(rest / 262144), low = rest - pub * 262144;
+  const name = low % 2048, laps = Math.floor(low / 2048) % 4 + 1, pins = Math.floor(low / 8192) % 16 + 3, back = Math.floor(low / 131072) % 2 === 1;
+  if (seq < 1 || seq > 255 || name >= BUILT_NAMES || laps > BUILT_MAX_LAPS || pins > BUILT_MAX_PINS) return null;
+  const cells: number[] = [];
+  for (let k = 0; k < 6; k++) {
+    const w = v[off + 2 + k];
+    if (!Number.isInteger(w) || w < 0) return null;
+    let r = w;
+    for (let j = 0; j < 4; j++) { cells.push(r % 2048); r = Math.floor(r / 2048); }
+  }
+  cells.length = pins * 2;
+  return { spec: { name, laps, back, cells }, pub, seq, best };
 }
 
 // ---- Hot Pursuit: police chase between players (fun queue item 12; net/pursuit.ts, game/pursuit.ts) ----
