@@ -146,6 +146,9 @@ export class Moose implements WorldPart {
     this.signs();
   }
 
+  /** The moose standing in the world right now (for the photo challenges, game/shots.ts). */
+  standing(): THREE.Object3D[] { return this.beasts.filter((b) => b.root.visible && !!b.root.parent && b.root.parent.visible).map((b) => b.root); }
+
   // ── Places ────────────────────────────────────────────────────────────────
 
   private pickSites(): void {

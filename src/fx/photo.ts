@@ -23,6 +23,7 @@ import type { Person } from '../core/api';
 import { clamp } from '../core/util';
 import { WATER_Y, groundAt } from '../world/plan';
 import { waterLevelAt } from '../world/mainland';
+import { Shots } from '../game/shots';
 
 /** How far from her the camera may go, meters. */
 const RADIUS = 45;
@@ -38,6 +39,8 @@ interface Saved {
 
 export class Photo {
   open = false;
+  /** Today's photo challenges and the album (game/shots.ts). */
+  readonly shots: Shots;
   /** For the tests: photos saved this visit, and the size of the last. */
   readonly stats = { opened: 0, saved: 0, w: 0, h: 0, refused: 0 };
   /** The settings, kept between visits. */
@@ -57,6 +60,7 @@ export class Photo {
   private readonly v = new THREE.Vector3();
 
   constructor(private readonly game: Game) {
+    this.shots = new Shots(game);
     // Capture on the window: while open every key stops here, so nothing else (the replay key, the fireworks key,
     // the controls) hears it. A slider keeps its own arrow keys.
     const onKey = (e: KeyboardEvent, down: boolean): void => {
@@ -70,6 +74,7 @@ export class Photo {
       if (down) {
         if (e.repeat) return;
         if (e.code === 'Escape' || e.code === 'KeyO') { this.leave(); return; }
+        if (e.code === 'Enter' || e.code === 'KeyF') { void this.snap(); return; }
         if (e.code === 'KeyH') { this.set.panel = !this.set.panel; this.sync(); return; }
         this.keys.add(e.code);
       } else this.keys.delete(e.code);
@@ -228,6 +233,7 @@ export class Photo {
     const W = Math.floor(size.x * k), H = Math.floor(size.y * k);
     const name = `port-calamity-${stamp()}.png`;
     let pending: Promise<Blob | null> = Promise.resolve(null);
+    let thumb = '';
     try {
       r.setPixelRatio(k);
       r.setSize(size.x, size.y, false);
@@ -237,7 +243,7 @@ export class Photo {
       if (g.post) g.post.render();
       else { r.setRenderTarget(null); r.render(g.scene, g.camera); }
       // toBlob copies the picture now; the canvas is free to go back to its size before the file is made.
-      if (g.post) pending = toBlob(g.canvas);
+      if (g.post) { thumb = this.thumb(g.canvas); pending = toBlob(g.canvas); }
       else {
         // The low tier's look is a CSS filter: put it into the picture by drawing through a 2D canvas.
         const c = document.createElement('canvas');
@@ -253,6 +259,7 @@ export class Photo {
             gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, `rgba(0,0,0,${(0.75 * v).toFixed(3)})`);
             x.fillStyle = gr; x.fillRect(0, 0, W, H);
           }
+          thumb = this.thumb(c);
           pending = toBlob(c);
         }
       }
@@ -271,7 +278,44 @@ export class Photo {
     setTimeout(() => URL.revokeObjectURL(url), 4000);
     this.stats.saved++; this.stats.w = W; this.stats.h = H;
     this.flash(`Saved ${W} x ${H}`);
+    this.judge(thumb);
     return name;
+  }
+
+  /** The shutter without a file: one frame at the window's size into the album and the day's challenges. */
+  async snap(): Promise<void> {
+    if (!this.open) return;
+    const g = this.game, r = g.renderer;
+    if (g.post) g.post.render(); else { r.setRenderTarget(null); r.render(g.scene, g.camera); }
+    let img = '';
+    if (g.post) img = this.thumb(g.canvas);
+    else {
+      const c = document.createElement('canvas'); c.width = g.canvas.width; c.height = g.canvas.height;
+      const x = c.getContext('2d');
+      if (x) { x.filter = this.cssFilter() || 'none'; x.drawImage(g.canvas, 0, 0); x.filter = 'none'; img = this.thumb(c); }
+    }
+    this.flash('Click');
+    this.judge(img);
+  }
+
+  /** A small JPEG of a drawn frame, for the album. */
+  private thumb(src: HTMLCanvasElement): string {
+    try {
+      const c = document.createElement('canvas'); c.width = 192; c.height = 108;
+      const x = c.getContext('2d');
+      if (!x || !src.width) return '';
+      const k = Math.max(192 / src.width, 108 / src.height), w = src.width * k, h = src.height * k;
+      x.drawImage(src, (192 - w) / 2, (108 - h) / 2, w, h);
+      return c.toDataURL('image/jpeg', 0.6);
+    } catch { return ''; }
+  }
+
+  /** Test today's subjects against this frame and show how it went. */
+  private judge(img: string): void {
+    const lines = this.shots.take(img);
+    const res = this.root?.querySelector<HTMLElement>('.ph-res');
+    if (res) res.innerHTML = lines.map((l) => `<div>${esc(l)}</div>`).join('');
+    this.sync();
   }
 
   // ── The form ──────────────────────────────────────────────────────────────
@@ -289,6 +333,7 @@ export class Photo {
     root.innerHTML = `<div class="ph-pad"></div><div class="ph-vig"></div>
 <div class="ph-form">
   <div class="ph-hd"><b>PHOTO PERMIT</b><span>Form P-2</span></div>
+  <div class="ph-ch"></div><div class="ph-res"></div>
   ${slider('fov', 'Field of view', 15, 100, 1)}
   ${lowTier ? '<div class="ph-note">Depth of field needs quality Medium or High.</div>' : `${slider('dof', 'Depth of field', 0, 1, 0.05)}${slider('focus', 'Focus distance', 0, 1, 0.005)}`}
   ${slider('exposure', 'Exposure', -2, 2, 0.1)}
@@ -297,8 +342,9 @@ export class Photo {
   ${lowTier ? '' : slider('grain', 'Grain', 0, 1, 0.05)}
   ${slider('hour', 'Time of day', 0, 23.75, 0.25)}
   <label class="ph-row ph-check"><span>Hide Dess</span><input type="checkbox" data-k="hide"></label>
-  <div class="ph-btns"><button class="ph-save">Save photo</button><button class="ph-done">Done</button></div>
-  <div class="ph-ft">WASD fly, E/Q up and down, drag to look, wheel or pinch to move, H hides this form, Esc leaves.</div>
+  <div class="ph-album"></div>
+  <div class="ph-btns"><button class="ph-snap">Snap</button><button class="ph-save">Save photo</button><button class="ph-done">Done</button></div>
+  <div class="ph-ft">WASD fly, E/Q up and down, drag to look, wheel or pinch to move, Enter or F snaps, H hides this form, Esc leaves.</div>
 </div>
 <button class="ph-show">Form</button><div class="ph-flash"></div>`;
     document.body.append(root);
@@ -314,6 +360,7 @@ export class Photo {
       else s[k] = Number(el.value);
       this.sync(); this.apply();
     });
+    root.querySelector('.ph-snap')?.addEventListener('click', () => { void this.snap(); });
     root.querySelector('.ph-save')?.addEventListener('click', () => { void this.save(); });
     root.querySelector('.ph-done')?.addEventListener('click', () => this.leave());
     root.querySelector('.ph-show')?.addEventListener('click', () => { this.set.panel = true; this.sync(); });
@@ -360,6 +407,13 @@ export class Photo {
         : k === 'hour' ? clock(v) : k === 'dof' && v === 0 ? 'Off' : `${Math.round(v * 100)}%`;
     }
     root.classList.toggle('ph-hidden', !this.set.panel);
+    const ch = root.querySelector('.ph-ch');
+    if (ch) {
+      ch.innerHTML = '<b>Today\'s shots</b>' + this.shots.rows().map((r) =>
+        `<div class="ph-c${r.done ? ' on' : ''}" title="${esc(r.hint)}">${r.done ? '✓' : '□'} ${esc(r.title)} <i>$${r.pay}${r.ribbon ? '' : ' +ribbon'}</i></div>`).join('');
+    }
+    const al = root.querySelector('.ph-album');
+    if (al) al.innerHTML = this.shots.album().map((a) => `<img alt="" width="64" height="36" src="${esc(a.img)}" title="${esc(a.got.join(', '))}">`).join('');
   }
 
   private flash(text: string): void {
@@ -370,6 +424,7 @@ export class Photo {
   }
 }
 
+const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
 const typing = (e: KeyboardEvent): boolean => {
   const t = e.target as HTMLElement | null;
   return !!t && (t.tagName === 'TEXTAREA' || t.isContentEditable || (t.tagName === 'INPUT' && (t as HTMLInputElement).type === 'text'));
@@ -404,6 +459,8 @@ body.pc-photo #pc-photo{display:block}
 #pc-photo .ph-btns{display:flex;gap:8px;margin-top:8px}
 #pc-photo button{font:inherit;font-weight:bold;letter-spacing:.06em;border:2px solid #14213d;background:#fffaf0;color:#14213d;padding:6px 10px;cursor:pointer}
 #pc-photo .ph-save{flex:1;background:#e4572e;color:#f2e8cf}
+#pc-photo .ph-ch{margin:2px 0 4px}#pc-photo .ph-c{font-size:11px;padding:1px 0}#pc-photo .ph-c.on{opacity:.55;text-decoration:line-through}#pc-photo .ph-c i{float:right;font-style:normal;opacity:.75}#pc-photo .ph-res{font-size:11px;color:#9a2a10;margin:2px 0 4px}
+#pc-photo .ph-album{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px}#pc-photo .ph-album img{width:64px;height:36px;border:1px solid #14213d;object-fit:cover}
 #pc-photo .ph-ft{font-size:10px;opacity:.7;margin-top:6px}
 #pc-photo .ph-show{display:none;position:absolute;right:12px;top:12px}
 #pc-photo.ph-hidden .ph-form{display:none}

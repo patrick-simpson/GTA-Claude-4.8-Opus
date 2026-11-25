@@ -62,6 +62,15 @@ export class CivicHero {
 
   add(s: HeroSpec): void { this.specs.push(s); }
 
+  /** Sphere round each building that is standing (for the photo challenges, game/shots.ts); empty until the models have loaded. */
+  bounds(): { name: HeroName; x: number; y: number; z: number; r: number }[] {
+    if (this.state !== 'done' || !this.group.children.length || !this.group.visible) return [];
+    return this.specs.map((s) => {
+      const [w, d, h] = DIMS[s.name], W = w * s.sx, D = d * s.sz, H = h * s.sy;
+      return { name: s.name, x: s.x, y: s.y + H * 0.45, z: s.z, r: Math.max(W, D, H) * 0.5 };
+    });
+  }
+
   update(): void {
     if (!this.specs.length) return;
     const cam = this.game.camera.getWorldPosition(this.cam);
