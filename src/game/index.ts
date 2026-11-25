@@ -19,6 +19,7 @@ import { Derby } from './derby';
 import { Shops } from './shops';
 import { Menu } from '../ui/menu';
 import { Navigator } from './nav';
+import { Autopilot } from './autopilot';
 import { Cab } from './travel';
 import { ARRIVE, places, type Place } from '../world/business';
 import { ShopSigns } from '../world/shopSigns';
@@ -56,6 +57,8 @@ export class ThingsToDo {
   private destWay: Pt | null = null;
   /** The way to the goal, along the streets (game/nav.ts), and the signs on the businesses' doors. */
   readonly navigator = new Navigator();
+  /** "Drive me there": the car drives itself along the route (game/autopilot.ts). */
+  readonly autopilot: Autopilot;
   readonly signs: ShopSigns;
 
   private prompting = false; private lastPrompt: string | null = null;
@@ -81,6 +84,7 @@ export class ThingsToDo {
     this.shops = new Shops(game, this.markers);
     this.signs = new ShopSigns(game);
     this.travel = new Cab(game, this);
+    this.autopilot = new Autopilot(game);
     this.menu = new Menu(game, this);
 
     game.on('enter', (e) => {
@@ -179,6 +183,7 @@ export class ThingsToDo {
     if (down && !this.wasDown) save.data.stats.deaths++;
     this.wasDown = down;
     this.guide(dt);
+    this.autopilot.update(dt);
     if (performance.now() - this.lastSave >= AUTOSAVE * 1000) this.saveNow();
   }
 
@@ -211,10 +216,13 @@ export class ThingsToDo {
       for (const b of out) sig += `${b.kind}${b.label ?? ''}${Math.round(b.x)},${Math.round(b.z)}${b.r ? 'r' + b.r : ''};`;
       if (sig !== this.navSig) { this.navSig = sig; nav.blips = out.slice(); nav.rev++; }
     }
-    const to = this.missions.target ?? this.delivery.target ?? this.jobs.target ?? this.waypoint;
+    const to = this.target();
     const named = to === this.waypoint && this.dest ? this.dest.name : to === this.jobs.target ? this.jobs.targetName : null;
     g.hud.turn(this.navigator.update(dt, g.plan, p.x, p.z, to, named, nav));
   }
+
+  /** Where the route line is going now: the mission, delivery or job in hand, else the waypoint. */
+  target(): Pt | null { return this.missions.target ?? this.delivery.target ?? this.jobs.target ?? this.waypoint; }
 
   /** Set the waypoint to a business's door (the Places list, a marker on the map) and work out the way at once, paused or not. */
   go(pl: Place | null): void {

@@ -59,6 +59,8 @@ export class TouchUI {
   private getIn!: Key;
   private useKey!: Key;
   private sayKey!: Key;
+  private autoKey!: Key;
+  private autoOn = false;
   private sayOn = false;
   private using = false;
   private aimKey!: Key;
@@ -131,6 +133,10 @@ export class TouchUI {
     // Photo mode (fx/photo.ts), under REPLAY.
     this.key('t-photo always', '', 'Photo', () => game.photo.toggle(), () => { /* one press */ }).el.style.cssText =
       'right:var(--sr);top:calc(var(--st) + 88px + 2 * var(--g));width:48px;height:40px;font-size:10px;letter-spacing:0;';
+
+    // "Drive me there" (game/autopilot.ts): under the street banner, only at the wheel with a route set and nothing forbidding it. While it drives, the chip's Cancel (or any pedal) is the way out.
+    this.autoKey = this.key('t-auto drive', '', 'Drive me<br>there', () => game.todo.autopilot.toggle(), () => { /* one press */ });
+    this.autoKey.el.style.cssText = 'left:50%;margin-left:-44px;top:calc(var(--st) + 74px);width:88px;height:40px;font-size:10px;line-height:1.05;letter-spacing:0;text-align:center;display:none;';
 
     const card = this.div('t-rotate');
     card.innerHTML = '<b>Turn the phone sideways</b><span>The harbor is wider than it is tall.</span>';
@@ -387,6 +393,12 @@ export class TouchUI {
       this.near = near;
       this.getIn.el.classList.toggle('gone', !near);
       if (!near) this.dropKey(this.getIn);
+    }
+    const auto = driving && !paused && g.todo.autopilot.offer;
+    if (auto !== this.autoOn) {
+      this.autoOn = auto;
+      this.autoKey.el.style.display = auto ? '' : 'none';
+      if (!auto) this.dropKey(this.autoKey);
     }
     const talk = !paused && g.net.canSay;
     if (talk !== this.sayOn) {

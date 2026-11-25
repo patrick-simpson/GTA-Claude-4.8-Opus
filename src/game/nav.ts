@@ -11,6 +11,8 @@ import type { Pt } from './script';
 
 export type Dir = 'left' | 'right' | 'straight' | 'uturn' | 'arrive';
 export interface Turn { dir: Dir; street: string; /** Metres along the route. */ at: number }
+/** One street of the route: the edge, and where along it the route enters (s0) and leaves (s1), metres from the edge's a end. */
+export interface Leg { e: RoadEdge; s0: number; s1: number }
 export interface Guidance { dir: Dir; street: string; /** Metres to the next turn, and to the end. */ dist: number; total: number; text: string }
 
 const FEET = 3.28084;
@@ -29,6 +31,11 @@ export class Navigator {
   poly: number[] = [];
   cum: number[] = [];
   turns: Turn[] = [];
+  /** The streets of the route in order (the autopilot, game/autopilot.ts, drives these); a new route bumps `gen`. */
+  legs: Leg[] = [];
+  gen = 0;
+  /** The autopilot sets this to the way the car faces, so a route never starts by turning round. null: no preference. */
+  heading: { x: number; z: number } | null = null;
   total = 0;
   /** Where along the route she is, and how far to one side. */
   s = 0; off = 0;
@@ -91,13 +98,16 @@ export class Navigator {
   }
   private last: Guidance | null = null;
 
+  /** Ask for a fresh route from where she is now (the next update builds it). */
+  reroute(): void { this.offT = 2; this.tBuild = 2; }
+
   /** Forget the route (the goal went away). */
   clear(): void { this.goal = null; this.ok = false; this.poly = []; this.last = null; }
 
   // ── Building ────────────────────────────────────────────────────────────
 
   private build(plan: CityPlan, fx: number, fz: number, tx: number, tz: number): boolean {
-    this.turns = []; this.poly = []; this.cum = []; this.total = 0; this.seg = 0; this.s = 0; this.off = 0;
+    this.turns = []; this.poly = []; this.cum = []; this.total = 0; this.seg = 0; this.s = 0; this.off = 0; this.legs = []; this.gen++;
     const G = plan.streets;
     const segs: Seg[] = [];
     if (G) {
@@ -108,8 +118,13 @@ export class Navigator {
       let best = Infinity;
       let bestSegs: Seg[] | null = null;
       // Same street, goal ahead of her (or the street runs both ways): straight along it.
-      if (A === B && (b.s >= a.s || !A.oneWay)) { best = Math.abs(b.s - a.s); bestSegs = [{ e: A, s0: a.s, s1: b.s }]; }
-      const starts = [{ n: A.b, c: A.len - a.s }, ...(A.oneWay ? [] : [{ n: A.a, c: a.s }])];
+      const hd = this.heading;
+      // Which way the car faces along its street: +1 toward b, -1 toward a, 0 when it does not matter.
+      let face = 0;
+      if (hd) { const q = G.pointAt(A, a.s), dd = q.dx * hd.x + q.dz * hd.z; face = dd > 0.2 ? 1 : dd < -0.2 ? -1 : 0; }
+      if (A === B && (b.s >= a.s || !A.oneWay) && (face === 0 || (b.s >= a.s ? 1 : -1) === face)) { best = Math.abs(b.s - a.s); bestSegs = [{ e: A, s0: a.s, s1: b.s }]; }
+      const starts = [...(face >= 0 ? [{ n: A.b, c: A.len - a.s }] : []), ...(A.oneWay || face > 0 ? [] : [{ n: A.a, c: a.s }])];
+      if (!starts.length) starts.push({ n: A.b, c: A.len - a.s });
       const ends = [{ n: B.a, c: b.s }, ...(B.oneWay ? [] : [{ n: B.b, c: B.len - b.s }])];
       for (const st of starts) for (const en of ends) {
         const ids = st.n === en.n ? [st.n] : G.findPath(st.n, en.n);
@@ -131,6 +146,7 @@ export class Navigator {
       }
       if (!bestSegs) return false;
       for (const s of bestSegs) if (Math.abs(s.s1 - s.s0) > 0.4) segs.push(s);
+      this.legs = segs.map((s) => ({ e: s.e as RoadEdge, s0: s.s0, s1: s.s1 }));
       // The way in: from where she stands to the street, then the streets, then the last steps to the door.
       const pts: number[] = [fx, fz];
       const mark: number[] = []; // polyline vertex index where each segment starts

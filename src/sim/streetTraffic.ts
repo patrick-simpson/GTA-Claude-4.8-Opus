@@ -413,13 +413,13 @@ export class StreetDrivers {
   }
 
   /** Must a car arriving at n along e stop at the line? */
-  private mustStop(n: RoadNode, e: RoadEdge): boolean {
+  mustStop(n: RoadNode, e: RoadEdge): boolean {
     if (n.control !== 'stop' || e.kind === 'ramp') return false;
     return this.allWay.has(n.id) || this.through[this.ai(e, n.id)] === 0;
   }
 
   /** Something in the junction's pad (other than v), moving or not. */
-  private padBusy(n: RoadNode, v: Vehicle, near: readonly Vehicle[], r2: number): boolean {
+  padBusy(n: RoadNode, v: Vehicle, near: readonly Vehicle[], r2: number): boolean {
     for (const o of near) {
       if (o === v) continue;
       const dx = o.x - n.x, dz = o.z - n.z;
@@ -432,7 +432,7 @@ export class StreetDrivers {
    * Traffic coming at the junction that v must let by: within `eta` seconds of the pad and not on v's own approach.
    * oncoming: only what comes from straight ahead (a left turn's gap). sameWay: only what heads along (hx, hz) (a merge).
    */
-  private coming(n: RoadNode, v: Vehicle, near: readonly Vehicle[], ix: number, iz: number, eta: number, mode: 0 | 1 | 2, hx = 0, hz = 0): boolean {
+  coming(n: RoadNode, v: Vehicle, near: readonly Vehicle[], ix: number, iz: number, eta: number, mode: 0 | 1 | 2, hx = 0, hz = 0): boolean {
     const R = padR(n);
     for (const o of near) {
       if (o === v) continue;
@@ -451,7 +451,7 @@ export class StreetDrivers {
   }
 
   /** Circulating traffic about to pass a roundabout entry at angle ta. */
-  private circling(n: RoadNode, v: Vehicle, near: readonly Vehicle[], ta: number): boolean {
+  circling(n: RoadNode, v: Vehicle, near: readonly Vehicle[], ta: number): boolean {
     const r0 = islandR(n) - 1, r1 = n.hx + 2;
     for (const o of near) {
       if (o === v) continue;

@@ -1,0 +1,33 @@
+/* Drive me there (game/autopilot.ts): one chip under the clock. Offer on a keyboard ("I  Drive me there"); AUTOPILOT with a cancel button while it drives. */
+.ap-chip {
+  position: fixed;
+  left: 50%;
+  top: 4.6em;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: none;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.3em 0.7em;
+  background: var(--ink, #14213d);
+  color: var(--bone, #f2e8cf);
+  border: 2px solid var(--bone, #f2e8cf);
+  font: 700 14px/1 var(--f-head, 'Arial Narrow', sans-serif);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: auto;
+  user-select: none;
+  white-space: nowrap;
+}
+.ap-chip.on, .ap-chip.offer { display: flex; }
+.ap-chip.offer { cursor: pointer; opacity: 0.88; border-style: dashed; }
+.ap-chip .ap-badge { background: var(--mustard, #f0a202); color: var(--ink, #14213d); padding: 0.15em 0.5em; letter-spacing: 0.14em; }
+.ap-chip.offer .ap-badge { display: none; }
+.ap-chip .ap-txt { font-family: var(--f-text, sans-serif); font-weight: 600; letter-spacing: 0.04em; }
+.ap-chip .ap-x { font: inherit; letter-spacing: 0.06em; color: var(--ink, #14213d); background: var(--bone, #f2e8cf); border: 0; padding: 0.3em 0.7em; cursor: pointer; }
+.ap-chip .ap-x:active { background: var(--vermilion, #e4572e); }
+body.paused .ap-chip, #touch.paused ~ .ap-chip { opacity: 0.5; }
+@media (pointer: coarse) {
+  .ap-chip { top: 3.4em; font-size: 15px; }
+  .ap-chip .ap-x { padding: 0.55em 1em; }
+}

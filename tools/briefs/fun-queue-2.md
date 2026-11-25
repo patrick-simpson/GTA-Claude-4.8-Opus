@@ -28,7 +28,7 @@ GETTING AROUND
 [x] 9. Bikes and scooters for the campus and the river walk.
 [x] 10. Taxi missions: drive the Calamity Courtesy Cab for fares.
 [x] 11. Boat taxi: island harbour <-> Tepid Falls river landing.
-[ ] 12. "Drive me there" autopilot along the navigation route (phones).
+[x] 12. "Drive me there" autopilot along the navigation route (phones).
 THINGS TO DO
 [ ] 13. Pardon's treasure hunt: rotating rare items in the aisles.
 [ ] 14. Delivery jobs between real directory businesses.

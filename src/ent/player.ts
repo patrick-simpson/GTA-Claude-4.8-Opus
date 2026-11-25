@@ -750,11 +750,14 @@ export class Player implements PlayerApi {
       if (kid.on && this.sinkT >= SINK_HOLD) this.exit();
       return;
     }
-    c.steer = inp.moveX;
-    // A gamepad's triggers win over its stick; keys and touch pedals arrive as moveY.
-    c.accel = inp.padActive && inp.padTrig !== 0 ? inp.padTrig : inp.moveY;
-    c.handbrake = inp.down('jump') || inp.down('handbrake');
-    c.horn = inp.down('horn');
+    // "Drive me there" (game/autopilot.ts) holds the pedals until she touches one; then this frame is already hers.
+    if (!this.game.todo.autopilot.drive(c, dt)) {
+      c.steer = inp.moveX;
+      // A gamepad's triggers win over its stick; keys and touch pedals arrive as moveY.
+      c.accel = inp.padActive && inp.padTrig !== 0 ? inp.padTrig : inp.moveY;
+      c.handbrake = inp.down('jump') || inp.down('handbrake');
+      c.horn = inp.down('horn');
+    }
     if (this.boats.has(v)) {
       // At the helm or astride the saddle, where the hull is this frame (Boats.update ran first).
       const q = v.seatPos(0, this.seatV);

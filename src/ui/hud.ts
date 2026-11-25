@@ -790,6 +790,7 @@ const KEYS: [string[], string][] = [
   [['LMB', 'RMB'], 'Fire / aim'],
   [['Q', 'E', 'R'], 'Switch / reload'],
   [['Esc'], 'Pause'],
+  [['I'], 'Drive me there'],
   [['Hold Backspace'], 'Unstick'],
 ];
 /** Seconds Backspace must be held to go back to the start. Long enough that a slip of the finger does nothing. */
