@@ -35,6 +35,7 @@ import { FASCIA_OUT, MS_XE, MS_XW, MainStreet } from './mainStreetAssets';
 import { LACKWOOL, RIVER_ON, Riverfront } from './riverfrontAssets';
 import { PardonsStore } from './pardonsStore';
 import { CIVIC, civic, makeCivic } from './civicAssets';
+import { civicHero, heroFit, makeCivicHero } from './civicHero';
 import { BY_KIND, DESIGN, HOUSES_ON, houses, makeHouses, type Kind } from './houseAssets';
 
 const CELL = MWALL.cell, ROW = MWALL.rows, RED = MWALL.redBrick;
@@ -1600,9 +1601,16 @@ class Builder {
           if (area > 300) this.roofPlant(o, top + 0.02, rng, Math.min(3, Math.floor(area / 300)));
         }
       } else if (t === 7) {
-        top = this.oChurch(o, fr, y, hm, rng, roofHex, lean); HS = top - y; gabled = true;
+        if (civicHero) {
+          // A Blender hero church (civicHero.ts) stands here; the collision box below is the footprint's, as before.
+          civicHero.add(heroFit(7, o.cx, o.cz, o.h, w, d, y));
+          top = y + Math.min(8.6, Math.max(5.8, hm > 0 ? hm * 0.45 : 6.6)); HS = top - y; gabled = true;
+        } else { top = this.oChurch(o, fr, y, hm, rng, roofHex, lean); HS = top - y; gabled = true; }
       } else if (t >= 8) {
-        top = this.oSchool(o, fr, y, hm, rng, lean); HS = top - y;
+        if (civicHero) {
+          civicHero.add(heroFit(8, o.cx, o.cz, o.h, w, d, y));
+          top = y + 0.9 + Math.max(2, Math.min(3, hm > 0 ? Math.round(hm / 4) : 2)) * 4 + 0.8; HS = top - y; gabled = true;
+        } else { top = this.oSchool(o, fr, y, hm, rng, lean); HS = top - y; }
       } else if (t === 4) {
         // Big-box store: a tall plain box, a glazed entrance under a big sign, and the car park in front.
         HS = Math.max(6.2, hm > 0 ? Math.min(hm, 11) : 8); top = y + HS; under();
@@ -2305,6 +2313,7 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
       cv.place('chb', l.x0, groundAt(l.x0 + l.W / 2, l.z - l.D / 2), l.z, 1, 0, 0, 1);
     }
   }
+  makeCivicHero(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   const lots = mainlandLots(plan);
   makeHouses(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   b.pickChurches(lots);
@@ -2316,8 +2325,8 @@ export function buildMainlandBuildings(game: Game, mats: CityMaterials, parent: 
   // No kit.finish() here: mainlandPlaces.ts draws the landmarks into the same batches and builds the meshes.
   const pd = new PardonsStore(game, parent, () => (mats.flat as THREE.MeshStandardMaterial).envMap ?? null);
   return {
-    update: () => { kit.update(); ms.update(); rf.update(); pd.update(); cv?.update(); houses?.update(); },
-    setNight: (n: number) => { TOWN_NIGHT.value = n; kit.setNight(); ms.setNight(n); rf.setNight(n); pd.setNight(n); cv?.setNight(n); houses?.setNight(n); },
+    update: () => { kit.update(); ms.update(); rf.update(); pd.update(); cv?.update(); civicHero?.update(); houses?.update(); },
+    setNight: (n: number) => { TOWN_NIGHT.value = n; kit.setNight(); ms.setNight(n); rf.setNight(n); pd.setNight(n); cv?.setNight(n); civicHero?.setNight(n); houses?.setNight(n); },
   };
 }
 

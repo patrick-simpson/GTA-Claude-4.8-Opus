@@ -74,9 +74,11 @@ interface Dial { c: THREE.Vector3; n: THREE.Vector3; r: number }
 const NIGHT = { value: 0 };
 const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
+/** The night level for models drawn outside this class (civicHero.ts). */
+export function setCivicNight(n: number): void { NIGHT.value = n; }
 
 /** The buildings' material with one more rule: stained glass (alpha 0.30-0.40) lights in its own colour at night. */
-function civicMaterial(level: number, maps: { bc: THREE.Texture | null; bn: THREE.Texture | null; ao: THREE.Texture | null }): THREE.MeshStandardMaterial {
+export function civicMaterial(level: number, maps: { bc: THREE.Texture | null; bn: THREE.Texture | null; ao: THREE.Texture | null }): THREE.MeshStandardMaterial {
   // buildingMaterial's own hook is replaced, not wrapped: snowCover.ts already wraps whatever hook a material has, and
   // reading m.onBeforeCompile hands back that wrapper (the snow would then go in twice). The window rule is repeated here.
   const m = buildingMaterial(level, maps, NIGHT, 'civic');
