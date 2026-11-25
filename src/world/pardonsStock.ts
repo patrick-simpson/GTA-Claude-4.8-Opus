@@ -522,6 +522,8 @@ export class PardonsStock {
   private aisles: { x: number; z0: number; z1: number }[] = [];
   /** Store-frame positions of shoppers by the doors (for the sliding doors). */
   readonly nearDoors: { x: number; z: number }[] = [];
+  /** The fixture layout once loaded (pardonsFinds.ts hides its finds against it). */
+  layout: StockFile | null = null;
 
   constructor(private game: Game, private M: THREE.Matrix4, private Y: number, private exterior: THREE.Object3D) {
     this.group.name = 'pardons-stock';
@@ -546,6 +548,7 @@ export class PardonsStock {
     const gltf = await new GLTFLoader().parseAsync(kb, '');
     const kit = new Map<string, THREE.BufferGeometry>();
     gltf.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) kit.set(o.name, m.geometry); });
+    this.layout = stock;
     LM.uWear.value = drawWear(stock.runs);
     this.collide(stock);
     this.fixtures(stock, kit);

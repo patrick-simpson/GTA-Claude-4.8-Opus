@@ -30,7 +30,7 @@ GETTING AROUND
 [x] 11. Boat taxi: island harbour <-> Tepid Falls river landing.
 [x] 12. "Drive me there" autopilot along the navigation route (phones).
 THINGS TO DO
-[ ] 13. Pardon's treasure hunt: rotating rare items in the aisles.
+[x] 13. Pardon's treasure hunt: rotating rare items in the aisles.
 [ ] 14. Delivery jobs between real directory businesses.
 [ ] 15. Fishing (pier, dam, riverbank) with a fish log.
 [ ] 16. Dithers College semester: short campus missions.

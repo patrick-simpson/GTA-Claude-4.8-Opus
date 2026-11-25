@@ -21,6 +21,7 @@ import { money } from '../core/util';
 import { LeaderBillboard } from '../world/leaderBillboard';
 import { TownBoard } from '../net/leaderboard';
 import { presentsFound } from '../world/christmas';
+import { FIND_COUNT, findsCatalogued } from '../world/pardonsCatalogue';
 
 const FEET = 3.28084;
 
@@ -48,6 +49,7 @@ export const CATEGORIES: readonly Category[] = [
   { key: 'moose', title: 'Moose met', max: 100_000, fmt: (v) => String(v) },
   { key: 'presents', title: 'Presents found', max: 25, fmt: (v) => `${v} of 25` },
   { key: 'taxi', title: 'Best taxi shift', max: 1_000_000, fmt: (v) => money(v) },
+  { key: 'finds', title: "Pardon's Finds catalogued", max: FIND_COUNT, fmt: (v) => `${v} of ${FIND_COUNT}` },
 ];
 export const CAT = Object.fromEntries(CATEGORIES.map((c, i) => [c.key, i])) as Record<string, number>;
 
@@ -87,6 +89,7 @@ export function myBest(game: Game, cat: number): number | null {
     case 'ducks': return pos(c.ducksReturned);
     case 'moose': return pos(c.moose);
     case 'presents': return pos(presentsFound());
+    case 'finds': return pos(findsCatalogued());
     default: return null;
   }
 }

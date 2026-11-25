@@ -39,6 +39,8 @@ import { PlacesPanel } from './places';
 import { CAT_COLOR } from '../world/shopSigns';
 import type { Place } from '../world/business';
 import { boardHtml } from '../game/leaderboard';
+import { findsLedgerHtml } from '../world/pardonsItems';
+import { dailyIds, hasFound } from '../world/pardonsCatalogue';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
 type VolKey = 'volMaster' | 'volMusic' | 'volSfx' | 'volAmbience';
@@ -652,6 +654,9 @@ export class Menu {
     ${races}
     <h3>Section G · Odd jobs</h3>
     ${row('Fares carried', String(d.stats.fares))}${row('Cars towed', String(d.stats.tows))}${row('Parcels delivered', String(d.stats.parcels))}${row('Best rush', d.best.rush !== undefined ? money(d.best.rush) : '—')}
+  </div>
+  <div class="mn-sec mn-wide">
+    ${findsLedgerHtml(dailyIds().ids.filter((i) => !hasFound(i)).length)}
   </div>
 </div>`;
   }

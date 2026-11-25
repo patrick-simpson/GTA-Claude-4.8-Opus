@@ -20,6 +20,7 @@ import { progress } from './progress';
 import { BRIDGE_SPANS, groundAt } from './plan';
 import { CORRALS, DRIVES_N, LOT_COLS, LOT_LAMPS, PD, ROAD_SIGN, STALL, pdRect } from './pardonsSite';
 import { PardonsStock, bakedLight } from './pardonsStock';
+import { PardonsFinds } from './pardonsFinds';
 import { nightBloom } from '../core/post';
 import { plantExtra } from './floraAssets';
 
@@ -160,6 +161,7 @@ export class PardonsStore {
   private leaves: { mesh: THREE.Object3D; x0: number; dir: number; open: number }[] = [];
   private doorAt: { x: number; z: number }[] = [];
   private stock: PardonsStock | null = null;
+  private finds: PardonsFinds | null = null;
   private last = 0;
   /** Whether the camera is inside the store (for the rest of the game: sound, weather). */
   inside = false;
@@ -285,6 +287,7 @@ export class PardonsStore {
     // The stock (most of the interior's triangles) only from inside or right at the glass: from the lot it is not drawn.
     const stockOn = this.interior.visible && (this.inside || clz < PD.SBZ + 14);
     if (this.stock) { this.stock.group.visible = stockOn; this.stock.update(dt, stockOn, clx, clz, pl.x, pl.z); }
+    if (this.finds) this.finds.update(stockOn, this.inside, pl.x, pl.z);
     for (const lf of this.leaves) {
       let d = this.doorAt.reduce((m, q) => Math.min(m, Math.hypot(pl.x - q.x, pl.z - q.z)), 1e9);
       for (const s of near) for (const q of this.doorAt) d = Math.min(d, Math.hypot(s.x - q.x, s.z - q.z));
@@ -363,7 +366,9 @@ export class PardonsStore {
     this.stock = new PardonsStock(this.game, this.M, this.Y, this.group);
     this.stock.group.matrixWorldNeedsUpdate = true;
     this.interior.add(this.stock.group);
-    void this.stock.load();
+    this.finds = new PardonsFinds(this.game);
+    this.stock.group.add(this.finds.group);
+    void this.stock.load().then(() => { if (this.stock?.layout) this.finds?.setLayout(this.stock.layout); });
     this.doors();
     // Props: the road sign, corrals, lamp standards (one geometry each, placed by matrix).
     const at = (x: number, z: number, rot: number) => new THREE.Matrix4().makeRotationY(rot).setPosition(x, this.Y, z);
