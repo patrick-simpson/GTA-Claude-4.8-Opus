@@ -624,6 +624,24 @@ export class Radio {
     this.show();
   }
   private tuneAt = 0;
+  /** A jukebox is playing (game/nightlife.ts): the station is heard on foot, indoors, as it is in a car. */
+  juke = false;
+  /** The jukebox's button: the next generated station on the air (never Claude FM or off), tuned like the dial does. Returns its call and name. */
+  jukeNext(): { call: string; name: string } {
+    const c = this.core;
+    let n = this.station < 1 ? 1 : this.station + 1;
+    for (let k = 0; k < this.count(); k++) { if (n >= this.count()) n = 1; if (this.onAir(n)) break; n++; }
+    if (n >= this.count() || !this.onAir(n)) n = 1;
+    this.station = n;
+    save.data.settings.station = n;
+    save.write();
+    if (this.player) { this.player.stop(c.now); this.player = null; }
+    if (c.ctx.state === 'running' && c.claim('static', 2, 0.2)) staticBurst(c, c.now + 0.01, c.direct('music', 0.8), Math.random);
+    this.tuneAt = c.now + 0.3;
+    const st = STATIONS[n - 1];
+    this.game.hud.radio(st.call, st.name);
+    return { call: st.call, name: st.name };
+  }
   /** The host of Claude FM: now and then ducks the stream for a line (voices.ts). */
   readonly fmDj: ClaudeFMDJ;
   private lastKeys = 0;
@@ -684,7 +702,7 @@ export class Radio {
     if (inCar && !this.wasIn && this.station >= 0) this.show();
     this.wasIn = inCar;
     if (this.station >= this.count() || (this.station > 0 && !this.onAir(this.station))) this.station = -1;
-    const want = inCar && this.station > 0 && save.data.settings.volMusic > 0;
+    const want = (inCar || this.juke) && this.station > 0 && save.data.settings.volMusic > 0;
     if (!want) { if (this.player) { this.player.stop(t); this.player = null; } this.voice.tick(null, 0, 1); return; }
     if (!this.player) {
       if (t < this.tuneAt) return;

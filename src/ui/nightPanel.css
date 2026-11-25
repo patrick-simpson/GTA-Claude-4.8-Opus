@@ -1,0 +1,28 @@
+/* The order card and the darts board (ui/nightPanel.ts): a short menu at the counter or the bar, and a timing bar for darts. */
+.nl-back { position: fixed; inset: 0; z-index: 41; display: none; align-items: center; justify-content: center; background: rgba(40, 20, 10, 0.5); }
+.nl-back.on { display: flex; }
+.nl-card {
+  width: min(30em, calc(100% - 1.2em)); max-height: calc(100% - 1.2em); overflow: auto;
+  background: var(--bone, #f2e8cf); color: var(--ink, #14213d); border: 3px solid var(--ink, #14213d);
+  box-shadow: 0.35em 0.35em 0 rgba(20, 33, 61, 0.55); padding: 0.9em 1.1em 1em;
+  font: 500 15px/1.35 var(--f-body, 'Barlow Semi Condensed', sans-serif);
+}
+.nl-card h2 { margin: 0; font: 800 1.6em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.04em; text-transform: uppercase; }
+.nl-sub { opacity: 0.75; margin: 0.25em 0 0.4em; }
+.nl-row { display: flex; align-items: center; gap: 0.6em; width: 100%; text-align: left; padding: 0.55em 0.5em; border: 0; border-bottom: 1px dotted rgba(20, 33, 61, 0.4); background: transparent; color: inherit; font: inherit; cursor: pointer; min-height: 2.6em; }
+.nl-row:hover { background: rgba(240, 162, 2, 0.35); }
+.nl-row b { flex: 1 1 auto; }
+.nl-row small { opacity: 0.7; }
+.nl-row i { font-style: normal; font-weight: 800; min-width: 3em; text-align: right; }
+.nl-row kbd { font: 700 0.8em var(--f-head, 'Arial Narrow', sans-serif); border: 2px solid var(--ink, #14213d); padding: 0 0.4em; }
+.nl-msg { min-height: 2.6em; margin: 0.6em 0 0.2em; font-weight: 700; }
+.nl-bar { display: flex; gap: 0.5em; justify-content: space-between; align-items: center; margin-top: 0.5em; flex-wrap: wrap; }
+.nl-btn { font: 700 0.9em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.08em; text-transform: uppercase; padding: 0.6em 1em; min-height: 2.6em; border: 2px solid var(--ink, #14213d); background: var(--mustard, #f0a202); color: var(--ink, #14213d); cursor: pointer; }
+.nl-btn.alt { background: transparent; }
+.nl-btn[disabled] { opacity: 0.4; cursor: default; }
+.nl-wallet { font-weight: 800; }
+.nl-board { display: flex; gap: 1em; align-items: center; margin: 0.4em 0; }
+.nl-board canvas { width: 9em; height: 9em; flex: none; background: #1b1410; border-radius: 50%; }
+.nl-scores { flex: 1 1 auto; font-weight: 700; }
+.nl-timing { position: relative; height: 2.2em; margin: 0.6em 0; border: 3px solid var(--ink, #14213d); background: linear-gradient(90deg, #a3211c 0 2.5%, #c8861a 2.5% 25%, #f0a202 25% 40%, #8fcf7a 40% 46%, #2e8b4a 46% 54%, #8fcf7a 54% 60%, #f0a202 60% 75%, #c8861a 75% 97.5%, #a3211c 97.5% 100%); }
+.nl-timing .mk { position: absolute; top: -0.3em; bottom: -0.3em; width: 0.3em; margin-left: -0.15em; background: var(--ink, #14213d); border: 2px solid #fff; }
