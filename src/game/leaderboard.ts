@@ -50,6 +50,7 @@ export const CATEGORIES: readonly Category[] = [
   { key: 'presents', title: 'Presents found', max: 25, fmt: (v) => `${v} of 25` },
   { key: 'taxi', title: 'Best taxi shift', max: 1_000_000, fmt: (v) => money(v) },
   { key: 'finds', title: "Pardon's Finds catalogued", max: FIND_COUNT, fmt: (v) => `${v} of ${FIND_COUNT}` },
+  { key: 'gig', title: 'Best delivery shift', max: 1_000_000, fmt: (v) => money(v) },
 ];
 export const CAT = Object.fromEntries(CATEGORIES.map((c, i) => [c.key, i])) as Record<string, number>;
 
@@ -85,6 +86,7 @@ export function myBest(game: Game, cat: number): number | null {
     case 'derby': return pos(c.derbyWins ?? c.derby ?? b['lb.derby']);
     case 'rush': return pos(b.rush);
     case 'taxi': return pos(b.taxi);
+    case 'gig': return pos(b.gig);
     case 'money': return pos(Math.max(b['lb.money'] ?? 0, game.player ? game.player.money : 0));
     case 'ducks': return pos(c.ducksReturned);
     case 'moose': return pos(c.moose);

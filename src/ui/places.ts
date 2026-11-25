@@ -12,6 +12,7 @@ import { asDest, hubs, type Dest } from '../game/travel';
 import { STATIONS } from '../world/railway';
 import { DOCKS } from '../world/ferryRoute';
 import { STREETS_NEW } from '../world/streets';
+import type { Gig } from '../game/gigs';
 import { stationPoint, PLATFORM_IN, PLATFORM_W } from '../world/trainStations';
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
@@ -39,6 +40,10 @@ export class PlacesPanel {
   /** The chip "Ferry" is on: the list is the Calamity Shuttle's two landings, with when the next sailing is in. */
   private ferry = false;
   private ferryList: Place[] = [];
+  /** The chip "Gigs" is on: the list is the delivery orders on the board (game/gigs.ts), each from a real counter to a real door. */
+  private gigs = false;
+  private gigList: Gig[] = [];
+  private gigSel: Gig | null = null;
   private shown: Place[] = [];
   private decided = false;
 
@@ -60,7 +65,7 @@ export class PlacesPanel {
     this.list = el.querySelector('.pl-list') as HTMLElement;
     this.foot = el.querySelector('.pl-foot') as HTMLElement;
     this.sel = el.querySelector('.pl-sel') as HTMLElement;
-    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...(STATIONS.length ? [`<button type="button" class="pl-chip pl-railchip" data-cat="rail"><i style="background:#2a7a45"></i>Train stations</button>`] : []), ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-ferrychip" data-cat="ferry"><i style="background:#1d5566"></i>Ferry</button>`] : []), ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
+    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-gigchip" data-cat="gigs"><i style="background:#2a9d8f"></i>Gigs</button>`, `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...(STATIONS.length ? [`<button type="button" class="pl-chip pl-railchip" data-cat="rail"><i style="background:#2a7a45"></i>Train stations</button>`] : []), ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-ferrychip" data-cat="ferry"><i style="background:#1d5566"></i>Ferry</button>`] : []), ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
 
     (el.querySelector('.pl-tab') as HTMLElement).addEventListener('click', () => this.fold(!el.classList.contains('fold')));
     // Typing here is not steering the map: keep the menu's and the game's key handlers out of it (Escape still reaches them).
@@ -74,16 +79,21 @@ export class PlacesPanel {
       this.hub = b.dataset.cat === 'hubs';
       this.rail = b.dataset.cat === 'rail';
       this.ferry = b.dataset.cat === 'ferry';
-      this.cat = this.hub || this.rail || this.ferry ? null : ((b.dataset.cat || null) as Category | null);
+      this.gigs = b.dataset.cat === 'gigs';
+      this.gigSel = null;
+      this.cat = this.hub || this.rail || this.ferry || this.gigs ? null : ((b.dataset.cat || null) as Category | null);
       this.chips.querySelectorAll('.pl-chip').forEach((c) => c.classList.toggle('on', c === b));
       this.refresh();
     });
     this.list.addEventListener('click', (e) => {
       const li = (e.target as HTMLElement).closest<HTMLElement>('[data-i]');
+      if (li && this.gigs) { this.pickGig(this.gigList[Number(li.dataset.i)]); return; }
       if (li) this.pick(this.shown[Number(li.dataset.i)]);
     });
     this.sel.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
+      if (t.closest('.pl-gigacc') && this.gigSel) { const gg = this.gigSel; if (this.todo.gigs.accept(gg)) { this.gigSel = null; this.todo.go(null); this.refresh(); this.view.redraw(); } return; }
+      if (t.closest('.pl-gigcancel')) { this.todo.gigs.stop('Order cancelled. The counter shrugs.'); this.refresh(); this.view.redraw(); return; }
       if (t.closest('.pl-clear')) { this.todo.go(null); this.refresh(); this.view.redraw(); return; }
       const tr = t.closest<HTMLButtonElement>('.pl-train');
       if (tr && !tr.disabled) { const i = Number(tr.dataset.st); if (this.game.rail.travel(i) === '') this.refresh(); return; }
@@ -107,6 +117,7 @@ export class PlacesPanel {
     // A phone starts with the panel folded (the map is the page); known only once the menu is first opened.
     if (!this.decided) { this.decided = true; this.fold(this.game.input.touch); }
     const p = this.game.player, all = this.todo.places();
+    if (this.gigs) { this.refreshGigs(); return; }
     const placed = all.filter((x) => x.placed);
     const found = this.ferry ? this.ferryPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.rail ? this.railPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.hub ? this.hubPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : findPlaces(all, this.q.value, this.cat);
     if (!this.hub && !this.rail && !this.ferry) found.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
@@ -122,7 +133,47 @@ export class PlacesPanel {
     this.showSel();
   }
 
+  /** The Gigs list: orders near her, nearest pickup first, with the pay; picking one sets the route to its pickup door. */
+  private refreshGigs(): void {
+    const p = this.game.player, gg = this.todo.gigs;
+    this.shown = [];
+    if (gg.busy) {
+      const i = gg.info();
+      this.gigList = [];
+      this.list.innerHTML = `<li class="pl-none">${i ? `On an order: ${esc(gg.cargoDef(i.cargo).label)} from ${esc(i.from)} to ${esc(i.to)}.` : 'On shift.'}</li>`;
+      this.foot.textContent = 'The route to it is on the map and the radar.';
+      this.showSel();
+      return;
+    }
+    this.gigList = gg.board();
+    this.list.innerHTML = this.gigList.map((x, i) => {
+      const d = Math.hypot(x.from.x - p.x, x.from.z - p.z), c = gg.cargoDef(x.cargo), on = this.gigSel === x;
+      return `<li><button type="button" class="pl-row${on ? ' on' : ''}" data-i="${i}"><i style="background:${c.color}"></i><span class="pl-nm">${esc(c.label)}: ${esc(x.from.name)} to ${esc(x.to.name)}</span><span class="pl-sub">${esc(gg.payText(x))} · pickup ${distText(d)} · ${distText(x.len)} run</span></button></li>`;
+    }).join('') || `<li class="pl-none">No orders on the board near here. Try the other side of the river, or wait a minute for the phone.</li>`;
+    this.foot.textContent = `${this.gigList.length} order${this.gigList.length === 1 ? '' : 's'} near you · or stop at a pizza place, florist, hardware store or pharmacy door and press G`;
+    this.showSel();
+  }
+
+  private pickGig(x: Gig | undefined): void {
+    if (!x) return;
+    this.gigSel = x;
+    this.todo.go(x.from);
+    this.view.focus(x.from.x, x.from.z, 1.3);
+    this.refresh();
+    this.view.redraw();
+  }
+
   private showSel(): void {
+    if (this.gigs) {
+      const gg = this.todo.gigs, x = this.gigSel, act = gg.busy ? gg.info() : null;
+      if (act) { this.sel.classList.add('on'); this.sel.innerHTML = `<b>On an order</b><span>${esc(act.phase === 0 ? 'Pickup: ' + act.from : 'Drop: ' + act.to)}</span><div class="pl-btns"><button type="button" class="pl-go pl-gigcancel">Cancel the order</button></div>`; return; }
+      if (!x) { this.sel.innerHTML = ''; this.sel.classList.remove('on'); return; }
+      const c = gg.cargoDef(x.cargo), nv = this.todo.navigator, p = this.game.player;
+      const how = nv.ok ? `${distText(nv.total)} by road to the pickup` : `${distText(Math.hypot(x.from.x - p.x, x.from.z - p.z))} to the pickup`;
+      this.sel.classList.add('on');
+      this.sel.innerHTML = `<b>${esc(c.label)}: ${esc(x.item)}</b><span>${esc(x.from.name)} to ${esc(x.to.name)}${x.to.house ? ' (a house)' : ''}</span><span>${esc(gg.payText(x))} · ${esc(how)} · ${esc(gg.needText(x))}</span><div class="pl-btns"><button type="button" class="pl-go pl-gigacc">Accept this order</button><button type="button" class="pl-go pl-clear" style="background:var(--ink)">Clear</button></div>`;
+      return;
+    }
     const d = this.routeDest(), nv = this.todo.navigator;
     if (!d || this.todo.waypoint === null) { this.sel.innerHTML = ''; this.sel.classList.remove('on'); return; }
     const turns = nv.turns.filter((t) => t.dir !== 'straight').length;

@@ -31,7 +31,7 @@ GETTING AROUND
 [x] 12. "Drive me there" autopilot along the navigation route (phones).
 THINGS TO DO
 [x] 13. Pardon's treasure hunt: rotating rare items in the aisles.
-[ ] 14. Delivery jobs between real directory businesses.
+[x] 14. Delivery jobs between real directory businesses.
 [ ] 15. Fishing (pier, dam, riverbank) with a fish log.
 [ ] 16. Dithers College semester: short campus missions.
 [ ] 17. SpeedScan HQ heist using the floors and the elevator.
