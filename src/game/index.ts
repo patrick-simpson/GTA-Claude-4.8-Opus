@@ -17,6 +17,8 @@ import { RaceBuilder } from './raceBuilder';
 import { Delivery } from './delivery';
 import { Gigs } from './gigs';
 import { Plow } from './plow';
+import { SnowFight } from './snowfight';
+import { SnowTag } from '../ui/snowTag';
 import { Fishing } from './fishing';
 import { Semester } from './semester';
 import { Heist } from './heist';
@@ -61,6 +63,10 @@ export class ThingsToDo {
   readonly gigs: Gigs;
   /** Snowplow and salt-truck routes from the yards when snow is lying (fun queue 2, item 20). */
   readonly plow: Plow;
+  /** Team snowball fights with a score billboard when snow is lying (fun queue 2, item 27). */
+  readonly snow: SnowFight;
+  /** The snowball fight's tag and splat. */
+  readonly snowTag: SnowTag;
   /** Fishing at the signed spots, with the Fish Log (fun queue 2, item 15). */
   readonly fishing: Fishing;
   /** The Semester: Dithers College courses, grades and the Transcript (fun queue 2, item 16). */
@@ -134,6 +140,8 @@ export class ThingsToDo {
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.gigs = new Gigs(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.plow = new Plow(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
+    this.snow = new SnowFight(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
+    this.snowTag = new SnowTag(game, this.snow);
     this.fishing = new Fishing(game, () => this.busy === null);
     this.semester = new Semester(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.heist = new Heist(game, this.markers, () => this.busy === null, (id) => this.setBusy(id), st.givers.lou.at);
@@ -194,6 +202,7 @@ export class ThingsToDo {
     this.delivery.stop();
     this.gigs.stop(undefined, false);
     this.plow.stop();
+    this.snow.offline();
     this.semester.drop('New game.');
     this.heist.abandon('New game.');
     this.busy = null;
@@ -243,6 +252,8 @@ export class ThingsToDo {
     this.finds.update(dt);
     this.delivery.update(dt);
     this.plow.update(dt);
+    this.snow.update(dt);
+    this.snowTag.update();
     this.jobs.update(dt);
     this.gigs.update(dt, !!(this.delivery.prompt || this.jobs.prompt || this.plow.prompt));
     this.shops.update(dt);
@@ -250,7 +261,7 @@ export class ThingsToDo {
     const w = this.waypoint;
     if (w) this.markers.put(w.x, w.z, 'goal', 5, 30);
     this.markers.end();
-    this.say(this.missions.prompt ?? this.semester.prompt ?? this.heist.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.coop.prompt ?? this.delivery.prompt ?? this.plow.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.stores.prompt ?? this.events.prompt ?? this.fishing.prompt);
+    this.say(this.missions.prompt ?? this.semester.prompt ?? this.heist.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.coop.prompt ?? this.delivery.prompt ?? this.plow.prompt ?? this.snow.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.stores.prompt ?? this.events.prompt ?? this.fishing.prompt);
     // M or Tab (Back on a pad): straight to the map.
     if (g.input.eat('map')) { this.menu.tab = 0; g.setPaused(true); }
     const down = !(g.player.health > 0);
@@ -284,6 +295,7 @@ export class ThingsToDo {
       this.delivery.blips(out);
       this.gigs.blips(out);
       this.plow.blips(out);
+      this.snow.blips(out);
       this.racing.blips(out);
       this.pursuit.blips(out);
       this.coop.blips(out);

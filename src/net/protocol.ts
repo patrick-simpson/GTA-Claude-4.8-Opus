@@ -407,7 +407,7 @@ export function readDmgTail(buf: ArrayBuffer, out: Uint8Array): boolean {
 export const PLAYER_EVENT_BYTES = 4;
 // (Stage 3, step 3 adds longer events with the same first four bytes: see "Weapons between players" below. A page that
 // does not know a code ignores the event, so they needed no new version.)
-export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21, Cab: 22, Built: 23, Coop: 24, Convoy: 25, Store: 26 } as const;
+export const PlayerEvent = { Horn: 1, Wave: 2, Shout: 3, Fire: 4, Rocket: 5, Blast: 6, Vital: 7, Prop: 8, Held: 9, Crew: 10, Job: 11, Ride: 12, Seats: 13, Look: 14, Emote: 15, Race: 16, Pursuit: 17, Derby: 18, Fireworks: 19, Duck: 20, Chat: 21, Cab: 22, Built: 23, Coop: 24, Convoy: 25, Store: 26, Snow: 27 } as const;
 // Emote (4 bytes): [kind, id, 15, emote id] (game/emotes.ts EMOTES; 0 = stopped). Sent when a player starts or stops one,
 // and again every few seconds while a looping one runs, for anybody who arrives. Relayed unread by the service; a page
 // that does not know code 15 hands it to the weapons code, which ignores codes it does not know: no new version.
@@ -2121,6 +2121,76 @@ export function decodeStore(buf: ArrayBuffer): StoreMsg | null {
   const stock: { item: number; price: number }[] = [];
   for (let i = 0; i < n; i++) { const o = 13 + L + 3 * i; stock.push({ item: u[o], price: d.getUint16(o + 1, true) }); }
   return { id: u[1], kind: u[3], owner: u[4], buyer: u[5], site: u[6], reason: u[7], item: u[8], price: d.getUint16(9, true), name, stock };
+}
+
+// ---- Team snowball fights (fun queue 2, item 27; net/snowfight.ts, game/snowfight.ts) ----
+//
+// Event frames (byte 2 PlayerEvent.Snow = 27), relayed unread by both services like Coop = 24, Convoy = 25 and Store = 26
+// (room.ts copies any Event frame of up to MAX_PLAYER_FRAME_BYTES = 96; a page from before this hands code 27 to fight.ts,
+// which ignores codes it does not know). Still protocol v6, no service change, no new fact key. Common head: 3 kind
+// (SnowKind), 4 host u8 (whose fight), 5 site u8 (which arena). The caller's browser is the referee.
+//   Roster (host):  6..7 secs left u16  8 red u8  9 blue u8  10 phase u8 (1 count, 2 run)  11 bots u8 (hi nibble red, lo blue)
+//                   12 n u8  13.. n x (id u8, team u8 1 red 2 blue)
+//   Join (player):  asks the host for a place
+//   Leave (player): 6 team u8
+//   Throw:          6 thrower u8 (a player id, or 100 + k for the host's bot k)  7 seq u8  8..19 x y z f32 (the hand)
+//                   20..25 vx vy vz i16 (cm/s)
+//   Hit (host):     6 victim u8  7 thrower u8  8 seq u8  9 red u8  10 blue u8
+//   Bots (host):    6 n u8, then n x (x i16, z i16 cm from the arena's middle, heading u8, flags u8: 1 blue, 2 staggered)
+//   End (host):     6 red u8  7 blue u8  8 winner u8 (0 draw, 1 red, 2 blue)
+export const SnowKind = { Roster: 1, Join: 2, Leave: 3, Throw: 4, Hit: 5, Bots: 6, End: 7 } as const;
+export const SNOW_MAX = 8, SNOW_BOTS = 6;
+export interface SnowMsg {
+  id: number; kind: number; host: number; site: number;
+  secs: number; red: number; blue: number; phase: number; bots: number; ids: { id: number; team: number }[];
+  team: number; thrower: number; seq: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; victim: number; winner: number;
+  list: { dx: number; dz: number; h: number; f: number }[];
+}
+export const blankSnow = (kind: number): SnowMsg => ({ id: 0, kind, host: 0, site: 0, secs: 0, red: 0, blue: 0, phase: 0, bots: 0, ids: [], team: 0, thrower: 0, seq: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, victim: 0, winner: 0, list: [] });
+
+export function encodeSnow(m: SnowMsg): ArrayBuffer {
+  const k = m.kind, ids = m.ids.slice(0, SNOW_MAX), bots = m.list.slice(0, SNOW_BOTS);
+  const len = k === SnowKind.Roster ? 13 + 2 * ids.length : k === SnowKind.Throw ? 26 : k === SnowKind.Bots ? 7 + 6 * bots.length : k === SnowKind.Hit ? 11 : k === SnowKind.End ? 9 : 7;
+  const buf = makeFrame(Frame.Event, len - FRAME_HEADER_BYTES);
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  u[2] = PlayerEvent.Snow; u[3] = k & 0xff; u[4] = m.host & 0xff; u[5] = m.site & 0xff;
+  const cl = (v: number): number => Math.max(-32768, Math.min(32767, Math.round(v)));
+  if (k === SnowKind.Roster) {
+    d.setUint16(6, Math.max(0, Math.min(65535, Math.round(m.secs))), true); u[8] = m.red & 0xff; u[9] = m.blue & 0xff; u[10] = m.phase & 0xff; u[11] = m.bots & 0xff; u[12] = ids.length;
+    ids.forEach((v, i) => { u[13 + 2 * i] = v.id & 0xff; u[14 + 2 * i] = v.team & 0xff; });
+  } else if (k === SnowKind.Leave) u[6] = m.team & 0xff;
+  else if (k === SnowKind.Throw) {
+    u[6] = m.thrower & 0xff; u[7] = m.seq & 0xff; d.setFloat32(8, m.x, true); d.setFloat32(12, m.y, true); d.setFloat32(16, m.z, true);
+    d.setInt16(20, cl(m.vx * 100), true); d.setInt16(22, cl(m.vy * 100), true); d.setInt16(24, cl(m.vz * 100), true);
+  } else if (k === SnowKind.Hit) { u[6] = m.victim & 0xff; u[7] = m.thrower & 0xff; u[8] = m.seq & 0xff; u[9] = m.red & 0xff; u[10] = m.blue & 0xff; }
+  else if (k === SnowKind.Bots) {
+    u[6] = bots.length;
+    bots.forEach((b, i) => { const o = 7 + 6 * i; d.setInt16(o, cl(b.dx * 100), true); d.setInt16(o + 2, cl(b.dz * 100), true); u[o + 4] = b.h & 0xff; u[o + 5] = b.f & 0xff; });
+  } else if (k === SnowKind.End) { u[6] = m.red & 0xff; u[7] = m.blue & 0xff; u[8] = m.winner & 0xff; }
+  return buf;
+}
+
+export function decodeSnow(buf: ArrayBuffer): SnowMsg | null {
+  if (buf.byteLength < 7) return null;
+  const d = new DataView(buf), u = new Uint8Array(buf);
+  if (u[0] !== Frame.Event || u[2] !== PlayerEvent.Snow || u[3] < 1 || u[3] > 7) return null;
+  const k = u[3], m = blankSnow(k);
+  m.id = u[1]; m.host = u[4]; m.site = u[5];
+  if (k === SnowKind.Roster) {
+    if (buf.byteLength < 13) return null;
+    m.secs = d.getUint16(6, true); m.red = u[8]; m.blue = u[9]; m.phase = u[10]; m.bots = u[11];
+    for (let i = 0; i < Math.min(u[12], SNOW_MAX) && 14 + 2 * i < buf.byteLength; i++) m.ids.push({ id: u[13 + 2 * i], team: u[14 + 2 * i] });
+  } else if (k === SnowKind.Leave) m.team = u[6];
+  else if (k === SnowKind.Throw) {
+    if (buf.byteLength < 26) return null;
+    m.thrower = u[6]; m.seq = u[7]; m.x = d.getFloat32(8, true); m.y = d.getFloat32(12, true); m.z = d.getFloat32(16, true);
+    m.vx = d.getInt16(20, true) / 100; m.vy = d.getInt16(22, true) / 100; m.vz = d.getInt16(24, true) / 100;
+    if (![m.x, m.y, m.z].every((v) => Number.isFinite(v) && Math.abs(v) < 20000)) return null;
+  } else if (k === SnowKind.Hit) { if (buf.byteLength < 11) return null; m.victim = u[6]; m.thrower = u[7]; m.seq = u[8]; m.red = u[9]; m.blue = u[10]; }
+  else if (k === SnowKind.Bots) {
+    for (let i = 0; i < Math.min(u[6], SNOW_BOTS) && 7 + 6 * i + 6 <= buf.byteLength; i++) { const o = 7 + 6 * i; m.list.push({ dx: d.getInt16(o, true) / 100, dz: d.getInt16(o + 2, true) / 100, h: u[o + 4], f: u[o + 5] }); }
+  } else if (k === SnowKind.End) { if (buf.byteLength < 9) return null; m.red = u[6]; m.blue = u[7]; m.winner = u[8]; }
+  return m;
 }
 
 // ---- Demolition derby at Flounder Field (fun queue item 13; net/derby.ts, game/derby.ts) ----

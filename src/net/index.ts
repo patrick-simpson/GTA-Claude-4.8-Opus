@@ -55,6 +55,7 @@ import { TownRaces } from './townRaces';
 import { TownPursuit } from './pursuit';
 import { TownCoop } from './coop';
 import { TownConvoy } from './convoy';
+import { TownSnow } from './snowfight';
 import { TownStores } from './stores';
 import { TownDerby } from './derby';
 import { TownExtras } from './extras';
@@ -105,6 +106,8 @@ export class Net {
   readonly coop: TownCoop;
   /** Convoys (fun queue 2, item 24): the wire; the convoy is game/convoy.ts. */
   readonly convoy: TownConvoy;
+  /** Team snowball fights (fun queue 2, item 27): the wire; the fight is game/snowfight.ts. */
+  readonly snow: TownSnow;
   /** Player-run shops (fun queue 2, item 25): the wire; the shops are game/stores.ts. */
   readonly stores: TownStores;
   /** The demolition derby (fun queue item 13): the wire and the town's records. */
@@ -181,6 +184,7 @@ export class Net {
     this.pursuit = new TownPursuit(game, c, this.remotes);
     this.coop = new TownCoop(game, c, this.remotes);
     this.convoy = new TownConvoy(game, c, this.remotes);
+    this.snow = new TownSnow(game, c, this.remotes);
     this.stores = new TownStores(game, c, this.remotes);
     this.derby = new TownDerby(game, c, this.remotes);
     this.extras = new TownExtras(game, c, this.remotes);
@@ -295,6 +299,7 @@ export class Net {
     this.pursuit.refresh();
     this.coop.refresh();
     this.convoy.refresh();
+    this.snow.refresh();
     this.stores.refresh();
     this.derby.refresh();
   }
@@ -313,6 +318,7 @@ export class Net {
     this.pursuit.dropped(id);
     this.coop.dropped(id);
     this.convoy.dropped(id);
+    this.snow.dropped(id);
     this.stores.dropped(id);
     this.derby.dropped(id);
     this.extras.dropped(id);
@@ -334,6 +340,7 @@ export class Net {
     this.pursuit.clear();
     this.coop.clear();
     this.convoy.clear();
+    this.snow.clear();
     this.stores.clear();
     this.derby.clear();
     this.held.clear();
@@ -400,6 +407,7 @@ export class Net {
       else if (e.code === PlayerEvent.Pursuit) this.pursuit.event(buf);
       else if (e.code === PlayerEvent.Coop) this.coop.event(buf);
       else if (e.code === PlayerEvent.Convoy) this.convoy.event(buf);
+      else if (e.code === PlayerEvent.Snow) this.snow.event(buf);
       else if (e.code === PlayerEvent.Store) this.stores.event(buf);
       else if (e.code === PlayerEvent.Derby) this.derby.event(buf);
       else if (e.code === PlayerEvent.Fireworks || e.code === PlayerEvent.Duck) this.extras.event(buf);
@@ -692,6 +700,7 @@ export class Net {
       pursuit: this.pursuit.info(),
       coop: this.coop.info(),
       convoy: this.convoy.info(),
+      snow: this.snow.info(),
       stores: this.stores.info(),
       derby: this.derby.info(),
       extras: this.extras.info(),

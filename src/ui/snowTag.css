@@ -1,0 +1,14 @@
+/* The snowball fight's tag (ui/snowTag.ts): snowballs in hand, Throw and Scoop buttons for a phone, a Join tap; and the splat. */
+#sf-tag { position: fixed; z-index: 30; left: 50%; top: 4.6em; transform: translateX(-50%); display: none; align-items: center; gap: 0.5em; font: 800 0.95em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.06em; text-transform: uppercase; padding: 0.45em 0.7em; border: 2px solid var(--ink, #14213d); background: var(--bone, #f2e8cf); color: var(--ink, #14213d); box-shadow: 0.2em 0.2em 0 rgba(20, 33, 61, 0.55); white-space: nowrap; max-width: calc(100% - 1.4em); }
+#sf-tag.on { display: flex; }
+#sf-tag.red { border-color: #b3262e; }
+#sf-tag.blue { border-color: #2a5db0; }
+#sf-tag .sf-balls { display: inline-flex; gap: 0.2em; }
+#sf-tag .sf-balls i { width: 0.7em; height: 0.7em; border-radius: 50%; background: #fff; border: 2px solid #5b6f93; box-sizing: border-box; }
+#sf-tag .sf-balls i.off { background: transparent; border-style: dotted; opacity: 0.45; }
+#sf-tag button { font: inherit; letter-spacing: inherit; text-transform: inherit; padding: 0.7em 0.9em; min-height: 2.6em; border: 2px solid var(--ink, #14213d); background: var(--mustard, #f0a202); color: var(--ink, #14213d); cursor: pointer; }
+#sf-tag button[disabled] { opacity: 0.4; cursor: default; }
+#sf-splat { position: fixed; inset: 0; z-index: 29; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at 50% 45%, rgba(255, 255, 255, 0.92) 0%, rgba(240, 246, 255, 0.78) 30%, rgba(240, 246, 255, 0) 70%); }
+#sf-splat.on { animation: sf-splat 0.8s ease-out; }
+@keyframes sf-splat { 0% { opacity: 0.95; transform: scale(1.12); } 100% { opacity: 0; transform: scale(1); } }
+body.touch #sf-tag { font-size: 0.72em; top: 3.4em; }
