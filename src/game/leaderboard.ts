@@ -59,6 +59,8 @@ export const CATEGORIES: readonly Category[] = [
   { key: 'speedscan', title: 'Fastest Speed Scan', max: 3555, fmt: (v) => clock(3600 - v) },
   // Fun queue 2, item 19: the Regatta's best time, kept the same way. No lap of that course is believable under 20 s. (Still 7 board facts: 20 rows fit in 7 of 3.)
   { key: 'regatta', title: 'Regatta best time', max: 3580, fmt: (v) => clock(3600 - v) },
+  // Fun queue 2, item 20: the best snowplow or salt-truck job's pay. Row 21 still fits the 7 board facts (7 of 3).
+  { key: 'plow', title: 'Best snow job', max: 1_000_000, fmt: (v) => money(v) },
 ];
 export const CAT = Object.fromEntries(CATEGORIES.map((c, i) => [c.key, i])) as Record<string, number>;
 
@@ -95,6 +97,7 @@ export function myBest(game: Game, cat: number): number | null {
     case 'rush': return pos(b.rush);
     case 'taxi': return pos(b.taxi);
     case 'gig': return pos(b.gig);
+    case 'plow': return pos(b.plow);
     case 'money': return pos(Math.max(b['lb.money'] ?? 0, game.player ? game.player.money : 0));
     case 'ducks': return pos(c.ducksReturned);
     case 'moose': return pos(c.moose);

@@ -16,6 +16,7 @@ import { Racing } from './race';
 import { RaceBuilder } from './raceBuilder';
 import { Delivery } from './delivery';
 import { Gigs } from './gigs';
+import { Plow } from './plow';
 import { Fishing } from './fishing';
 import { Semester } from './semester';
 import { Heist } from './heist';
@@ -51,6 +52,8 @@ export class ThingsToDo {
   readonly delivery: Delivery;
   /** Gigs: delivery orders between the directory's businesses (fun queue 2, item 14). */
   readonly gigs: Gigs;
+  /** Snowplow and salt-truck routes from the yards when snow is lying (fun queue 2, item 20). */
+  readonly plow: Plow;
   /** Fishing at the signed spots, with the Fish Log (fun queue 2, item 15). */
   readonly fishing: Fishing;
   /** The Semester: Dithers College courses, grades and the Transcript (fun queue 2, item 16). */
@@ -102,6 +105,7 @@ export class ThingsToDo {
     this.events = new TownEvents(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.gigs = new Gigs(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
+    this.plow = new Plow(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.fishing = new Fishing(game, () => this.busy === null);
     this.semester = new Semester(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.heist = new Heist(game, this.markers, () => this.busy === null, (id) => this.setBusy(id), st.givers.lou.at);
@@ -161,6 +165,7 @@ export class ThingsToDo {
     this.jobs.stop();
     this.delivery.stop();
     this.gigs.stop(undefined, false);
+    this.plow.stop();
     this.semester.drop('New game.');
     this.heist.abandon('New game.');
     this.busy = null;
@@ -202,14 +207,15 @@ export class ThingsToDo {
     this.derby.update(dt);
     this.events.update(dt);
     this.delivery.update(dt);
+    this.plow.update(dt);
     this.jobs.update(dt);
-    this.gigs.update(dt, !!(this.delivery.prompt || this.jobs.prompt));
+    this.gigs.update(dt, !!(this.delivery.prompt || this.jobs.prompt || this.plow.prompt));
     this.shops.update(dt);
-    this.fishing.update(dt, !!(this.missions.prompt || this.semester.prompt || this.heist.prompt || this.racing.prompt || this.pursuit.prompt || this.delivery.prompt || this.jobs.prompt || this.gigs.prompt || this.shops.prompt));
+    this.fishing.update(dt, !!(this.missions.prompt || this.semester.prompt || this.heist.prompt || this.racing.prompt || this.pursuit.prompt || this.delivery.prompt || this.jobs.prompt || this.plow.prompt || this.gigs.prompt || this.shops.prompt));
     const w = this.waypoint;
     if (w) this.markers.put(w.x, w.z, 'goal', 5, 30);
     this.markers.end();
-    this.say(this.missions.prompt ?? this.semester.prompt ?? this.heist.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.delivery.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.events.prompt ?? this.fishing.prompt);
+    this.say(this.missions.prompt ?? this.semester.prompt ?? this.heist.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.delivery.prompt ?? this.plow.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.events.prompt ?? this.fishing.prompt);
     // M or Tab (Back on a pad): straight to the map.
     if (g.input.eat('map')) { this.menu.tab = 0; g.setPaused(true); }
     const down = !(g.player.health > 0);
@@ -242,6 +248,7 @@ export class ThingsToDo {
       this.jobs.blips(out);
       this.delivery.blips(out);
       this.gigs.blips(out);
+      this.plow.blips(out);
       this.racing.blips(out);
       this.pursuit.blips(out);
       this.derby.blips(out);
@@ -254,12 +261,12 @@ export class ThingsToDo {
       if (sig !== this.navSig) { this.navSig = sig; nav.blips = out.slice(); nav.rev++; }
     }
     const to = this.target();
-    const named = to === this.waypoint && this.dest ? this.dest.name : to === this.jobs.target ? this.jobs.targetName : to === this.gigs.target ? this.gigs.targetName : null;
+    const named = to === this.waypoint && this.dest ? this.dest.name : to === this.jobs.target ? this.jobs.targetName : to === this.gigs.target ? this.gigs.targetName : to === this.plow.target ? this.plow.targetName : null;
     g.hud.turn(this.navigator.update(dt, g.plan, p.x, p.z, to, named, nav));
   }
 
   /** Where the route line is going now: the mission, delivery or job in hand, else the waypoint. */
-  target(): Pt | null { return this.missions.target ?? this.semester.target ?? this.heist.target ?? this.delivery.target ?? this.jobs.target ?? this.gigs.target ?? this.waypoint; }
+  target(): Pt | null { return this.missions.target ?? this.semester.target ?? this.heist.target ?? this.delivery.target ?? this.jobs.target ?? this.gigs.target ?? this.plow.target ?? this.waypoint; }
 
   /** Set the waypoint to a business's door (the Places list, a marker on the map) and work out the way at once, paused or not. */
   go(pl: Place | null): void {

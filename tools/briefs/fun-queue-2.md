@@ -37,7 +37,7 @@ THINGS TO DO
 [x] 17. SpeedScan HQ heist using the floors and the elevator.
 [x] 18. Street-race builder: pick checkpoints, share with the town.
 [x] 19. Weekly town events: derby night, Christmas fair, moose festival, regatta. (game/events.ts: calendar from the real date in Maine + the town clock, evenings game hours 17-23: Wed Regatta, Fri Derby Night, Sat Christmas Fair in the holiday season, Sun Moose Festival; no new fact keys; ?event=moose|regatta|derby|fair forces one on; prizes ev.antler / ev.trophy / ev.cane / ev.regatta in the save; board row 20 'Regatta best time' adds no key.)
-[ ] 20. Snowplow and salt-truck jobs when snow is lying.
+[x] 20. Snowplow and salt-truck jobs when snow is lying. (game/plow.ts: with snow lying (Sky.snowCover 0.2+; ?snow=1 forces it) a pickup or the tow truck takes a snowplow route and a van a salt-truck route, G, stopped in a yard (Marlowe's yard on the island, the Hillside Avenue Sandpit in Tepid Falls); a route of real streets by game/nav.ts trace, points every 5 m cleared by driving them; the cleared strip shows on the road (dark tarmac for the plough, a pale crust for salt), 92% pays, partial pay if called off or the snow melts; board row 21 'Best snow job' (adds no key, still 7 board facts); no new fact keys.)
 [ ] 21. Photo-mode challenges.
 [ ] 22. Tepid Falls collectibles (lost ducks, bridge-bond receipts) with a tracker.
 MULTIPLAYER
