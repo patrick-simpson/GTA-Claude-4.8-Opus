@@ -57,6 +57,14 @@ export class Ambient {
       m.v = v; m.sh = Math.sin(v.h); m.ch = Math.cos(v.h); m.sp = sp; m.ghost = true;
       movers.push(m);
     }
+    // The Harbor Line's buses (sim/bus.ts): moving bodies the walkers keep clear of, never ones that knock them down.
+    for (const v of g.bus?.vehicles ?? []) {
+      const sp = Math.hypot(v.vx, v.vz);
+      if (sp < 0.6) continue;
+      const m = pool[movers.length] ?? (pool[movers.length] = { v, sh: 0, ch: 0, sp: 0 });
+      m.v = v; m.sh = Math.sin(v.h); m.ch = Math.cos(v.h); m.sp = sp; m.ghost = true;
+      movers.push(m);
+    }
     this.peds.update(dt, movers, jumped);
     this.traffic.update(dt, this.peds.road, jumped);
 

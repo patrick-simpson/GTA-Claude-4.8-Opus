@@ -130,6 +130,8 @@ export class Remote {
   /** Riding together (ride.ts): whose car they sit in as a passenger (a player id, 0 none), and which seat. */
   rideOf = 0;
   rideSeat = 0;
+  /** Passenger of one of the town's buses (sim/bus.ts): its id (line * 4 + bus + 1), else 0. Such a rider's `rideOf` is 0. */
+  rideBus = 0;
   /** How bent the car they are driving is, in the 16 steps of the wire (0 on foot). */
   damage = 0;
   /** Nov 23: their car's dents, glass, lamps, bumpers and tyres as their state frames' tail says (ent/carDamage.ts). */
@@ -369,6 +371,7 @@ export class Remote {
     this.mode = c.mode;
     this.rideOf = c.mode === PlayerMode.Passenger ? c.vehicle : 0;
     this.rideSeat = c.mode === PlayerMode.Passenger ? c.color & 0xff : 0;
+    this.rideBus = c.mode === PlayerMode.Passenger && c.vehicle === 0 ? (c.color >>> 8) & 0xff : 0;
     this.flags = c.flags;
     this.pose = POSES[c.pose] ?? 'stand';
     const kind = c.mode === PlayerMode.Driving && c.vehicle > 0 ? KINDS[c.vehicle - 1] ?? null : null;

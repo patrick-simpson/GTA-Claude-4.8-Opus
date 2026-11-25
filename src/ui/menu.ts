@@ -499,6 +499,9 @@ export class Menu {
       }
     }
 
+    // The Harbor Line (sim/bus.ts): the bus routes, their stops, the buses as the clock has them, and a legend.
+    g.bus.drawChart(c, X, Z, k, w, h, INK, BONE);
+
     // The way to the waypoint, along the streets.
     const p = g.player, way = todo.waypoint, goal = todo.missions.target ?? todo.jobs.target;
     // The line is game/nav.ts's own (the streets, as the radar draws them), not a second guess.

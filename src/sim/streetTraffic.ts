@@ -30,6 +30,8 @@ export interface RailHost {
   readonly game: Game;
   readonly byVeh: Map<Vehicle, Driver>;
   readonly others: readonly Vehicle[];
+  /** The town's buses (sim/bus.ts): clock-driven bodies traffic must give way to. */
+  readonly transit: readonly Vehicle[];
   readonly drivers: readonly Driver[];
   roadPeds(): readonly RoadPed[];
   unseen(x: number, z: number, near: number, front: number): boolean;
@@ -265,6 +267,7 @@ export class StreetDrivers {
     };
     for (const o of g.vehicles.list) if (!clear(o)) return false;
     for (const o of host.others) if (!clear(o)) return false;
+    for (const o of host.transit) if (!clear(o)) return false;
     // On an overpass (the Thruway over Second Thought Ave and Main St) the ground under the point is the road below
     // unless the spawn says which level it means: cars seated there stood at the foot of the embankment, unable to move.
     const S = streetSurface();
@@ -400,6 +403,11 @@ export class StreetDrivers {
     return signalState(this.G.nodes[nodeId], this.phaseB[this.ai(e, nodeId)] === 1, this.host.game.signalTime + ahead);
   }
 
+  /** What drivers arriving along `e` at node `nodeId` see at the given signal-clock time (the bus timetable, sim/busRoutes.ts). */
+  lightAt(e: RoadEdge, nodeId: number, time: number): 'green' | 'yellow' | 'red' {
+    return signalState(this.G.nodes[nodeId], this.phaseB[this.ai(e, nodeId)] === 1, time);
+  }
+
   private sig(n: RoadNode, e: RoadEdge): 'green' | 'yellow' | 'red' {
     return signalState(n, this.phaseB[this.ai(e, n.id)] === 1, this.host.game.signalTime);
   }
@@ -471,6 +479,10 @@ export class StreetDrivers {
         if (ox < R && ox > -R && oz < R && oz > -R) d.near.push(o);
       }
       for (const o of host.others) {
+        const ox = o.x - v.x, oz = o.z - v.z;
+        if (ox < R && ox > -R && oz < R && oz > -R) d.near.push(o);
+      }
+      for (const o of host.transit) {
         const ox = o.x - v.x, oz = o.z - v.z;
         if (ox < R && ox > -R && oz < R && oz > -R) d.near.push(o);
       }

@@ -108,6 +108,8 @@ export class Player implements PlayerApi {
   nearVehicle: Vehicle | null = null;
   /** Multiplayer (net/ride.ts): another player's car she is close enough to ride in. While set, F rides instead of taking a car. */
   rideNear: Vehicle | null = null;
+  /** The Harbor Line (sim/bus.ts): while it says no, F does not get a bus rider out (the doors open at stops). */
+  rideHold: (() => boolean) | null = null;
 
   private mode: Mode = 'foot';
   /** The vehicle she is seated in. */
@@ -380,7 +382,7 @@ export class Player implements PlayerApi {
       case 'foot': this.onFoot(dt); break;
       case 'enter': this.toDoor(dt); break;
       case 'drive': this.driving(dt); break;
-      case 'ride': if (!this.rideCar) this.mode = 'foot'; else if (this.game.input.eat('enter')) this.exit(); break;
+      case 'ride': if (!this.rideCar) this.mode = 'foot'; else if (this.game.input.hit('enter') && (!this.rideHold || this.rideHold())) { this.game.input.eat('enter'); this.exit(); } break;
       case 'leave': case 'hoist': this.scripted(dt); break;
       case 'tumble': this.tumbling(dt); break;
       case 'dead': this.lying(dt); break;

@@ -129,6 +129,8 @@ export class Traffic {
   extra: Anchor[] = [];
   /** Their cars, which the drivers here must see (they are drawn only, so not in vehicles.list), and those of them on foot. */
   others: readonly Vehicle[] = [];
+  /** The town's buses (sim/bus.ts): clock-driven, drawn only; the drivers here give way to them. */
+  transit: readonly Vehicle[] = [];
   walkers: readonly RoadPed[] = [];
   /** The host's traffic is shown instead: nothing is spawned or driven here. */
   guest = false;
@@ -591,11 +593,8 @@ export class Traffic {
 
   kindFor(district: District | null, avenue: boolean): VehicleKind {
     const rng = this.rng, r = rng.next();
-    if (avenue && r < 0.11) {
-      let buses = 0;
-      for (const d of this.drivers) if (d.v && d.v.spec.kind === 'bus') buses++;
-      if (buses < 2) return 'bus';
-    }
+    // (No random buses any more: the Harbor Line's three routes run to a timetable, sim/bus.ts.)
+    void avenue;
     const cabs = district === 'downtown' || district === 'strand' ? 0.3 : district === 'industrial' || district === 'port' ? 0.03 : 0.1;
     if (r < 0.11 + cabs) return 'taxi';
     if (district === 'industrial' || district === 'port') {
@@ -671,6 +670,10 @@ export class Traffic {
       if (Math.abs(ox * dx + oz * dz) < 13 + o.hl && Math.abs(-ox * dz + oz * dx) < 2.3) return false;
     }
     for (const o of this.others) {
+      const ox = o.x - x, oz = o.z - z;
+      if (Math.abs(ox * dx + oz * dz) < 13 + o.hl && Math.abs(-ox * dz + oz * dx) < 2.3) return false;
+    }
+    for (const o of this.transit) {
       const ox = o.x - x, oz = o.z - z;
       if (Math.abs(ox * dx + oz * dz) < 13 + o.hl && Math.abs(-ox * dz + oz * dx) < 2.3) return false;
     }
@@ -775,6 +778,10 @@ export class Traffic {
       }
       // The other players' cars: not this browser's to simulate, but very much in the way.
       for (const o of this.others) {
+        const ox = o.x - v.x, oz = o.z - v.z;
+        if (ox < 62 && ox > -62 && oz < 62 && oz > -62) d.near.push(o);
+      }
+      for (const o of this.transit) {
         const ox = o.x - v.x, oz = o.z - v.z;
         if (ox < 62 && ox > -62 && oz < 62 && oz > -62) d.near.push(o);
       }

@@ -22,6 +22,7 @@ import { Hud } from '../ui/hud';
 import { TouchUI } from '../ui/touch';
 import { Cheats } from './cheats';
 import { Ambient } from '../sim/ambient';
+import { BusService } from '../sim/bus';
 import { Police } from '../sim/police';
 import { Post } from './post';
 import { flip } from './flip';
@@ -96,6 +97,8 @@ export class Game {
   time = 0;
   /** The holiday decorations, presents and snowballs (world/christmas.ts). */
   christmas!: Christmas;
+  /** The Harbor Line's buses (sim/bus.ts). */
+  bus!: BusService;
   /**
    * What the traffic signals run on. Alone it is `time` exactly. In a shared town (src/net/shared.ts) it is the
    * town's clock, the same in every browser there; on leaving, `signalShift` keeps the lamps where they were.
@@ -207,6 +210,8 @@ export class Game {
     this.systems.push((this.todo = new ThingsToDo(this)));
     // Multiplayer (src/net/): inert, and no socket at all, unless a service URL is configured.
     this.systems.push((this.net = new Net(this)));
+    // The Harbor Line (fun queue 2, item 7): after the net, so the riders it just heard of are seated against this frame's buses.
+    this.systems.push((this.bus = new BusService(this)));
     // Emotes and horn tunes (fun queue item 9): after the net, so what others did this frame is heard at once.
     this.systems.push((this.emotes = new Emotes(this)));
     this.systems.push((this.chat = new Chat(this))); // fun queue item 21: safe chat
