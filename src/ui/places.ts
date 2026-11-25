@@ -10,6 +10,8 @@ import { CATEGORIES, CATEGORY_NAME, findPlaces, type Category, type Place } from
 import { CAT_COLOR } from '../world/shopSigns';
 import { asDest, hubs, type Dest } from '../game/travel';
 import { STATIONS } from '../world/railway';
+import { DOCKS } from '../world/ferryRoute';
+import { STREETS_NEW } from '../world/streets';
 import { stationPoint, PLATFORM_IN, PLATFORM_W } from '../world/trainStations';
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
@@ -34,6 +36,9 @@ export class PlacesPanel {
   /** The chip "Stations" is on: the list is the Budget Line's three stations, with when the next train is in. */
   private rail = false;
   private railList: Place[] = [];
+  /** The chip "Ferry" is on: the list is the Calamity Shuttle's two landings, with when the next sailing is in. */
+  private ferry = false;
+  private ferryList: Place[] = [];
   private shown: Place[] = [];
   private decided = false;
 
@@ -55,7 +60,7 @@ export class PlacesPanel {
     this.list = el.querySelector('.pl-list') as HTMLElement;
     this.foot = el.querySelector('.pl-foot') as HTMLElement;
     this.sel = el.querySelector('.pl-sel') as HTMLElement;
-    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...(STATIONS.length ? [`<button type="button" class="pl-chip pl-railchip" data-cat="rail"><i style="background:#2a7a45"></i>Train stations</button>`] : []), ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
+    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...(STATIONS.length ? [`<button type="button" class="pl-chip pl-railchip" data-cat="rail"><i style="background:#2a7a45"></i>Train stations</button>`] : []), ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-ferrychip" data-cat="ferry"><i style="background:#1d5566"></i>Ferry</button>`] : []), ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
 
     (el.querySelector('.pl-tab') as HTMLElement).addEventListener('click', () => this.fold(!el.classList.contains('fold')));
     // Typing here is not steering the map: keep the menu's and the game's key handlers out of it (Escape still reaches them).
@@ -68,7 +73,8 @@ export class PlacesPanel {
       if (!b) return;
       this.hub = b.dataset.cat === 'hubs';
       this.rail = b.dataset.cat === 'rail';
-      this.cat = this.hub || this.rail ? null : ((b.dataset.cat || null) as Category | null);
+      this.ferry = b.dataset.cat === 'ferry';
+      this.cat = this.hub || this.rail || this.ferry ? null : ((b.dataset.cat || null) as Category | null);
       this.chips.querySelectorAll('.pl-chip').forEach((c) => c.classList.toggle('on', c === b));
       this.refresh();
     });
@@ -81,6 +87,8 @@ export class PlacesPanel {
       if (t.closest('.pl-clear')) { this.todo.go(null); this.refresh(); this.view.redraw(); return; }
       const tr = t.closest<HTMLButtonElement>('.pl-train');
       if (tr && !tr.disabled) { const i = Number(tr.dataset.st); if (this.game.rail.travel(i) === '') this.refresh(); return; }
+      const fy = t.closest<HTMLButtonElement>('.pl-ferry');
+      if (fy && !fy.disabled) { const i = Number(fy.dataset.dk); if (this.game.ferry.travel(i) === '') this.refresh(); return; }
       const go = t.closest<HTMLButtonElement>('.pl-go');
       if (go && !go.disabled) { const d = this.routeDest(); if (d) this.todo.travel.go(d); }
     });
@@ -100,12 +108,13 @@ export class PlacesPanel {
     if (!this.decided) { this.decided = true; this.fold(this.game.input.touch); }
     const p = this.game.player, all = this.todo.places();
     const placed = all.filter((x) => x.placed);
-    const found = this.rail ? this.railPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.hub ? this.hubPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : findPlaces(all, this.q.value, this.cat);
-    if (!this.hub && !this.rail) found.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
+    const found = this.ferry ? this.ferryPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.rail ? this.railPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.hub ? this.hubPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : findPlaces(all, this.q.value, this.cat);
+    if (!this.hub && !this.rail && !this.ferry) found.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
     this.shown = found.slice(0, 80);
     this.list.innerHTML = this.shown.map((x, i) => {
       const d = Math.hypot(x.x - p.x, x.z - p.z);
-      const fare = this.todo.travel.fareTo(x), on = this.todo.dest === x || ((this.hub || this.rail) && this.todo.dest?.name === x.name);
+      const fare = this.todo.travel.fareTo(x), on = this.todo.dest === x || ((this.hub || this.rail || this.ferry) && this.todo.dest?.name === x.name);
+      if (this.ferry) return `<li><button type="button" class="pl-row${on ? ' on' : ''}" data-i="${i}"><i style="background:#1d5566"></i><span class="pl-nm">${esc(x.name)}</span><span class="pl-sub">Ferry landing · ${distText(d)} · ${esc(this.game.ferry.nextFerryText(-200 - x.id))}</span></button></li>`;
       if (this.rail) return `<li><button type="button" class="pl-row${on ? ' on' : ''}" data-i="${i}"><i style="background:#2a7a45"></i><span class="pl-nm">${esc(x.name)}</span><span class="pl-sub">Train station · ${distText(d)} · ${esc(this.game.rail.nextTrainText(-100 - x.id))}</span></button></li>`;
       return `<li><button type="button" class="pl-row${on ? ' on' : ''}" data-i="${i}"><i style="background:${CAT_COLOR[x.cat]}"></i><span class="pl-nm">${esc(x.name)}</span><span class="pl-sub">${esc(this.hub ? 'Cab stop' : CATEGORY_NAME[x.cat])} · ${distText(d)} · cab ${fare === 0 ? 'free' : '$' + fare}</span></button></li>`;
     }).join('') || `<li class="pl-none">Nothing by that name. Try a kind of place: pizza, bank, church, bakery.</li>`;
@@ -123,9 +132,13 @@ export class PlacesPanel {
     const si = STATIONS.findIndex((s) => s.name === d.name);
     const rail = si >= 0 ? this.game.rail.status(si) : null;
     const extra = si >= 0 ? `<span>${esc(this.game.rail.etaText(si))}</span>` : '';
+    const fi = DOCKS.findIndex((s) => s.name === d.name);
+    const fer = fi >= 0 ? this.game.ferry.status(fi) : null;
+    const ferExtra = fi >= 0 ? `<span>${esc(this.game.ferry.etaText(fi))}</span>` : '';
+    const ferry = fer ? `<button type="button" class="pl-go pl-ferry" data-dk="${fi}" ${fer.ok ? '' : 'disabled'} title="The Calamity Shuttle">${esc(fer.text)}</button>` : '';
     const train = rail ? `<button type="button" class="pl-go pl-train" data-st="${si}" ${rail.ok ? '' : 'disabled'} title="The Budget Line">${esc(rail.text)}</button>` : '';
     this.sel.classList.add('on');
-    this.sel.innerHTML = `<b>${esc(d.name)}</b><span>${esc(how)}</span>${extra}<div class="pl-btns">${train}<button type="button" class="pl-go" ${cab.ok ? '' : 'disabled'} title="Calamity Courtesy Cab">${esc(cab.text)}</button><button type="button" class="pl-clear">Clear route</button></div>`;
+    this.sel.innerHTML = `<b>${esc(d.name)}</b><span>${esc(how)}</span>${extra}${ferExtra}<div class="pl-btns">${train}${ferry}<button type="button" class="pl-go" ${cab.ok ? '' : 'disabled'} title="Calamity Courtesy Cab">${esc(cab.text)}</button><button type="button" class="pl-clear">Clear route</button></div>`;
   }
 
   /** Where the route card's Travel button would go: the place picked from the list or the map, or a waypoint set by hand. */
@@ -144,6 +157,12 @@ export class PlacesPanel {
   }
 
   /** The Budget Line's stations as places (ids -100 and below), so that picking one sets a route like any other. */
+  /** The ferry landings as places (ids -200 and below). */
+  private ferryPlaces(): Place[] {
+    if (!this.ferryList.length) this.ferryList = DOCKS.map((h, i) => ({ id: -200 - i, name: h.name, cat: 'civic' as Category, x: h.ex, z: h.ez, nx: 0, nz: 0, wx: h.ex, wz: h.ez, rx: h.ex, rz: h.ez, placed: true, open: false, game: true, sign: false, at: 'ferry landing' }));
+    return this.ferryList;
+  }
+
   private railPlaces(): Place[] {
     if (!this.railList.length) this.railList = STATIONS.map((h, i) => { const q = stationPoint(h, 0, PLATFORM_IN + PLATFORM_W / 2, { x: 0, z: 0 }); return { id: -100 - i, name: h.name, cat: 'civic' as Category, x: q.x, z: q.z, nx: 0, nz: 0, wx: q.x, wz: q.z, rx: q.x, rz: q.z, placed: true, open: false, game: true, sign: false, at: 'train station' }; });
     return this.railList;

@@ -503,6 +503,8 @@ export class Menu {
     g.bus.drawChart(c, X, Z, k, w, h, INK, BONE);
     // The Budget Line (sim/rail.ts): the railway, its three stations and the train.
     g.rail.drawChart(c, X, Z, k, w, h, INK, BONE);
+    // The Calamity Shuttle (sim/ferry.ts): the ferry route, its two landings and the boats.
+    g.ferry.drawChart(c, X, Z, k, w, h, INK, BONE);
 
     // The way to the waypoint, along the streets.
     const p = g.player, way = todo.waypoint, goal = todo.missions.target ?? todo.jobs.target;

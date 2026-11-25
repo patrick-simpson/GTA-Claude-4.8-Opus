@@ -20,6 +20,7 @@ import type { Vehicle } from '../core/api';
 import { PASSENGER_SEATS, isBoatKind } from '../ent/vehicleSpecs';
 import { seatSpot } from '../ent/occupants';
 import { TRAIN_RIDE_BASE } from '../world/coach';
+import { FERRY_RIDE_BASE } from '../world/ferryRoute';
 import { PlayerEvent, PlayerMode, RIDE_OUT, SeatsWhy, decodeRide, decodeSeats, encodeRide, encodeSeats } from './protocol';
 import type { Connection } from './conn';
 import type { Remote } from './remote';
@@ -270,7 +271,7 @@ export class TownRide {
       if (!body || o.mode !== PlayerMode.Passenger) continue;
       if (o.rideBus) {
         // On the Harbor Line (sim/bus.ts): the bus is the clock's; nobody to draw while it has no body on this screen.
-        const bus = o.rideBus >= TRAIN_RIDE_BASE ? this.game.rail.seatOf(o.rideBus, o.rideSeat, this.at) : this.game.bus.seatOf(o.rideBus, o.rideSeat, this.at);
+        const bus = o.rideBus >= FERRY_RIDE_BASE ? this.game.ferry.seatOf(o.rideBus, o.rideSeat, this.at) : o.rideBus >= TRAIN_RIDE_BASE ? this.game.rail.seatOf(o.rideBus, o.rideSeat, this.at) : this.game.bus.seatOf(o.rideBus, o.rideSeat, this.at);
         if (!bus) { body.visible = false; continue; }
         body.visible = true;
         body.x = this.at.x; body.y = this.at.y; body.z = this.at.z; body.h = bus.h;

@@ -33,6 +33,7 @@ import { assets } from '../core/assets';
 import { flip } from '../core/flip';
 import { WATER_Y, groundAt } from '../world/plan';
 import { seaClock, seaSlope, seaY } from '../world/sea';
+import { waterLevelAt } from '../world/mainland';
 import { SPECS, type VehicleKind, type VehicleSpec } from './vehicleSpecs';
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
@@ -92,6 +93,9 @@ const RAMP_SPOTS: readonly { x: number; z: number; h: number }[] = [
 ];
 const RAMP_LEN = 9, RAMP_W = 5.2, RAMP_TALL = 1.9;
 
+/** The water's surface at a point: the swell on the open sea, the mainland's river (a step above it) in the river. */
+const surfaceY = (x: number, z: number): number => (z < -860 ? waterLevelAt(x, z) : seaY(x, z));
+
 const WAKE_N = 96, WAKE_LIFE = 9;
 
 class Wake {
@@ -150,7 +154,7 @@ class Wake {
       const fade = (1 - age / WAKE_LIFE), a = fade * fade * this.k0[i] * (j === n - 1 ? 0 : 1);
       for (let s = 0; s < 2; s++) {
         const sg = s === 0 ? 1 : -1, vx = x + this.lx[i] * hw * sg, vz = z + this.lz[i] * hw * sg, o = (j * 2 + s) * 3;
-        P[o] = vx; P[o + 1] = seaY(vx, vz) + 0.05; P[o + 2] = vz;
+        P[o] = vx; P[o + 1] = surfaceY(vx, vz) + 0.05; P[o + 2] = vz;
         A[o] = a; A[o + 1] = sg; A[o + 2] = this.d0[i];
       }
     }
@@ -335,6 +339,8 @@ export class Boat implements Vehicle {
   sprayAcc = 0;
   tailAcc = 0;
   fallV = 0;
+  /** A town-run hull (Boats.craft): its owner dresses it and poses it; never stepped, boarded or given a speedboat's model. */
+  custom = false;
 
   constructor(readonly id: number, readonly kind: BoatKind, public color: number, wakeMat: THREE.Material, scene: THREE.Scene) {
     this.spec = SPECS[kind];
@@ -463,6 +469,15 @@ export class Boats {
     b.wet = y - seaY(x, z) < 0.6 ? 1 : 0;
     b.plane = clamp01((Math.hypot(b.vx, b.vz) - b.spec.topSpeed * 0.28) / (b.spec.topSpeed * 0.25));
     this.pose(b);
+  }
+
+  /** A hull for the town's ferry (sim/ferry.ts): a wake and spray as a ghost's, sized to it, no model of its own. Pose it with ghostPose. */
+  craft(hl: number, hw: number): Boat {
+    const b = new Boat(this.ghostId++, 'speedboat', 0xe9e0c8, this.wakeMat, this.game.scene);
+    (b as { hl: number }).hl = hl; (b as { hw: number }).hw = hw;
+    b.held = true; b.driver = 'player'; b.custom = true; b.wet = 1;
+    this.ghosts.push(b);
+    return b;
   }
 
   unghost(b: Boat): void {
@@ -709,7 +724,7 @@ export class Boats {
       for (const side of [1, -1]) {
         const px = b.x + s * at + lx * side * b.hw * 0.85, pz = b.z + c * at + lz * side * b.hw * 0.85;
         const out = 1.5 + spd * 0.16;
-        this.spray.emit(px, seaY(px, pz), pz, b.vx * 0.45 + lx * side * out, 1.2 + spd * 0.13, b.vz * 0.45 + lz * side * out, 1, b.hull.spray);
+        this.spray.emit(px, surfaceY(px, pz), pz, b.vx * 0.45 + lx * side * out, 1.2 + spd * 0.13, b.vz * 0.45 + lz * side * out, 1, b.hull.spray);
       }
     }
     // The rooster tail: a plume thrown up behind the transom (the jet ski's is its jet).
@@ -717,7 +732,7 @@ export class Boats {
     while (b.tailAcc >= 1) {
       b.tailAcc -= 1;
       const px = b.x - s * b.hl * 1.02, pz = b.z - c * b.hl * 1.02;
-      this.spray.emit(px, seaY(px, pz), pz, b.vx * 0.55 - s * 2.5, 2.5 + spd * 0.17, b.vz * 0.55 - c * 2.5, 1, b.hull.spray * 1.2);
+      this.spray.emit(px, surfaceY(px, pz), pz, b.vx * 0.55 - s * 2.5, 2.5 + spd * 0.17, b.vz * 0.55 - c * 2.5, 1, b.hull.spray * 1.2);
     }
   }
 
@@ -787,7 +802,7 @@ export class Boats {
       gltf.scene.traverse((o) => { if (o.name) named.set(o.name, o); });
       for (const b of this.list) this.dress(b.obj, b.kind, named, b);
       for (const r of this.ramps) this.dress(r.obj, 'ramp', named, null);
-      for (const b of this.ghosts) this.dress(b.obj, b.kind, named, b);
+      for (const b of this.ghosts) if (!b.custom) this.dress(b.obj, b.kind, named, b);
       this.named = named;
       this.stats.loaded = true; this.stats.file = file;
     } catch (e) {

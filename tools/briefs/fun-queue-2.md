@@ -27,7 +27,7 @@ GETTING AROUND
 [x] 8. Ride the Budget Line passenger train between stations as fast travel.
 [x] 9. Bikes and scooters for the campus and the river walk.
 [x] 10. Taxi missions: drive the Calamity Courtesy Cab for fares.
-[ ] 11. Boat taxi: island harbour <-> Tepid Falls river landing.
+[x] 11. Boat taxi: island harbour <-> Tepid Falls river landing.
 [ ] 12. "Drive me there" autopilot along the navigation route (phones).
 THINGS TO DO
 [ ] 13. Pardon's treasure hunt: rotating rare items in the aisles.
