@@ -206,7 +206,7 @@
   {
    "osm": 39818928,
    "real": "Woodman",
-   "name": "Wouldn't-Man Hall",
+   "name": "Shrug Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -278,7 +278,7 @@
   {
    "osm": 39819099,
    "real": "Coburn",
-   "name": "Cold Burn Hall",
+   "name": "Deferred Heating Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -308,7 +308,7 @@
   {
    "osm": 39819140,
    "real": "Arey",
-   "name": "Awry Science Hall",
+   "name": "Off-Kilter Science Hall",
    "style": "geo",
    "floors": 4,
    "extra": {},
@@ -327,7 +327,7 @@
   {
    "osm": 39819201,
    "real": "Williams",
-   "name": "Willy-Nilly Hall",
+   "name": "Haphazard Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -405,7 +405,7 @@
   {
    "osm": 39885010,
    "real": "Lunder",
-   "name": "Blunder House (admissions)",
+   "name": "Fumble House (admissions)",
    "style": "geo",
    "floors": 2,
    "extra": {},
@@ -431,7 +431,7 @@
   {
    "osm": 39885088,
    "real": "Diamond",
-   "name": "Rough Diamond Hall",
+   "name": "Unpolished Gem Hall",
    "style": "geo",
    "floors": 4,
    "extra": {
@@ -506,7 +506,7 @@
   {
    "osm": 39885207,
    "real": "Foss",
-   "name": "Fuss Hall",
+   "name": "Bluster Hall",
    "style": "geo",
    "floors": 3,
    "extra": {
@@ -538,7 +538,7 @@
   {
    "osm": 39885335,
    "real": "Mary Low",
-   "name": "Mary Lowkey Hall",
+   "name": "Indifference Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -557,7 +557,7 @@
   {
    "osm": 39885402,
    "real": "Garrison-Foster",
-   "name": "Gauze-Foster Health Center",
+   "name": "Bandage Committee Health Center",
    "style": "geo",
    "floors": 2,
    "extra": {},
@@ -618,7 +618,7 @@
   {
    "osm": 39885771,
    "real": "Keyes",
-   "name": "Keyless Science Hall",
+   "name": "Lockout Science Hall",
    "style": "geo",
    "floors": 4,
    "extra": {},
@@ -644,7 +644,7 @@
   {
    "osm": 39885856,
    "real": "Seeley G. Mudd",
-   "name": "Mudd-ish Science Hall",
+   "name": "Beaker Committee Science Hall",
    "style": "flat",
    "floors": 3,
    "extra": {},
@@ -677,7 +677,7 @@
   {
    "osm": 39886119,
    "real": "Lovejoy",
-   "name": "Lovesick Hall",
+   "name": "Pending Affection Hall",
    "style": "geo",
    "floors": 3,
    "extra": {
@@ -705,7 +705,7 @@
   {
    "osm": 39887072,
    "real": "Grossman",
-   "name": "Grossly Hall",
+   "name": "Unsightly Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -724,7 +724,7 @@
   {
    "osm": 39887084,
    "real": "Drummond",
-   "name": "Drumroll Hall",
+   "name": "Fanfare Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -797,7 +797,7 @@
   {
    "osm": 39950124,
    "real": "Mitchel",
-   "name": "Mitch-Mash Hall",
+   "name": "Potato Committee Hall",
    "style": "flat",
    "floors": 3,
    "extra": {},
@@ -823,7 +823,7 @@
   {
    "osm": 39950306,
    "real": "Alfond",
-   "name": "All Fond Apartments",
+   "name": "Doting Apartments",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -863,7 +863,7 @@
   {
    "osm": 323882105,
    "real": "Davis",
-   "name": "Devise Science Center",
+   "name": "Contrive Science Center",
    "style": "flat",
    "floors": 4,
    "extra": {},
@@ -893,7 +893,7 @@
   {
    "osm": 962006184,
    "real": "Dana",
-   "name": "Dawdle Hall",
+   "name": "Procrastination Hall",
    "style": "flat",
    "floors": 4,
    "extra": {},
@@ -975,7 +975,7 @@
   {
    "osm": 962354253,
    "real": "Cotter Union",
-   "name": "Clutter Union",
+   "name": "Heaping Union",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -1041,7 +1041,7 @@
   {
    "osm": 1220023067,
    "real": "Schupf",
-   "name": "Shove Hall",
+   "name": "Jostle Hall",
    "style": "flat",
    "floors": 3,
    "extra": {},
@@ -1093,7 +1093,7 @@
   {
    "osm": 1220213691,
    "real": "Leonard",
-   "name": "Lean-On Hall",
+   "name": "Lean-To Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -1119,7 +1119,7 @@
   {
    "osm": 1220213692,
    "real": "Sturtevant",
-   "name": "Sturdy-Vent Hall",
+   "name": "Stuffy Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -1145,7 +1145,7 @@
   {
    "osm": 1220213693,
    "real": "Taylor",
-   "name": "Tailor Hall",
+   "name": "Alterations Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -1310,7 +1310,7 @@
   {
    "osm": 1220285318,
    "real": "Pierce",
-   "name": "Pierced Hall",
+   "name": "Tapped Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -1336,7 +1336,7 @@
   {
    "osm": 1220285319,
    "real": "Perkins-Wilson",
-   "name": "Perky-Wilson Hall",
+   "name": "Chipper Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -1362,7 +1362,7 @@
   {
    "osm": 1220285320,
    "real": "Goddard-Hodgkins",
-   "name": "Odd-Hodge Hall",
+   "name": "Peculiar Hall",
    "style": "geo",
    "floors": 3,
    "extra": {},
@@ -1407,7 +1407,7 @@
   {
    "osm": 1220934281,
    "real": "Johnson",
-   "name": "Jonesing Hall (north wing)",
+   "name": "Craving Hall (north wing)",
    "style": "geo",
    "floors": 4,
    "extra": {},
@@ -1426,7 +1426,7 @@
   {
    "osm": 1220934284,
    "real": "Johnson",
-   "name": "Jonesing Hall (south wing)",
+   "name": "Craving Hall (south wing)",
    "style": "geo",
    "floors": 4,
    "extra": {},

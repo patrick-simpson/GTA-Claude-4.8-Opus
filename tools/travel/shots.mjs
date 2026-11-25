@@ -12,7 +12,7 @@ async function session(mobile) {
   await t.game((g) => { const G = g.game; G.player.money = 500; G.player.heat = 0; });
   // Open the map, pick a place from the list: the route card with the Travel button.
   await t.game((g) => {
-    const G = g.game, td = G.todo, pl = td.places().find((p) => p.name.startsWith('Dunkless Donuts (North End)')) || td.places().find((p) => p.placed && p.z < -830);
+    const G = g.game, td = G.todo, pl = td.places().find((p) => p.name.startsWith('Crullers & Regrets (North End)')) || td.places().find((p) => p.placed && p.z < -830);
     G.setPaused(true); td.menu.tab = 0; td.menu.setTab(0);
     const panel = td.menu.placesPanel; panel.refresh(); panel.pick(pl);
     if (g.game.input.touch) panel.el.classList.remove('fold');
