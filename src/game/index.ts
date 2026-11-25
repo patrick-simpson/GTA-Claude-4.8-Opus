@@ -17,6 +17,7 @@ import { Delivery } from './delivery';
 import { Gigs } from './gigs';
 import { Fishing } from './fishing';
 import { Semester } from './semester';
+import { Heist } from './heist';
 import { Pursuit } from './pursuit';
 import { Derby } from './derby';
 import { Shops } from './shops';
@@ -50,6 +51,8 @@ export class ThingsToDo {
   readonly fishing: Fishing;
   /** The Semester: Dithers College courses, grades and the Transcript (fun queue 2, item 16). */
   readonly semester: Semester;
+  /** "The Speed Scan": the SpeedScan HQ caper (fun queue 2, item 17). */
+  readonly heist: Heist;
   /** Hot Pursuit: a police chase between players (fun queue item 12). */
   readonly pursuit: Pursuit;
   /** The demolition derby at Flounder Field (fun queue item 13). */
@@ -93,6 +96,7 @@ export class ThingsToDo {
     this.gigs = new Gigs(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.fishing = new Fishing(game, () => this.busy === null);
     this.semester = new Semester(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
+    this.heist = new Heist(game, this.markers, () => this.busy === null, (id) => this.setBusy(id), st.givers.lou.at);
     this.shops = new Shops(game, this.markers);
     this.signs = new ShopSigns(game);
     this.travel = new Cab(game, this);
@@ -150,6 +154,7 @@ export class ThingsToDo {
     this.delivery.stop();
     this.gigs.stop(undefined, false);
     this.semester.drop('New game.');
+    this.heist.abandon('New game.');
     this.busy = null;
     save.hold = false;
     this.waypoint = null;
@@ -182,6 +187,7 @@ export class ThingsToDo {
     this.markers.begin(dt);
     this.missions.update(dt);
     this.semester.update(dt);
+    this.heist.update(dt);
     this.racing.update(dt);
     this.pursuit.update(dt);
     this.derby.update(dt);
@@ -189,11 +195,11 @@ export class ThingsToDo {
     this.jobs.update(dt);
     this.gigs.update(dt, !!(this.delivery.prompt || this.jobs.prompt));
     this.shops.update(dt);
-    this.fishing.update(dt, !!(this.missions.prompt || this.semester.prompt || this.racing.prompt || this.pursuit.prompt || this.delivery.prompt || this.jobs.prompt || this.gigs.prompt || this.shops.prompt));
+    this.fishing.update(dt, !!(this.missions.prompt || this.semester.prompt || this.heist.prompt || this.racing.prompt || this.pursuit.prompt || this.delivery.prompt || this.jobs.prompt || this.gigs.prompt || this.shops.prompt));
     const w = this.waypoint;
     if (w) this.markers.put(w.x, w.z, 'goal', 5, 30);
     this.markers.end();
-    this.say(this.missions.prompt ?? this.semester.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.delivery.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.fishing.prompt);
+    this.say(this.missions.prompt ?? this.semester.prompt ?? this.heist.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.delivery.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.fishing.prompt);
     // M or Tab (Back on a pad): straight to the map.
     if (g.input.eat('map')) { this.menu.tab = 0; g.setPaused(true); }
     const down = !(g.player.health > 0);
@@ -222,6 +228,7 @@ export class ThingsToDo {
       out.length = 0;
       this.missions.blips(out);
       this.semester.blips(out);
+      this.heist.blips(out);
       this.jobs.blips(out);
       this.delivery.blips(out);
       this.gigs.blips(out);
@@ -241,7 +248,7 @@ export class ThingsToDo {
   }
 
   /** Where the route line is going now: the mission, delivery or job in hand, else the waypoint. */
-  target(): Pt | null { return this.missions.target ?? this.semester.target ?? this.delivery.target ?? this.jobs.target ?? this.gigs.target ?? this.waypoint; }
+  target(): Pt | null { return this.missions.target ?? this.semester.target ?? this.heist.target ?? this.delivery.target ?? this.jobs.target ?? this.gigs.target ?? this.waypoint; }
 
   /** Set the waypoint to a business's door (the Places list, a marker on the map) and work out the way at once, paused or not. */
   go(pl: Place | null): void {

@@ -42,6 +42,11 @@ const LOGOS: number[][] = [
   [0, 161.75, -3.17, 0, 3.0], [-24.6, 161.9, -22.14, Math.PI, 3.4], [-26.0, 161.9, -21.86, 0, 3.4],
 ];
 
+/** The way into the tower for the rest of the game: game/heist.ts finds the lifts here. */
+export const hqLink: { interior: SpeedScanInterior | null } = { interior: null };
+/** What rules the lifts during "The Speed Scan" (game/heist.ts). allow() is null for a floor the badge opens, else the words on the panel. */
+export interface LiftGate { allow(label: string): string | null; rode(label: string): void }
+
 interface SsData { solid: number[][]; seats: [number, number, number, number, string][]; stands: number[][]; walks: number[][][] }
 interface Walker { p: Person; path: number[][]; i: number; wait: number; y: number }
 
@@ -77,6 +82,10 @@ export class SpeedScanInterior {
   private still: Person[] = [];
   /** Where the camera is (for the rest of the game). */
   inside = false;
+  /** Set by the heist while it runs: which floors the lifts serve, and the news of a ride. Null: every floor, as always. */
+  gate: LiftGate | null = null;
+  /** True once the lobby, the floors and the lifts are all built (not on phones, not with ?hq=0). */
+  get ready(): boolean { return this.loaded && !!this.floors; }
   private indoors = false;
   private crowdLobby = false;
   private bloomOff = false;
@@ -84,6 +93,7 @@ export class SpeedScanInterior {
   constructor(private game: Game, private parent: THREE.Object3D, origin: { x: number; z: number }, private env: () => THREE.Texture | null) {
     this.low = game.quality.name === 'low';
     this.ox = origin.x; this.oz = origin.z;
+    hqLink.interior = this;
     for (const g of [this.lobby, this.office, this.roof]) { g.visible = false; parent.add(g); }
     this.lobby.name = 'speedscan-lobby'; this.office.name = 'speedscan-office'; this.roof.name = 'speedscan-roof';
     this.roof.add(this.roofCars);
@@ -263,6 +273,11 @@ export class SpeedScanInterior {
     if (this.glass && this.glass.envMap !== env) { this.glass.envMap = env; this.glass.needsUpdate = true; }
   }
 
+  private denial(i: number): string | null { return this.gate ? this.gate.allow(LEVELS[i].label) : null; }
+  private others(lvl: number): number[] { return LEVELS.map((_, i) => i).filter((i) => i !== lvl && this.denial(i) === null); }
+  /** The panel's line for a floor the badge does not open. */
+  private deny(i: number): void { this.game.hud.toast(this.denial(i) ?? 'Access denied.', 4); }
+
   /** The player's lift: calls, the floor choice, the ride; the doors' motion and collision. */
   private lift(dt: number): void {
     const g = this.game, p = g.player;
@@ -275,12 +290,17 @@ export class SpeedScanInterior {
     let text: string | null = null;
     if (this.phase === 'idle') {
       if (inCar >= 0) {
-        const others = LEVELS.map((_, i) => i).filter((i) => i !== lvl);
-        text = `[G] Next floor · or press 1-${LEVELS.length}: ${LEVELS.map((L, i) => `${i + 1} ${L.label}`).join('  ')}`;
+        const others = this.others(lvl);
+        text = `[G] Next floor · or press 1-${LEVELS.length}: ${LEVELS.map((L, i) => `${i + 1} ${L.label}${this.denial(i) === null ? '' : '🔒'}`).join('  ')}`;
+        if (!others.length) text = 'The lifts are locked. Take the stairs.';
         this.hold[lvl][inCar] = Math.max(this.hold[lvl][inCar], 2);
         const dg = g.input.digit;
-        if (dg >= 1 && dg <= LEVELS.length && dg - 1 !== lvl) { g.input.digit = -1; this.car = inCar; this.from = lvl; this.sel = dg - 1; this.phase = 'arm'; this.t = 0.7; }
-        else if (g.input.eat('interact')) { this.car = inCar; this.from = lvl; this.sel = others[0]; this.phase = 'arm'; this.t = 1.6; }
+        if (dg >= 1 && dg <= LEVELS.length && dg - 1 !== lvl) {
+          g.input.digit = -1;
+          if (this.denial(dg - 1) !== null) this.deny(dg - 1);
+          else { this.car = inCar; this.from = lvl; this.sel = dg - 1; this.phase = 'arm'; this.t = 0.7; }
+        }
+        else if (g.input.eat('interact') && others.length) { this.car = inCar; this.from = lvl; this.sel = others[0]; this.phase = 'arm'; this.t = 1.6; }
       } else if (atDoor >= 0) {
         if (this.open[lvl][atDoor] < 0.5 && this.want[lvl][atDoor] === 0) {
           text = '[G] Call the lift';
@@ -290,11 +310,11 @@ export class SpeedScanInterior {
     } else if (this.phase === 'arm') {
       text = `[G] Going to ${LEVELS[this.sel].name} · press again to change · or 1-${LEVELS.length}`;
       const dg2 = g.input.digit;
-      if (dg2 >= 1 && dg2 <= LEVELS.length && dg2 - 1 !== this.from) { g.input.digit = -1; this.sel = dg2 - 1; this.t = 0.7; }
+      if (dg2 >= 1 && dg2 <= LEVELS.length && dg2 - 1 !== this.from) { g.input.digit = -1; if (this.denial(dg2 - 1) !== null) this.deny(dg2 - 1); else { this.sel = dg2 - 1; this.t = 0.7; } }
       if (inCar !== this.car || lvl !== this.from) this.phase = 'idle';
       else if (g.input.eat('interact')) {
-        const others = LEVELS.map((_, i) => i).filter((i) => i !== this.from);
-        this.sel = others[(others.indexOf(this.sel) + 1) % others.length]; this.t = 1.6;
+        const others = this.others(this.from);
+        if (others.length) { this.sel = others[(others.indexOf(this.sel) + 1) % others.length]; this.t = 1.6; }
       } else if ((this.t -= dt) <= 0) { this.phase = 'closing'; this.want[this.from][this.car] = 0; this.hold[this.from][this.car] = 0; }
       this.hold[this.from][this.car] = Math.max(this.hold[this.from][this.car], 0.5);
     } else if (this.phase === 'closing') {
@@ -314,7 +334,7 @@ export class SpeedScanInterior {
       const arrow = y1 > y0 ? '▲' : '▼';
       this.showCounter(k >= 1 ? LEVELS[this.sel].label : label(y0 + (y1 - y0) * e) + arrow);
       text = null;
-      if (k >= 1) { this.want[this.sel][this.car] = 1; this.hold[this.sel][this.car] = 4; this.phase = 'idle'; }
+      if (k >= 1) { this.want[this.sel][this.car] = 1; this.hold[this.sel][this.car] = 4; this.phase = 'idle'; this.gate?.rode(LEVELS[this.sel].label); }
     }
     if (this.phase !== 'ride') this.showCounter(lvl >= 0 ? LEVELS[lvl].label : 'L');
     if (text !== null) { g.hud.prompt(text); this.prompting = true; }

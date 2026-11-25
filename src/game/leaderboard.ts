@@ -55,6 +55,8 @@ export const CATEGORIES: readonly Category[] = [
   { key: 'gig', title: 'Best delivery shift', max: 1_000_000, fmt: (v) => money(v) },
   { key: 'fish', title: 'Heaviest catch', max: 1600, fmt: (v) => weightText(v) },
   { key: 'gpa', title: 'Best GPA', max: 400, fmt: (v) => (v / 100).toFixed(2) },
+  // Fun queue 2, item 17: a time, kept as 3600 minus the seconds so that, like every row, the biggest number wins. No run under 45 s is believable.
+  { key: 'speedscan', title: 'Fastest Speed Scan', max: 3555, fmt: (v) => clock(3600 - v) },
 ];
 export const CAT = Object.fromEntries(CATEGORIES.map((c, i) => [c.key, i])) as Record<string, number>;
 
@@ -98,6 +100,7 @@ export function myBest(game: Game, cat: number): number | null {
     case 'finds': return pos(findsCatalogued());
     case 'fish': return pos(heaviest());
     case 'gpa': return pos(gpaBoard());
+    case 'speedscan': { const t = b['hs.time']; return t !== undefined && t > 0 ? pos(Math.max(1, 3600 - t)) : null; }
     default: return null;
   }
 }
