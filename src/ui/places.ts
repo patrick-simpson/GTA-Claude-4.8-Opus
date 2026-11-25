@@ -16,6 +16,7 @@ import type { Gig } from '../game/gigs';
 import type { EventRow } from '../game/events';
 import type { ShotRow } from '../game/shots';
 import type { FindRow } from '../game/finds';
+import type { FolkRow } from '../game/townsfolk';
 import { BOARD } from '../game/project';
 import { PROJECT_NAME } from '../world/progress';
 import { stationPoint, PLATFORM_IN, PLATFORM_W } from '../world/trainStations';
@@ -58,6 +59,9 @@ export class PlacesPanel {
   /** The chip "Finds" is on: the lost ducks and bridge-bond receipts of Tepid Falls, with counts (game/finds.ts). */
   private finds = false;
   private fdList: FindRow[] = [];
+  /** The chip "Townsfolk" is on: the twelve named people of the town and where each usually is right now (game/townsfolk.ts). */
+  private folk = false;
+  private tfList: FolkRow[] = [];
   /** The chip "Project" is on: the town's project, the Millpond Promenade, with its stages and the bar (game/project.ts). */
   private project = false;
   private shown: Place[] = [];
@@ -81,7 +85,7 @@ export class PlacesPanel {
     this.list = el.querySelector('.pl-list') as HTMLElement;
     this.foot = el.querySelector('.pl-foot') as HTMLElement;
     this.sel = el.querySelector('.pl-sel') as HTMLElement;
-    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-gigchip" data-cat="gigs"><i style="background:#2a9d8f"></i>Gigs</button>`, `<button type="button" class="pl-chip pl-evchip" data-cat="events"><i style="background:#b3262e"></i>Events</button>`, `<button type="button" class="pl-chip pl-phchip" data-cat="photos"><i style="background:#6a4c93"></i>Photos</button>`, ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-fdchip" data-cat="finds"><i style="background:#f0c419"></i>Finds</button>`] : []), ...(this.todo.project.on ? [`<button type="button" class="pl-chip pl-pjchip" data-cat="project"><i style="background:#2f5d4a"></i>Project</button>`] : []), `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...(STATIONS.length ? [`<button type="button" class="pl-chip pl-railchip" data-cat="rail"><i style="background:#2a7a45"></i>Train stations</button>`] : []), ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-ferrychip" data-cat="ferry"><i style="background:#1d5566"></i>Ferry</button>`] : []), ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
+    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-gigchip" data-cat="gigs"><i style="background:#2a9d8f"></i>Gigs</button>`, `<button type="button" class="pl-chip pl-evchip" data-cat="events"><i style="background:#b3262e"></i>Events</button>`, `<button type="button" class="pl-chip pl-phchip" data-cat="photos"><i style="background:#6a4c93"></i>Photos</button>`, ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-fdchip" data-cat="finds"><i style="background:#f0c419"></i>Finds</button>`] : []), ...(this.todo.townsfolk.on ? [`<button type="button" class="pl-chip pl-tfchip" data-cat="folk"><i style="background:#e07a3a"></i>Townsfolk</button>`] : []), ...(this.todo.project.on ? [`<button type="button" class="pl-chip pl-pjchip" data-cat="project"><i style="background:#2f5d4a"></i>Project</button>`] : []), `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...(STATIONS.length ? [`<button type="button" class="pl-chip pl-railchip" data-cat="rail"><i style="background:#2a7a45"></i>Train stations</button>`] : []), ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-ferrychip" data-cat="ferry"><i style="background:#1d5566"></i>Ferry</button>`] : []), ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
 
     (el.querySelector('.pl-tab') as HTMLElement).addEventListener('click', () => this.fold(!el.classList.contains('fold')));
     this.foot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.pl-ant')) { this.todo.events.setWearing(!this.todo.events.wearingAntlers); this.refresh(); } });
@@ -102,9 +106,10 @@ export class PlacesPanel {
       this.events = b.dataset.cat === 'events';
       this.photos = b.dataset.cat === 'photos';
       this.finds = b.dataset.cat === 'finds';
+      this.folk = b.dataset.cat === 'folk';
       this.project = b.dataset.cat === 'project';
       this.gigSel = null;
-      this.cat = this.hub || this.rail || this.ferry || this.gigs || this.events || this.photos || this.finds || this.project ? null : ((b.dataset.cat || null) as Category | null);
+      this.cat = this.hub || this.rail || this.ferry || this.gigs || this.events || this.photos || this.finds || this.folk || this.project ? null : ((b.dataset.cat || null) as Category | null);
       this.chips.querySelectorAll('.pl-chip').forEach((c) => c.classList.toggle('on', c === b));
       this.refresh();
     });
@@ -112,6 +117,7 @@ export class PlacesPanel {
       const li = (e.target as HTMLElement).closest<HTMLElement>('[data-i]');
       if (li && this.gigs) { this.pickGig(this.gigList[Number(li.dataset.i)]); return; }
       if (li && this.finds) { this.pickFind(this.fdList[Number(li.dataset.i)]); return; }
+      if (li && this.folk) { this.pickFolk(this.tfList[Number(li.dataset.i)]); return; }
       if (li && this.project) { this.pickProject(); return; }
       if (li && this.photos) { this.pickShot(this.phList[Number(li.dataset.i)]); return; }
       if (li && this.events) { this.pickEvent(this.evList[Number(li.dataset.i)]); return; }
@@ -149,6 +155,7 @@ export class PlacesPanel {
     if (this.events) { this.refreshEvents(); return; }
     if (this.photos) { this.refreshPhotos(); return; }
     if (this.finds) { this.refreshFinds(); return; }
+    if (this.folk) { this.refreshFolk(); return; }
     if (this.project) { this.refreshProject(); return; }
     const placed = all.filter((x) => x.placed);
     const found = this.ferry ? this.ferryPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.rail ? this.railPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.hub ? this.hubPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : findPlaces(all, this.q.value, this.cat);
@@ -199,6 +206,24 @@ export class PlacesPanel {
     this.list.innerHTML = this.fdList.map((x, i) => `<li><button type="button" class="pl-row${x.prize ? ' on' : ''}" data-i="${i}"><i style="background:${x.id === 'duck' ? '#f0c419' : '#c9d6df'}"></i><span class="pl-nm">${esc(x.label)} · ${x.got} of ${x.total}${x.prize ? ' · ' + esc(x.prizeTitle) : ''}</span><span class="pl-sub">${x.dist === null ? 'All found. The town is oddly quiet.' : 'Nearest missing one: ' + distText(x.dist) + ' away (tap to set the waypoint)'}</span></button></li>`).join('');
     this.foot.textContent = `Hidden all over Tepid Falls: ducks by the river, the pond and the back yards; receipts in alleys, at shelters, on platforms and on the campus · walk or drive through one · a radar badge shows the nearest within 150 m`;
     this.sel.innerHTML = ''; this.sel.classList.remove('on');
+  }
+
+  /** The townsfolk: nearest first, each with where they usually are at this hour of the town clock; picking one points the waypoint at them. */
+  private refreshFolk(): void {
+    this.shown = [];
+    this.tfList = this.todo.townsfolk.rows();
+    this.list.innerHTML = this.tfList.map((x, i) => `<li><button type="button" class="pl-row${x.moving ? ' on' : ''}" data-i="${i}"><i style="background:#e07a3a"></i><span class="pl-nm">${esc(x.name)} · ${esc(x.role)}</span><span class="pl-sub">${esc(x.where)} · ${distText(x.dist)} (tap to set the waypoint)</span></button></li>`).join('');
+    this.foot.textContent = `Everyone keeps a day on the town clock, the same for every player · walk up and press G to say hello; the line depends on the hour and where they are`;
+    this.sel.innerHTML = ''; this.sel.classList.remove('on');
+  }
+
+  private pickFolk(x: FolkRow | undefined): void {
+    if (!x) return;
+    this.todo.waypoint = { x: x.x, z: x.z };
+    this.todo.dest = null;
+    this.view.focus(x.x, x.z, 1.3);
+    this.refresh();
+    this.view.redraw();
   }
 
   /** The town project: one row per stage (done, in hand, to come) and the bar's numbers; picking one points the waypoint at the yard. */
@@ -277,7 +302,7 @@ export class PlacesPanel {
   }
 
   private showSel(): void {
-    if (this.events || this.photos || this.finds || this.project) { this.sel.innerHTML = ''; this.sel.classList.remove('on'); return; }
+    if (this.events || this.photos || this.finds || this.folk || this.project) { this.sel.innerHTML = ''; this.sel.classList.remove('on'); return; }
     if (this.gigs) {
       const gg = this.todo.gigs, x = this.gigSel, act = gg.busy ? gg.info() : null;
       if (act) { this.sel.classList.add('on'); this.sel.innerHTML = `<b>On an order</b><span>${esc(act.phase === 0 ? 'Pickup: ' + act.from : 'Drop: ' + act.to)}</span><div class="pl-btns"><button type="button" class="pl-go pl-gigcancel">Cancel the order</button></div>`; return; }

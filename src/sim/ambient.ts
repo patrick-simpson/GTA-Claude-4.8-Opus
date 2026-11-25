@@ -66,6 +66,8 @@ export class Ambient {
       movers.push(m);
     }
     this.peds.update(dt, movers, jumped);
+    // Fun queue 2, item 30: a named townsperson crossing a road is a pedestrian to the drivers too.
+    g.todo?.townsfolk.roads(this.peds.road);
     this.traffic.update(dt, this.peds.road, jumped);
 
     const s = this.stats, ms = performance.now() - t0;
