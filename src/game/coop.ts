@@ -471,6 +471,7 @@ export class Coop {
       this.lastPay = c;
       if (c > 0) { g.player.money += c; save.credit(c); save.data.stats.earned += c; }
       save.bump('coop'); save.bump(`coop.${this.mission}`);
+      g.emit('moment', { kind: 'coop' });
       this.stats.passed++;
     } else if (how === HOW.Failed) this.stats.failed++;
     else this.stats.aside++;

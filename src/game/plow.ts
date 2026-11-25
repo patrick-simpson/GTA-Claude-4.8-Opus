@@ -226,6 +226,7 @@ export class Plow {
     if (full) {
       hud.stamp(`ROUTE ${what}`, `${money(cash)} for ${distText(r.len)} in ${clock(Math.round(r.t))}${record ? ' · a new best snow job' : ''}. The yard says it is the best ${r.kind === 'plow' ? 'plowing' : 'salting'} since the last one.`);
       hud.toast(`${money(cash)} from the yard${pts ? `. ${pts} toward the bridge` : ''}.`, 6);
+      g.emit('moment', { kind: 'plow' });
     } else hud.toast(`${why ? why + ' ' : ''}${Math.round(f * 100)}% done: the yard pays ${money(cash)}.`, 6);
   }
 

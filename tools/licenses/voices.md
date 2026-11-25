@@ -42,6 +42,8 @@ and the calm pace of a late-night host. Speed 0.93. Broadcast chain (ffmpeg): 85
 3.2 kHz, -2 dB at 6.5 kHz against hiss, low-pass 9.5 kHz, gentle 3:1 compressor, levelled to about -18 LUFS. Regenerate (repo root):
 `C:\Users\User\kokoro\venv\Scripts\python.exe -I scratch/fmdj/gen.py [voice]`; the lines are in `scratch/fmdj/lines.py`.
 
+The reactive host lines (`public/audio/voice/dj-claudefm-react.*`, 36 lines, 0.73 MB Opus/WebM at 32 kbps, 0.68 MB MP3) use the same voice, speed and chain: `C:/Users/User/kokoro/venv/Scripts/python.exe -I tools/radio/gen-react.py` (repo root); the lines are in `src/audio/fmReactLines.json`.
+
 ## Not used, and why
 
 | Voice | Reason |

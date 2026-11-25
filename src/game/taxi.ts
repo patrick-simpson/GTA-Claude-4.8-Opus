@@ -225,6 +225,7 @@ export class Taxi {
     if (r.bonus >= 1) bits.push(`speed +${money(Math.round(r.bonus * k))}`);
     bits.push(r.tip >= 1 ? `tip +${money(Math.round(r.tip * k))}` : 'no tip');
     hud.toast(`${this.destName}: ${money(paid.cash)} (${bits.join(' · ')}). ${paid.points} toward the bridge.`, 6);
+    g.emit('moment', { kind: 'taxi' });
     const odd = this.riderSeed & 1;
     if (rough) this.say(ROUGH, 4.5);
     else if (r.smooth >= 80) { this.say(kid.on ? GOOD_KID : GOOD, 4.5); this.bark('cheer', v, odd, 0.4); }

@@ -159,6 +159,7 @@ export class Shots {
       got.push(s.name);
       lines.push(`${s.name}: $${pay}${first ? ' and a photo ribbon' : ''}`);
       g.hud.toast(`Photo challenge: ${s.name}, $${pay}${first ? ', first time: ribbon' : ''}.`, 5);
+      if (first) g.emit('moment', { kind: 'photo' });
       if (first && SUBJECTS.every((q) => q.id === 'event' || !q.exists(g) || b['ph.' + q.id])) this.allRibbons(lines);
     }
     if (!got.length) this.stats.misses++;

@@ -1,0 +1,74 @@
+{
+  "raceWin": [
+    "First across the line! The tires send their regards.",
+    "A winner is you. Please stay humble for at least four seconds.",
+    "That was fast. The speed limit called, and we told it you'd call back."
+  ],
+  "raceLose": [
+    "Podium or not, that was a lovely drive. Mostly.",
+    "Not the win this time. The road will be here tomorrow, and so will the rematch."
+  ],
+  "busted": [
+    "Looks like somebody got a ride in the back of a cruiser. Chin up, a fine is only money.",
+    "Busted! Don't worry, the Harbor Patrol listens to this station too.",
+    "Lesson of the day: blue lights mean slow down. We say this with love."
+  ],
+  "escaped": [
+    "And they've lost you! Smooth driving. Somewhere, a cruiser is very confused.",
+    "The Harbor Patrol has gone quiet. Take a breath, and maybe use your turn signal.",
+    "You got away. We didn't see anything. We're a radio station."
+  ],
+  "wreck": [
+    "That car has seen better days. And honestly, better afternoons.",
+    "Crunch. That was a sound effect we did not add.",
+    "Buckle up, buttercup. That one needs a very long nap at the garage."
+  ],
+  "derbyWin": [
+    "The last car running wins the derby! A round of applause, from a radio, which is not very loud.",
+    "Demolition champion! Your trophy is a bag of smoke and a brand new dent."
+  ],
+  "taxi": [
+    "Another happy passenger delivered. Tip jar status: hopeful.",
+    "Fare complete. The meter says thank you, and so do we."
+  ],
+  "delivery": [
+    "Package delivered! Somewhere, a doorstep is smiling.",
+    "Signed, sealed, and delivered. Mostly still sealed."
+  ],
+  "plow": [
+    "The roads are clear! Plow drivers are the quiet heroes of every snowy morning.",
+    "Nice work out there. The snow has been told to stay off the road. It's thinking about it."
+  ],
+  "fish": [
+    "Now that is a catch! The fish would like a word, but it's out of breath.",
+    "Big fish alert. Someone will tell this story for years, and the fish will get bigger every time."
+  ],
+  "duckSet": [
+    "Every lost duck is home! The rubber duck league is very proud of you."
+  ],
+  "receiptSet": [
+    "Every last bridge receipt, collected! The town's filing cabinet weeps with joy."
+  ],
+  "photo": [
+    "Picture perfect! That one is going straight on the fridge."
+  ],
+  "coop": [
+    "A crew job well done! Teamwork makes the dream work, and the trucks run.",
+    "Everybody pitched in, and it shows. Pass the congratulations around."
+  ],
+  "stage": [
+    "A new stage of the town project is open! Take the long way round and have a look.",
+    "Port Calamity just got a little nicer. Scissors up, everybody."
+  ],
+  "jump": [
+    "Airtime! The car is now officially an airplane. Briefly.",
+    "That's a big jump. Nobody check the suspension."
+  ],
+  "eventSoon": [
+    "Heads up, Port Calamity. Something fun starts in town in about a minute. Hurry along."
+  ],
+  "snow": [
+    "It's snowing hard out there. Slow down, and maybe hum something cozy.",
+    "The snow is really coming down. Drive like the road is a freshly iced cake."
+  ]
+}

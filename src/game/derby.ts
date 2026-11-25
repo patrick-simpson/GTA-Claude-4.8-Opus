@@ -753,6 +753,7 @@ export class Derby {
     if (won) notes.push(`Your derby wins: ${wins}`);
     this.lastNotes = notes;
     if (pay > 0) { g.player.money += pay; save.credit(pay); save.data.stats.earned += pay; }
+    if (won && !watching) g.emit('moment', { kind: 'derbyWin' });
     if (!watching) save.bump('derby');
     this.send({ kind: DK.Done, a: wins, c: myHits });
     if (night) { notes.push('Derby Night: the purse is doubled.'); this.game.todo.events.derbyOver(); }

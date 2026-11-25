@@ -274,6 +274,8 @@ export interface GameEvents {
   pause: { on: boolean };
   /** A pedestrian was knocked down by a vehicle. speed = the vehicle's, m/s; byPlayer = the player was driving it. */
   pedHit: { x: number; z: number; speed: number; byPlayer: boolean };
+  /** Something notable the player just did (a key of audio/fmReactLines.json): Claude FM's host may remark on it. own: the game already toasts it, so no text fallback. */
+  moment: { kind: string; own?: boolean };
   // ── Harbor Patrol (src/sim/police.ts) ──
   /** Something illegal the player did at (x, z). weight: heat points, 1 = a whole level; it only counts if a bystander or officer could see it. Weapons emit this for gunfire and hits. */
   crime: { kind: string; x: number; z: number; weight: number };

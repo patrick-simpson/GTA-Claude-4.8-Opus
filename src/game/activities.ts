@@ -434,6 +434,7 @@ export class Activities {
     const paid = this.pay('courier', 110 + this.haul * 0.14, 36);
     save.data.stats.parcels += 4;
     hud.stamp('DELIVERED', `${money(paid.cash)} · ${paid.points} toward the bridge · ${clock(this.clockT)} to spare`);
+    this.game.emit('moment', { kind: 'delivery' });
     this.stop();
   }
 
@@ -539,6 +540,7 @@ export class Activities {
     const dist = Math.hypot(v.x - this.airX, v.z - this.airZ), score = Math.round(t * 100 + dist * 4);
     const first = !save.data.jumps.includes(i), record = save.record('jump:' + i, score, false);
     const hud = this.game.hud, line = v.sunk ? 'The landing has been filed under "water".' : JUMP_LINES[this.lines++ % JUMP_LINES.length];
+    if (first || record) this.game.emit('moment', { kind: 'jump' });
     if (first) {
       save.data.jumps.push(i);
       const paid = this.pay('jump:' + i, 200, 60);

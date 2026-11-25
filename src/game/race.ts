@@ -452,6 +452,7 @@ export class Racing {
       save.data.stats.races++;
     }
     if (pay > 0) { g.player.money += pay; save.credit(pay); save.data.stats.earned += pay; }
+    if (me && me.how === 1 && field > 1) g.emit('moment', { kind: list[0] === me ? 'raceWin' : 'raceLose' });
     this.ui.podium({ title: r.name, rows: this.lastResults.map((x) => ({ ...x, me: x.id === this.me })), notes, pay, solo: field === 1, par: r.par * 1000 });
     this.stats.podiums++;
     this.phase = 'podium';

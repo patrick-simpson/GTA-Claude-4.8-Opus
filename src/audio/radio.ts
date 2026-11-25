@@ -586,7 +586,8 @@ export class Radio {
         if (this.game.player.seated) { this.game.hud.toast('Claude FM is off the air. Over to ' + STATIONS[0].call + '.', 3.5); this.show(); }
       }
     });
-    this.fmDj = new ClaudeFMDJ(core, this.fm);
+    this.fmDj = new ClaudeFMDJ(core, this.fm, (t) => this.game.hud.toast(t, 6));
+    this.hookMoments();
     game.on('pause', (e) => { this.paused = e.on; if (e.on) this.fm.pause(); });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.fm.pause(); });
   }
@@ -626,6 +627,19 @@ export class Radio {
   /** The host of Claude FM: now and then ducks the stream for a line (voices.ts). */
   readonly fmDj: ClaudeFMDJ;
   private lastKeys = 0;
+  private lastBooked = -1e9; private escapeAt = 0; private heatWas = 0;
+  private hpV: unknown = null; private hp = 100; private snowOn = false;
+
+  /** The host's reactions (fmDj.offer): the moments other systems announce, plus the ones the game already says. */
+  private hookMoments(): void {
+    const g = this.game;
+    g.on('moment', (e) => { if (this.station === 0) this.fmDj.offer(e.kind, !!e.own); });
+    g.on('booked', () => { this.lastBooked = performance.now(); if (this.station === 0) this.fmDj.offer('busted'); });
+    g.on('heat', (e) => {
+      if (e.level === 0 && this.heatWas > 0) this.escapeAt = performance.now() + 1500;
+      this.heatWas = e.level;
+    });
+  }
   /** The DJs, idents and adverts between songs (voices.ts). */
   readonly voice: RadioVoice;
 
@@ -645,7 +659,23 @@ export class Radio {
     this.fm.set(fm, s.volMaster * s.volMusic);
     const now = performance.now(), dt = this.lastKeys ? (now - this.lastKeys) / 1000 : 0;
     this.lastKeys = now;
-    this.fmDj.tick(dt, fm && this.fm.playing);
+    const eligible = this.station === 0 && !!v && !v.sunk && !this.paused && document.visibilityState !== 'hidden';
+    if (this.station === 0) this.watch(v ?? null);
+    this.fmDj.tick(dt, fm && this.fm.playing, eligible);
+  }
+
+  /** Things nobody announces: the car going to pieces, the chase lost, heavy snow. */
+  private watch(v: { health: number } | null): void {
+    if (v) {
+      if (this.hpV === v && this.hp > 20 && v.health <= 20) this.fmDj.offer('wreck');
+      this.hpV = v; this.hp = v.health;
+    }
+    if (this.escapeAt && performance.now() > this.escapeAt) {
+      this.escapeAt = 0;
+      if (performance.now() - this.lastBooked > 8000) this.fmDj.offer('escaped');
+    }
+    const snow = this.game.sky ? this.game.sky.snowCover : 0;
+    if (snow >= 0.6 && !this.snowOn) { this.snowOn = true; this.fmDj.offer('snow'); } else if (snow < 0.3) this.snowOn = false;
   }
 
   update(_dt: number): void {

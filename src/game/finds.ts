@@ -201,6 +201,7 @@ export class Finds {
       p.money += d.prize; save.credit(d.prize); save.data.stats.earned += d.prize;
       progress.add(d.points * 20);
       g.hud.stamp(d.prizeTitle, d.prizeText);
+      g.emit('moment', { kind: d.id === 'duck' ? 'duckSet' : 'receiptSet' });
     } else {
       const left = total - n;
       g.hud.toast(`${d.one} ${n} of ${total} · ${money(d.cash)}${left > 0 && left <= MOSTLY ? ` · ${left} to go: the radar knows where` : ''}`, 4);

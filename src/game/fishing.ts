@@ -422,6 +422,7 @@ export class Fishing {
     u.card.classList.add('on');
     this.say(`Landed: ${s.name}!`); this.setBtn('F: sell<br>G: release');
     g.hud.toast(`${flags.newSpecies ? 'New in the Fish Log: ' : 'Landed: '}${s.name}${s.junk && s.lo === s.hi ? '' : ', ' + weightText(c.oz)}.`, 4);
+    if (!s.junk && !s.illegal && (flags.heaviest || flags.newSpecies || value >= 60)) g.emit('moment', { kind: 'fish' });
   }
 
   /** The honor box, or back into the water. `quiet`: the fish went on its own (walked away). */

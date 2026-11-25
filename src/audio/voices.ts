@@ -23,6 +23,7 @@ import type { Game } from '../core/game';
 import { kid } from '../core/kid';
 import type { AudioCore } from './audio';
 import { mulberry } from './audio';
+import REACT_LINES from './fmReactLines.json';
 
 /** Shown in the menu's settings: what the licences ask for (tools/licenses/voices.md). */
 export const VOICE_CREDIT = 'Spoken lines: Piper text-to-speech. Voices trained on the VCTK corpus and the Alba recordings (University of Edinburgh, CC BY 4.0) and on LJ Speech (public domain). The Claude FM host: Kokoro-82M text-to-speech (Apache-2.0, hexgrad), voice am_michael.';
@@ -172,6 +173,12 @@ export class RadioVoice {
 interface FMLike { readonly playing: boolean; duck: number }
 
 /** Seconds of listening before the first line (never under 30), and between lines after that (about 4 to 7 minutes). */
+/** Reactive lines: ms between two (any kind), ms before one is said, ms it may wait for its turn; bigger moments push out smaller ones. */
+const REACT_COOL = 90000, REACT_DELAY = 2500, REACT_LIFE = 40000;
+const REACT_PRI: Record<string, number> = {
+  busted: 3, raceWin: 3, derbyWin: 3, stage: 3, coop: 3, duckSet: 3, receiptSet: 3, wreck: 2, escaped: 2, raceLose: 2, taxi: 2,
+  delivery: 2, plow: 2, fish: 2, photo: 2, jump: 1, eventSoon: 1, snow: 1,
+};
 const FM_FIRST = [45, 90], FM_EVERY = [240, 420], FM_DUCK = 0.25, FM_RAMP = 0.6;
 
 /**
@@ -182,7 +189,13 @@ const FM_FIRST = [45, 90], FM_EVERY = [240, 420], FM_DUCK = 0.25, FM_RAMP = 0.6;
  */
 export class ClaudeFMDJ {
   readonly pack = new Pack('dj-claudefm');
-  stats = { lines: 0, last: '', kind: '' };
+  /** The reactive lines (tools/radio/gen-react.py): what the host says about what the player just did. */
+  readonly reactPack = new Pack('dj-claudefm-react');
+  stats = { lines: 0, last: '', kind: '', react: 0, reactToast: 0, reactLast: '' };
+  private pending: { kind: string; pri: number; due: number; exp: number; quiet: boolean } | null = null;
+  private lastReact = -1e9;
+  private forced: Clip | null = null;
+  private recentReact: string[] = [];
   /** Phase: waiting, ducking down, speaking, coming back. */
   phase: 'wait' | 'down' | 'say' | 'up' = 'wait';
   private left = FM_FIRST[0] + Math.random() * (FM_FIRST[1] - FM_FIRST[0]);
@@ -192,11 +205,62 @@ export class ClaudeFMDJ {
   private recent: string[] = [];
   private first = true;
 
-  constructor(private readonly core: AudioCore, private readonly fm: FMLike) {}
+  constructor(private readonly core: AudioCore, private readonly fm: FMLike, private readonly toast: (text: string) => void = () => { /* none */ }) {}
 
-  /** Each frame with the real seconds since the last. `on`: Claude FM is wanted and sounding. */
-  tick(dt: number, on: boolean): void {
+  /**
+   * Something notable happened (a key of fmReactLines.json) and Claude FM is the station on the dial. The host says
+   * so about two seconds later, never over another clip, at most once every 90 s whatever it was; a bigger moment
+   * pushes out a smaller one still waiting. `quiet`: the game has its own toast for it, so no text fallback.
+   */
+  offer(kind: string, quiet = false): boolean {
+    const now = performance.now(), pri = REACT_PRI[kind] ?? 1;
+    if (!(kind in REACT_LINES) || now - this.lastReact < REACT_COOL) return false;
+    if (this.pending && this.pending.pri >= pri) return false;
+    this.pending = { kind, pri, due: now + REACT_DELAY, exp: now + REACT_LIFE, quiet };
+    return true;
+  }
+
+  private reactText(kind: string): string {
+    const all = (REACT_LINES as Record<string, string[]>)[kind] ?? [];
+    const ids = all.map((_, i) => kind + '#' + i);
+    const pool = ids.filter((id) => !this.recentReact.includes(id));
+    const use = pool.length ? pool : ids;
+    const id = use[Math.floor(Math.random() * use.length)];
+    if (!id) return '';
+    this.recentReact.push(id); if (this.recentReact.length > 6) this.recentReact.shift();
+    return all[Number(id.split('#')[1])] ?? '';
+  }
+
+  /** The reactive line waiting its turn. eligible: Claude FM is the station and she is in a vehicle. */
+  private reactTick(on: boolean, eligible: boolean): void {
+    const p = this.pending; if (!p) return;
+    const now = performance.now();
+    if (!eligible) { if (now > p.exp) this.pending = null; return; }
+    if (now < p.due) return;
+    const pk = this.reactPack, c = this.core;
+    const fallback = (): void => {
+      this.pending = null; this.lastReact = now;
+      if (!p.quiet) { this.toast('Claude FM: ' + this.reactText(p.kind)); this.stats.reactToast++; }
+      this.stats.reactLast = p.kind;
+    };
+    if (!on) { fallback(); return; }
+    if (pk.state === 'idle') pk.load(c);
+    if (pk.state === 'failed') { fallback(); return; }
+    if (pk.state !== 'ready' || c.ctx.state !== 'running') { if (now > p.exp) fallback(); return; }
+    if (this.phase !== 'wait') { if (now > p.exp) this.pending = null; return; }
+    const all = pk.get(p.kind), pool = all.filter((x) => !this.recentReact.includes(x.id));
+    const clip = (pool.length ? pool : all)[Math.floor(Math.random() * (pool.length || all.length))];
+    if (!clip) { fallback(); return; }
+    this.recentReact.push(clip.id); if (this.recentReact.length > 6) this.recentReact.shift();
+    this.forced = clip; this.pending = null; this.lastReact = now;
+    this.phase = 'down'; this.t = 0;
+    this.stats.react++; this.stats.reactLast = p.kind;
+  }
+
+  /** Each frame with the real seconds since the last. `on`: Claude FM is wanted and sounding. `eligible`: it is the station and she is in a vehicle. */
+  tick(dt: number, on: boolean, eligible = on): void {
     const fm = this.fm;
+    this.reactTick(on, eligible);
     if (on && this.pack.state === 'idle') this.pack.load(this.core);
     if (!on) {
       if (this.phase !== 'wait') this.stop();
@@ -229,6 +293,12 @@ export class ClaudeFMDJ {
   /** Say one line now (not one of the last few; the first is always an ident). Returns false if it could not. */
   private speak(): boolean {
     const c = this.core, pk = this.pack;
+    if (this.forced) {
+      const f = this.forced; this.forced = null;
+      this.src = play(c, this.reactPack, f, c.bus.music, c.now + 0.03, 1.5);
+      if (!this.src) return false;
+      this.clip = f; return true;
+    }
     const kinds = this.first ? ['id'] : Math.random() < 0.6 ? ['tip'] : ['link', 'id'];
     let pool = kinds.flatMap((k) => pk.get(k)).filter((x) => !this.recent.includes(x.id));
     if (!pool.length) pool = pk.clips.filter((x) => !this.recent.includes(x.id));

@@ -398,6 +398,7 @@ export class Delivery {
     if (this.combo > 1) bits.push(`combo x${this.combo}`);
     if (late) bits.push('late, half pay');
     hud.toast(`Signed for at ${q.addr}. ${bits.join(' · ')}`, 4.5);
+    g.emit('moment', { kind: 'delivery' });
     const pool = late ? LATE_LINES : q.cond < 60 ? SCUFF_LINES : d.id === 'speedscan' ? SS_LINES : PD_LINES;
     hud.subtitle('CUSTOMER', pool[this.lines++ % pool.length], 4.5);
     this.customer(q.at, v);

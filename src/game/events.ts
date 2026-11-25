@@ -194,6 +194,7 @@ export class TownEvents {
       if (!open && w.opensIn !== null && w.opensIn < 90 && w.opensIn > 5 && !this.told.has(id + Math.floor(Date.now() / 3600000))) {
         this.told.add(id + Math.floor(Date.now() / 3600000));
         this.game.hud.toast(`Claude FM: ${i.title} opens in about a minute at ${i.where}.`, 7);
+        this.game.emit('moment', { kind: 'eventSoon', own: true });
         this.stats.toasts++;
       }
     }

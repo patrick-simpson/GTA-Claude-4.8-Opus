@@ -562,6 +562,7 @@ export class TownProject {
       const pay = RIBBON[k] ?? 100;
       pl.money += pay; save.credit(pay); save.data.stats.earned += pay;
       this.stats.ribbons++;
+      g.emit('moment', { kind: 'stage' });
       g.hud.stamp(stageName(STAGES + k + 1).toUpperCase(), `Ribbon cut. The Harbor Authority gives you ${money(pay)} from the petty cash.`);
       g.todo.saveNow();
       return;
