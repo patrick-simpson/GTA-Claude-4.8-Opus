@@ -15,6 +15,7 @@ import { Activities } from './activities';
 import { Racing } from './race';
 import { Delivery } from './delivery';
 import { Gigs } from './gigs';
+import { Fishing } from './fishing';
 import { Pursuit } from './pursuit';
 import { Derby } from './derby';
 import { Shops } from './shops';
@@ -44,6 +45,8 @@ export class ThingsToDo {
   readonly delivery: Delivery;
   /** Gigs: delivery orders between the directory's businesses (fun queue 2, item 14). */
   readonly gigs: Gigs;
+  /** Fishing at the signed spots, with the Fish Log (fun queue 2, item 15). */
+  readonly fishing: Fishing;
   /** Hot Pursuit: a police chase between players (fun queue item 12). */
   readonly pursuit: Pursuit;
   /** The demolition derby at Flounder Field (fun queue item 13). */
@@ -85,6 +88,7 @@ export class ThingsToDo {
     this.derby = new Derby(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.gigs = new Gigs(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
+    this.fishing = new Fishing(game, () => this.busy === null);
     this.shops = new Shops(game, this.markers);
     this.signs = new ShopSigns(game);
     this.travel = new Cab(game, this);
@@ -179,10 +183,11 @@ export class ThingsToDo {
     this.jobs.update(dt);
     this.gigs.update(dt, !!(this.delivery.prompt || this.jobs.prompt));
     this.shops.update(dt);
+    this.fishing.update(dt, !!(this.missions.prompt || this.racing.prompt || this.pursuit.prompt || this.delivery.prompt || this.jobs.prompt || this.gigs.prompt || this.shops.prompt));
     const w = this.waypoint;
     if (w) this.markers.put(w.x, w.z, 'goal', 5, 30);
     this.markers.end();
-    this.say(this.missions.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.delivery.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt);
+    this.say(this.missions.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.delivery.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.fishing.prompt);
     // M or Tab (Back on a pad): straight to the map.
     if (g.input.eat('map')) { this.menu.tab = 0; g.setPaused(true); }
     const down = !(g.player.health > 0);

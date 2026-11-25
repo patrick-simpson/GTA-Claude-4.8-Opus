@@ -32,7 +32,7 @@ GETTING AROUND
 THINGS TO DO
 [x] 13. Pardon's treasure hunt: rotating rare items in the aisles.
 [x] 14. Delivery jobs between real directory businesses.
-[ ] 15. Fishing (pier, dam, riverbank) with a fish log.
+[x] 15. Fishing (pier, dam, riverbank) with a fish log.
 [ ] 16. Dithers College semester: short campus missions.
 [ ] 17. SpeedScan HQ heist using the floors and the elevator.
 [ ] 18. Street-race builder: pick checkpoints, share with the town.

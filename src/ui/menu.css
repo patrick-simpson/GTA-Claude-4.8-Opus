@@ -167,6 +167,11 @@ body.reduced-motion .mn-card, body.reduced-motion .mn-slip { animation: none; }
 .mn-find.r-ultra { border-color: var(--vermilion); }
 .mn-find.r-ultra em { color: var(--vermilion); opacity: 1; font-weight: 700; }
 
+/* Fish Log (Progress, section I): the finds ledger's grid, with a line of where and how heavy. */
+.mn-fish small b { font-weight: 700; }
+.mn-fish.r-ultra em { color: var(--vermilion); }
+.mn-fishes { grid-template-columns: repeat(auto-fill, minmax(12.5em, 1fr)); }
+
 /* Settings controls. */
 #menu input[type='range'] { width: 11em; accent-color: var(--vermilion); }
 .mn-val { font-family: var(--f-mono); min-width: 3em; }
