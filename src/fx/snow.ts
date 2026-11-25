@@ -1,4 +1,5 @@
-// Winter and autumn in the air and along the kerbs (the sky owns one of these: Sky.snowfall).
+// Winter and autumn in the air and along the kerbs (the sky owns one of these: Sky.snowfall). In mud season (item 34) the kerb
+// ridges are the brown road shoulders, grey with old snow for the first days, and kerbs() lends their places to the puddles.
 //
 //  * Falling snow: one mesh of small soft discs in a box that wraps round the camera in the vertex shader, like the
 //    rain sheet in sky.ts. Each flake drifts on its own slow sine; nothing moves on the CPU. A storm shows more of
@@ -15,6 +16,7 @@ import type { Game } from '../core/game';
 import { flip, sendRange } from '../core/flip';
 import { groundAt } from '../world/plan';
 import { treeSeason } from '../world/floraAssets';
+import { season } from '../world/season';
 
 const FLAKE_BOX = new THREE.Vector3(40, 22, 40);
 const LEAF_BOX = new THREE.Vector3(30, 14, 30);
@@ -156,6 +158,9 @@ export class Snowfall {
   private breathT = 1;
   /** Snowbanks on/off (a switch for measuring). */
   banksOn = true;
+  /** Item 34: in mud season the kerb ridges are the thawed road shoulders: brown mud (grey old snow while some is left). */
+  private bankTone = 0;
+  private readonly bankMat: THREE.MeshStandardMaterial;
 
   constructor(private game: Game, private low: boolean) {
     const q = game.quality;
@@ -175,6 +180,7 @@ export class Snowfall {
     this.reach = low ? 70 : 100;
     const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.8, 0.83, 0.89), roughness: 0.8, metalness: 0 });
     mat.userData.noSnow = true;
+    this.bankMat = mat;
     this.bankMesh = new THREE.InstancedMesh(bankGeometry(), mat, this.cap);
     this.bankMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     flip.mesh(this.bankMesh);
@@ -231,7 +237,16 @@ export class Snowfall {
         g.fx?.emitters.breath(p.x, p.y + 1.6, p.z, Math.sin(p.h), Math.cos(p.h));
       }
     }
-    const show = this.banksOn && cover > 0.12;
+    const mud = season.phase === 'mud';
+    // 0 snow, 1 old grey snow in the mud, 2 bare mud: the ridges change colour with it.
+    const tone = !mud ? 0 : cover > 0.12 || season.mudSnow > 0.4 ? 1 : 2;
+    if (tone !== this.bankTone) {
+      this.bankTone = tone; this.dirty = true;
+      if (tone === 0) { this.bankMat.color.setRGB(0.8, 0.83, 0.89); this.bankMat.roughness = 0.8; }
+      else if (tone === 1) { this.bankMat.color.setRGB(0.5, 0.48, 0.45); this.bankMat.roughness = 0.9; }
+      else { this.bankMat.color.setRGB(0.3, 0.2, 0.11); this.bankMat.roughness = 0.97; }
+    }
+    const show = this.banksOn && (cover > 0.12 || mud);
     if (!show) {
       if (this.bankMesh.visible) { this.bankMesh.visible = false; this.bankMesh.count = 0; }
       // Thawed: the ploughs will make new ones next time.
@@ -241,7 +256,8 @@ export class Snowfall {
     if (!this.banks) this.build();
     const cam = g.camera.position;
     const cars = g.vehicles.list;
-    for (let i = 0; i < cars.length; i++) {
+    // Mud ridges are low and soft: a car drives over them (and puddles are fx/seasonFx's).
+    for (let i = 0; i < cars.length && cover > 0.12; i++) {
       const c = cars[i];
       const vv = c.vx * c.vx + c.vz * c.vz;
       if (vv < 4) continue;
@@ -250,6 +266,26 @@ export class Snowfall {
       this.hit(c);
     }
     if (this.dirty || Math.abs(cover - this.lastCover) > 0.03 || (cam.x - this.lastX) ** 2 + (cam.z - this.lastZ) ** 2 > 100) this.fill(cam.x, cam.z, cover);
+  }
+
+  /**
+   * Item 34 (mud season's puddles): the kerb ridges' places within r of (x, z), as x, z, angle triples written into out (the
+   * ridge runs along (cos a, -sin a)). Returns how many. Makes the ridge list the first time it is asked.
+   */
+  kerbs(x: number, z: number, r: number, out: Float32Array): number {
+    if (!this.banks) this.build();
+    const b = this.banks!, r2 = r * r, cap = Math.floor(out.length / 3);
+    let n = 0;
+    for (let gx = Math.floor((x - r) / CELL); gx <= Math.floor((x + r) / CELL); gx++) for (let gz = Math.floor((z - r) / CELL); gz <= Math.floor((z + r) / CELL); gz++) {
+      const l = this.grid.get(this.key(gx, gz));
+      if (!l) continue;
+      for (const i of l) {
+        const o = i * 6, dx = b[o] - x, dz = b[o + 1] - z;
+        if (dx * dx + dz * dz > r2 || n >= cap) continue;
+        out[n * 3] = b[o]; out[n * 3 + 1] = b[o + 1]; out[n * 3 + 2] = b[o + 5]; n++;
+      }
+    }
+    return n;
   }
 
   private key(cx: number, cz: number): number { return (cx + 2000) * 4096 + (cz + 2000); }
@@ -333,7 +369,7 @@ export class Snowfall {
     this.lastX = x; this.lastZ = z; this.lastCover = cover; this.dirty = false;
     const b = this.banks!, al = this.alive!, R = this.reach, R2 = R * R, m = this.bankMesh;
     const arr = m.instanceMatrix.array as Float32Array;
-    const h = 0.18 + 0.55 * Math.min(1, (cover - 0.12) / 0.6);
+    const h = cover > 0.12 ? 0.18 + 0.55 * Math.min(1, (cover - 0.12) / 0.6) : this.bankTone === 1 ? 0.3 : 0.2;
     let n = 0;
     const c0x = Math.floor((x - R) / CELL), c1x = Math.floor((x + R) / CELL), c0z = Math.floor((z - R) / CELL), c1z = Math.floor((z + R) / CELL);
     for (let gx = c0x; gx <= c1x && n < this.cap; gx++) for (let gz = c0z; gz <= c1z && n < this.cap; gz++) {

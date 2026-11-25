@@ -2579,6 +2579,7 @@ class Ground implements WorldPart {
         .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( roughnessFactor, 0.3, wetS );');
     };
     this.sandMat = m;
+    this.mats.terrain = m;
     return m;
   }
 

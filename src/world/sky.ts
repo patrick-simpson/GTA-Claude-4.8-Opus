@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { CameraApi, SkyApi, SkyWeather, Weather } from '../core/api';
 import { installSnowCover, SNOW_U } from './snowCover';
-import { season, type Season } from './season';
+import { season, type Season, type Phase } from './season';
 import { treeSeason } from './floraAssets';
 import { Snowfall } from '../fx/snow';
 
@@ -506,6 +506,8 @@ export class Sky implements SkyApi {
   get slick(): number { return this._slick; }
   /** The season this frame (world/season.ts). */
   get season(): Season { return this._season; }
+  /** Item 34: the look of the year (mud season, summer, fall, winter): world/season.ts. */
+  get phase(): Phase { return this._phase; }
   /** Snow in the air and banks along the kerbs; null until built. */
   snowfall: Snowfall | null = null;
   /** A test or a cheat sets the cover directly (0..1). */
@@ -517,6 +519,10 @@ export class Sky implements SkyApi {
   private _snow = 0;
   private _slick = 0;
   private _season: Season = season.now;
+  /** Item 34: 0..1 how far the clock is bent into a long summer day (eases in and out when the phase changes). */
+  private longDay = season.phase === 'summer' ? 1 : 0;
+  /** The phase last frame (the sky's own copy: mud-season snow and the bare trees follow it). */
+  private _phase: Phase = season.phase;
   /** The weather asked for (by the rotation, the town, a cheat); `_weather` is what shows: winter rain falls as snow. */
   private _asked: SkyWeather = 'clear';
 
@@ -766,6 +772,7 @@ export class Sky implements SkyApi {
 
     // ── Season ──
     const sn = season.now;
+    this._phase = season.phase;
     if (sn !== this._season) {
       this._season = sn;
       // Rain that was falling turns to snow (or back) over the usual blend.
@@ -786,10 +793,17 @@ export class Sky implements SkyApi {
     }
 
     // ── Sun and moon ──
-    const sunUp = h >= SUNRISE && h < SUNSET;
+    // Item 34, high summer: the light comes a little earlier and stays about an hour longer. The sun and the palette read a bent
+    // hour (hw) that runs behind the clock through the afternoon and evening and ahead of it before breakfast; the town clock,
+    // and everything keyed to it (the events, the townsfolk, the lamps' hour) is untouched.
+    this.longDay += ((this._phase === 'summer' ? 1 : 0) - this.longDay) * Math.min(1, dt / 6);
+    const ld = this.longDay;
+    const hw = ld < 0.001 ? h : h - 0.9 * ld * smooth(clamp01((h - 12) / 5)) * (1 - smooth(clamp01((h - 21) / 3)))
+      + 0.5 * ld * smooth(clamp01((h - 3) / 2.5)) * (1 - smooth(clamp01((h - 6.5) / 2)));
+    const sunUp = hw >= SUNRISE && hw < SUNSET;
     const sa = sunUp
-      ? Math.PI * (h - SUNRISE) / (SUNSET - SUNRISE)
-      : Math.PI + Math.PI * ((h - SUNSET + 24) % 24) / (24 - SUNSET + SUNRISE);
+      ? Math.PI * (hw - SUNRISE) / (SUNSET - SUNRISE)
+      : Math.PI + Math.PI * ((hw - SUNSET + 24) % 24) / (24 - SUNSET + SUNRISE);
     this.sunDir.set(Math.cos(sa), Math.sin(sa) * Math.cos(SUN_TILT), Math.sin(sa) * Math.sin(SUN_TILT));
     const moonUp = h >= MOONRISE || h < MOONSET;
     const ma = moonUp
@@ -804,9 +818,9 @@ export class Sky implements SkyApi {
     // ── Palette ──
     const keys = this.keys;
     let i = 0;
-    while (i < KEYS.length - 2 && h >= KEYS[i + 1].h) i++;
+    while (i < KEYS.length - 2 && hw >= KEYS[i + 1].h) i++;
     const p = this.pal;
-    p.mix(keys[i], keys[i + 1], clamp01((h - KEYS[i].h) / (KEYS[i + 1].h - KEYS[i].h)));
+    p.mix(keys[i], keys[i + 1], clamp01((hw - KEYS[i].h) / (KEYS[i + 1].h - KEYS[i].h)));
 
     // Cloud over a lit town is never black: at night the lid keeps more of its light than it does by day.
     const sat = w[W.sat], dim = lerp(w[W.dim], Math.pow(w[W.dim], 0.4), dark);
@@ -924,12 +938,17 @@ export class Sky implements SkyApi {
         .multiplyScalar(lerp(1.5, 2.6, dark));
     }
     // ── Snow cover, the slush on the roads, the trees ──
+    // Item 34, early mud season: old snow lingers in a few grey patches (and, in fx/snow.ts, grey banks), far under the 0.2 the
+    // ploughs and the snowball fields need, so no job starts on it, and melts away over the first fortnight.
+    const mudSnow = this._phase === 'mud' ? 0.07 * season.mudSnow : 0;
     if (snowing > 0.3) this._snow = Math.min(1, this._snow + dt * snowing * (0.4 + 0.6 * storm) / SNOW_BURY * 1.6);
     else if (this._snow > 0) this._snow = Math.max(0, this._snow - dt / (this._season === 'winter' ? SNOW_MELT * 6 : SNOW_MELT) * (1 + clamp01(sunI / 3)));
+    if (mudSnow > 0 && this._snow < mudSnow) this._snow = mudSnow;
     // A dusting is ploughed and salted; from about a third of the cover up the roads get slippery, fully so in a storm's depth.
     this._slick = smooth(clamp01((this._snow - 0.2) * 1.6));
     SNOW_U.value.x = this._snow;
-    treeSeason.u.value.set(this._season === 'autumn' ? 1 : 0, this._season === 'winter' ? 1 : 0);
+    // (Mud season: the maples are still bare, a month from budding.)
+    treeSeason.u.value.set(this._season === 'autumn' ? 1 : 0, this._season === 'winter' || this._phase === 'mud' ? 1 : 0);
     if (this.snowfall) {
       this.c1.copy(u.uFog.value as THREE.Color).lerp(WHITE, 0.5).multiplyScalar(lerp(1.15, 2.2, dark));
       this.snowfall.tick(dt, snowing, storm, this._season === 'autumn' ? 1 : 0, this.c1);

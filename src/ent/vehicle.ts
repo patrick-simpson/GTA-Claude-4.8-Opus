@@ -29,6 +29,7 @@ import { SPECS, isCycleKind, type VehicleKind, type VehicleSpec } from './vehicl
 import { vehicleModel, wheelGeometry, type VehicleModel } from './vehicleModels';
 import { loadVehicleAssets, SHEET_TEXELS, type CarMaps, type SendCell, type VehicleAsset } from './vehicleAssets';
 import { BRIDGE, groundAt, setGroundHint, terrainAt, WATER_Y } from '../world/plan';
+import { heaveAt } from '../world/seasonData';
 import type { Box, Prop } from '../world/collide';
 import { CarDamage, LooseParts, damageShader, dent, scrape, shaderValues, HEAD_L, HEAD_R, TAIL_L, TAIL_R } from './carDamage';
 
@@ -273,6 +274,8 @@ class Car implements Vehicle {
   wade = 0;
   /** On sand or shore turf rather than paving. */
   soft = false;
+  /** Item 34: over a frost heave this step (so the bump is felt once, as the wheels cross it). */
+  heaveIn = false;
   /** Seconds since the handbrake was let go, counted down from a short grace. */
   hbT = 0;
   // Skid marks: where each rear wheel last laid one.
@@ -770,6 +773,13 @@ export class Vehicles implements VehiclesApi {
   private snow = 0;
   /** Snow makes the roads slippery: less grip, longer stops, wheelspin. A switch for A/B tests and tools. */
   snowGrip = true;
+  /**
+   * Item 34, mud season (world/seasonFx.ts sets it, 0..1): the roads are a little greasy, anything off the pavement is slower
+   * and slidier, and the player's car feels the frost heaves in the road (world/seasonData.ts heaveAt).
+   */
+  mud = 0;
+  /** Frost heaves felt so far (tests read it). */
+  heaves = 0;
   private frame = 0;
   private envRT: THREE.WebGLCubeRenderTarget | null = null;
   private envCam: THREE.CubeCamera | null = null;
@@ -1161,7 +1171,17 @@ export class Vehicles implements VehiclesApi {
 
     // Sand gives under the tires: less bite, and (below) it drags.
     // Packed snow: about half the bite (the slide comes early and lasts; see snowGrip).
-    const gripBase = sp.grip * (1 - 0.22 * this.wet) * (1 - 0.5 * this.snow) * (c.soft ? 0.7 : 1);
+    const mud = this.mud;
+    const gripBase = sp.grip * (1 - 0.22 * this.wet) * (1 - 0.5 * this.snow) * (c.soft ? 0.7 * (1 - 0.22 * mud) : 1) * (1 - 0.07 * mud);
+    // Frost heave: a ridge across the road here and there; the springs take it as the wheels cross, and the body hops a little.
+    if (mud > 0 && c.driver === 'player' && c.onGround && !c.soft) {
+      const hv = heaveAt(c.x, c.z);
+      if (hv && !c.heaveIn && absV > 3) {
+        const k = clamp01(absV / 14);
+        c.suspV += 3.4 * k; c.vy += 0.9 * k; this.heaves++;
+      }
+      c.heaveIn = hv;
+    }
     if (hb) c.hbT = 0.6; else if (c.hbT > 0) c.hbT -= dt;
     const speed2 = vf * vf + vr * vr;
 
@@ -1201,7 +1221,7 @@ export class Vehicles implements VehiclesApi {
       // Locked rears scrub little speed: the slide has to carry the car round.
       if (hb) drag += sp.brake * 0.4;
       if (c.wade > 0) drag += c.wade * (0.3 + 2.4 * absV + 0.15 * absV * absV);
-      if (c.soft) drag += 1.2 * clamp01(absV / 2);
+      if (c.soft) drag += (1.2 + 1.3 * mud) * clamp01(absV / 2);
       if (!driven) drag += 5;
       c.braking = brake > 0.05 || hb;
       // Hills: the part of gravity along the slope.

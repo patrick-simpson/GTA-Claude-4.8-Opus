@@ -22,10 +22,19 @@ import type { StreetGraph } from '../world/streets';
 import type { Prop } from '../world/collide';
 import { signalState } from '../world/signals';
 import { spawnOk, type Anchor, type RoadPed } from './traffic';
-import { setEmote } from '../ent/character';
+import { setEmote, type StyledLook } from '../ent/character';
+import { season } from '../world/season';
 
 /** Head counts at full density. */
 const WALKERS = 54, STROLLERS = 6;
+/** Fun queue 2, item 34: the summer visitors, on top of the cast (18 on the sidewalks, 4 more strolling the pier), only out in high summer. */
+const TOURISTS = 18, TOURIST_PIER = 4;
+/** In high summer these districts are busier (the harbour most: its sidewalks are nearly empty the rest of the year). */
+const SUMMER_BUSY: Partial<Record<District, number>> = { downtown: 1.4, midtown: 1.15, oldtown: 1.25, strand: 1.3, port: 8, main: 1.4, square: 1.4, park: 1.15 };
+/** Summer clothes: bright tees and sundresses, light shorts, straw-and-cap colours. */
+const SUN_TOPS = [0xf6d04d, 0xff7f6e, 0x3fc1c9, 0xf48fb1, 0x9be564, 0xffffff, 0xff9f43, 0x6ec6ff];
+const SUN_BOTTOMS = [0xf2e6c9, 0x6f9bd1, 0xe9c46a, 0xffffff, 0x3d5a80, 0xf4a6a0];
+const SUN_HATS = [0xf2e6c9, 0xff7f6e, 0xf6d04d, 0x3fc1c9, 0xffffff];
 /** Strollers turn back here, short of the pier head and its ramp. */
 const PIER_TURN = 596;
 /** Body radius for bumping into things. */
@@ -84,6 +93,8 @@ export interface Walker extends RoadPed {
   active: boolean;
   /** One of the strollers on the pier, who only go up and down it. */
   pier: boolean;
+  /** Fun queue 2, item 34: a summer visitor (summer clothes), out only in high summer. */
+  tourist?: boolean;
   block: Block;
   /** Which side of the block (0 north, clockwise), and meters along it from its first corner. */
   side: number; t: number;
@@ -150,6 +161,8 @@ export class Peds {
   private nearEdges: RoadEdge[] = [];
   private readonly sg: StreetGraph | null;
   private nearT = 0;
+  /** High summer (world/season.ts phase): the visitors are out and the harbour is busy. */
+  private summer = season.phase === 'summer';
   /** The busiest of the near blocks, so the choice between them is relative. */
   private top = 1;
   private movers: readonly Mover[] = [];
@@ -216,9 +229,12 @@ export class Peds {
 
     const den = clamp(game.quality.density, 0.4, 1);
     const nW = Math.round(WALKERS * den), nS = Math.round(STROLLERS * den);
-    for (let i = 0; i < nW + nS; i++) {
+    const nT = Math.round(TOURISTS * den), nTp = Math.round(TOURIST_PIER * den);
+    const trng = new RNG(34034);
+    for (let i = 0; i < nW + nS + nT + nTp; i++) {
+      const tour = i >= nW + nS;
       const w: Walker = {
-        p: game.people.spawn(0, 0, 0), active: false, pier: i >= nW, block: this.blocks[0], side: 0, t: 0, dir: rng.sign(), inset: 2,
+        p: game.people.spawn(0, 0, 0, tour ? this.touristLook(trng) : undefined), active: false, pier: tour ? i >= nW + nS + nT : i >= nW, tourist: tour, block: this.blocks[0], side: 0, t: 0, dir: rng.sign(), inset: 2,
         // A few amble, a few stride.
         pace: rng.chance(0.2) ? rng.range(0.9, 1.15) : rng.chance(0.25) ? rng.range(1.6, 1.95) : rng.range(1.2, 1.6),
         mode: WALK, timer: 0, tx: 0, tz: 0, nb: null, nside: 0, nt: 0, node: null, crossH: false, cs: 1.5, cnode: null, ced: [],
@@ -235,6 +251,7 @@ export class Peds {
     const target = this.target();
     let out = 0;
     for (const w of this.walkers) {
+      if (w.tourist && !this.summer) continue;
       if (w.pier) { this.seatPier(w); continue; }
       if (out >= target) continue;
       for (let k = 0; k < 80 && !w.active; k++) this.seat(w, 6, 110, 0);
@@ -245,13 +262,29 @@ export class Peds {
   /** How busy this block is at this hour. */
   private busy(b: Block): number {
     const k = BUSY[b.district];
-    return k[0] + (k[1] - k[0]) * this.game.sky.night;
+    return (k[0] + (k[1] - k[0]) * this.game.sky.night) * (this.summer ? SUMMER_BUSY[b.district] ?? 1 : 1);
+  }
+
+  /** A visitor's look: a normal random person in summer clothes, with a sun hat or cap, sunglasses and a camera bag. */
+  private touristLook(rng: RNG): Look {
+    const L = this.game.people.randomLook(rng) as StyledLook;
+    const f = L.body === 'f';
+    L.top = rng.pick(SUN_TOPS);
+    L.topKind = f && rng.chance(0.4) ? 'dress' : 'tee';
+    L.bottom = rng.pick(SUN_BOTTOMS);
+    L.bottomKind = f && rng.chance(0.35) ? 'skirt' : 'shorts';
+    L.shoeKind = 'sneakers';
+    L.hat = rng.chance(0.6) ? rng.pick(SUN_HATS) : null;
+    L.hatKind = rng.chance(0.5) ? 'brim' : 'cap';
+    L.glasses = rng.chance(0.55); L.glassesColor = 0x15171a;
+    L.bag = rng.chance(0.65);
+    return L;
   }
 
   /** How many of the street pool should be out: fewer at night, in the rain, and in the quiet parts of town. */
   private target(): number {
     let n = 0, f = 0;
-    for (const w of this.walkers) if (!w.pier) n++;
+    for (const w of this.walkers) if (!w.pier && (!w.tourist || this.summer)) n++;
     for (const b of this.nearBlocks) f += this.busy(b);
     for (const e of this.nearEdges) f += this.edgeBusy(e);
     const cnt = this.nearBlocks.length + this.nearEdges.length;
@@ -344,7 +377,7 @@ export class Peds {
     if (this.guest) return;
     let best: Walker | null = null, far = 0;
     for (const w of this.walkers) {
-      if (w.pier || w.mode === DOWN) continue;
+      if (w.pier || w.mode === DOWN || (w.tourist && !this.summer)) continue;
       if (!w.active) { best = w; break; }
       const d2 = this.far2(w.p.x, w.p.z);
       if (d2 > far && this.fair(w.p.x, w.p.z, 50, 1e5, 100)) { far = d2; best = w; }
@@ -363,6 +396,7 @@ export class Peds {
     const g = this.game, pl = g.player, px = pl.x, pz = pl.z, rng = this.rng;
     this.movers = movers;
     this.frame++;
+    this.summer = season.phase === 'summer';
     this.road.length = 0;
     if (this.guest) return;
     // A host keeps people round every player in town: `gs` is those players, in groups. Alone, none of this runs.
@@ -441,6 +475,8 @@ export class Peds {
       const w = ws[i], p = w.p;
       if (w.pier) { this.pierLife(w, day); if (!w.active) continue; }
       else if (!w.active) {
+        // The visitors go home when the summer does.
+        if (w.tourist && !this.summer) continue;
         if (many) {
           // For whichever group of players is furthest short of its share.
           let q: Group | null = null, need = 0;
@@ -480,7 +516,7 @@ export class Peds {
           this.leave(w); w.active = false; p.visible = false; out--;
           continue;
         }
-        if (out > target && w.mode !== DOWN && (this.frame + i) % 30 === 0 && spawnOk(g, p.x, p.z, 35, 1e5, 85)) {
+        if ((out > target || (w.tourist && !this.summer)) && w.mode !== DOWN && (this.frame + i) % 30 === 0 && spawnOk(g, p.x, p.z, 35, 1e5, 85)) {
           this.leave(w); w.active = false; p.visible = false; out--;
           continue;
         }
@@ -882,7 +918,7 @@ export class Peds {
     const m = this.sg!.pointAt(e, e.len / 2), d = this.game.plan.districtAt(m.x, m.z);
     if (!d) return 0;
     const k = BUSY[d];
-    return k[0] + (k[1] - k[0]) * this.game.sky.night;
+    return (k[0] + (k[1] - k[0]) * this.game.sky.night) * (this.summer ? SUMMER_BUSY[d] ?? 1 : 1);
   }
 
   private readonly swOk = new Map<number, Uint8Array>();
@@ -1355,7 +1391,7 @@ export class Peds {
   /** The pier is busy by day and nearly empty after dark, and changes only when nobody is watching it. */
   private pierLife(w: Walker, day: boolean): void {
     if ((this.frame + w.p.id) % 120 !== 0) return;
-    const want = day || w.p.id % 3 === 0;
+    const want = (day || w.p.id % 3 === 0) && (!w.tourist || this.summer);
     if (want === w.active || w.mode === DOWN) return;
     if (!this.fair(0, 520, 150, 1e5, 240)) return;
     if (want) this.seatPier(w); else { this.leave(w); w.active = false; w.p.visible = false; }

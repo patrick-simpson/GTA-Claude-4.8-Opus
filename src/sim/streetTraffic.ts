@@ -24,6 +24,8 @@ import { setGroundHint, streetSurface } from '../world/plan';
 import { SPECS, type VehicleKind } from '../ent/vehicleSpecs';
 import type { Anchor, Driver, RoadPed } from './traffic';
 import { StreetSignals } from '../world/streetSignals';
+import { season } from '../world/season';
+import { VISITOR_PAINT } from '../world/seasonData';
 
 /** What the rail drivers need from Traffic. */
 export interface RailHost {
@@ -229,6 +231,8 @@ export class StreetDrivers {
         : k === 'arterial' || k === 'bridge' ? Math.min(rng.range(11.5, 14), top * 0.55)
           : Math.min(rng.range(8.5, 11), top * 0.5);
     if (v.spec.kind === 'bus') c = Math.min(c, k === 'highway' ? 18 : 9.5);
+    // Item 34: a visitor's bright paint in the fall is a leaf-peeper, crawling along looking at the trees.
+    if (k !== 'highway' && season.phase === 'fall' && VISITOR_PAINT.indexOf(v.color) >= 0) c *= 0.62;
     return c;
   }
 
@@ -272,7 +276,9 @@ export class StreetDrivers {
     // unless the spawn says which level it means: cars seated there stood at the foot of the embankment, unable to move.
     const S = streetSurface();
     if (S) setGroundHint(S.flat(x, z) + S.liftAt(e, s) + 0.3);
-    const v = g.vehicles.spawn(kind, x, z, Math.atan2(p.tx, p.tz));
+    // Fun queue 2, item 34: visitors in bright paints in high summer, slow leaf-peepers in the fall (no dice in the other seasons).
+    const ph = season.phase, vis = (ph === 'summer' || ph === 'fall') && (kind === 'sedan' || kind === 'hatch' || kind === 'van' || kind === 'coupe') && rng.chance(ph === 'summer' ? 0.34 : 0.22);
+    const v = g.vehicles.spawn(kind, x, z, Math.atan2(p.tx, p.tz), vis ? VISITOR_PAINT[rng.int(0, VISITOR_PAINT.length - 1)] : undefined);
     if (S) setGroundHint();
     v.driver = 'ai';
     d.v = v; d.wid = host.newWid();

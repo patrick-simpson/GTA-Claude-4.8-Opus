@@ -18,6 +18,8 @@ import { RNG, TAU, clamp } from '../core/util';
 import { RAMPS, type District, type RoadEdge, type RoadNode } from '../world/plan';
 import { SPECS, commonKind, type VehicleKind } from '../ent/vehicleSpecs';
 import { MAIN_SPLIT_Z } from '../world/mainland';
+import { season } from '../world/season';
+import { VISITOR_PAINT } from '../world/seasonData';
 import { StreetDrivers, type Rail } from './streetTraffic';
 
 /** The most left and pushed cars the town keeps wherever they stand; past this the ones nobody can see are towed. */
@@ -677,7 +679,10 @@ export class Traffic {
       const ox = o.x - x, oz = o.z - z;
       if (Math.abs(ox * dx + oz * dz) < 13 + o.hl && Math.abs(-ox * dz + oz * dx) < 2.3) return false;
     }
-    const v = g.vehicles.spawn(kind, x, z, Math.atan2(dx, dz));
+    // Fun queue 2, item 34: in high summer a third of the family cars are visitors in bright paints, and in the fall a fifth are
+    // leaf-peepers who crawl along looking at the trees. (No dice are thrown in the other seasons.)
+    const ph = season.phase, vis = (ph === 'summer' || ph === 'fall') && (kind === 'sedan' || kind === 'hatch' || kind === 'van' || kind === 'coupe') && rng.chance(ph === 'summer' ? 0.34 : 0.22);
+    const v = g.vehicles.spawn(kind, x, z, Math.atan2(dx, dz), vis ? VISITOR_PAINT[rng.int(0, VISITOR_PAINT.length - 1)] : undefined);
     v.driver = 'ai';
     d.v = v; d.e = e; d.to = to; d.lane = lane; d.off = off; d.turn = null;
     d.wid = this.newWid();
@@ -686,6 +691,7 @@ export class Traffic {
     this.plan(d);
     d.cruise = Math.min(rng.range(8.5, 12.5) * (e.lanes === 2 ? 1.1 : 1), SPECS[kind].topSpeed * 0.5);
     if (kind === 'bus') d.cruise = Math.min(d.cruise, 8.5);
+    if (vis && ph === 'fall') d.cruise *= 0.62;
     this.fresh(d);
     // Already rolling, so a street does not fill with cars pulling away at once.
     v.vx = dx * d.cruise * 0.7; v.vz = dz * d.cruise * 0.7;

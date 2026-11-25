@@ -105,6 +105,19 @@ export class CityMaterials {
 
   /** Last value given to setNight: 0 day .. 1 night. */
   night = 0;
+  /** Item 34: the season's tint on the lawns, and the open ground's own material (ground.ts hands it over). */
+  readonly grassTint = new THREE.Color(1, 1, 1);
+  terrain: THREE.MeshStandardMaterial | null = null;
+  private terrainBase: THREE.Color | null = null;
+  /** Mud season greys the lawns and browns the ground; high summer deepens them. Sets the tints and re-applies the night's. */
+  setSeasonTint(grass: THREE.Color, ground: THREE.Color): void {
+    this.grassTint.copy(grass);
+    if (this.terrain) {
+      if (!this.terrainBase) this.terrainBase = this.terrain.color.clone();
+      this.terrain.color.copy(this.terrainBase).multiply(ground);
+    }
+    this.setNight(this.night);
+  }
   /** Last value given to setWet: 0 dry .. 1 soaked. */
   wet = 0;
   /** True when the shelf is physically based (medium and high). */
@@ -238,7 +251,7 @@ export class CityMaterials {
     this.boards.emissiveIntensity = n * 0.3;
     this.posters.emissiveIntensity = n * 0.12;
     // Lawns are the most saturated thing in town and stayed postcard green under the moon.
-    this.grass.color.setRGB(1 - 0.42 * n, 1 - 0.34 * n, 1 - 0.24 * n);
+    this.grass.color.setRGB(this.grassTint.r * (1 - 0.42 * n), this.grassTint.g * (1 - 0.34 * n), this.grassTint.b * (1 - 0.24 * n));
     this.glow.opacity = smooth(n * 1.2);
     // An invisible material costs no draw calls, so lamps are free by day.
     this.glow.visible = n > 0.01;
