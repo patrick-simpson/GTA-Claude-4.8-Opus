@@ -23,6 +23,7 @@ import { Heist } from './heist';
 import { Pursuit } from './pursuit';
 import { Derby } from './derby';
 import { TownEvents } from './events';
+import { Finds } from './finds';
 import { Shops } from './shops';
 import { Menu } from '../ui/menu';
 import { Navigator } from './nav';
@@ -66,6 +67,8 @@ export class ThingsToDo {
   readonly derby: Derby;
   /** The weekly town events: Derby Night, the Moose Festival, the Regatta, the Christmas Fair (fun queue 2, item 19). */
   readonly events: TownEvents;
+  /** Lost ducks and bridge-bond receipts hidden across Tepid Falls (fun queue 2, item 22). */
+  readonly finds: Finds;
   readonly shops: Shops;
   /** The Calamity Courtesy Cab: fast travel from the map (game/travel.ts). */
   readonly travel: Cab;
@@ -103,6 +106,7 @@ export class ThingsToDo {
     this.pursuit = new Pursuit(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.derby = new Derby(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.events = new TownEvents(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
+    this.finds = new Finds(game);
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.gigs = new Gigs(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.plow = new Plow(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
@@ -206,6 +210,7 @@ export class ThingsToDo {
     this.pursuit.update(dt);
     this.derby.update(dt);
     this.events.update(dt);
+    this.finds.update(dt);
     this.delivery.update(dt);
     this.plow.update(dt);
     this.jobs.update(dt);
@@ -253,6 +258,7 @@ export class ThingsToDo {
       this.pursuit.blips(out);
       this.derby.blips(out);
       this.events.blips(out);
+      this.finds.blips(out);
       this.shops.blips(out);
       const w = this.waypoint;
       if (w) { if (Math.hypot(p.x - w.x, p.z - w.z) < 14) this.waypoint = null; else out.push({ x: w.x, z: w.z, kind: 'way' }); }
