@@ -5,16 +5,18 @@
 //
 // It never stands in the way of play: the file is fetched in the background while the title card is up, and if it
 // has not loaded enough by the time the game starts, or fails, or the browser refuses to play it, the game simply
-// starts (and it is offered again next visit). Phones and small screens get the 720p file.
+// starts (and it is offered again next visit). Phones and small screens get the lighter file.
 //
-// Files: public/promo/promo_1080.mp4 and promo_720.mp4 (made by tools/promo/, see tools/promo/storyboard.json).
+// Files: public/promo/promo_1080.* (the desktop slot) and promo_720.* (the phone slot). Edition 2 is the trailer rendered
+// in Blender (tools/trailer/, see tools/trailer/PLAN.md): 1280x720 at 24 fps, so both slots hold 720p, the desktop one at
+// a higher bitrate; nothing is upscaled. (Edition 1 was the game capture made by tools/promo/.)
 // `?promo=URL` plays another file (testing a cut), `?promo=0` never plays it, `?promo=1` plays it even if seen.
 
 import type { Game } from '../core/game';
 import { MUSIC_CREDIT } from '../core/credits';
 
 /** Bump when a new promo is cut: everyone sees it once more. */
-export const PROMO_EDITION = 'promo-1';
+export const PROMO_EDITION = 'promo-2';
 /** When the music's final hit lands (seconds): the logo card comes up on it (storyboard.json music.hit). */
 const HIT = 54.75;
 const KEY = 'pc-promo-seen';

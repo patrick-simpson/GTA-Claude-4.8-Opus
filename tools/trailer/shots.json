@@ -1,0 +1,940 @@
+{
+ "title": "Port Calamity trailer (Blender), shot definitions for tools/trailer/export.mjs",
+ "note": "Same shot format as tools/promo/storyboard.json (setup / warm / wait / preroll / cam keys, follow or a custom P.place set by the setup). Timing: dur (seconds) for the proof shots (P*); the trailer shots (S01..S19, PLAN.md section 4) carry k0 (first beat) and beats on the promo's measured beat grid, so cuts land on beats and the 19 shots are exactly 1440 frames at 24 fps. radius = metres of world kept around the camera path; look = preset in tools/trailer/blender/look.py (lookOverrides on top); shake, shutter, focus, waterY, pplR/pplMax (people kept) are optional. P.rec() in a setup records per-frame facts for Blender-native effects (blender/fx.py).",
+ "bpm": 117.45,
+ "shots": [
+  {
+   "id": "P1_tower",
+   "dur": 4,
+   "look": "golden",
+   "move": "drone crane up the SpeedScan tower to the stink lines, golden hour",
+   "query": "season=summer",
+   "setup": "g.game.sky.ask(17.6, 'clear', true); g.teleport(27, 110, 3.14);",
+   "wait": 9000,
+   "warm": 1,
+   "radius": 900,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -150,
+       14,
+       215
+      ],
+      "at": [
+       27,
+       110,
+       32
+      ],
+      "fov": 46
+     },
+     {
+      "t": 1,
+      "pos": [
+       -195,
+       150,
+       265
+      ],
+      "at": [
+       27,
+       360,
+       32
+      ],
+      "fov": 40
+     }
+    ]
+   },
+   "lookOverrides": {
+    "sun_az": 270,
+    "sun_elev": 6.5,
+    "look": "Punchy"
+   }
+  },
+  {
+   "id": "P2_mainst",
+   "dur": 4,
+   "look": "dusk_wet",
+   "move": "low slow push down Tepid Falls' Main St after rain, dusk, lamps and windows on",
+   "query": "season=autumn",
+   "setup": "g.stage(4); g.game.sky.ask(18.4, 'rain', true); g.teleport(66, -1700, 0); g.step(10); P.gnd = { x: 0, y: g.info().y, z: 0 }; console.log('promo: street y ' + P.gnd.y); g.teleport(64, -1655, 0); g.step(5);",
+   "wait": 9000,
+   "warm": 2,
+   "radius": 420,
+   "cam": {
+    "ref": "gnd",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       65.5,
+       0.55,
+       -1694
+      ],
+      "at": [
+       71,
+       3.2,
+       -1800
+      ],
+      "fov": 44
+     },
+     {
+      "t": 1,
+      "pos": [
+       66.5,
+       0.9,
+       -1706
+      ],
+      "at": [
+       71.5,
+       3.4,
+       -1812
+      ],
+      "fov": 43
+     }
+    ]
+   }
+  },
+  {
+   "id": "P3_train",
+   "dur": 4,
+   "look": "morning_mist",
+   "move": "the Budget Line crossing the river trestle at sunrise, low from the bank, panning with the engine",
+   "query": "season=autumn",
+   "setup": "g.stage(4); const tr = g.game.world.parts.find((p) => p.derail); let best = 1e9, hb = 6.8; for (let h = 6.6; h < 7.1; h += 0.004) { g.game.sky.ask(h, 'clear', true); g.step(1); const i = tr.info(); const d = Math.hypot(i.x - 345, i.z + 1440); if (d < best) { best = d; hb = h; } } g.game.sky.ask(hb, 'clear', true); g.step(1); P.train = { x: 0, y: 6, z: 0 }; P.each = () => { const i = tr.info(); P.train.x = i.x; P.train.z = i.z; }; P.each(); g.teleport(P.train.x + 50, P.train.z - 50, 0); console.log('promo: train hour ' + hb.toFixed(3) + ' at ' + JSON.stringify(tr.info())); const V = g.game.camera.position.constructor; P.cam0 = [356, 3.5, -1505]; P.place = (cam, s) => { const at = new V(P.train.x - 8, 6.5, P.train.z - 8); const p = new V(P.cam0[0] - 6 * s, P.cam0[1] + 0.8 * s, P.cam0[2] - 4 * s); g.game.view = { pos: p, target: at }; g.game.camera.fov = 40; g.game.camera.updateProjectionMatrix(); };",
+   "wait": 9000,
+   "warm": 0.2,
+   "radius": 600,
+   "cam": {
+    "custom": "set by the setup: a fixed bank camera that pans with the lead car"
+   },
+   "lookOverrides": {
+    "sun_az": 240,
+    "sun_elev": 4,
+    "mist": {
+     "top": 6,
+     "density": 0.05
+    }
+   },
+   "waterY": 0.3,
+   "shake": 0.4
+  },
+  {
+   "id": "S01_dawn",
+   "k0": 0,
+   "beats": 8,
+   "look": "dawn_fog",
+   "query": "season=summer",
+   "radius": 1150,
+   "move": "dawn over the harbour: a drone glides low over flat water through fog toward the skyline; the stink lines glow faintly",
+   "setup": "g.game.sky.ask(6.4, 'fog', true); g.teleport(40, 640, 3.14);",
+   "wait": 9000,
+   "warm": 1,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       75,
+       2.2,
+       930
+      ],
+      "at": [
+       27,
+       110,
+       32
+      ],
+      "fov": 53
+     },
+     {
+      "t": 1,
+      "pos": [
+       48,
+       3,
+       800
+      ],
+      "at": [
+       27,
+       150,
+       32
+      ],
+      "fov": 53
+     }
+    ]
+   },
+   "shake": 0.2,
+   "shutter": 0.2
+  },
+  {
+   "id": "S02_train",
+   "look": "morning_mist",
+   "move": "the Budget Line crossing the river trestle at sunrise, low from the bank, panning with the engine",
+   "query": "season=autumn",
+   "setup": "g.stage(4); const tr = g.game.world.parts.find((p) => p.derail); let best = 1e9, hb = 6.8; for (let h = 6.6; h < 7.1; h += 0.004) { g.game.sky.ask(h, 'clear', true); g.step(1); const i = tr.info(); const d = Math.hypot(i.x - 345, i.z + 1440); if (d < best) { best = d; hb = h; } } g.game.sky.ask(hb, 'clear', true); g.step(1); P.train = { x: 0, y: 6, z: 0 }; P.each = () => { const i = tr.info(); P.train.x = i.x; P.train.z = i.z; }; P.each(); g.teleport(P.train.x + 50, P.train.z - 50, 0); console.log('promo: train hour ' + hb.toFixed(3) + ' at ' + JSON.stringify(tr.info())); const V = g.game.camera.position.constructor; P.cam0 = [356, 3.5, -1505]; P.place = (cam, s) => { const at = new V(P.train.x - 8, 6.5, P.train.z - 8); const p = new V(P.cam0[0] - 6 * s, P.cam0[1] + 0.8 * s, P.cam0[2] - 4 * s); g.game.view = { pos: p, target: at }; g.game.camera.fov = 40; g.game.camera.updateProjectionMatrix(); };",
+   "wait": 9000,
+   "warm": 0.2,
+   "radius": 600,
+   "cam": {
+    "custom": "set by the setup: a fixed bank camera that pans with the lead car"
+   },
+   "lookOverrides": {
+    "sun_az": 240,
+    "sun_elev": 4,
+    "mist": {
+     "top": 6,
+     "density": 0.035
+    },
+    "fill": 1.3
+   },
+   "waterY": 0.3,
+   "shake": 0.4,
+   "k0": 8,
+   "beats": 8,
+   "shutter": 0.3
+  },
+  {
+   "id": "S03_moose",
+   "k0": 16,
+   "beats": 8,
+   "look": "winter_mist",
+   "query": "season=winter",
+   "radius": 420,
+   "move": "a bull moose stands in a misty snow lane, breath steaming; headlights come round the bend behind it; long lens, locked off",
+   "setup": "g.game.sky.ask(7.7, 'clear', true); const M = g.game.moose; let si = M.sites.findIndex((s) => /Anchor/.test(s.name) && Math.abs(s.z + 170) < 30); if (si < 0) si = M.sites.findIndex((s) => /Anchor/.test(s.name)); const s = M.sites[si]; M.forced = { si, t0: g.game.sky.hour * 60 - 36, bull: true, calf: false, stand: 120, side: 1 }; g.teleport(s.x, s.z, 0); g.step(1); P.site = { x: s.x, y: g.info().y, z: s.z }; g.teleport(s.x, s.z - 40, 0); P.rec = () => ({ site: [P.site.x, P.site.y, P.site.z, s.dx, s.dz] }); console.log('promo: moose site ' + s.name + ' ' + Math.round(s.x) + ',' + Math.round(s.z) + ' dir ' + s.dx.toFixed(2) + ',' + s.dz.toFixed(2));",
+   "wait": 9000,
+   "warm": 1,
+   "cam": {
+    "ref": "site",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       0.4,
+       1.5,
+       46
+      ],
+      "at": [
+       0.8,
+       1.75,
+       0
+      ],
+      "fov": 9.5
+     },
+     {
+      "t": 1,
+      "pos": [
+       0.4,
+       1.5,
+       45.4
+      ],
+      "at": [
+       0.8,
+       1.75,
+       0
+      ],
+      "fov": 9.5
+     }
+    ]
+   },
+   "shake": 0.08,
+   "shutter": 0.2,
+   "focusRef": "site",
+   "fx": {
+    "headlights": true
+   },
+   "clear": 5.5
+  },
+  {
+   "id": "S04_falls",
+   "k0": 24,
+   "beats": 8,
+   "look": "morning",
+   "query": "season=autumn",
+   "radius": 650,
+   "move": "Threadbare Dam's falls and the mills: crane up from the spray to the town",
+   "setup": "g.stage(4); g.game.sky.ask(8.6, 'clear', true); g.teleport(300, -1520, 0);",
+   "wait": 9000,
+   "warm": 1,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       336,
+       3.5,
+       -1512
+      ],
+      "at": [
+       316,
+       4,
+       -1575
+      ],
+      "fov": 46
+     },
+     {
+      "t": 1,
+      "pos": [
+       347,
+       27,
+       -1466
+      ],
+      "at": [
+       314,
+       11,
+       -1600
+      ],
+      "fov": 46
+     }
+    ]
+   },
+   "shake": 0.2,
+   "waterY": 0.3,
+   "fx": {
+    "puffs": [
+     {
+      "name": "falls spray",
+      "pos": [
+       316,
+       2.5,
+       -1574
+      ],
+      "size": [
+       70,
+       9,
+       18
+      ],
+      "density": 0.06,
+      "noise": 0.25,
+      "speed": 0.8
+     }
+    ]
+   }
+  },
+  {
+   "id": "S05_tower",
+   "k0": 32,
+   "beats": 8,
+   "look": "golden",
+   "query": "season=summer",
+   "radius": 900,
+   "move": "BAND IN: drone crane up the SpeedScan tower to the stink lines, golden hour",
+   "setup": "g.game.sky.ask(17.6, 'clear', true); g.teleport(27, 110, 3.14);",
+   "wait": 9000,
+   "warm": 1,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -150,
+       14,
+       215
+      ],
+      "at": [
+       27,
+       110,
+       32
+      ],
+      "fov": 46
+     },
+     {
+      "t": 1,
+      "pos": [
+       -195,
+       150,
+       265
+      ],
+      "at": [
+       27,
+       360,
+       32
+      ],
+      "fov": 40
+     }
+    ]
+   },
+   "lookOverrides": {
+    "sun_az": 250,
+    "sun_elev": 8,
+    "look": "Punchy"
+   },
+   "shake": 0.25,
+   "shutter": 0.2
+  },
+  {
+   "id": "S06_boat",
+   "k0": 40,
+   "beats": 4,
+   "look": "afternoon",
+   "query": "season=summer",
+   "radius": 700,
+   "move": "speedboat flat out at the giant duck, low tracking",
+   "setup": "g.game.sky.ask(15.6, 'clear', true); const b = g.game.player.boats.list.find((x) => x.id === 9001); b.x = 14; b.z = 940; b.h = Math.PI; g.game.player.enter(b, true); g.game.cam.snap(); P.boat = b; P.rec = () => ({ boat: [b.x, b.y, b.z, b.h] });",
+   "keys": [
+    "KeyW"
+   ],
+   "wait": 5000,
+   "warm": 2.5,
+   "cam": {
+    "follow": "boat",
+    "offset": [
+     3.4,
+     1.5,
+     9
+    ],
+    "look": [
+     -1,
+     2.6,
+     40
+    ],
+    "fov": 53
+   },
+   "shake": 0.9,
+   "waterY": 0,
+   "fx": {
+    "puffs": [
+     {
+      "name": "wake spray",
+      "follow": "boat",
+      "offset": [
+       0,
+       0.7,
+       -4.5
+      ],
+      "size": [
+       4.5,
+       2.2,
+       9
+      ],
+      "density": 0.35,
+      "noise": 0.9,
+      "speed": 2.5
+     }
+    ]
+   },
+   "drop": [
+    "284|"
+   ]
+  },
+  {
+   "id": "S07_ramp",
+   "k0": 44,
+   "beats": 4,
+   "timeScale": 0.6,
+   "look": "afternoon",
+   "query": "season=summer",
+   "radius": 500,
+   "move": "sports car off the long ramp at the stunt park, flying past a low camera",
+   "setup": "g.game.sky.ask(15.2, 'clear', true); const id = g.spawnVehicle('sports', 580, 425, Math.PI / 2); g.drive(id); P.car = g.game.player.vehicle; g.step(30); P.y0 = P.car.y; const V = g.game.camera.position.constructor; const c = P.car; P.fix = [619, P.y0 + 0.6, 447]; P.place = (cam, s) => { g.game.view = { pos: new V(P.fix[0] + s * 0.6, P.fix[1], P.fix[2]), target: new V(c.x, c.y + 0.3, c.z) }; g.game.camera.fov = 30; g.game.camera.updateProjectionMatrix(); }; P.rec = () => ({ car: [c.x, c.y, c.z, c.h] });",
+   "keys": [
+    "KeyW"
+   ],
+   "wait": 5000,
+   "warm": 0.05,
+   "preroll": "P.car.vx = 27; P.car.vz = 0; let n = 0; while (P.car.x < 601 && n < 240) { g.step(1); n++; }",
+   "cam": {
+    "custom": "fixed low camera beside the gap, set by the setup"
+   },
+   "shake": 0.5
+  },
+  {
+   "id": "S08_cannon",
+   "k0": 48,
+   "beats": 4,
+   "timeScale": 0.5,
+   "look": "afternoon",
+   "query": "season=summer",
+   "radius": 600,
+   "move": "The Great Calamitini fires: slow-motion follow of the flight",
+   "setup": "g.game.sky.ask(14.6, 'clear', true); g.teleport(94, 420, 0); const L = g.game.launchers; L.testMount('strand'); L.testAim(0.8, 0.7); P.pl = g.game.player;",
+   "preroll": "const L = g.game.launchers; L.testFire(); let n = 0; while (L.state !== 'flight' && n < 600) { g.step(1); n++; } g.step(4); P.pl = g.game.player.person; console.log('promo: cannon ' + L.state + ' after ' + n + ' steps');",
+   "wait": 5000,
+   "warm": 2.5,
+   "cam": {
+    "follow": "pl",
+    "world": true,
+    "offset": [
+     26,
+     6,
+     -22
+    ],
+    "look": [
+     0,
+     1.2,
+     0
+    ],
+    "fov": 30
+   },
+   "shake": 0.6,
+   "pplR": 400
+  },
+  {
+   "id": "S09_derby",
+   "k0": 52,
+   "beats": 4,
+   "look": "golden",
+   "query": "season=summer",
+   "radius": 450,
+   "move": "derby bowl: cars collide, the crowd on its feet, dust",
+   "setup": "g.game.sky.ask(17.6, 'clear', true); g.teleport(-430, -70, 0); g.game.todo.derby.call(); P.bowl = { x: -421, y: 0.2, z: -70 };",
+   "wait": 6000,
+   "warm": 6,
+   "cam": {
+    "ref": "bowl",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -16,
+       13,
+       20
+      ],
+      "at": [
+       4,
+       0.5,
+       0
+      ],
+      "fov": 38
+     },
+     {
+      "t": 1,
+      "pos": [
+       4,
+       12,
+       24
+      ],
+      "at": [
+       -3,
+       0.5,
+       0
+      ],
+      "fov": 38
+     }
+    ]
+   },
+   "shake": 0.5,
+   "lookOverrides": {
+    "sun_elev": 12,
+    "haze": 0.0004
+   },
+   "pplR": 200,
+   "pplMax": 80,
+   "fx": {
+    "puffs": [
+     {
+      "name": "dust",
+      "pos": [
+       -421,
+       2.5,
+       -70
+      ],
+      "size": [
+       70,
+       7,
+       70
+      ],
+      "density": 0.006,
+      "noise": 0.12,
+      "speed": 0.5,
+      "color": [
+       0.62,
+       0.5,
+       0.36
+      ],
+      "lo": 0.3,
+      "hi": 0.7
+     }
+    ]
+   }
+  },
+  {
+   "id": "S10_chase",
+   "k0": 56,
+   "beats": 6,
+   "look": "golden",
+   "query": "season=summer",
+   "radius": 600,
+   "move": "the chase begins: heat 5 on the Thruway, three cruisers, the helicopter low; camera ahead of the car looking back",
+   "setup": "g.stage(4); g.game.sky.ask(17.6, 'clear', true); const id = g.spawnVehicle('sports', -712, -1110, -3.114); g.drive(id); P.car = g.game.player.vehicle; g.setHeat(5); P.each = () => { g.setHeat(5); g.game.player.health = 100; };",
+   "keys": [
+    "KeyW"
+   ],
+   "keysLate": true,
+   "wait": 5000,
+   "warm": 26,
+   "preroll": "const HB = 34, HY = 11; const st = g.game.systems.find((s) => s.tag === 'police'); const H = st && st.heli; const c = P.car; const rig = [[10, -3.4], [17, 3.2], [26, -2.6]]; const cops = rig.map(([d, s]) => { const id = g.spawnVehicle('cruiser', c.x, c.z - 20, c.h); return g.game.vehicles.list.find((v) => v.id === id); }).filter(Boolean); P.each = () => { g.setHeat(5); g.game.player.health = 100; const fx = Math.sin(c.h), fz = Math.cos(c.h), rx = -fz, rz = fx; cops.forEach((v, k) => { const [d, s] = rig[k]; const w = s + Math.sin((P.t || 0) * 1.7 + k * 2) * 0.6; v.x = c.x - fx * d + rx * w; v.z = c.z - fz * d + rz * w; v.y = c.y; v.h = c.h + Math.sin((P.t || 0) * 1.7 + k * 2) * 0.03; v.vx = c.vx; v.vz = c.vz; v.driver = null; }); if (H) { H.present = true; H.x = c.x - fx * HB + rx * 7; H.z = c.z - fz * HB + rz * 7; H.y = c.y + HY; H.h = c.h; } }; P.rec = () => ({ cops: cops.map((v) => v.id) }); console.log('promo: ' + cops.length + ' cruisers rigged, heli ' + !!H);",
+   "cam": {
+    "follow": "car",
+    "offset": [
+     2.6,
+     1.2,
+     -11
+    ],
+    "look": [
+     -0.5,
+     2.6,
+     -14
+    ],
+    "fov": 53
+   },
+   "shake": 1,
+   "clear": 5.5
+  },
+  {
+   "id": "S11_aerial",
+   "k0": 62,
+   "beats": 8,
+   "look": "golden",
+   "query": "season=summer",
+   "radius": 700,
+   "move": "from the helicopter: the pursuit on the Thruway, long lens aerial follow",
+   "setup": "g.stage(4); g.game.sky.ask(17.9, 'clear', true); const id = g.spawnVehicle('sports', -712, -1110, -3.114); g.drive(id); P.car = g.game.player.vehicle; g.setHeat(5); P.each = () => { g.setHeat(5); g.game.player.health = 100; };",
+   "keys": [
+    "KeyW"
+   ],
+   "keysLate": true,
+   "wait": 5000,
+   "warm": 30,
+   "preroll": "const HB = 30, HY = 14; const st = g.game.systems.find((s) => s.tag === 'police'); const H = st && st.heli; const c = P.car; const rig = [[10, -3.4], [17, 3.2], [26, -2.6]]; const cops = rig.map(([d, s]) => { const id = g.spawnVehicle('cruiser', c.x, c.z - 20, c.h); return g.game.vehicles.list.find((v) => v.id === id); }).filter(Boolean); P.each = () => { g.setHeat(5); g.game.player.health = 100; const fx = Math.sin(c.h), fz = Math.cos(c.h), rx = -fz, rz = fx; cops.forEach((v, k) => { const [d, s] = rig[k]; const w = s + Math.sin((P.t || 0) * 1.7 + k * 2) * 0.6; v.x = c.x - fx * d + rx * w; v.z = c.z - fz * d + rz * w; v.y = c.y; v.h = c.h + Math.sin((P.t || 0) * 1.7 + k * 2) * 0.03; v.vx = c.vx; v.vz = c.vz; v.driver = null; }); if (H) { H.present = true; H.x = c.x - fx * HB + rx * 7; H.z = c.z - fz * HB + rz * 7; H.y = c.y + HY; H.h = c.h; } }; P.rec = () => ({ cops: cops.map((v) => v.id) }); console.log('promo: ' + cops.length + ' cruisers rigged, heli ' + !!H);",
+   "cam": {
+    "follow": "car",
+    "offset": [
+     16,
+     46,
+     62
+    ],
+    "look": [
+     0,
+     0,
+     -6
+    ],
+    "fov": 24
+   },
+   "shake": 0.7
+  },
+  {
+   "id": "S12_mainst",
+   "k0": 70,
+   "beats": 7,
+   "look": "dusk_wet",
+   "query": "season=autumn",
+   "radius": 420,
+   "move": "low slow push down Tepid Falls' Main St after rain, dusk, lamps and windows on",
+   "setup": "g.stage(4); g.game.sky.ask(18.4, 'rain', true); g.teleport(66, -1700, 0); g.step(10); P.gnd = { x: 0, y: g.info().y, z: 0 }; console.log('promo: street y ' + P.gnd.y); g.teleport(64, -1655, 0); g.step(5);",
+   "wait": 9000,
+   "warm": 2,
+   "cam": {
+    "ref": "gnd",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       65.5,
+       0.55,
+       -1694
+      ],
+      "at": [
+       71,
+       3.2,
+       -1800
+      ],
+      "fov": 44
+     },
+     {
+      "t": 1,
+      "pos": [
+       66.5,
+       0.9,
+       -1706
+      ],
+      "at": [
+       71.5,
+       3.4,
+       -1812
+      ],
+      "fov": 43
+     }
+    ]
+   },
+   "shake": 0.3,
+   "focus": 22
+  },
+  {
+   "id": "S13_tornado",
+   "k0": 77,
+   "beats": 8,
+   "look": "storm",
+   "query": "season=summer",
+   "radius": 800,
+   "move": "THE BREATH: the tornado crosses an open lot beyond a house, debris swirling, lightning on the beats",
+   "setup": "const CFG = { x: -250, z: -1276, d: [0, 1], phi: 0.5, lookY: 105, lookY2: 110, fov: 48, camH: 1.8, cam0: [-690, 0, -1480], cam1: [-675, 0, -1482] };\ng.stage(4); g.game.sky.ask(16, 'overcast', true);\nconst T = window.__storm.tornado; T.root.name = 'tornado'; T.root.traverse((o) => { o.name = 'tornado-' + (o.name || 'part'); }); for (const k of Object.keys(T)) { const o = T[k]; if (o && o.isObject3D) o.name = 'tornado-' + k; }\nP.tw = { x: CFG.x, y: 5, z: CFG.z };\nT.start(CFG.x, CFG.z); T.forced.dx = CFG.d[0]; T.forced.dz = CFG.d[1]; T.forced.phi = CFG.phi;\nconst gh = (x, z) => { g.teleport(x, z, 0); g.step(20); return g.game.player.y; };\nconst Y0 = gh(CFG.cam0[0], CFG.cam0[2]), Y1 = gh(CFG.cam1[0], CFG.cam1[2]);\ng.teleport(CFG.x, CFG.z, 0);\nconst V3 = g.game.camera.position.constructor;\nP.each = () => { const p = T.pos; if (p && (p.x || p.z)) { P.tw.x = p.x; P.tw.z = p.z; } };\nP.rec = () => ({ tw: [P.tw.x, T.root.position.y, P.tw.z] });\nconst ease = (x) => x * x * (3 - 2 * x);\nP.place = (cam, s) => { const a = CFG.cam0, b = CFG.cam1, u = ease(s); const pos = [0, 1, 2].map((i) => a[i] + (b[i] - a[i]) * u); pos[1] = Y0 + (Y1 - Y0) * u + CFG.camH; g.game.view = { pos: new V3(pos[0], pos[1], pos[2]), target: new V3(P.tw.x, CFG.lookY + (CFG.lookY2 - CFG.lookY) * u, P.tw.z) }; g.game.camera.fov = CFG.fov; g.game.camera.updateProjectionMatrix(); };",
+   "wait": 6000,
+   "warm": 40,
+   "cam": {
+    "custom": "a fixed low dolly that keeps the funnel framed (set by the setup)"
+   },
+   "shake": 0.8,
+   "fx": {
+    "tornado": true
+   },
+   "volstep": 1
+  },
+  {
+   "id": "S14_line",
+   "k0": 85,
+   "beats": 4,
+   "look": "night",
+   "query": "season=winter&xmas=1",
+   "radius": 380,
+   "move": "four cars on the line at the lights under the Christmas lights, night; they launch on the second beat",
+   "setup": "g.stage(4); g.game.sky.ask(21.5, 'clear', true); g.teleport(70, -1780, Math.PI); const id = g.spawnVehicle('sports', 65.5, -1790, Math.PI); g.drive(id); P.grid = { x: 70.5, y: g.game.player.vehicle.y, z: -1790 }; P.cars = [69, 72.5, 76].map((x, k) => g.spawnVehicle(['muscle', 'sedan', 'sports'][k], x, -1790, Math.PI));",
+   "wait": 6000,
+   "warm": 0.1,
+   "keys": [
+    "KeyW"
+   ],
+   "keysLate": true,
+   "preroll": "let n = 0; const me = g.game.player.vehicle; P.each = (dt) => { n += dt; if (n < 0.5) { me.vx = 0; me.vz = 0; } if (n > 0.5 && !P.go) { P.go = 1; for (const id of P.cars) { const v = g.game.vehicles.list.find((c) => c.id === id); if (v) v.driver = 'ai'; } } };",
+   "cam": {
+    "ref": "grid",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -4,
+       0.75,
+       -11
+      ],
+      "at": [
+       0,
+       0.8,
+       0
+      ],
+      "fov": 33
+     },
+     {
+      "t": 1,
+      "pos": [
+       2.5,
+       0.9,
+       -12
+      ],
+      "at": [
+       0,
+       0.9,
+       -1
+      ],
+      "fov": 33
+     }
+    ]
+   },
+   "shake": 0.5
+  },
+  {
+   "id": "S15_search",
+   "k0": 89,
+   "beats": 4,
+   "look": "night_wet",
+   "query": "season=summer",
+   "radius": 450,
+   "move": "the helicopter's searchlight sweeps the pursuit through downtown, wet streets, police lights",
+   "setup": "g.game.sky.ask(22, 'rain', true); const id = g.spawnVehicle('sports', -150, 285, Math.PI / 2); g.drive(id); P.car = g.game.player.vehicle; g.setHeat(5); P.each = () => { g.setHeat(5); g.game.player.health = 100; };",
+   "keys": [
+    "KeyW"
+   ],
+   "keysLate": true,
+   "wait": 6000,
+   "warm": 2,
+   "preroll": "const HB = 26, HY = 22; const st = g.game.systems.find((s) => s.tag === 'police'); const H = st && st.heli; const c = P.car; const rig = [[10, -3.4], [17, 3.2], [26, -2.6]]; const cops = rig.map(([d, s]) => { const id = g.spawnVehicle('cruiser', c.x, c.z - 20, c.h); return g.game.vehicles.list.find((v) => v.id === id); }).filter(Boolean); P.each = () => { g.setHeat(5); g.game.player.health = 100; const fx = Math.sin(c.h), fz = Math.cos(c.h), rx = -fz, rz = fx; cops.forEach((v, k) => { const [d, s] = rig[k]; const w = s + Math.sin((P.t || 0) * 1.7 + k * 2) * 0.6; v.x = c.x - fx * d + rx * w; v.z = c.z - fz * d + rz * w; v.y = c.y; v.h = c.h + Math.sin((P.t || 0) * 1.7 + k * 2) * 0.03; v.vx = c.vx; v.vz = c.vz; v.driver = null; }); if (H) { H.present = true; H.x = c.x - fx * HB + rx * 7; H.z = c.z - fz * HB + rz * 7; H.y = c.y + HY; H.h = c.h; } }; P.rec = () => ({ cops: cops.map((v) => v.id) }); console.log('promo: ' + cops.length + ' cruisers rigged, heli ' + !!H);",
+   "cam": {
+    "follow": "car",
+    "offset": [
+     3.4,
+     1.5,
+     -11.5
+    ],
+    "look": [
+     0,
+     4.2,
+     -16
+    ],
+    "fov": 38
+   },
+   "shake": 1,
+   "fx": {
+    "searchlight": true
+   },
+   "clear": 5.5
+  },
+  {
+   "id": "S16_shells",
+   "k0": 93,
+   "beats": 4,
+   "look": "night",
+   "query": "season=summer",
+   "radius": 500,
+   "move": "first fireworks shells climb from the pier; the crowd watching, lit by the bursts",
+   "setup": "g.game.fireworks.mode = 'off'; g.game.sky.ask(21.3, 'clear', true); g.teleport(0, 560, 0); g.step(5); P.gnd = { x: 0, y: g.info().y, z: 0 }; for (let k = 0; k < 16; k++) { const hs = (a) => { const x = Math.sin(k * 127.1 + a * 311.7) * 43758.5453; return x - Math.floor(x); }; g.game.people.spawn(-27 + k * 0.85 + hs(1) * 0.5, 553.5 + hs(2) * 3.2 + (k % 3) * 0.9, (hs(3) - 0.5) * 0.5); }",
+   "wait": 5000,
+   "warm": 2,
+   "cam": {
+    "ref": "gnd",
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -21,
+       1.75,
+       548.5
+      ],
+      "at": [
+       -10,
+       26,
+       700
+      ],
+      "fov": 40
+     },
+     {
+      "t": 1,
+      "pos": [
+       -20.4,
+       1.8,
+       549.6
+      ],
+      "at": [
+       -10,
+       30,
+       700
+      ],
+      "fov": 40
+     }
+    ]
+   },
+   "shake": 0.6,
+   "pplR": 60,
+   "fx": {
+    "fireworks": "first"
+   }
+  },
+  {
+   "id": "S17_drop",
+   "k0": 97,
+   "beats": 4,
+   "timeScale": 0.25,
+   "look": "night",
+   "query": "season=summer",
+   "radius": 500,
+   "move": "THE DROP, quarter speed: a car off the stunt ramp over the camera, fireworks behind",
+   "setup": "g.game.fireworks.mode = 'off'; g.game.sky.ask(21.4, 'clear', true); const id = g.spawnVehicle('sports', 580, 425, Math.PI / 2); g.drive(id); P.car = g.game.player.vehicle; g.step(30); P.y0 = P.car.y; const V = g.game.camera.position.constructor; const c = P.car; P.fix = [621, P.y0 + 0.45, 428.5]; P.place = (cam, s) => { g.game.view = { pos: new V(P.fix[0] + s * 0.6, P.fix[1], P.fix[2]), target: new V(c.x, c.y + 0.2, c.z) }; g.game.camera.fov = 52; g.game.camera.updateProjectionMatrix(); }; P.rec = () => ({ car: [c.x, c.y, c.z, c.h] });",
+   "keys": [
+    "KeyW"
+   ],
+   "wait": 5000,
+   "warm": 0.05,
+   "preroll": "P.car.vx = 34; P.car.vz = 0; let n = 0; while (P.car.x < 606 && n < 240) { g.step(1); n++; } console.log(\"promo: drop preroll \" + n + \" x \" + P.car.x.toFixed(1) + \" y \" + P.car.y.toFixed(2));",
+   "cam": {
+    "custom": "fixed camera in the gap under the flight path, set by the setup"
+   },
+   "shake": 0.4,
+   "fx": {
+    "fireworks": "drop"
+   },
+   "nearWarm": true
+  },
+  {
+   "id": "S18_finale",
+   "k0": 101,
+   "beats": 4,
+   "look": "night",
+   "query": "season=summer",
+   "radius": 600,
+   "move": "fireworks finale over the harbour from the pier head: volleys on the beats, smoke lit from inside",
+   "setup": "g.game.fireworks.mode = 'off'; g.game.sky.ask(21.5, 'clear', true); g.teleport(0, 560, 0);",
+   "wait": 5000,
+   "warm": 2,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       -70,
+       10,
+       540
+      ],
+      "at": [
+       0,
+       78,
+       800
+      ],
+      "fov": 44
+     },
+     {
+      "t": 1,
+      "pos": [
+       -64,
+       9.5,
+       556
+      ],
+      "at": [
+       0,
+       86,
+       800
+      ],
+      "fov": 42
+     }
+    ]
+   },
+   "shake": 0.5,
+   "fx": {
+    "fireworks": "finale"
+   }
+  },
+  {
+   "id": "S19_end",
+   "k0": 105,
+   "beats": 3,
+   "last": true,
+   "look": "night",
+   "query": "season=summer",
+   "radius": 1050,
+   "move": "HIT: the clean hero plate. Slow drift over the night harbour to the lit tower, stink lines glowing; the live logo card overlays it",
+   "setup": "g.game.fireworks.mode = 'off'; g.game.sky.ask(21.6, 'clear', true); g.teleport(27, 200, 3.14); P.each = null;",
+   "wait": 9000,
+   "warm": 1,
+   "cam": {
+    "keys": [
+     {
+      "t": 0,
+      "pos": [
+       120,
+       70,
+       700
+      ],
+      "at": [
+       27,
+       160,
+       32
+      ],
+      "fov": 45
+     },
+     {
+      "t": 1,
+      "pos": [
+       60,
+       90,
+       600
+      ],
+      "at": [
+       27,
+       200,
+       32
+      ],
+      "fov": 42
+     }
+    ]
+   },
+   "shake": 0.15,
+   "shutter": 0.2
+  }
+ ]
+}
