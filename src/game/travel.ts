@@ -111,7 +111,7 @@ export class Cab {
   }
 
   /** The street nearest the destination, on the island (the old grid) or the mainland (plan.streets); closed ones do not count. */
-  private open(d: Dest): boolean {
+  open(d: Dest): boolean {
     const plan = this.game.plan;
     if (d.z < MAIN_SPLIT_Z) {
       const G = plan.streets;

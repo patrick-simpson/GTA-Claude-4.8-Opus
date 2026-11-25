@@ -1,16 +1,18 @@
 // A train on the tracks (fun queue item 18, with the owner's "It should drive").
 //
 // The Tepid Falls & Budget Gap ("the Budget Line") runs one train on the mainland's railway (mainland.ts RAIL): a
-// freight (road switcher, boxcars, tank cars, flats of pulpwood and lumber, a caboose) most of the day, and once a day a
-// short passenger run that stops at the depot. The new streets also get a short spur on the far bank, curving north
+// freight (road switcher, boxcars, tank cars, flats of pulpwood and lumber, a caboose) on one run of the day, and on the
+// other three a passenger run (loco and two coaches) that stands at the Budget Gap, the Depot and the North Halt
+// (world/railway.ts STATIONS; sim/rail.ts is the riders' side: platforms, boarding, seats, fast travel). The new streets also get a short spur on the far bank, curving north
 // off the main line east of the trestle to a pulpwood landing (the only real curve on the line, and the place to
 // derail). ?streets=old runs the same train on the old line, with no spur and no gates (ground.ts draws its crossbucks).
 //
 // Schedule: where the train is is a pure function of the town clock (sky.hour, which a shared town takes from its
 // host) and the date, so every screen shows it in the same place with no messages. The day is cut into four runs of
 // six game hours (six real minutes at the default rate): dwell at the west end, run east (the passenger train stops at
-// the depot), dwell at the east end, run back. A seeded pick says which run is the passenger train. The consist is only
-// swapped while the train stands at the west end and nobody is near it.
+// the depot), dwell at the east end, run back. A seeded pick says which run is the FREIGHT (the other three carry passengers: about a train every three minutes at the depot, alternating north and south). The consist is only
+// swapped while the train stands at the west end, and not in front of anybody (140 m, new streets) except at the start of a
+// run, when the passenger train is put in at the south platform even in front of the people waiting for it.
 //
 // Rail motion: the track is a sampled path (1 m steps, height and heading at each); every car stands on two trucks at
 // its truck centres, the body on the chord between them, the trucks turned to the rail under them. Couplers carry a
@@ -48,7 +50,8 @@ import { kid } from '../core/kid';
 import { groundAt } from './plan';
 import { MAIN_Y, RAIL, RAIL_TRESTLE } from './mainland';
 import { STREETS_NEW } from './streets';
-import { RAILWAY, RAIL_DECK_Y, onRailDeck, railNear } from './railway';
+import { RAILWAY, RAIL_DECK_Y, RAIL_TAIL_S, HALT_STOP_HEAD, onRailDeck, railNear } from './railway';
+import { buildCoach, type CoachParts } from './coach';
 import { SPECS, type VehicleSpec } from '../ent/vehicleSpecs';
 import { bellStroke, clack, dieselGrain, grind, hornNote, hornPattern } from '../audio/train';
 
@@ -71,7 +74,7 @@ const DEPOT_S = RW ? RW.depot.s : 107 - X0;
 const WEST_TAIL_X = STREETS_NEW ? -575 : X0 + 8;
 const EAST_HEAD_X = STREETS_NEW ? 610 : X1 - 8;
 /** Metres from the south buffer where the head stands at each end: the tail 6 m clear of the buffer, the head short of the north one. */
-const S_TAIL = RW ? 6 : WEST_TAIL_X - X0;
+const S_TAIL = RW ? RAIL_TAIL_S : WEST_TAIL_X - X0;
 const S_HEAD = RW ? RW.main.length / 2 - 9 : EAST_HEAD_X - X0;
 const START_X = RW ? RW.main[0] : WEST_TAIL_X, START_Z = RW ? RW.main[1] : RZ;
 
@@ -209,7 +212,7 @@ export function trainRemote(id: number, x: number, y: number, z: number, yaw: nu
 // ── Schedule ─────────────────────────────────────────────────────────────────
 
 /** Game minutes per run (6 game hours); four runs a day. */
-const RUN = 360;
+export const RUN = 360;
 interface Leg { t0: number; t1: number; s0: number; s1: number; vmax: number; a: number; b: number }
 
 function legPos(L: Leg, t: number): { s: number; v: number } {
@@ -235,29 +238,33 @@ function legTime(D: number, vmax: number, a: number, b: number): number {
 function plan(trainLen: number, passenger: boolean): Leg[] {
   const sW = S_TAIL + trainLen, sE = S_HEAD;
   const ks = RW ? 1.8 : 1, a = (passenger ? 0.5 : 0.35) * ks, b = (passenger ? 0.6 : 0.45) * ks;
+  // The passenger train calls at the depot and turns round at the North Halt (new streets); the old line's turns at its end.
   const stops = passenger ? [DEPOT_S + (trainLen + CARS.loco.hc * 2) / 2] : [];
   const out: [number, number][] = [];
   const legs: { s0: number; s1: number }[] = [];
-  const east = [sW, ...stops, sE], west = [sE, ...stops.slice().reverse(), sW];
+  const sFar = passenger && RW ? HALT_STOP_HEAD : sE;
+  const east = [sW, ...stops, sFar], west = [sFar, ...stops.slice().reverse(), sW];
   for (const seq of [east, west]) for (let i = 0; i + 1 < seq.length; i++) legs.push({ s0: seq[i], s1: seq[i + 1] });
-  const DWELL_DEPOT = 30;
+  // Passengers need time to walk along a platform and sit: longer stands than the freight's one at the depot.
+  const DWELL_DEPOT = passenger && RW ? 42 : 30;
   const depotDwell = stops.length * 2 * DWELL_DEPOT;
   // The longer line asks for more speed: the cruise rises until both ways, the dwells and a margin fit in RUN.
   let vmax = passenger ? 15 : 12, moving = 0;
   for (;;) {
     moving = 0;
     for (const l of legs) moving += legTime(Math.abs(l.s1 - l.s0), vmax, a, b);
-    if (moving + depotDwell + 40 <= RUN || vmax >= 26) break;
+    if (moving + depotDwell + (passenger && RW ? 56 : 40) <= RUN || vmax >= 26) break;
     vmax += 1;
   }
   const endDwell = Math.max(10, (RUN - moving - depotDwell) / 2);
   const res: Leg[] = [];
-  let t = endDwell / 2;
+  // The passenger train waits at the south end for most of its stand AFTER the run starts (the swap of consists, and the walk along the platform, come first).
+  let t = endDwell * (passenger && RW ? 0.9 : 0.5);
   res.push({ t0: 0, t1: t, s0: sW, s1: sW, vmax, a, b });
   legs.forEach((l, i) => {
     const T = legTime(Math.abs(l.s1 - l.s0), vmax, a, b);
     res.push({ t0: t, t1: t + T, s0: l.s0, s1: l.s1, vmax, a, b }); t += T;
-    const atEnd = Math.abs(l.s1 - sE) < 1;
+    const atEnd = Math.abs(l.s1 - sFar) < 1;
     const dw = atEnd ? endDwell : Math.abs(l.s1 - sW) < 1 ? 0 : DWELL_DEPOT;
     if (dw > 0) { res.push({ t0: t, t1: t + dw, s0: l.s1, s1: l.s1, vmax, a, b }); t += dw; }
     void i;
@@ -271,6 +278,67 @@ function hash(a: number, b: number): number {
   let h = (a * 374761393 + b * 668265263) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// ── The Budget Line's timetable (item 8) ─────────────────────────────────────────────────────────────────────────
+
+/** Which of the day's four runs is the freight: all the others carry passengers (a seeded pick, the same on every screen). */
+export function freightRun(day: number): number { return Math.floor(hash(day, 77) * 4); }
+export function isPassengerRun(day: number, run: number): boolean { return !RW || ((run % 4) + 4) % 4 !== freightRun(day); }
+/** The calendar day the pick is made on (the real date, as it always was) and the run the town clock is in. */
+export function railDay(): number { const d = new Date(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
+
+let passengerLegs: Leg[] | null = null;
+function legsOfPassenger(): Leg[] { return passengerLegs ?? (passengerLegs = plan(CARS.loco.hc * 2 + CARS.coach.hc * 4, true)); }
+
+/** A stretch in which the passenger train stands at a station: game minutes from the start of the DAY (not the run). */
+export interface Standing { st: number; dir: 1 | -1; t0: number; t1: number; term: boolean }
+
+/** The station (index into STATIONS) whose stop is the train head's metre s, or -1. */
+function stationAt(s: number): number {
+  const hd = [RAIL_TAIL_S + CARS.loco.hc * 2 + CARS.coach.hc * 4, DEPOT_S + (CARS.loco.hc * 2 + CARS.coach.hc * 4 + CARS.loco.hc * 2) / 2, HALT_STOP_HEAD];
+  for (let i = 0; i < hd.length; i++) if (Math.abs(hd[i] - s) < 1) return i;
+  return -1;
+}
+
+/** Every stretch in which a passenger train stands at a station, for runs r0 .. r0 + n - 1 counted from the start of the day (runs wrap with the day). */
+export function standings(day: number, r0: number, n: number): Standing[] {
+  if (!RW) return [];
+  const legs = legsOfPassenger(), out: Standing[] = [];
+  for (let r = r0; r < r0 + n; r++) {
+    if (!isPassengerRun(day, r)) continue;
+    const A = r * RUN;
+    legs.forEach((l, i) => {
+      if (l.s0 !== l.s1) return;
+      const st = stationAt(l.s0);
+      if (st < 0 || l.t1 - l.t0 < 0.5) return;
+      const nx = legs[i + 1];
+      const dir: 1 | -1 = nx && nx.s1 !== nx.s0 ? (nx.s1 > nx.s0 ? 1 : -1) : st === 2 ? -1 : 1;
+      let t0 = A + l.t0, t1 = A + l.t1, term = false;
+      if (!nx && st === 0) {
+        // The last stand at the south end: it goes on into the next run's first stand, if that run carries passengers.
+        if (isPassengerRun(day, r + 1)) { const f = legs[0]; t1 = (r + 1) * RUN + f.t1; } else term = true;
+      }
+      if (i === 0 && r > r0 && isPassengerRun(day, r - 1)) return;   // (joined to the last stand of the run before)
+      if (i === 0 && r === r0 && isPassengerRun(day, r - 1)) t0 = A - (RUN - legs[legs.length - 1].t0);
+      out.push({ st, dir, t0, t1, term });
+    });
+  }
+  return out;
+}
+
+/** The leg the passenger train is on at u game minutes into a passenger run: where it is going, or where it stands. */
+export function passengerLegAt(u: number): { st: number; moving: boolean; t1: number; term: boolean } | null {
+  if (!RW) return null;
+  const legs = legsOfPassenger();
+  for (let i = 0; i < legs.length; i++) {
+    const l = legs[i];
+    if (u >= l.t0 && u < l.t1) {
+      if (l.s0 === l.s1) return { st: stationAt(l.s0), moving: false, t1: l.t1, term: false };
+      return { st: stationAt(l.s1), moving: true, t1: l.t1, term: false };
+    }
+  }
+  return null;
 }
 
 // ── The train ────────────────────────────────────────────────────────────────
@@ -288,6 +356,9 @@ export class Train implements WorldPart {
   private readonly root = new THREE.Group();
   private cars: Car[] = [];
   private consist: 'freight' | 'passenger' | '' = '';
+  /** sim/rail.ts: somebody sits in a coach: the consist is not swapped under them. */
+  aboard = false;
+  private coachProto: CoachParts | null = null;
   mode: Mode = 'sched';
   /** Head of the train (front coupler of the locomotive) along the path, and speed along it (+ = toward the far end). */
   s = 0; v = 0;
@@ -569,7 +640,17 @@ export class Train implements WorldPart {
       into.add(L);
     };
     const dists = this.low ? [-1, 0, 110] : [0, 75, 230];
-    lod(c.kind, dists, c.body);
+    if (c.kind === 'coach') {
+      // Close up, the coach built in code (world/coach.ts): real windows and a lit interior with seats. The glb's levels farther off.
+      const env = (this.game.world.mats.flat as THREE.MeshStandardMaterial).envMap ?? null;
+      if (!this.coachProto) this.coachProto = buildCoach(env, this.lampMats, !this.low);
+      const L = new THREE.LOD();
+      L.addLevel(this.coachProto.group.clone(), 0);
+      const l1 = N.get('coach_LOD1'), l2 = N.get('coach_LOD2');
+      if (l1) L.addLevel(l1.clone(), this.low ? 70 : 85);
+      if (l2) L.addLevel(l2.clone(), this.low ? 130 : 230);
+      c.body.add(L);
+    } else lod(c.kind, dists, c.body);
     if (c.load) {
       const g = new THREE.Group(); g.position.y = 1.29; c.body.add(g);
       lod(c.load, this.low ? [-1, 0] : [0, 70], g);
@@ -623,15 +704,14 @@ export class Train implements WorldPart {
 
   private clock(): { run: number; u: number; day: number } {
     const m = ((this.game.sky?.hour ?? 8) * 60) % 1440;
-    const d = new Date(), day = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+    const day = railDay();
     const run = Math.floor(m / RUN);
     return { run, u: m - run * RUN, day };
   }
 
   private wantConsist(): { kind: 'freight' | 'passenger' } {
     const c = this.clock();
-    const pick = Math.floor(hash(c.day, 77) * 4);
-    return { kind: c.run === pick ? 'passenger' : 'freight' };
+    return { kind: isPassengerRun(c.day, c.run) ? 'passenger' : 'freight' };
   }
 
   private plans = new Map<string, Leg[]>();
@@ -640,10 +720,13 @@ export class Train implements WorldPart {
     const c = this.clock(), want = this.wantConsist().kind;
     // Swap consists only while it stands at the west end with nobody near enough to see it happen.
     if (want !== this.consist) {
-      const pl = this.game.player, far = !pl || (this.mode === 'sched' && this.nearest(pl.x, pl.z) > 320 && Math.hypot(pl.x - START_X, pl.z - START_Z) > 260);
-      const atWest = c.u < 30 || c.u > RUN - 30;
+      const pl = this.game.player, far = !pl || (this.mode === 'sched' && this.nearest(pl.x, pl.z) > (RW ? 140 : 320) && Math.hypot(pl.x - START_X, pl.z - START_Z) > (RW ? 140 : 260));
+      const atWest = c.u < 12 || c.u > RUN - 12;
       // (A screen whose clock only just synced may have the wrong consist mid-run: swapped as soon as nobody is near it.)
-      if (((atWest || far) && far) || this.cars.length === 0) this.setConsist(want);
+      // Passengers wait at the south end for their train: it is put in there at the start of its run even in front of them,
+      // and not while somebody sits in the old one (or has the cab).
+      const held = this.mode !== 'sched' || this.game.player.riding === this.perch || this.aboard;
+      if ((far && !held) || this.cars.length === 0 || (RW && atWest && !held && (this.mode === 'sched'))) this.setConsist(want);
     }
     const key = this.consist, L = this.trainLen();
     let legs = this.plans.get(key);
@@ -930,6 +1013,7 @@ export class Train implements WorldPart {
       });
     }
     for (const m of this.lampMats) m.color.setScalar(1.2 + this.night * 2.2);
+    if (this.coachProto) this.coachProto.glow.opacity = clamp((this.night - 0.15) * 0.9, 0, 0.7);
     if (this.switchTarget) this.switchTarget.rotation.y = this.switchSpur ? Math.PI / 2 : 0, (this.switchTarget.material as THREE.MeshStandardMaterial).color.setHex(this.switchSpur ? 0xe0a020 : 0x2e8b3a);
     // Far away: nothing of it is drawn.
     const cam = this.game.camera.position;
@@ -1030,7 +1114,7 @@ export class Train implements WorldPart {
     }
     // The player on foot.
     const pl = g.player;
-    if (!pl.vehicle && pl.riding !== this.perch && !kid.on && near(pl.person.x, pl.person.z, 2)) {
+    if (!pl.vehicle && pl.riding !== this.perch && !this.aboard && !kid.on && near(pl.person.x, pl.person.z, 2)) {
       const per = pl.person;
       for (const c of this.cars) {
         const b = c.b;
@@ -1090,6 +1174,38 @@ export class Train implements WorldPart {
     return hit ? this.cab : null;
   }
   isCab(v: Vehicle | null | undefined): boolean { return v === this.cab; }
+
+  // ── For sim/rail.ts (the stations, boarding and the riders) ──
+
+  /** The consist now: 'passenger' while the coaches are in, else 'freight' (or '' before the first). */
+  get kind(): 'freight' | 'passenger' | '' { return this.consist; }
+  /** Is the timetable in charge of the train (nobody driving it, nothing derailed or parked)? */
+  get onTimetable(): boolean { return this.mode === 'sched'; }
+  /** Coach 1 or 2 of the passenger consist as a body (position, heading, speed), or null while the train is another consist. */
+  coach(i: number): { x: number; y: number; z: number; h: number; pitch: number; roll: number; vx: number; vz: number; speed: number } | null {
+    if (this.consist !== 'passenger') return null;
+    const c = this.cars[i];
+    return c && c.kind === 'coach' ? c.b : null;
+  }
+  /** Where the timetable has the passenger train: the station it is heading for (or standing at), and the game minutes until it gets there (or leaves). */
+  leg(): { st: number; moving: boolean; left: number; rate: number; term: boolean } | null {
+    if (this.consist !== 'passenger' || this.mode !== 'sched') return null;
+    const c = this.clock(), r = passengerLegAt(c.u);
+    if (!r || r.st < 0) return null;
+    // The last stand at the south end ends the service when the next run carries freight.
+    const term = !r.moving && r.st === 0 && c.u > RUN / 2 && !isPassengerRun(c.day, c.run + 1);
+    return { st: r.st, moving: r.moving, left: r.t1 - c.u, rate: (this.game.sky?.rate ?? 1 / 60) * 60, term };
+  }
+  /** Where the train is, for the big map (sim/rail.ts): the first coach of a passenger consist, else the locomotive. */
+  marker(): { x: number; z: number; passenger: boolean } | null {
+    const c = this.consist === 'passenger' ? this.cars[1] : this.cars[0];
+    return c ? { x: c.b.x, z: c.b.z, passenger: this.consist === 'passenger' } : null;
+  }
+  /** The town clock as the timetable reads it: the run, game minutes into it, and the calendar day the freight pick is made on. */
+  timetableClock(): { run: number; u: number; day: number; hour: number; rate: number } {
+    const c = this.clock();
+    return { ...c, hour: this.game.sky?.hour ?? 8, rate: (this.game.sky?.rate ?? 1 / 60) * 60 };
+  }
 
   private rides(dt: number): void {
     const g = this.game, pl = g.player, per = pl.person;

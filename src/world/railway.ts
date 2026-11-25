@@ -172,3 +172,49 @@ export function onRailDeck(x: number, z: number): boolean {
   return false;
 }
 export const RAIL_DECK_Y = MAIN_Y + 0.15;
+
+// ── The Budget Line's stations (fun queue 2, item 8) ──────────────────────────────────────────────────────────────
+
+/** The passenger consist's length over the couplers (locomotive 20.4 + two coaches 21.8): world/train.ts CARS says the same. */
+export const PASSENGER_LEN = 20.4 + 2 * 21.8;
+/** The main line's metre where the tail of a train standing at the south end rests (its buffer). */
+export const RAIL_TAIL_S = 6;
+/** The halt's stop: the passenger locomotive's front coupler stands at this metre when the train is in. */
+const HALT_HEAD = 1192;
+
+export interface RailStation {
+  name: string;
+  /** What the sign says, big and small. */
+  sign: string; sub: string;
+  /** The main line's metre of the middle of the platform (the middle of the two coaches), and of the locomotive's front coupler when the passenger train is in. */
+  s: number; head: number;
+  /** Which side of the line the platform is on: +1 left of the direction of increasing s, -1 right. */
+  side: 1 | -1;
+  /** The line's place and heading (direction of increasing s) at the platform's middle. */
+  x: number; z: number; h: number;
+  /** Does ent/occupants-style drawing of a platform apply: false at the depot, which has its own platform (world/mainlandPlaces.ts). */
+  own: boolean;
+}
+
+function buildStations(): RailStation[] {
+  if (!RAILWAY) return [];
+  const m = RAILWAY.main, n = m.length / 2;
+  const mid = (PASSENGER_LEN + 20.4) / 2;
+  const at = (s: number): { x: number; z: number; h: number } => {
+    const i = Math.max(1, Math.min(n - 2, Math.round(s)));
+    return { x: m[2 * i], z: m[2 * i + 1], h: Math.atan2(m[2 * (i + 1)] - m[2 * (i - 1)], m[2 * (i + 1) + 1] - m[2 * (i - 1) + 1]) };
+  };
+  const mk = (name: string, sign: string, sub: string, head: number, side: 1 | -1, own: boolean): RailStation => {
+    const s = head - mid;
+    return { name, sign, sub, s, head, side, own, ...at(s) };
+  };
+  return [
+    mk('Budget Gap Station', 'BUDGET GAP', 'Southern terminus. The gap is not included.', RAIL_TAIL_S + PASSENGER_LEN, 1, true),
+    mk('Tepid Falls Depot', 'TEPID FALLS', 'The Depot. Trains, in principle.', RAILWAY.depot.s + mid, 1, false),
+    mk('North Halt', 'NORTH HALT', 'Request stop. Request granted, eventually.', HALT_HEAD, 1, true),
+  ];
+}
+/** The three stations, south to north: Budget Gap, the Depot, the North Halt. Empty under ?streets=old. */
+export const STATIONS: RailStation[] = buildStations();
+/** The passenger train's far end: it turns round at the halt, north of the depot on the flat west bank. */
+export const HALT_STOP_HEAD = HALT_HEAD;

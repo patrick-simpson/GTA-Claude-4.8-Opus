@@ -430,9 +430,9 @@ export class Net {
     // (In the pause menu: the others draw a sign over this player and leave them be. Stage 4, step 5.)
     // (Photo mode, fx/photo.ts, stops the simulation like a pause, and says so.)
     o.flags = this.game.state === 'paused' || this.game.photo?.open || this.game.spectate?.on ? PlayerFlag.Paused : 0;
-    const ride = this.ride.riding, rv = p.riding, bus = this.game.bus.rider;
+    const ride = this.ride.riding, rv = p.riding, bus = this.game.bus.rider ?? this.game.rail.rider;
     if (bus && rv && !v) {
-      // A passenger of the Harbor Line (sim/bus.ts): no driver (vehicle 0), the bus's number and the seat in `color`. Every
+      // A passenger of the Harbor Line (sim/bus.ts) or the Budget Line (sim/rail.ts, ids from 129): no driver (vehicle 0), the bus's number and the seat in `color`. Every
       // screen puts them in that seat of that bus from the shared clock, so a seated rider costs keepalives only.
       o.mode = PlayerMode.Passenger;
       o.x = per.x; o.y = per.y; o.z = per.z; o.yaw = rv.h;

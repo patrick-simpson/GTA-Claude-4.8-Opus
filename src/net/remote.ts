@@ -130,7 +130,7 @@ export class Remote {
   /** Riding together (ride.ts): whose car they sit in as a passenger (a player id, 0 none), and which seat. */
   rideOf = 0;
   rideSeat = 0;
-  /** Passenger of one of the town's buses (sim/bus.ts): its id (line * 4 + bus + 1), else 0. Such a rider's `rideOf` is 0. */
+  /** Passenger of one of the town's buses (sim/bus.ts): its id (line * 4 + bus + 1, 1..12), or of a Budget Line coach (sim/rail.ts: 128 + the coach's car number, 129 or 130), else 0. Such a rider's `rideOf` is 0. */
   rideBus = 0;
   /** How bent the car they are driving is, in the 16 steps of the wire (0 on foot). */
   damage = 0;

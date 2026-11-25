@@ -24,7 +24,7 @@ FINISH WHAT'S HALF-DONE
 [x] 6. Real doors for the 9 businesses still without a building.
 GETTING AROUND
 [x] 7. Bus routes you can ride as a passenger, stops along the real streets.
-[ ] 8. Ride the Budget Line passenger train between stations as fast travel.
+[x] 8. Ride the Budget Line passenger train between stations as fast travel.
 [ ] 9. Bikes and scooters for the campus and the river walk.
 [ ] 10. Taxi missions: drive the Calamity Courtesy Cab for fares.
 [ ] 11. Boat taxi: island harbour <-> Tepid Falls river landing.

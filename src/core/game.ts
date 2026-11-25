@@ -23,6 +23,7 @@ import { TouchUI } from '../ui/touch';
 import { Cheats } from './cheats';
 import { Ambient } from '../sim/ambient';
 import { BusService } from '../sim/bus';
+import { RailService } from '../sim/rail';
 import { Police } from '../sim/police';
 import { Post } from './post';
 import { flip } from './flip';
@@ -99,6 +100,8 @@ export class Game {
   christmas!: Christmas;
   /** The Harbor Line's buses (sim/bus.ts). */
   bus!: BusService;
+  /** The Budget Line's stations and riders (sim/rail.ts). */
+  rail!: RailService;
   /**
    * What the traffic signals run on. Alone it is `time` exactly. In a shared town (src/net/shared.ts) it is the
    * town's clock, the same in every browser there; on leaving, `signalShift` keeps the lamps where they were.
@@ -212,6 +215,8 @@ export class Game {
     this.systems.push((this.net = new Net(this)));
     // The Harbor Line (fun queue 2, item 7): after the net, so the riders it just heard of are seated against this frame's buses.
     this.systems.push((this.bus = new BusService(this)));
+    // The Budget Line (fun queue 2, item 8): after the bus, whose rule for F it chains to.
+    this.systems.push((this.rail = new RailService(this)));
     // Emotes and horn tunes (fun queue item 9): after the net, so what others did this frame is heard at once.
     this.systems.push((this.emotes = new Emotes(this)));
     this.systems.push((this.chat = new Chat(this))); // fun queue item 21: safe chat
