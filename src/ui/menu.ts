@@ -35,6 +35,7 @@ import { VOICE_CREDIT } from '../audio/voices';
 import { MAP_CREDIT, MUSIC_CREDIT } from '../core/credits';
 import { PEER_COLOR } from '../net/names';
 import { PARDONS_AT, PARDONS_RED } from './hud';
+import { HIDEABLE, touchPrefs, type TouchSize } from './touch';
 import { Wardrobe } from './wardrobe';
 import { PlacesPanel } from './places';
 import { RaceBuilderPanel } from './raceBuilder';
@@ -819,7 +820,42 @@ export class Menu {
     ${vol('Weather and town', 'volAmbience')}
     <p class="mn-note">The Harbor Authority has approved noise, within reason. T changes the station at the wheel.</p>
   </div>
+  ${this.touchHtml()}
 </div>`;
+  }
+
+  /** What the tilt switch last found (a phone may refuse, or have no sensor). */
+  private tiltMsg = '';
+
+  /** Form C-4, phones and tablets only: size, opacity, hand, which buttons, tilt, auto-gas, and the layout editor. Kept on this device (localStorage pc.touch). */
+  private touchHtml(): string {
+    if (!(this.game.input.touch || matchMedia('(pointer: coarse)').matches)) return '';
+    const p = touchPrefs.v, ui = this.game.touchUI;
+    const tog = (key: string, on: boolean): string => `<button type="button" class="mn-tog ${on ? 'on' : ''}" data-set="${key}" aria-pressed="${on}"><i></i>${on ? 'On' : 'Off'}</button>`;
+    const sizes = (['small', 'normal', 'large'] as TouchSize[]).map((v) => `<button type="button" class="mn-seg ${p.size === v ? 'on' : ''}" data-set="tsize" data-v="${v}">${v}</button>`).join('');
+    const chips = HIDEABLE.map(([id, name]) => `<button type="button" class="mn-seg ${touchPrefs.shown(id) ? 'on' : ''}" data-set="thide" data-v="${id}" aria-pressed="${touchPrefs.shown(id)}">${name}</button>`).join('');
+    const sl = (label: string, key: string, min: number, max: number, step: number, val: number, shown: string): string =>
+      `<div class="mn-row"><span class="mn-lbl">${label}</span><span><input type="range" min="${min}" max="${max}" step="${step}" value="${val}" data-set="${key}"><b class="mn-val">${shown}</b></span></div>`;
+    const st = ui.tilt;
+    const say = this.tiltMsg || (p.tilt && st === 'wait' ? 'Waiting for the phone\'s motion sensor.' : '');
+    return `
+  <div class="mn-sec mn-wide" id="mn-touch">
+    <h3>Form C-4 &middot; Touch controls</h3>
+    <div class="mn-row"><span class="mn-lbl">Button size</span><span class="mn-segs">${sizes}</span></div>
+    ${sl('Button opacity', 'topacity', 40, 100, 5, Math.round(p.opacity * 100), Math.round(p.opacity * 100) + '%')}
+    <div class="mn-row"><span class="mn-lbl">Left-handed layout</span><span>${tog('tleft', p.left)}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Buttons shown</span><span class="mn-segs" style="flex-wrap:wrap">${chips}</span></div>
+    <p class="mn-note">Lit buttons are on the screen. The stick, Gas, Brake, Jump, Fire, Exit, Get in, Use and Pause always stay.</p>
+    <div class="mn-row"><span class="mn-lbl">Steer by tilting</span><span>${tog('ttilt', p.tilt)}</span></div>
+    ${p.tilt ? `${sl('Tilt sensitivity', 'tsens', 0.5, 2, 0.1, p.sens, p.sens.toFixed(1) + '\u00d7')}
+    ${sl('Tilt dead zone', 'tdead', 0, 12, 1, p.dead, p.dead + '\u00b0')}
+    <div class="mn-row"><span class="mn-lbl">Straight ahead</span><span><button type="button" class="mn-link" data-set="tcal">calibrate: use the way I hold it now</button></span></div>` : ''}
+    <p class="mn-note">${esc(say) || 'Hold the phone upright like a steering wheel and turn it. Cars only; the stick comes back if the phone has no motion sensor.'}</p>
+    <div class="mn-row"><span class="mn-lbl">Auto-accelerate</span><span>${tog('tauto', p.auto)}</span></div>
+    <p class="mn-note">Cars drive forward by themselves; Brake stops and reverses. Not in boats, on bikes or scooters, or on foot.</p>
+    <div class="mn-row"><span class="mn-lbl">Layout</span><span><button type="button" class="mn-link" data-set="tedit">edit layout (drag the keys)</button> &middot; <button type="button" class="mn-link" data-set="tlayout">reset layout</button> &middot; <button type="button" class="mn-link" data-set="treset">reset all touch settings</button></span></div>
+    <p class="mn-note">Kept on this device only, not in the game save.</p>
+  </div>`;
   }
 
   /** The first-hour tour (game/tutorial.ts): start it, replay it, or end it; and the stamp, once earned. */
@@ -846,6 +882,7 @@ export class Menu {
     if (key === 'tour') { this.todo.tutorial.start(); this.resume(); return; }
     if (key === 'tourend') { this.todo.tutorial.end(); this.panes[3].innerHTML = this.settingsHtml(); return; }
     if (key === 'reload') { this.todo.saveNow(); location.reload(); return; }
+    if (key && key.startsWith('t') && this.touchSetting(el, key)) return;
     if (key === 'sens') {
       s.sens = Math.max(0.3, Math.min(2.5, Number((el as HTMLInputElement).value) || 1));
       const v = el.parentElement?.querySelector('.mn-val');
@@ -866,6 +903,42 @@ export class Menu {
     save.write();
     // The slider keeps the pointer; everything else is redrawn with its new state.
     if (key !== 'sens' && !key.startsWith('vol')) { this.panes[3].innerHTML = this.settingsHtml(); (this.panes[3].querySelector(`[data-set="${key}"]${key === 'quality' ? `[data-v="${s.quality}"]` : key === 'season' ? `[data-v="${season.shown}"]` : key === 'holiday' ? `[data-v="${holiday.shown}"]` : ''}`) as HTMLElement | null)?.focus(); }
+  }
+
+  /** The Touch controls section (Form C-4). True when the key was one of its own. */
+  private touchSetting(el: HTMLElement, key: string): boolean {
+    const ui = this.game.touchUI, p = touchPrefs.v;
+    const redraw = (): void => { if (this.open && this.tab === 3) { this.panes[3].innerHTML = this.settingsHtml(); (this.panes[3].querySelector(`[data-set="${key}"]${el.dataset.v ? `[data-v="${el.dataset.v}"]` : ''}`) as HTMLElement | null)?.focus(); } };
+    const val = (v: string): void => { const b = el.parentElement?.querySelector('.mn-val'); if (b) b.textContent = v; };
+    const num = (): number => Number((el as HTMLInputElement).value);
+    switch (key) {
+      case 'tsize': { const v = el.dataset.v; touchPrefs.set({ size: v === 'small' || v === 'large' ? v : 'normal' }); redraw(); return true; }
+      case 'topacity': { const v = Math.min(1, Math.max(0.4, (num() || 100) / 100)); touchPrefs.set({ opacity: v }); val(Math.round(v * 100) + '%'); return true; }
+      case 'tleft': touchPrefs.set({ left: !p.left }); redraw(); return true;
+      case 'thide': touchPrefs.toggleHide(el.dataset.v ?? ''); redraw(); return true;
+      case 'tauto': touchPrefs.set({ auto: !p.auto }); redraw(); return true;
+      case 'tsens': { const v = Math.min(2, Math.max(0.5, num() || 1)); touchPrefs.set({ sens: v }); val(v.toFixed(1) + '\u00d7'); return true; }
+      case 'tdead': { const v = Math.min(12, Math.max(0, Math.round(num()))); touchPrefs.set({ dead: v }); val(v + '\u00b0'); return true; }
+      case 'tcal': ui.calibrate(); this.tiltMsg = 'Straight ahead is now the way you are holding it.'; redraw(); return true;
+      case 'ttilt':
+        if (p.tilt) { touchPrefs.set({ tilt: false }); this.tiltMsg = ''; redraw(); return true; }
+        // The press that turns it on is the one iOS needs for its motion permission, so the request goes out before anything awaits.
+        this.tiltMsg = '';
+        touchPrefs.set({ tilt: true });
+        void ui.enableTilt().then((st) => {
+          this.tiltMsg = st === 'ready' ? 'Working. Hold the phone upright, like a wheel, and press calibrate for straight ahead.'
+            : st === 'denied' ? 'The phone did not allow motion. Allow it for this site in the browser settings and try again; the stick steers meanwhile.'
+            : 'This device has no motion sensor, so the stick keeps steering.';
+          if (st !== 'ready') touchPrefs.set({ tilt: false });
+          redraw();
+        });
+        redraw();
+        return true;
+      case 'tedit': ui.beginEdit(); this.resume(); return true;
+      case 'tlayout': touchPrefs.resetLayout(); redraw(); return true;
+      case 'treset': touchPrefs.resetAll(); this.tiltMsg = ''; redraw(); return true;
+      default: return false;
+    }
   }
 
   // ── CONTROLS ───────────────────────────────────────────────────────────────

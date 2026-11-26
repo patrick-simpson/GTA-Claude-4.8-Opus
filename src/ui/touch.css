@@ -4,7 +4,11 @@
 #touch {
   /* One thumb unit. Everything is sized from it so a 375 px tall phone and a
      tablet get the same proportions; 56 px is the smallest key a thumb finds. */
-  --u: clamp(56px, 16vmin, 88px);
+  --u: calc(clamp(56px, 16vmin, 88px) * var(--ks, 1));
+  /* The small keys (pause, replay, photo, emote, chat) and the preference hooks: Settings, Touch controls (ui/touch.ts). */
+  --km: 1;
+  --pw: calc(48px * var(--km));
+  --mh: calc(40px * var(--km));
   --g: 10px;
   --sl: max(14px, env(safe-area-inset-left));
   --sr: max(14px, env(safe-area-inset-right));
@@ -94,6 +98,7 @@
   border: 2px solid var(--bone);
   border-radius: 0;
   background: rgba(20, 33, 61, 0.55);
+  opacity: var(--ko, 1);
   /* A hairline of ink outside the rule keeps the key readable against cream fog. */
   box-shadow: 0 0 0 1px rgba(20, 33, 61, 0.45);
   color: var(--bone);
@@ -143,21 +148,21 @@
 /* Driving: pedals along the bottom edge, growing toward the right thumb.
    The cluster is kept as narrow as thumbs allow: the car sits bottom-centre. */
 .t-gas {
-  right: var(--sr);
+  inset-inline-end: var(--sr);
   bottom: var(--sb);
   width: calc(var(--u) * 1.6);
   height: calc(var(--u) * 2.1);
   font-size: calc(var(--u) * 0.5);
 }
 .t-brake {
-  right: calc(var(--sr) + var(--u) * 1.6 + var(--g));
+  inset-inline-end: calc(var(--sr) + var(--u) * 1.6 + var(--g));
   bottom: var(--sb);
   width: calc(var(--u) * 1.4);
   height: calc(var(--u) * 2.1);
   font-size: calc(var(--u) * 0.4);
 }
 .t-hand, .t-horn {
-  right: calc(var(--sr) + var(--u) * 3 + var(--g) * 2);
+  inset-inline-end: calc(var(--sr) + var(--u) * 3 + var(--g) * 2);
   width: calc(var(--u) * 1.3);
   height: calc(var(--u) * 1.05 - var(--g) / 2);
 }
@@ -168,21 +173,21 @@
   height: var(--u);
 }
 .t-exit {
-  right: calc(var(--sr) + var(--u) * 1.6 + var(--g));
+  inset-inline-end: calc(var(--sr) + var(--u) * 1.6 + var(--g));
   width: calc(var(--u) * 1.4);
 }
-.t-cam { right: var(--sr); width: calc(var(--u) * 1.6); }
+.t-cam { inset-inline-end: var(--sr); width: calc(var(--u) * 1.6); }
 
 /* On foot: JUMP under the right thumb, GET IN where EXIT's column is. */
 .t-jump {
-  right: calc(var(--sr) + var(--u) * 0.25);
+  inset-inline-end: calc(var(--sr) + var(--u) * 0.25);
   bottom: calc(var(--sb) + var(--u) * 0.35);
   width: calc(var(--u) * 1.7);
   height: calc(var(--u) * 1.7);
   font-size: calc(var(--u) * 0.46);
 }
 .t-getin {
-  right: calc(var(--sr) + var(--u) * 1.95 + var(--g));
+  inset-inline-end: calc(var(--sr) + var(--u) * 1.95 + var(--g));
   bottom: calc(var(--sb) + var(--u) * 1.15);
   width: calc(var(--u) * 1.6);
   height: calc(var(--u) * 1.15);
@@ -193,8 +198,8 @@
 .t-pause {
   right: var(--sr);
   top: var(--st);
-  width: 48px;
-  height: 48px;
+  width: var(--pw);
+  height: var(--pw);
 }
 .t-pause::before { content: none; }
 /* The visible key stays small; the thumb gets the corner around it too. */
@@ -206,7 +211,7 @@
 
 /* SAY: small, over the left stick and clear of the radar and the stat bars, only while others are in town (no form-box number). */
 .t-say {
-  left: calc(var(--sl) + var(--u) * 2.1);
+  inset-inline-start: calc(var(--sl) + var(--u) * 2.1);
   bottom: calc(var(--sb) + var(--u) * 3.5);
   width: 48px;
   height: 34px;
@@ -259,7 +264,7 @@
 #touch.armed .t-key.arm { display: flex; }
 #touch.paused .t-key.arm, #touch.drive .t-key.t-aim { display: none; }
 .t-fire {
-  right: calc(var(--sr) + var(--u) * 0.25);
+  inset-inline-end: calc(var(--sr) + var(--u) * 0.25);
   bottom: calc(var(--sb) + var(--u) * 2.05 + var(--g));
   width: calc(var(--u) * 1.7);
   height: calc(var(--u) * 1.45);
@@ -267,14 +272,14 @@
   border-color: var(--vermilion);
 }
 .t-aim {
-  right: calc(var(--sr) + var(--u) * 1.95 + var(--g));
+  inset-inline-end: calc(var(--sr) + var(--u) * 1.95 + var(--g));
   bottom: var(--sb);
   width: calc(var(--u) * 1.6);
   height: calc(var(--u) * 1.15 - var(--g));
 }
 .t-aim.held { background: var(--mustard); color: var(--ink); border-color: var(--ink); }
 .t-swap {
-  right: calc(var(--sr) + var(--u) * 3.55 + var(--g) * 2);
+  inset-inline-end: calc(var(--sr) + var(--u) * 3.55 + var(--g) * 2);
   bottom: calc(var(--sb) + var(--u) * 1.15);
   width: calc(var(--u) * 1.2);
   height: calc(var(--u) * 0.9);
@@ -282,15 +287,133 @@
 }
 /* At the wheel: FIRE beside EXIT, over the horn, and SWAP over that. The thumb leaves the gas to fire, which is the price of a drive-by. */
 #touch.drive .t-fire {
-  right: calc(var(--sr) + var(--u) * 3 + var(--g) * 2);
+  inset-inline-end: calc(var(--sr) + var(--u) * 3 + var(--g) * 2);
   bottom: calc(var(--sb) + var(--u) * 2.1 + var(--g));
   width: calc(var(--u) * 1.3);
   height: var(--u);
   font-size: calc(var(--u) * 0.36);
 }
 #touch.drive .t-swap {
-  right: calc(var(--sr) + var(--u) * 3.1 + var(--g) * 2);
+  inset-inline-end: calc(var(--sr) + var(--u) * 3.1 + var(--g) * 2);
   bottom: calc(var(--sb) + var(--u) * 3.1 + var(--g) * 2);
   width: calc(var(--u) * 1.2);
   height: calc(var(--u) * 0.9);
 }
+
+/* ── Player preferences (Settings, Touch controls; ui/touch.ts) ───────────────
+   Every rule below needs a class the player's choice puts on #touch, so with the
+   defaults none of it matches and the layout above is exactly what it always was. */
+
+/* Hidden keys. */
+#touch .t-key.hid { display: none !important; }
+
+/* Large. Right-handed: REPLAY, PHOTO, EMOTE and CHAT move to a column at the left edge (clear of the stick ring and under the stat chips), so the right edge, where the pedals and FIRE stack up, can grow. Both: the height is held so the key stacks stop short of the radar and the notice card. */
+#touch.big {
+  --u: max(clamp(56px, 16vmin, 88px), min(calc(clamp(56px, 16vmin, 88px) * 1.2), calc((100vh - 140px) / 3.15)));
+}
+/* The on-foot FIRE key is a little shorter at Large, so FIRE over JUMP clears the notice card on the right and the radar's chips on the left. */
+#touch.big.foot .t-fire { height: calc(var(--u) * 1.1); }
+#touch.big:not(.lefty) .t-replay, #touch.big:not(.lefty) .t-photo, #touch.big:not(.lefty) .t-emote, #touch.big:not(.lefty) .t-chat {
+  right: auto !important;
+  left: var(--sl) !important;
+}
+#touch.big:not(.lefty) .t-replay, #touch.big:not(.lefty) .t-photo, #touch.big:not(.lefty) .t-emote, #touch.big:not(.lefty) .t-chat { top: auto !important; }
+#touch.big:not(.lefty) .t-chat { bottom: var(--sb); }
+#touch.big:not(.lefty) .t-emote { bottom: calc(var(--sb) + var(--mh) + var(--g)); }
+#touch.big:not(.lefty) .t-photo { bottom: calc(var(--sb) + (var(--mh) + var(--g)) * 2); }
+#touch.big:not(.lefty) .t-replay { bottom: calc(var(--sb) + (var(--mh) + var(--g)) * 3); }
+
+/* Large: USE is trimmed and slides toward the free thumb's side so it keeps clear of HAND BRAKE and HORN. */
+#touch.big .t-use { width: calc(var(--u) * 1.6); margin-left: calc(var(--u) * -2.4); }
+#touch.big.lefty .t-use { margin-left: calc(var(--u) * 0.8); }
+
+/* With any choice made and weapons out at the wheel, RADIO steps beside FIRE instead of sitting on it, and SWAP beside RADIO, so the stack stays short and clear of the speed ticket. */
+#touch.custom.armed.drive .t-swap {
+  inset-inline-end: calc(var(--sr) + var(--u) * 5.2 + var(--g) * 4) !important;
+  bottom: calc(var(--sb) + var(--u) * 2.1 + var(--g)) !important;
+  width: calc(var(--u) * 0.9) !important;
+  height: var(--u) !important;
+}
+#touch.custom.armed.drive .t-radio {
+  inset-inline-end: calc(var(--sr) + var(--u) * 4.3 + var(--g) * 3) !important;
+  bottom: calc(var(--sb) + var(--u) * 2.1 + var(--g)) !important;
+  height: var(--u) !important;
+  width: calc(var(--u) * 0.9) !important;
+  font-size: calc(var(--u) * 0.22) !important;
+}
+
+/* Left-handed: the thumb clusters swap sides. Keys that sit up with PAUSE keep the corner the radar does not own. */
+#touch.lefty .t-key:not(.top) { direction: rtl; }
+#touch.lefty .t-stickzone { left: auto; right: 0; }
+#touch.lefty .t-lookzone { left: 0; right: 40%; }
+#touch.lefty .t-stick {
+  left: auto;
+  right: calc(var(--sr) + var(--u) * 1.75);
+  transform: translate(50%, 50%);
+}
+#touch.lefty .t-stick.live { right: auto; transform: translate(-50%, -50%); }
+
+/* Tilt steering: the stick ring stays up as the wheel gauge, the knob slides with the tilt. */
+.t-stick.tilting { opacity: 0.85; }
+.t-stick.tilting::after {
+  content: 'TILT';
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  font-family: var(--f-head);
+  font-weight: 900;
+  font-size: calc(var(--u) * 0.2);
+  letter-spacing: 0.12em;
+  color: var(--bone);
+}
+.t-stick.tilting:not(.live) .t-knob { transition: transform 0.05s linear; }
+
+/* Auto-accelerate: say so on the gas pedal. */
+#touch.autogas .t-gas::after {
+  content: 'AUTO';
+  position: absolute;
+  bottom: calc(var(--u) * 0.12);
+  font-family: var(--f-mono);
+  font-weight: 500;
+  font-size: calc(var(--u) * 0.18);
+  letter-spacing: 0.14em;
+  opacity: 0.85;
+}
+
+/* Edit layout: every key of the chosen view shows, dashed, and drags. */
+.t-editbar {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: calc(var(--st) + 4px);
+  transform: translateX(-50%);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 2px solid var(--mustard);
+  background: rgba(20, 33, 61, 0.92);
+  color: var(--bone);
+  pointer-events: auto;
+  z-index: 2;
+}
+#touch.edit .t-editbar { display: flex; }
+.t-editbar b { font-family: var(--f-head); font-weight: 900; font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
+.t-editbar button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 2px solid var(--bone);
+  background: transparent;
+  color: var(--bone);
+  font-family: var(--f-head);
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+#touch.edit .t-zone { pointer-events: none; }
+#touch.edit .t-key { display: flex !important; outline: 2px dashed var(--mustard); outline-offset: 2px; cursor: move; }
+#touch.edit .t-key.hid { opacity: 0.3; }
+#touch.edit.foot .t-key.drive:not(.always), #touch.edit.drive .t-key.foot, #touch.edit.drive .t-key.t-aim { display: none !important; }
+#touch.edit .t-stick { display: block; opacity: 0.4; }
