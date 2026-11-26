@@ -32,6 +32,7 @@ import { commonKind, type VehicleKind } from '../ent/vehicleSpecs';
 import { cabSpots } from '../game/cabRank';
 import { BRIDGE_SPANS, groundAt, roadY, setBridgeSpans, type CityPlan } from './plan';
 import { SITES, STAGE_NAMES, TOWN_NAME } from './mainland';
+import { cloud } from '../core/cloud';
 
 const KEY = 'portcalamity.progress.v1';
 export const STAGES = 4;
@@ -237,7 +238,7 @@ class Progress {
 
   /** Write the bank down now. add() only saves when a goal completes; the works save the trickle every so often. */
   save(): void {
-    if (!this.saving) return;
+    if (!this.saving || cloud.applying) return;
     // Their own, never the town's.
     const o = this.own();
     try { localStorage.setItem(KEY, JSON.stringify({ spans: o.spans, stage: o.stage, bank: Math.floor(o.bank), total: Math.floor(this.total) })); } catch { /* no storage */ }

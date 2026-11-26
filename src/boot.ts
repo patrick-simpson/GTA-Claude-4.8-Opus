@@ -16,6 +16,7 @@ import { encodeLook, myLook, setMyLook } from './game/looks';
 import { hostBotPass, runHostBot } from './net/hostbot';
 import { title, titleAt } from './ui/title';
 import { promo } from './ui/promo';
+import { cloud } from './core/cloud';
 import { fpsReadout } from './core/gfx';
 import type { Weather } from './core/api';
 import type { VehicleKind } from './ent/vehicleSpecs';
@@ -50,6 +51,8 @@ const hooks = {
   game,
   /** The trailer (ui/promo.ts): stats, replay(). */
   promo,
+  /** Cloud save (core/cloud.ts): on, state, setOn(), makeCode(), useCode(), syncNow(), unlink(), lastSync. */
+  cloud,
   ready: false,
   error: '' as string,
   /** Skip the title card. */

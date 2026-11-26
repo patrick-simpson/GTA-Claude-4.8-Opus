@@ -15,8 +15,11 @@ import '@fontsource/ibm-plex-mono/latin-500';
 import '@fontsource/ibm-plex-mono/latin-600';
 import './ui/base.css';
 import { title } from './ui/title';
+import { cloud } from './core/cloud';
 
-import('./boot').catch((err: unknown) => {
+// Cloud save (core/cloud.ts, off unless the player turned it on): a newer save from another device is put into
+// localStorage BEFORE the game's script reads it, so there is no second load. It waits at most 2.5 s, and not at all when off.
+cloud.early().then(() => import('./boot')).catch((err: unknown) => {
   console.error(err);
   title.progress(0, 'Something sank. Reload to try again.');
 });

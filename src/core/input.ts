@@ -286,6 +286,8 @@ export class Input {
   // ── Keys ───────────────────────────────────────────────────────────────────
 
   private onKey(e: KeyboardEvent, down: boolean): void {
+    // Typing in a text box (the cloud save code in Settings) is not the game's.
+    if (e.target instanceof HTMLInputElement && e.target.type === 'text') return;
     // A key sent by a pad chord (see padChord): the pad's own code already handled it.
     if ((e as unknown as { __pad?: boolean }).__pad) return;
     if (down) this.device = 'key';

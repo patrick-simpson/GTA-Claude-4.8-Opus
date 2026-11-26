@@ -22,8 +22,10 @@ import { WEAPONS } from '../ent/weapons';
 import { SPECS, type VehicleKind } from '../ent/vehicleSpecs';
 import type { SkyWeather as Weather } from '../core/api';
 import type { SeasonPick } from '../world/season';
+import { cloud } from '../core/cloud';
 
 const KEY = 'portcalamity.save.v1';
+/** Keep core/cloud.ts MAX_V in step with this. */
 export const SAVE_VERSION = 1;
 
 export type QualityPick = 'auto' | 'low' | 'medium' | 'high';
@@ -207,7 +209,8 @@ class SaveStore {
   }
 
   write(): void {
-    if (!this.enabled) return;
+    // A newer save from the cloud has just been put into storage and the page is about to reload: do not write over it.
+    if (!this.enabled || cloud.applying) return;
     this.data.when = Date.now();
     try { localStorage.setItem(KEY, JSON.stringify(this.data)); this.writes++; } catch { /* storage full or refused: play on */ }
   }

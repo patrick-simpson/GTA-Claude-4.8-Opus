@@ -9,9 +9,18 @@ workers_dev = true
 name = "CITY"
 class_name = "City"
 
+[[durable_objects.bindings]]
+name = "SAVES"
+class_name = "Saves"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["City"]
+
+# v2 adds the cloud saves object (src/savesDo.ts). It is a new class, so the town and its facts are untouched.
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Saves"]
 
 # No [vars] here, on purpose: TEST_BUDGET (replacement limits for the local tests) may only ever be
 # given to `wrangler dev --var`. A deployed service must not have it.

@@ -7,6 +7,7 @@ import type { Game } from '../core/game';
 import type { Vehicle } from '../core/api';
 import { progress } from '../world/progress';
 import { capture, restore, save, type Settings } from './save';
+import { cloud } from '../core/cloud';
 import { season } from '../world/season';
 import { Markers, Runner, type Pt } from './script';
 import { story } from './missions';
@@ -186,8 +187,11 @@ export class ThingsToDo {
     // A stranger's first minute: say where the work is.
     game.on('start', () => { if (!save.data.missions.length && !this.tutorial.offerable() && !this.tutorial.active) game.hud.toast('Lou, the watchman at your yard, wants a word. He is the L on the radar: The Cannery, Strand Blvd.', 9); });
     // The tab is going away (closed, reloaded, sent to the background on a phone): this is the write that matters.
-    addEventListener('pagehide', () => this.saveNow());
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.saveNow(); });
+    addEventListener('pagehide', () => { this.saveNow(); cloud.flush(); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { this.saveNow(); cloud.flush(); } });
+    // A save just loaded from the cloud (core/cloud.ts) says so once the game is up.
+    const cloudNote = cloud.attach();
+    if (cloudNote) game.on('start', () => game.hud.toast(cloudNote, 7));
   }
 
   /** A mission or a job takes the floor, or gives it back. While it is held the saved player stays where she took it up. */

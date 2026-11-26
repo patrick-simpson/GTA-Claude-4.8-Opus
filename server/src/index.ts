@@ -22,12 +22,16 @@ import { REFUSED_STATUS } from './city';
 import type { CityEnv } from './city';
 import { parseNameParam } from './room';
 import { MAIN_PUBLIC_KEY } from './mainkey';
+import { BODY_MAX as SAVE_BODY_MAX, SAVE_PATH, corsHeaders } from './saves';
 import { MAIN_BODY_MAX, MAIN_CACHE_S, MAIN_MEMO_MS, MAIN_OVERDUE_MS, MAIN_STALE_MS, isRealKey, parseRegistration, verifyRegistration } from './where';
 
 export { City } from './city';
+export { Saves } from './savesDo';
 
 export interface Env extends CityEnv {
   CITY: DurableObjectNamespace;
+  /** The cloud saves (savesDo.ts): one object, apart from the town. */
+  SAVES: DurableObjectNamespace;
 }
 
 // ---- this isolate's memory (lost whenever Cloudflare recycles it; nothing depends on it surviving) ----
@@ -86,6 +90,28 @@ async function registerMain(request: Request, env: Env, now: number): Promise<Re
   return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
 }
 
+/** POST /save: the cloud saves (saves.ts). Everything that can be refused is refused here, before the object is woken. */
+async function cloudSave(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const origin = request.headers.get('Origin');
+  if (!isAllowedOrigin(origin)) return plain(HTTP_BAD_ORIGIN, 'origin not allowed\n');
+  const cors = corsHeaders(origin as string);
+  const json = (status: number, body: unknown): Response => new Response(JSON.stringify(body) + '\n', { status, headers: { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' } });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  if (request.method !== 'POST') return json(405, { ok: 0, err: 'POST' });
+  const len = Number(request.headers.get('content-length'));
+  if (!(len > 0)) return json(411, { ok: 0, err: 'length required' });
+  if (len > SAVE_BODY_MAX) return json(413, { ok: 0, err: 'too big' });
+  const text = await request.text();
+  let res: Response;
+  try {
+    res = await env.SAVES.get(env.SAVES.idFromName('saves-1')).fetch('https://saves/save', { method: 'POST', body: text });
+  } catch {
+    return json(503, { ok: 0, err: 'busy' });
+  }
+  report(env, ctx);
+  return new Response(res.body, { status: res.status, headers: { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' } });
+}
+
 function plain(status: number, text: string): Response {
   return new Response(text, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 }
@@ -135,6 +161,8 @@ export default {
       const res = await town(env).fetch(`https://city/__test?add=${add}&w=${w}`);
       return Response.json({ ...(await res.json() as object), unreported, remembered: refusal && now + add < refusal.until ? refusal.msg.t : null });
     }
+
+    if (url.pathname === SAVE_PATH) return cloudSave(request, env, ctx);
 
     if (url.pathname === MAIN_PATH) {
       if (request.method === 'GET') return whereIsMain(request, env, ctx, now);

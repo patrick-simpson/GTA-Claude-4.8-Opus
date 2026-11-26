@@ -76,6 +76,32 @@ The main home sits behind a free quick tunnel whose address changes when it rest
 - Local tests give the Worker a test key with `wrangler dev --var TEST_MAIN_KEY:<key>`, the same
   local-only way as `TEST_BUDGET`.
 
+## Cloud saves (fun queue 2, item 41)
+
+One more endpoint beside the socket, `POST /save`, on both homes (the Worker and the Node home). Protocol stays v6; an
+old page never calls it, a new page against a service without it just finds cloud save unavailable. The page only ever
+talks to the BACKUP service (the Worker, `BACKUP_HOST`): that is the one stable address, so a phone and a laptop always
+meet in the same place whichever of them is on main. The Node home serves the same endpoint (files in `<state>/saves/`)
+for the local tests and for anybody running it as their own backup.
+
+- `src/saves.ts`: all the logic, no Cloudflare or Node types (storage as `SaveBackend`, the clock as an argument).
+  `src/savesDo.ts`: the Durable Object `Saves` (SQLite: saves, devices, codes), one object `saves-1`, apart from the town.
+  `home/savefile.ts`: the same over a folder, one JSON file per save, an index built at start; link codes in memory only.
+- The body is JSON sent as `text/plain` (no CORS preflight), at most 66 KB, never in a URL. `op`: `get`, `put` (with the
+  rev the client last saw, a 409 when it moved; `force` after the player chose), `link` (a one-time 8-letter code, 10 min),
+  `claim` (a second device joins with it), `unlink`. The device's secret `k` is 43 random letters made by the browser; the
+  service keeps only its SHA-256. Several devices (secrets) can share one save; the last one out deletes it.
+- Limits: document at most 64 KB of JSON with a fixed outline (`{save: {v, when, ...}, progress?}`); per device 20 puts, 40 gets
+  and 6 codes per 10 minutes; codes are single use and die when the next is made; 12 wrong codes in 10 minutes pause every
+  claim; at most 20,000 saves and 200 new an hour; a daily allowance of 8,000 operations and 5,000 puts (503 "busy" past it,
+  about 2% and 3% of the free Durable Object and row limits, on top of the game's own share).
+- Tests: `node test/saves.mjs` (the Node home) and `node test/saves.mjs --worker` (wrangler dev, workerd, a Durable Object that
+  survives a restart); `PC_SAVE_LIMITS='{"get":100000}'` replaces limits for the Node home in local tests only. From the
+  repository root `node tools/net/cloudsave.mjs` drives two real browsers through all of it.
+- Deploy: the Worker needs the new binding and migration in `wrangler.toml` (`SAVES`, migration `v2`, a new SQLite class: the
+  town's `v1` data is untouched), so it needs one `wrangler deploy` through the workflow below. The home computer updates itself
+  from `server/home` and `server/src` within five minutes of the push; its tunnel is not restarted by this change.
+
 ## Deploy
 
 `npm run deploy` (`wrangler deploy`) with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set.

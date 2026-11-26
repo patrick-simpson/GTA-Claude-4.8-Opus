@@ -26,7 +26,7 @@
 import { createPublicKey, verify } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import { createServer } from 'node:http';
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Duplex } from 'node:stream';
@@ -40,6 +40,8 @@ import {
 import { MAIN_PUBLIC_KEY } from '../src/mainkey.ts';
 import type { FactValue, FullMsg } from '../../src/net/protocol.ts';
 import { Room, parseNameParam } from '../src/room.ts';
+import { BODY_MAX as SAVE_BODY_MAX, SAVE_PATH, corsHeaders, handleSave, newState } from '../src/saves.ts';
+import { FileBackend } from './savefile.ts';
 import type { RoomEnv, RoomSocket } from '../src/room.ts';
 
 const HOST = '127.0.0.1';
@@ -58,6 +60,11 @@ const RELEASE = releaseName().replace(/[^\w.-]/g, '').slice(0, 40);
 const CURRENT = process.env.PC_CURRENT || '';
 const SEATS = Math.max(1, Math.min(CITY_CAP, Math.floor(Number(process.env.PC_SEATS)) || CITY_CAP));
 const FACTS_FILE = join(STATE, 'facts.json');
+/** LOCAL TESTS ONLY: replacement limits for the cloud saves, as JSON (PC_SAVE_LIMITS='{"put":3}'). */
+function saveLimits(): Record<string, number> {
+  try { const v: unknown = JSON.parse(process.env.PC_SAVE_LIMITS || '{}'); return v && typeof v === 'object' ? v as Record<string, number> : {}; } catch { return {}; }
+}
+let saves: ReturnType<typeof newState> | null = null;
 
 /** Sockets open at once, seated or being refused. Past this the door answers 503 without an upgrade. */
 const MAX_SOCKETS = 64;
@@ -144,9 +151,37 @@ function plain(status: number, text: string, extra: Record<string, string> = {})
   return [status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...extra }, text];
 }
 
+/** POST /save: the cloud saves (saves.ts), the same answers as the Worker gives. The body is read up to a cap and no further. */
+function cloudSave(req: IncomingMessage, res: ServerResponse): void {
+  const origin = typeof req.headers.origin === 'string' ? req.headers.origin : null;
+  if (!isAllowedOrigin(origin)) { res.writeHead(HTTP_BAD_ORIGIN, { 'content-type': 'text/plain', 'cache-control': 'no-store' }).end('origin not allowed\n'); return; }
+  const head = { ...corsHeaders(origin as string), 'cache-control': 'no-store' };
+  if (req.method === 'OPTIONS') { res.writeHead(204, head).end(); return; }
+  const send = (status: number, body: unknown): void => { res.writeHead(status, { ...head, 'content-type': 'application/json' }).end(JSON.stringify(body) + '\n'); };
+  if (req.method !== 'POST') return send(405, { ok: 0, err: 'POST' });
+  const len = Number(req.headers['content-length']);
+  if (!(len > 0)) return send(411, { ok: 0, err: 'length required' });
+  if (len > SAVE_BODY_MAX) { send(413, { ok: 0, err: 'too big' }); req.resume(); setTimeout(() => req.destroy(), 5000).unref(); return; }
+  const parts: Buffer[] = [];
+  let got = 0;
+  req.on('data', (c: Buffer) => {
+    got += c.length;
+    if (got > SAVE_BODY_MAX * 2) { if (!res.headersSent) { send(413, { ok: 0, err: 'too big' }); setTimeout(() => req.destroy(), 5000).unref(); } return; }
+    parts.push(c);
+  });
+  req.on('end', () => {
+    if (res.headersSent) return;
+    saves ??= newState(new FileBackend(STATE), saveLimits());
+    handleSave(Buffer.concat(parts).toString('utf8'), saves, Date.now()).then((r) => send(r.status, r.body), () => send(500, { ok: 0, err: 'error' }));
+  });
+  req.on('error', () => {});
+}
+
 const server = createServer((req, res) => {
   const path = (req.url ?? '/').split('?')[0];
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
+  if (path === SAVE_PATH) {
+    cloudSave(req, res);
+  } else if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { 'cache-control': 'no-store' }).end();
   } else if (path === '/health') {
     // Nothing private: no names, no addresses, nothing about the machine.

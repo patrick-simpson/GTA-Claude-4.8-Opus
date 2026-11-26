@@ -36,6 +36,7 @@ import { VOICE_CREDIT } from '../audio/voices';
 import { MAP_CREDIT, MUSIC_CREDIT } from '../core/credits';
 import { ACC, PAL_NAMES, SCALES, SUB_NAMES, type PalName } from '../core/access';
 import { PARDONS_AT, PARDONS_RED, radarPrefs } from './hud';
+import { cloud } from '../core/cloud';
 import { HIDEABLE, touchPrefs, type TouchSize } from './touch';
 import { Wardrobe } from './wardrobe';
 import { PlacesPanel } from './places';
@@ -162,8 +163,17 @@ export class Menu {
       if (t.closest('.mn-new')) { this.confirmEl.classList.add('on'); (root.querySelector('.mn-keep') as HTMLElement).focus(); return; }
       if (t.closest('.mn-keep')) { this.confirmEl.classList.remove('on'); return; }
       if (t.closest('.mn-shred')) { this.confirmEl.classList.remove('on'); todo.newGame(); this.resume(); return; }
+      const cl = t.closest<HTMLElement>('[data-cloud]');
+      if (cl) { this.onCloud(cl); return; }
       const set = t.closest<HTMLElement>('[data-set]');
       if (set) this.onSetting(set);
+    });
+    // The cloud save's status line follows it while the page is open (the rest of the page is left alone, so a code being typed stays).
+    cloud.onChange(() => {
+      if (!this.open || this.tab !== 3) return;
+      const st = this.panes[3].querySelector('#mn-cloud-st'), m = this.panes[3].querySelector('#mn-cloud-msg');
+      if (st) st.textContent = cloud.statusLine();
+      if (m) m.textContent = cloud.msg;
     });
     root.addEventListener('input', (e) => { const t = (e.target as HTMLElement).closest<HTMLElement>('[data-set]'); if (t) this.onSetting(t); });
     addEventListener('keydown', (e) => this.onCapture(e), true);
@@ -252,6 +262,7 @@ export class Menu {
 
   private onKey(e: KeyboardEvent): void {
     if (!this.open) return;
+    if (e.target instanceof HTMLInputElement && e.target.type === 'text') return;
     if (this.confirmEl.classList.contains('on')) { if (e.code === 'Escape') { this.confirmEl.classList.remove('on'); e.stopImmediatePropagation(); } return; }
     const d = /^Digit([1-5])$/.exec(e.code);
     if (d) { this.setTab(Number(d[1]) - 1); return; }
@@ -843,6 +854,7 @@ export class Menu {
     ${vol('Weather and town', 'volAmbience')}
     <p class="mn-note">The Harbor Authority has approved noise, within reason. T changes the station at the wheel.</p>
   </div>
+  ${this.cloudHtml()}
   ${this.accessHtml()}
   ${this.touchHtml()}
 </div>`;
@@ -850,6 +862,58 @@ export class Menu {
 
   /** What the tilt switch last found (a phone may refuse, or have no sensor). */
   private tiltMsg = '';
+
+  /** Cloud save is working on a request / the Unlink button is waiting for its second press. */
+  private cloudBusy = false;
+  private cloudSure = false;
+
+  /** Form C-6, cloud save (core/cloud.ts): off by default; the switch, the status line, a one-time code to link another device, a box to type one in, and Unlink. */
+  private cloudHtml(): string {
+    if (!cloud.available) return `
+  <div class="mn-sec" id="mn-cloud">
+    <h3>Form C-6 &middot; Cloud save</h3>
+    <p class="mn-note">Cloud save needs the town service, which this page cannot reach.</p>
+  </div>`;
+    const on = cloud.on;
+    const live = cloud.code && cloud.code.exp > Date.now() ? cloud.code : null;
+    const shown = live ? `${live.c.slice(0, 4)}-${live.c.slice(4)}` : '';
+    let until = '';
+    if (live) { try { until = new Date(live.exp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); } catch { until = 'ten minutes from now'; } }
+    const box = `style="font:inherit;font-family:var(--f-mono);font-size:0.9em;text-transform:uppercase;letter-spacing:0.12em;width:9.5em;padding:0.15em 0.4em;border:var(--rule) solid var(--ink);background:#fff8e6;color:var(--ink)"`;
+    return `
+  <div class="mn-sec" id="mn-cloud">
+    <h3>Form C-6 &middot; Cloud save</h3>
+    <div class="mn-row"><span class="mn-lbl">Cloud save</span><span><button type="button" class="mn-tog ${on ? 'on' : ''}" data-cloud="toggle" aria-pressed="${on}"><i></i>${on ? 'On' : 'Off'}</button></span></div>
+    <p class="mn-note" id="mn-cloud-st">${esc(cloud.statusLine())}</p>
+    ${on ? `<div class="mn-row"><span class="mn-lbl">Sync</span><span><button type="button" class="mn-link" data-cloud="sync">sync now</button></span></div>
+    <div class="mn-row"><span class="mn-lbl">Add another device</span><span><button type="button" class="mn-link" data-cloud="code">${live ? 'new code' : 'show a code'}</button></span></div>
+    ${live ? `<p class="mn-note">On the other device open Settings, Cloud save, and type <b class="mn-val" style="letter-spacing:0.12em">${shown}</b>. Good until ${esc(until)}, once only.</p>` : ''}` : ''}
+    <div class="mn-row"><span class="mn-lbl">Use a code</span><span><input type="text" id="mn-cloud-code" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX" aria-label="Cloud save code" ${box}> <button type="button" class="mn-link" data-cloud="use">link</button></span></div>
+    ${on ? `<div class="mn-row"><span class="mn-lbl">Leave the cloud</span><span><button type="button" class="mn-link" data-cloud="unlink">${this.cloudSure ? 'really unlink? press again' : 'unlink this device'}</button></span></div>` : ''}
+    <p class="mn-note" id="mn-cloud-msg">${esc(cloud.msg)}</p>
+    <p class="mn-note">Keeps one copy of your save (what you have and have done: no name, no account) on the town service under a secret this browser made, so a phone and a laptop can share it. Off until you turn it on. Your controls and graphics settings stay with each device. Unlink and this device forgets the cloud, the cloud forgets it, and the last device out deletes the copy.</p>
+  </div>`;
+  }
+
+  /** The cloud save section's buttons. */
+  private onCloud(el: HTMLElement): void {
+    const k = el.dataset.cloud;
+    if (this.cloudBusy) return;
+    const done = (): void => { this.cloudBusy = false; this.drawCloud(); };
+    if (k === 'unlink' && !this.cloudSure) { this.cloudSure = true; this.drawCloud(); return; }
+    this.cloudSure = false;
+    this.cloudBusy = true;
+    if (k === 'toggle') void cloud.setOn(!cloud.on).then(done, done);
+    else if (k === 'sync') void cloud.syncNow().then(done, done);
+    else if (k === 'code') void cloud.makeCode().then(done, done);
+    else if (k === 'use') void cloud.useCode((this.panes[3].querySelector('#mn-cloud-code') as HTMLInputElement | null)?.value ?? '').then(done, done);
+    else if (k === 'unlink') void cloud.unlink().then(done, done);
+    else this.cloudBusy = false;
+  }
+  private drawCloud(): void {
+    const sec = this.panes[3].querySelector('#mn-cloud');
+    if (sec) sec.outerHTML = this.cloudHtml();
+  }
 
   /** Form C-4, phones and tablets only: size, opacity, hand, which buttons, tilt, auto-gas, and the layout editor. Kept on this device (localStorage pc.touch). */
   /** The Accessibility section (Form C-5): kept on this device (localStorage pc.access), every default as the game always was. */
