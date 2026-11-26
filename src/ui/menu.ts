@@ -30,6 +30,7 @@ import { save, type QualityPick } from '../game/save';
 import { season, type SeasonPick } from '../world/season';
 import { holiday, type HolidayPick } from '../world/holiday';
 import { autoPresetIfKnown } from '../core/governor';
+import { gfx, LOOKS, PRESET_HINT, PRESET_LABEL, RES_STEPS, type PresetName } from '../core/gfx';
 import { kid } from '../core/kid';
 import { VOICE_CREDIT } from '../audio/voices';
 import { MAP_CREDIT, MUSIC_CREDIT } from '../core/credits';
@@ -785,6 +786,10 @@ export class Menu {
     const s = save.data.settings;
     const tog = (key: string, on: boolean): string => `<button type="button" class="mn-tog ${on ? 'on' : ''}" data-set="${key}" aria-pressed="${on}"><i></i>${on ? 'On' : 'Off'}</button>`;
     const q = (['auto', 'low', 'medium', 'high'] as QualityPick[]).map((v) => `<button type="button" class="mn-seg ${s.quality === v ? 'on' : ''}" data-set="quality" data-v="${v}">${v}</button>`).join('');
+    const shown: PresetName = gfx.preset(s.quality);
+    const presets = (['auto', 'smooth', 'balanced', 'pretty'] as const).map((v) => `<button type="button" class="mn-seg ${shown === v ? 'on' : ''}" data-set="gpreset" data-v="${v}" aria-pressed="${shown === v}">${PRESET_LABEL[v]}</button>`).join('') + (shown === 'custom' ? `<button type="button" class="mn-seg on" data-set="gpreset" data-v="custom" aria-pressed="true">${PRESET_LABEL.custom}</button>` : '');
+    const res = RES_STEPS.map((v) => `<button type="button" class="mn-seg ${Math.round(gfx.res * 100) === v ? 'on' : ''}" data-set="gres" data-v="${v}">${v}%</button>`).join('');
+    const shadows = [['full', 'Full'], ['half', 'Softer, faster']].map(([v, n]) => `<button type="button" class="mn-seg ${(v === 'half') === gfx.half ? 'on' : ''}" data-set="gshadow" data-v="${v}">${n}</button>`).join('');
     const seasons = (['auto', 'autumn', 'winter', 'summer'] as SeasonPick[]).map((v) => `<button type="button" class="mn-seg ${season.shown === v ? 'on' : ''}" data-set="season" data-v="${v}">${v}</button>`).join('');
     const radar = (['heading', 'north'] as const).map((v) => `<button type="button" class="mn-seg ${(v === 'north') === radarPrefs.northUp ? 'on' : ''}" data-set="radar" data-v="${v}">${v === 'north' ? 'north up' : 'heading up'}</button>`).join('');
     const running = this.game.quality.name, gov = this.game.gov;
@@ -798,6 +803,20 @@ export class Menu {
     const vol = (label: string, key: VolKey): string => `<div class="mn-row"><span class="mn-lbl">${label}</span><span><input type="range" min="0" max="1" step="0.05" value="${s[key]}" data-set="${key}"><b class="mn-val">${Math.round(s[key] * 100)}</b></span></div>`;
     return `
 <div class="mn-form mn-two">
+  <div class="mn-sec mn-wide" id="mn-gfx">
+    <h3>Form C-1 &middot; Graphics</h3>
+    <div class="mn-row"><span class="mn-lbl">Look</span><span class="mn-segs">${presets}</span></div>
+    <p class="mn-note">${PRESET_HINT[shown]}</p>
+    <div class="mn-row"><span class="mn-lbl">Quality tier</span><span class="mn-segs">${q}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Resolution</span><span class="mn-segs">${res}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Sun shadows</span><span class="mn-segs">${shadows}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Occlusion shading</span><span>${tog('gao', gfx.ao)}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Smooth edges (antialiasing)</span><span>${tog('gaa', gfx.aa)}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Adjust itself</span><span>${tog('gtune', gfx.tuneFor(s.quality))}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Frame rate readout</span><span>${tog('gfps', gfx.fps)}</span></div>
+    <p class="mn-note">Adjust itself: if frames run long the picture is eased a step (never above what is set here). Kept on this device only. The low tier draws no sun shadows or occlusion at all.</p>
+    <p class="mn-note">${how}${stale ? ` A change of tier rebuilds the world, so <b>${want}</b> takes effect when the page is reloaded: <button type="button" class="mn-link" data-set="reload">save and reload now</button>` : ''}</p>
+  </div>
   <div class="mn-sec">
     <h3>Form C-2 · Preferences</h3>
     <div class="mn-row"><span class="mn-lbl">Look speed</span><span><input type="range" min="0.3" max="2.5" step="0.1" value="${s.sens}" data-set="sens"><b class="mn-val">${s.sens.toFixed(1)}×</b></span></div>
@@ -807,13 +826,11 @@ export class Menu {
     <div class="mn-row"><span class="mn-lbl">Kid friendly</span><span>${tog('kid', kid.on)}</span></div>
     <p class="mn-note">Kid friendly: no weapons, and nobody gets hurt; knocked over is as bad as it gets. ${this.game.net.status === 'off' ? 'Saved in this browser.' : 'In town it is for everybody there, and anybody can flip it.'}</p>
     <div class="mn-row"><span class="mn-lbl">Automatic replays</span><span>${tog('autoReplay', this.game.cam.replay.auto)}</span></div>
-    <div class="mn-row"><span class="mn-lbl">Quality</span><span class="mn-segs">${q}</span></div>
     <div class="mn-row"><span class="mn-lbl">Season</span><span class="mn-segs">${seasons}</span></div>
     <div class="mn-row"><span class="mn-lbl">Radar</span><span class="mn-segs">${radar}</span></div>
     <div class="mn-row"><span class="mn-lbl">Holiday decorations</span><span class="mn-segs">${(['auto', 'on', 'off'] as HolidayPick[]).map((v) => `<button type="button" class="mn-seg ${holiday.shown === v ? 'on' : ''}" data-set="holiday" data-v="${v}">${v}</button>`).join('')}</span></div>
     ${this.tourRow()}
     ${this.nameRow()}
-    <p class="mn-note">${how}${stale ? ` A change of preset rebuilds the world, so <b>${want}</b> takes effect when the page is reloaded: <button type="button" class="mn-link" data-set="reload">save and reload now</button>` : ''}</p>
     <p class="mn-note">${VOICE_CREDIT}</p>
     <p class="mn-note">${MAP_CREDIT}</p>
     <p class="mn-note">${MUSIC_CREDIT}</p>
@@ -923,6 +940,7 @@ export class Menu {
     if (key === 'tour') { this.todo.tutorial.start(); this.resume(); return; }
     if (key === 'tourend') { this.todo.tutorial.end(); this.panes[3].innerHTML = this.settingsHtml(); return; }
     if (key === 'reload') { this.todo.saveNow(); location.reload(); return; }
+    if (key && key.startsWith('g') && this.gfxSetting(el, key)) return;
     if (key && key.startsWith('acc')) { this.accSetting(el, key); return; }
     if (key && key.startsWith('t') && this.touchSetting(el, key)) return;
     if (key === 'sens') {
@@ -946,6 +964,29 @@ export class Menu {
     save.write();
     // The slider keeps the pointer; everything else is redrawn with its new state.
     if (key !== 'sens' && !key.startsWith('vol')) { this.panes[3].innerHTML = this.settingsHtml(); (this.panes[3].querySelector(`[data-set="${key}"]${key === 'quality' ? `[data-v="${s.quality}"]` : key === 'season' ? `[data-v="${season.shown}"]` : key === 'holiday' ? `[data-v="${holiday.shown}"]` : key === 'radar' ? `[data-v="${el.dataset.v}"]` : ''}`) as HTMLElement | null)?.focus(); }
+  }
+
+  /** The Graphics section (Form C-1): a preset sets the options at once (the tier on the next load); any one option moves the Look to Custom. True when the key was one of its own. */
+  private gfxSetting(el: HTMLElement, key: string): boolean {
+    const s = save.data.settings, v = el.dataset.v ?? '';
+    if (key === 'gpreset') {
+      if (v !== 'auto' && v !== 'smooth' && v !== 'balanced' && v !== 'pretty') return true;
+      s.quality = LOOKS[v].quality;
+      gfx.look(v);
+    } else if (key === 'gres') gfx.set({ res: Number(v) / 100 });
+    else if (key === 'gshadow') gfx.set({ half: v === 'half' });
+    else if (key === 'gao') gfx.set({ ao: !gfx.ao });
+    else if (key === 'gaa') gfx.set({ aa: !gfx.aa });
+    else if (key === 'gtune') gfx.set({ tune: !gfx.tuneFor(s.quality) });
+    else if (key === 'gfps') gfx.set({ fps: !gfx.fps });
+    else return false;
+    this.game.gov.setPick(s.quality);
+    this.game.gov.apply();
+    this.todo.applySettings();
+    save.write();
+    this.panes[3].innerHTML = this.settingsHtml();
+    (this.panes[3].querySelector(`[data-set="${key}"]${v ? `[data-v="${v}"]` : ''}`) as HTMLElement | null)?.focus();
+    return true;
   }
 
   /** The Touch controls section (Form C-4). True when the key was one of its own. */

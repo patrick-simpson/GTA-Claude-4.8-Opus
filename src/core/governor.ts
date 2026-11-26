@@ -42,6 +42,7 @@
 import type { Quality } from './api';
 import type { Game } from './game';
 import { readGfx, savedQuality, writeGfx, type GfxNote, type QualityPick } from '../game/save';
+import { gfx } from './gfx';
 
 type Name = Quality['name'];
 const ORDER: Name[] = ['low', 'medium', 'high'];
@@ -302,6 +303,8 @@ export interface QualityChoice {
   /** How long the benchmark held the page this load, ms: 0 when it did not run. */
   benchMs: number;
   hints: Hints;
+  /** A tier the player fixed, with the governor still easing the picture under it (Settings > Graphics > Adjust itself); no "next load" step. */
+  pinned?: boolean;
 }
 
 /** The ratio notches a session may use: tenths of the preset's ratio, to a floor that depends on how dense the screen is. */
@@ -425,7 +428,7 @@ export function pickQuality(): QualityChoice {
     ({ quality: preset(name, hints), auto: false, forced, notch: 0, why, gpu: '', score: null, benchMs: 0, hints });
   if (asked === 'low' || asked === 'medium' || asked === 'high') return fixed(asked, 'the address asks for it (?q=)', true);
   const kept = asked === 'auto' ? null : savedQuality();
-  if (kept) return fixed(kept, 'chosen in the menu', false);
+  if (kept) { const f = fixed(kept, 'chosen in the menu', false); return gfx.tune === true ? { ...f, auto: true, pinned: true, why: 'chosen in the menu, eased by the governor when frames run long' } : f; }
 
   let note = rebench ? null : readGfx(), benchMs = 0;
   const measure = (old: GfxNote | null): GfxNote => {
@@ -517,6 +520,7 @@ export class Governor {
   private capUntil = 0;
   private capHold = 60;
   private watch = 0;
+  private toasts = 0;
   private applied = { shadow: 0, ao: true, msaa: true };
 
   constructor(private game: Game, choice: QualityChoice) {
@@ -535,7 +539,7 @@ export class Governor {
     if (q.shadows) add(`shadow map ${q.shadowSize / 2}`, { shadow: 1 });
     if (post) add('occlusion off', { ao: false });
     if (post && post.baseSamples > 0) add('FXAA alone', { msaa: false });
-    if (q.name !== 'low') add(`${ORDER[ORDER.indexOf(q.name) - 1]} next load, pixels ${Math.round((s.scale - 0.1) * 100)}%`, { scale: s.scale - 0.1, demote: true });
+    if (q.name !== 'low' && !choice.pinned) add(`${ORDER[ORDER.indexOf(q.name) - 1]} next load, pixels ${Math.round((s.scale - 0.1) * 100)}%`, { scale: s.scale - 0.1, demote: true });
     this.handheld = choice.hints.touch && (isPhone(choice.hints) || gpuClass(gpuName(game.renderer.getContext())) === 'mobile' || !!choice.quality.lean);
     this.upBase = this.handheld ? UP_WAIT * 2 : UP_WAIT;
     this.slowNeed = this.handheld ? 2 : 3;
@@ -657,6 +661,11 @@ export class Governor {
     }
     d.push({ from: this.step, ms: mean });
     this.set(this.step + 1, now, mean, `${mean.toFixed(1)} ms a frame, ${Math.round(this.longShare * 100)}% long, for ${this.slowRun} s`);
+    // Said out loud, a few times a visit, so a softer picture is not a mystery.
+    if (this.toasts < 3 && !this.steps[this.step].demote) {
+      this.toasts++;
+      this.game.hud?.toast(`Frames were running long, so the picture was eased a little (${this.steps[this.step].name}). Settings > Graphics has the options.`, 5);
+    }
   }
 
   private set(step: number, now: number, mean: number, why: string): void {
@@ -682,15 +691,17 @@ export class Governor {
   /** Make the picture match the current step. Safe to call at any time: it only touches what differs. */
   apply(): void {
     const g = this.game, s = this.steps[this.step], q = g.quality, a = this.applied;
-    g.setRatioScale(s.scale);
-    if (g.sky && q.shadows && a.shadow !== s.shadow) {
-      a.shadow = s.shadow;
-      g.sky.setShadowDetail(s.shadow === 0 ? q.shadowSize : q.shadowSize / 2, s.shadow === 2 ? 0.7 : 1);
+    // The player's own graphics options (core/gfx.ts) are a ceiling the steps only go below.
+    g.setRatioScale(+(s.scale * gfx.res).toFixed(3));
+    const shadow = gfx.half ? Math.max(1, s.shadow) : s.shadow, ao = s.ao && gfx.ao, msaa = s.msaa && gfx.aa;
+    if (g.sky && q.shadows && a.shadow !== shadow) {
+      a.shadow = shadow;
+      g.sky.setShadowDetail(shadow === 0 ? q.shadowSize : q.shadowSize / 2, shadow === 2 ? 0.7 : 1);
     }
     const post = g.post;
     if (post) {
-      if (a.ao !== s.ao) { a.ao = s.ao; post.aoOn = s.ao; }
-      if (a.msaa !== s.msaa) { a.msaa = s.msaa; if (s.msaa) post.setAA(post.baseSamples, post.baseFxaa); else post.setAA(0, true); }
+      if (a.ao !== ao) { a.ao = ao; post.aoOn = ao; }
+      if (a.msaa !== msaa) { a.msaa = msaa; if (msaa) post.setAA(post.baseSamples, post.baseFxaa); else post.setAA(0, true); }
     }
   }
 
@@ -702,13 +713,13 @@ export class Governor {
   /** The menu's quality setting changed. Auto and a fixed preset swap at once; a different preset still needs a reload. */
   setPick(pick: QualityPick): void {
     if (this.forced) return;
-    const on = pick === 'auto';
+    const on = gfx.tuneFor(pick);
     if (on === this.enabled) return;
     this.enabled = on;
     this.n = 0; this.slowRun = 0; this.okRun = 0; this.roomRun = 0;
     this.quietUntil = performance.now() + 2000;
     if (!on && this.step !== 0) this.set(0, performance.now(), this.ms, 'a fixed preset was chosen in the menu');
-    else this.reason = on ? 'Auto chosen in the menu' : 'a fixed preset was chosen in the menu';
+    else this.reason = on ? 'the governor was switched on in the menu' : 'a fixed preset was chosen in the menu';
   }
 
   /** One line for the menu and the `?debug` readout. */

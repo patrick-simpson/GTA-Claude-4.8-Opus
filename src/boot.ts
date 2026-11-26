@@ -16,6 +16,7 @@ import { encodeLook, myLook, setMyLook } from './game/looks';
 import { hostBotPass, runHostBot } from './net/hostbot';
 import { title, titleAt } from './ui/title';
 import { promo } from './ui/promo';
+import { fpsReadout } from './core/gfx';
 import type { Weather } from './core/api';
 import type { VehicleKind } from './ent/vehicleSpecs';
 
@@ -159,6 +160,9 @@ if (new URLSearchParams(location.search).has('debug')) {
   document.body.appendChild(el);
   setInterval(() => { el.textContent = `${Math.round(game.fps)} fps · ${game.gov.line()}`; }, 500);
 }
+
+// Settings > Graphics > Frame rate readout (core/gfx.ts).
+fpsReadout(game);
 
 /** The longest the card waits, once the world is built, for what is round the player to arrive: a slow line gets a better first picture, not a locked door. */
 const HOLD_MS = 10000;
