@@ -1187,6 +1187,14 @@ export class Train implements WorldPart {
     const c = this.cars[i];
     return c && c.kind === 'coach' ? c.b : null;
   }
+  /**
+   * The locomotive's body is one solid shell whose windows are painted on (and its materials draw both faces): with the
+   * camera in the cab (fx/cabView.ts) it is not drawn, and the cab view draws its own walls and bonnet.
+   */
+  cabHide(on: boolean): void {
+    const L = this.cars[0];
+    if (L && L.kind === 'loco') L.body.visible = !on;
+  }
   /** Where the timetable has the passenger train: the station it is heading for (or standing at), and the game minutes until it gets there (or leaves). */
   leg(): { st: number; moving: boolean; left: number; rate: number; term: boolean } | null {
     if (this.consist !== 'passenger' || this.mode !== 'sched') return null;

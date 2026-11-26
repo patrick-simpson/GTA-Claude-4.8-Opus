@@ -291,6 +291,8 @@ class Car implements Vehicle {
   lod = 1;
   /** Frame stamp of the last frame it was among the few nearest the camera. */
   nearest = -1;
+  /** The camera is in this car's cab (fx/cabView.ts draws the dash itself): the showroom level's own interior would show through it. */
+  cab = false;
   /** Indicator: +1 left, -1 right, and when (game seconds) it cancels. */
   turn = 0; turnEnd = 0;
   /** How dusty it is, 0 showroom to 1 back from the quarry: fixed for the car's life, from its id. */
@@ -2278,8 +2280,8 @@ export class Vehicles implements VehiclesApi {
       }
       if (c.stale) this.pose(c);
       const b = c.batch;
-      if (c.nearest === stamp && d3 < (c.lod === 0 ? NEAR_OUT2 : NEAR_IN2)) c.lod = 0;
-      else c.lod = d3 > (c.lod === 2 ? LOD_IN2 : LOD_OUT2) ? 2 : 1;
+      if (c.nearest === stamp && !c.cab && d3 < (c.lod === 0 ? NEAR_OUT2 : NEAR_IN2)) c.lod = 0;
+      else c.lod = c.cab ? 2 : d3 > (c.lod === 2 ? LOD_IN2 : LOD_OUT2) ? 2 : 1;
       let s = b.sets[b.pick[c.lod]];
       if (s.n >= s.cap) this.growSet(s);
       const i = s.n++;

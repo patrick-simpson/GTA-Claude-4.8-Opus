@@ -18,6 +18,7 @@ import { angleDiff, clamp, clamp01, damp, headingOf, lerp, smooth, wrapAngle } f
 import { WATER_Y, groundAt } from '../world/plan';
 import { waterLevelAt } from '../world/mainland';
 import { Replay } from '../fx/replay';
+import { CabView } from '../fx/cabView';
 
 const PITCH_MIN = -0.5, PITCH_MAX = 1.2;
 const FOOT_DIST = 4.6, FOOT_PITCH = 0.2, SHOULDER = 1.5;
@@ -114,6 +115,14 @@ export class CameraRig implements CameraApi {
   /** 1 while the car is off the ground. */
   private air = 0;
 
+  // In-cab views (fx/cabView.ts): 0 is the chase camera; 1 is the dashboard, cab or helm, 2 a train's window seat.
+  readonly cab: CabView;
+  private cabv = 0;
+  private cabFor: Vehicle | null = null;
+  /** True while the lens is inside a cab: the walls do not push it about, the near plane comes in, the pitch is the body's. */
+  private ins = false;
+  private insP = 0; private insRoll = 0;
+
   private trauma = 0;
   private rumble = 0;
   private clock = 0;
@@ -123,6 +132,7 @@ export class CameraRig implements CameraApi {
 
   constructor(private game: Game) {
     this.replay = new Replay(game);
+    this.cab = new CabView(game);
     game.on('impact', (e) => {
       const v = game.player.seated;
       if (v && (e.vehicle === v || e.other === v) && e.speed > 1.5) this.shake(clamp(e.speed / 24, 0.1, 1));
@@ -188,9 +198,13 @@ export class CameraRig implements CameraApi {
       if (this.blendT < 1) this.blendT = Math.min(1, this.blendT + dt / this.blendDur);
       this.trauma = Math.max(0, this.trauma - dt * 1.9);
     }
+    if (this.ins && mode !== 'drive') this.leaveCab();
     this.place(dt);
     this.replay.update(dt);
   }
+
+  /** The vehicle whose driver is left out of the picture: the one the lens is inside. */
+  hiddenDriver(): Vehicle | null { return this.ins && !this.replay.playing ? this.cab.inside : null; }
 
   private wanted(): Mode {
     const g = this.game;
@@ -203,6 +217,7 @@ export class CameraRig implements CameraApi {
     Object.assign(this.from, this.out);
     this.blendT = 0; this.blendDur = BLEND; this.swoop = false;
     this.mode = mode;
+    this.leaveCab();
     const L = this.live, p = this.game.player;
     if (mode === 'drive') {
       // Keep looking the way we were looking: the difference becomes a free-look
@@ -285,7 +300,8 @@ export class CameraRig implements CameraApi {
   private chase(dt: number, v: Vehicle): void {
     const g = this.game, inp = g.input, L = this.live;
     const sp = Math.hypot(v.vx, v.vz);
-    if (inp.hit('camera')) this.zoom = (this.zoom + 1) % ZOOM.length;
+    if (this.cabFor !== v) { this.cabFor = v; if (this.cabv) this.leaveCab(); }
+    if (inp.hit('camera')) this.cycleView(v, this.cab.stages(v));
 
     // A second of backing up swings the view around; it swings home once the car
     // rolls forward again, or has sat still long enough that the reverse is over.
@@ -337,6 +353,10 @@ export class CameraRig implements CameraApi {
     }
     // Look-behind is a cut, not a swing: it is for a glance.
     this.yaw = wrapAngle(this.chaseYaw + this.freeYaw + (inp.down('lookBack') ? Math.PI : 0));
+    if (this.cabv > 0) {
+      if (this.cab.place(v, this.cabv, this.snapping ? 0 : dt)) { this.inCab(dt, v, sp); return; }
+      this.leaveCab();
+    }
 
     // Follow the hill: climbing, drop down behind the car; cresting, rise to see over.
     // Measured from the ground rather than the car's own pitch, which bounces.
@@ -385,6 +405,53 @@ export class CameraRig implements CameraApi {
     L.fov = this.to(L.fov, 60 + 16 * Math.pow(clamp01((sp - 5) / 50), 0.85) + 4 * this.air, 2.5, dt);
     const flatOut = smooth((sp / v.spec.topSpeed - 0.8) / 0.2);
     this.rumble = this.to(this.rumble, v.onGround ? flatOut : flatOut * 0.3, 4, dt);
+  }
+
+  /** The camera key at the wheel: chase, far, close, then (where the vehicle has one) the cab view, then round again. */
+  private cycleView(v: Vehicle, stages: number): void {
+    const start = (): void => { Object.assign(this.from, this.out); this.blendT = 0; this.blendDur = BLEND; this.swoop = false; };
+    if (this.cabv > 0) {
+      start();
+      this.cabv = this.cabv < stages ? this.cabv + 1 : 0;
+      if (!this.cabv) { this.zoom = 0; this.leaveCab(); }
+    } else if (stages > 0 && this.zoom === ZOOM.length - 1) {
+      start();
+      this.cabv = 1;
+    } else {
+      this.zoom = (this.zoom + 1) % ZOOM.length;
+      return;
+    }
+    if (this.cabv > 0) {
+      this.freeYaw = 0; this.freePitch = 0; this.inherited = false; this.lookIdle = 0;
+      this.game.hud.toast(this.cab.name(v, this.cabv), 1.6);
+    }
+  }
+
+  /** Back to the chase camera: the interior goes, the driver is drawn again, the lens is the normal one. */
+  private leaveCab(): void {
+    // (The view the key reached after the zoom steps was reached with the zoom on its last step: start the steps again.)
+    if (this.cabv) this.zoom = 0;
+    this.cabv = 0; this.ins = false;
+    this.cab.hide();
+  }
+
+  /** The cab views: the lens at the eye, turned the way the body faces plus the player's look, with part of the body's tilt. */
+  private inCab(dt: number, v: Vehicle, sp: number): void {
+    const inp = this.game.input, L = this.live, e = this.cab.eye;
+    this.ins = true;
+    if (this.cab.inside !== v) { if (this.cab.inside) (this.cab.inside as unknown as { cab?: boolean }).cab = false; this.cab.inside = v; }
+    (v as unknown as { cab?: boolean }).cab = true;
+    const yaw = wrapAngle(e.h + e.look + this.freeYaw + (inp.down('lookBack') ? Math.PI : 0));
+    // A little of the body's pitch and roll goes to the head; the interior takes all of it, so the dash sways against the view.
+    this.insP = this.to(this.insP, clamp(e.pitch * 0.7 + e.tilt - this.freePitch, -1.2, 1.2), 14, dt);
+    this.insRoll = this.to(this.insRoll, e.roll * 0.7, 14, dt);
+    L.px = e.x; L.py = e.y; L.pz = e.z;
+    L.yaw = yaw; L.pitch = -this.insP;
+    L.dist = 0; L.lift = 0; L.ax = 0; L.az = 0;
+    L.fov = this.to(L.fov, e.fov + 5 * clamp01(sp / 30), 4, dt);
+    this.yaw = yaw; this.pitch = -this.insP;
+    this.rumble = this.to(this.rumble, e.rig === 'loco' || e.rig === 'seat' ? 0.25 * (ACC.calm ? 0.2 : 1) : (v.onGround ? smooth((sp / v.spec.topSpeed - 0.5) / 0.5) : 0) * 0.5 * (ACC.calm ? 0.2 : 1), 4, dt);
+    this.cab.show(v);
   }
 
   private flyTitle(dt: number): void {
@@ -491,7 +558,7 @@ export class CameraRig implements CameraApi {
       const land = this.mode === 'title' ? L.dist : this.reach(L.px, L.py, L.pz, L.yaw, L.pitch, L.dist);
       O.dist = limit = Math.exp(lerp(Math.log(F.dist), Math.log(land), e));
       O.py += Math.sin(Math.PI * e) * 14;
-    } else if (this.mode !== 'title') {
+    } else if (this.mode !== 'title' && !this.ins) {
       limit = this.reach(O.px, O.py, O.pz, O.yaw, O.pitch, O.dist);
     }
     const foot = this.mode === 'foot' && e >= 1;
@@ -542,7 +609,15 @@ export class CameraRig implements CameraApi {
     cam.position.set(cx, cy, cz);
     // Over her head there is nothing to look at but the way she is facing.
     const fwd = tight * 2.6;
-    cam.lookAt(O.px + O.ax + Math.sin(O.yaw) * fwd, O.py + O.lift * d + tight * 0.12, O.pz + O.az + Math.cos(O.yaw) * fwd);
+    let tx = O.px + O.ax + Math.sin(O.yaw) * fwd, ty = O.py + O.lift * d + tight * 0.12, tz = O.pz + O.az + Math.cos(O.yaw) * fwd;
+    // In a cab the lens sits on the pivot: look along the stored direction, easing in from the orbit's own aim as the boom shortens.
+    const kin = this.ins ? smooth(1 - d / 1.8) : 0;
+    if (kin > 0) {
+      const ce = Math.cos(O.pitch), se = -Math.sin(O.pitch);
+      tx = lerp(tx, cx + Math.sin(O.yaw) * ce * 10, kin); ty = lerp(ty, cy + se * 10, kin); tz = lerp(tz, cz + Math.cos(O.yaw) * ce * 10, kin);
+    }
+    cam.lookAt(tx, ty, tz);
+    if (kin > 0) cam.rotateZ(-this.insRoll * kin);
 
     const hit = this.trauma * this.trauma, hum = this.rumble;
     if (hit > 0.0004 || hum > 0.002) {
@@ -557,11 +632,15 @@ export class CameraRig implements CameraApi {
       cam.position.y += (hit * 0.1 + hum * 0.008) * Math.abs(b);
     }
 
-    if (Math.abs(cam.fov - O.fov) > 0.02) { cam.fov = O.fov; cam.updateProjectionMatrix(); }
+    // Inside a cab the dash is a hand's breadth from the lens: bring the near plane in (the depth buffer has room for it).
+    const near = this.ins && d < 1 ? 0.1 : 0.4;
+    if (Math.abs(cam.fov - O.fov) > 0.02 || cam.near !== near) { cam.fov = O.fov; cam.near = near; cam.updateProjectionMatrix(); }
     this.focus.set(O.px, O.py, O.pz);
     if (this.mode === 'title') Object.assign(this.titleOut, O);
     // Only if even the view over her cap had no room (a ceiling) is the lens in her head; better to see through her than into her.
     // Only a flag: this runs after the people are drawn, so the player applies it at the start of the next frame.
-    this.tooClose = this.mode === 'foot' && d < 0.9 && cy < O.py + 0.3;
+    this.tooClose = (this.mode === 'foot' && d < 0.9 && cy < O.py + 0.3) || (this.ins && this.cab.eye.rig === 'seat' && d < 0.8);
+    // The interior is only drawn once the lens is in it (not while it swings in from behind) and never during a replay.
+    if (this.ins) this.cab.setVisible(d < 0.8 && !this.replay.playing);
   }
 }

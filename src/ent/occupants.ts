@@ -140,10 +140,12 @@ export class Occupants {
     const st = ++this.stamp, eye = g.view ? g.view.pos : g.camera.position, r2 = OCC_R * OCC_R;
     const cand = this.cand, dist = this.dist;
     cand.length = 0; dist.clear();
+    // The car whose cab the camera is in (fx/cabView.ts): its driver's head would be where the lens is.
+    const inCab = g.cam.hiddenDriver();
     const look = (list: readonly Vehicle[]): void => {
       for (const v of list) {
         const dx = v.x - eye.x, dy = v.y - eye.y, dz = v.z - eye.z, d = dx * dx + dy * dy + dz * dz;
-        if (d < r2 && (this.on || isCycleKind(v.spec.kind)) && this.driven(v)) { cand.push(v); dist.set(v, d); }
+        if (d < r2 && v !== inCab && (this.on || isCycleKind(v.spec.kind)) && this.driven(v)) { cand.push(v); dist.set(v, d); }
       }
     };
     look(g.vehicles.list);
