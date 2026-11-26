@@ -78,7 +78,7 @@ export class Betting {
       setTimeout(() => game.hud.toast(`A bet was still open when you left. Your ${money(held)} is back.`, 6), 2500);
     }
     addEventListener('keydown', (e) => {
-      if (e.code !== 'KeyZ' || e.repeat || e.ctrlKey || e.metaKey || e.altKey || this.game.state !== 'play' || this.game.photo?.open || this.panelOpen) return;
+      if (!this.game.input.is(e.code, 'bet') || e.repeat || e.ctrlKey || e.metaKey || e.altKey || this.game.state !== 'play' || this.game.photo?.open || this.panelOpen) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       this.press();

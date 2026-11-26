@@ -210,7 +210,7 @@ export class Replay {
         if (performance.now() - this.startedAt > 250) { this.stats.skipped++; this.stop(); }
         return;
       }
-      if (e.code !== 'KeyJ' || e.repeat || game.state !== 'play') return;
+      if (!game.input.is(e.code, 'replay') || e.repeat || game.state !== 'play') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       this.rewatch();

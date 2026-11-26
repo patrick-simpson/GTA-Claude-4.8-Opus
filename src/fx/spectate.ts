@@ -79,20 +79,20 @@ export class Spectate {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (!this.on) {
-        if (e.code === 'KeyU' && !e.repeat && game.state === 'play' && !game.photo?.open) { e.preventDefault(); this.quick(); }
+        if (game.input.is(e.code, 'spectate') && !e.repeat && game.state === 'play' && !game.photo?.open) { e.preventDefault(); this.quick(); }
         return;
       }
       // Watching: every key stops here (nothing else hears it, as in photo mode), except photo mode's own key.
-      if (e.code === 'KeyO') return;
+      if (game.input.is(e.code, 'photo')) return;
       e.stopImmediatePropagation();
       e.preventDefault();
       if (e.repeat) return;
-      if (e.code === 'Escape' || e.code === 'KeyU' || e.code === 'Backspace') this.stop();
+      if (e.code === 'Escape' || game.input.is(e.code, 'spectate') || e.code === 'Backspace') this.stop();
       else if (e.code === 'ArrowRight' || e.code === 'KeyD' || e.code === 'KeyE' || e.code === 'Tab') this.next(1);
       else if (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'KeyQ') this.next(-1);
     };
     addEventListener('keydown', onKey, true);
-    addEventListener('keyup', (e) => { if (this.on && e.code !== 'KeyO') { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+    addEventListener('keyup', (e) => { if (this.on && !game.input.is(e.code, 'photo')) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
     // The pause menu gets a SPECTATE button while anybody else is in town.
     game.on('pause', (e) => { if (e.on) this.menuButton(); else this.closePick(); });
   }

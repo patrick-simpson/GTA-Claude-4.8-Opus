@@ -23,6 +23,7 @@ import { BRIDGE_SPANS } from '../world/plan';
 import { PROJECT_NAME, PROJECT_STAGES, STAGES, goalOf, progress, stageName } from '../world/progress';
 import { STAGE_NAMES } from '../world/mainland';
 import { money } from '../core/util';
+import { ACTION_LIST, bindable, keyLabel, PAD_CHORDS, type Action } from '../core/input';
 import { DUCKS } from '../game/activities';
 import { clock } from '../game/script';
 import { save, type QualityPick } from '../game/save';
@@ -75,6 +76,7 @@ const CONTROLS: [string, string, string, string][] = [
   ['Unstick', 'Hold Backspace', '', ''],
 ];
 
+const nameOf = (a: Action): string => ACTION_LIST.find((r) => r[0] === a)?.[1] ?? a;
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
 const boxes = (n: number, of: number): string => { let s = ''; for (let i = 0; i < of; i++) s += `<i class="${i < n ? 'on' : ''}"></i>`; return `<span class="mn-boxes">${s}</span>`; };
 
@@ -96,6 +98,9 @@ export class Menu {
   private raf = 0;
   private padPrev: boolean[] = [];
   private padT = 0;
+  /** The Controls page is waiting for a key: which action and which of its two slots. */
+  private capture: { a: Action; slot: 0 | 1 } | null = null;
+  private ctlMsg = '';
   private readonly labels: { text: string; x: number; z: number; vert: boolean }[] = [];
   private readonly districts: { text: string; x: number; z: number }[] = [];
   /** The Wardrobe page (ui/wardrobe.ts): the player's own look and car. */
@@ -148,6 +153,9 @@ export class Menu {
       const trv = t.closest<HTMLElement>('[data-trv]');
       if (trv) { const d = this.todo.travel.recent[Number(trv.dataset.trv)]; if (d && !(trv as HTMLButtonElement).disabled) this.todo.travel.go(d); return; }
       if (t.closest('.mn-resume')) { this.resume(); return; }
+      const bind = t.closest<HTMLElement>('[data-bind]');
+      if (bind) { const [a, s] = (bind.dataset.bind as string).split(':'); this.capture = { a: a as Action, slot: s === '1' ? 1 : 0 }; this.ctlMsg = ''; this.redrawControls(bind.dataset.bind); return; }
+      if (t.closest('[data-ctl="reset"]')) { this.game.input.resetKeys(); this.capture = null; this.ctlMsg = 'Every key is back to its default.'; this.redrawControls(); return; }
       if (t.closest('.mn-new')) { this.confirmEl.classList.add('on'); (root.querySelector('.mn-keep') as HTMLElement).focus(); return; }
       if (t.closest('.mn-keep')) { this.confirmEl.classList.remove('on'); return; }
       if (t.closest('.mn-shred')) { this.confirmEl.classList.remove('on'); todo.newGame(); this.resume(); return; }
@@ -155,6 +163,7 @@ export class Menu {
       if (set) this.onSetting(set);
     });
     root.addEventListener('input', (e) => { const t = (e.target as HTMLElement).closest<HTMLElement>('[data-set]'); if (t) this.onSetting(t); });
+    addEventListener('keydown', (e) => this.onCapture(e), true);
     addEventListener('keydown', (e) => this.onKey(e));
     addEventListener('resize', () => { if (this.open) { this.fitted = false; this.drawMap(); } });
     this.bindMap();
@@ -214,6 +223,29 @@ export class Menu {
   }
 
   // ── Keys and pad ───────────────────────────────────────────────────────────
+
+  /** The Controls page is waiting for a key: take it (Esc cancels, Backspace empties the slot) before anything else hears it. */
+  private onCapture(e: KeyboardEvent): void {
+    const c = this.capture;
+    if (!c || !this.open) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    if (e.repeat) return;
+    const inp = this.game.input;
+    this.capture = null;
+    if (e.code === 'Escape') this.ctlMsg = 'Left as it was.';
+    else if (e.code === 'Backspace' || e.code === 'Delete') { inp.setKey(c.a, c.slot, ''); this.ctlMsg = 'Cleared.'; }
+    else if (!bindable(e.code)) this.ctlMsg = `${keyLabel(e.code) || e.code} cannot be a control (the number row, F keys and Alt are kept).`;
+    else {
+      const sw = inp.setKey(c.a, c.slot, e.code);
+      this.ctlMsg = sw ? `${keyLabel(e.code)} was the key for ${nameOf(sw)}: the two swapped.` : `${keyLabel(e.code)} is now ${nameOf(c.a)}.`;
+    }
+    this.redrawControls(`${c.a}:${c.slot}`);
+  }
+
+  private redrawControls(focus?: string): void {
+    this.panes[4].innerHTML = this.controlsHtml();
+    if (focus) (this.panes[4].querySelector(`[data-bind="${focus}"]`) as HTMLElement | null)?.focus();
+  }
 
   private onKey(e: KeyboardEvent): void {
     if (!this.open) return;
@@ -839,11 +871,23 @@ export class Menu {
   // ── CONTROLS ───────────────────────────────────────────────────────────────
 
   private controlsHtml(): string {
+    const inp = this.game.input, cap = this.capture;
+    const slot = (a: Action, i: 0 | 1): string => {
+      const on = cap && cap.a === a && cap.slot === i, k = keyLabel(inp.keysOf(a)[i]);
+      return `<td><button type="button" class="mn-link mn-bind${on ? ' on' : ''}" data-bind="${a}:${i}">${on ? 'press a key...' : k ? esc(k) : '&mdash;'}</button></td>`;
+    };
+    const mine = ACTION_LIST.map(([a, what]) => `<tr><th>${esc(what)}</th>${slot(a, 0)}${slot(a, 1)}<td>${esc(inp.label(a, 'pad'))}</td></tr>`).join('');
     const rows = CONTROLS.map(([what, key, pad, touch]) => `<tr><th>${what}</th><td>${key}</td><td>${pad}</td><td>${touch}</td></tr>`).join('');
     return `
 <div class="mn-form">
   <div class="mn-sec mn-wide">
-    <h3>Form K-1 · Attached: quick reference</h3>
+    <h3>Form K-0 · Your keys</h3>
+    <table class="mn-keys"><thead><tr><th></th><th>Key</th><th>Or</th><th>Gamepad</th></tr></thead><tbody>${mine}</tbody></table>
+    <p class="mn-note">Click a key, then press the one you want (Esc leaves it, Backspace empties it). A key already in use swaps with its owner. Kept on this device only. <button type="button" class="mn-link" data-ctl="reset">Reset to defaults</button> <b class="mn-ctlmsg">${esc(this.ctlMsg)}</b></p>
+    <p class="mn-note">Gamepad: the left stick moves or steers, the right stick looks, RT gas and LT brake when driving. Hold LB for the second layer (${PAD_CHORDS.map(([, a, l]) => `${l} ${nameOf(a).split(' (')[0].toLowerCase()}`).join(', ')}, LB+RT a snowball); LB alone, let go, is the previous weapon. Shops, bets and night panels: d-pad or stick to move, A to press, B to close.</p>
+  </div>
+  <div class="mn-sec mn-wide">
+    <h3>Form K-1 · Attached: quick reference (default keys)</h3>
     <table class="mn-keys"><thead><tr><th></th><th>Keyboard</th><th>Gamepad</th><th>Touch</th></tr></thead><tbody>${rows}</tbody></table>
     <p class="mn-note">In this dossier: 1 to 5 or [ ] change tabs (LB / RB on a pad); on the map, arrows move, + and − zoom, Enter sets a waypoint. Any place or waypoint on the map can be reached by the Calamity Courtesy Cab (Travel there): $5 and $1 per 100 m, free in kid mode, not while wanted or on a job.</p>
   </div>

@@ -196,7 +196,7 @@ export class Christmas {
     this.group.visible = false;
     game.scene.add(this.group);
     this.hatOff.compose(new THREE.Vector3(0, 0.155, -0.012), new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.18, 0, 0)), new THREE.Vector3(1.02, 1.02, 1.02));
-    addEventListener('keydown', (e) => { if (e.code === 'KeyX' && !e.repeat) this.throwKey = true; });
+    addEventListener('keydown', (e) => { if (game.input.is(e.code, 'snowball') && !e.repeat) this.throwKey = true; });
   }
 
   update(dt: number): void {

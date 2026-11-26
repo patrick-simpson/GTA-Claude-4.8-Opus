@@ -64,7 +64,7 @@ export class Convoy {
   constructor(private readonly game: Game, private readonly markers: Markers) {
     try { const v = Number(localStorage.getItem(STORE)); if (Number.isFinite(v)) this.lastPaid = v; } catch { /* no storage */ }
     addEventListener('keydown', (e) => {
-      if (e.code !== 'Period' || e.repeat || this.game.state !== 'play' || this.game.photo?.open) return;
+      if (!this.game.input.is(e.code, 'convoy') || e.repeat || this.game.state !== 'play' || this.game.photo?.open) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       this.press();

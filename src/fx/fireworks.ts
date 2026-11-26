@@ -347,7 +347,7 @@ export class Fireworks {
     this.buildStall(parent);
     this.hookFlash();
     addEventListener('keydown', (e) => {
-      if (e.code !== 'KeyL' || e.repeat || this.game.state !== 'play') return;
+      if (!this.game.input.is(e.code, 'fireworks') || e.repeat || this.game.state !== 'play') return;
       this.lightOne();
     });
     // Tests and the lead: window.__game.game is not exposed, so hang the system where a test can reach it.

@@ -30,6 +30,7 @@ export class BetPanel {
     this.card.className = 'bt-card';
     this.back.appendChild(this.card);
     document.body.appendChild(this.back);
+    game.input.addNav(this.back);
     this.tag = document.createElement('div');
     this.tag.id = 'bt-tag';
     document.body.appendChild(this.tag);
@@ -37,7 +38,7 @@ export class BetPanel {
     this.tag.addEventListener('click', () => this.openCard());
     this.back.addEventListener('click', (e) => { if (e.target === this.back) this.close(); });
     this.card.addEventListener('click', (e) => this.click(e));
-    addEventListener('keydown', (e) => { if (this.bets.panelOpen && (e.code === 'Escape' || e.code === 'KeyZ')) { e.preventDefault(); e.stopImmediatePropagation(); this.close(); } }, true);
+    addEventListener('keydown', (e) => { if (this.bets.panelOpen && (e.code === 'Escape' || this.game.input.is(e.code, 'bet'))) { e.preventDefault(); e.stopImmediatePropagation(); this.close(); } }, true);
   }
 
   openCard(): void {

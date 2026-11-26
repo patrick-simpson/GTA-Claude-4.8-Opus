@@ -179,6 +179,8 @@ export class ThingsToDo {
       this.seen.add(e.vehicle);
       save.data.stats.cars++;
     });
+    // A crash in your own car buzzes the pad (a no-op without one).
+    game.on('impact', (e) => { if (e.vehicle === game.player.vehicle && e.speed > 6) game.input.rumble(Math.min(1, e.speed / 22)); });
     game.on('booked', () => { save.data.stats.booked++; });
     // A stranger's first minute: say where the work is.
     game.on('start', () => { if (!save.data.missions.length && !this.tutorial.offerable() && !this.tutorial.active) game.hud.toast('Lou, the watchman at your yard, wants a word. He is the L on the radar: The Cannery, Strand Blvd.', 9); });
@@ -303,7 +305,9 @@ export class ThingsToDo {
   }
 
   /** One prompt line between everything in here; nobody else's prompt is cleared by it. */
-  private say(text: string | null): void {
+  private say(raw: string | null): void {
+    // "[G] Talk" is shown with the key or pad button this player's last device uses (core/input.ts relabel).
+    const text = raw === null ? null : this.game.input.relabel(raw);
     if (text === this.lastPrompt) return;
     this.lastPrompt = text;
     if (text !== null) { this.game.hud.prompt(text); this.prompting = true; }

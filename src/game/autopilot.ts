@@ -94,7 +94,7 @@ export class Autopilot {
     el.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(); });
     document.body.appendChild(el);
     addEventListener('keydown', (e) => {
-      if (e.code !== 'KeyI' || e.repeat || game.state !== 'play') return;
+      if (!game.input.is(e.code, 'autopilot') || e.repeat || game.state !== 'play') return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       this.toggle();

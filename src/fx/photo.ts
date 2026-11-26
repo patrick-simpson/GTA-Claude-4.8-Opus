@@ -65,7 +65,7 @@ export class Photo {
     // the controls) hears it. A slider keeps its own arrow keys.
     const onKey = (e: KeyboardEvent, down: boolean): void => {
       if (!this.open) {
-        if (down && e.code === 'KeyO' && !e.repeat && game.state === 'play' && !typing(e)) this.enter();
+        if (down && game.input.is(e.code, 'photo') && !e.repeat && game.state === 'play' && !typing(e)) this.enter();
         return;
       }
       if (typing(e) || (e.target as HTMLElement | null)?.tagName === 'INPUT' && e.code.startsWith('Arrow')) return;
@@ -73,8 +73,8 @@ export class Photo {
       e.preventDefault();
       if (down) {
         if (e.repeat) return;
-        if (e.code === 'Escape' || e.code === 'KeyO') { this.leave(); return; }
-        if (e.code === 'Enter' || e.code === 'KeyF') { void this.snap(); return; }
+        if (e.code === 'Escape' || game.input.is(e.code, 'photo')) { this.leave(); return; }
+        if (e.code === 'Enter' || game.input.is(e.code, 'enter')) { void this.snap(); return; }
         if (e.code === 'KeyH') { this.set.panel = !this.set.panel; this.sync(); return; }
         this.keys.add(e.code);
       } else this.keys.delete(e.code);
@@ -98,6 +98,7 @@ export class Photo {
     const inp = g.input as unknown as { enabled?: boolean };
     this.saved = { pos: cam.position.clone(), quat: cam.quaternion.clone(), fov: cam.fov, hour: g.sky.hour, input: inp.enabled !== false, hidden: [] };
     g.input.setEnabled(false);
+    g.input.padModal = 'photo';
     g.input.unlock();
     this.euler.setFromQuaternion(cam.quaternion, 'YXZ');
     this.yaw = this.euler.y; this.pitch = this.euler.x;
@@ -126,6 +127,7 @@ export class Photo {
       this.setHour(s.hour);
       this.showPeople(s, true);
       if (g.state === 'play') g.input.setEnabled(s.input);
+      g.input.padModal = null;
     }
     this.saved = null;
     this.keys.clear(); this.pointers.clear();
@@ -136,10 +138,13 @@ export class Photo {
   update(dt: number): void {
     const g = this.game, cam = g.camera, k = this.keys;
     if (g.state !== 'play') { this.leave(); return; }
-    const sp = (k.has('ShiftLeft') || k.has('ShiftRight') ? FAST : SPEED) * dt;
-    const f = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
-    const r = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
-    const u = (k.has('KeyE') || k.has('Space') ? 1 : 0) - (k.has('KeyQ') || k.has('ControlLeft') ? 1 : 0);
+    const sp = (k.has('ShiftLeft') || k.has('ShiftRight') || g.input.rawPad.fast ? FAST : SPEED) * dt;
+    // The pad: left stick walks, right stick looks, RB up, LB down, L3 fast (input.rawPad).
+    const rp = g.input.rawPad;
+    this.yaw -= rp.rx * 1.8 * dt; this.pitch = clamp(this.pitch - rp.ry * 1.4 * dt, -1.5, 1.5);
+    const f = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - rp.ly;
+    const r = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) + rp.lx;
+    const u = (k.has('KeyE') || k.has('Space') || rp.up ? 1 : 0) - (k.has('KeyQ') || k.has('ControlLeft') || rp.down ? 1 : 0);
     const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw), cp = Math.cos(this.pitch), spt = Math.sin(this.pitch);
     // Forward along the view (so W climbs when looking up), right level, up straight up; the wheel and the pinch dolly.
     const fw = f * sp + this.dolly;

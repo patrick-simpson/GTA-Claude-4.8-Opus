@@ -31,6 +31,7 @@ export class StorePanel {
     this.card.className = 'sp-card';
     this.back.appendChild(this.card);
     document.body.appendChild(this.back);
+    game.input.addNav(this.back);
     stores.open = (s) => this.show(s);
     this.back.addEventListener('click', (e) => { if (e.target === this.back) this.close(); });
     this.card.addEventListener('click', (e) => this.click(e));

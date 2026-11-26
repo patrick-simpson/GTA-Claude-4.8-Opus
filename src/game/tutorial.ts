@@ -177,12 +177,15 @@ export class Tutorial {
     return null;
   }
 
-  private show(): void { const v = this.view(); if (v) this.card.show(v); else this.card.hide(); }
+  private show(): void {
+    const v = this.view(), inp = this.game.input;
+    if (v) { if (inp.device === 'pad') v.pad = inp.label('tutorial'); this.card.show(v); } else this.card.hide();
+  }
 
   // ── Keys: comma taps and holds ──
 
   private onKey(e: KeyboardEvent, down: boolean): void {
-    if (e.code !== 'Comma') return;
+    if (!this.game.input.is(e.code, 'tutorial')) return;
     const t = e.target as HTMLElement | null;
     if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
     if (this.game.state !== 'play' || (this.phase !== 'offer' && this.phase !== 'step')) { this.armed = false; return; }

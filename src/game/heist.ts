@@ -125,7 +125,7 @@ class Timing {
   private onMiss: (() => void) | null = null;
   private flash = 0;
   private el: HTMLElement; private zone: HTMLElement; private mark: HTMLElement; private pips: HTMLElement; private title: HTMLElement; private hint: HTMLElement;
-  constructor(root: HTMLElement, private readonly toggle: (open: boolean) => void) {
+  constructor(root: HTMLElement, private readonly toggle: (open: boolean) => void, private readonly isUse: (code: string) => boolean) {
     const el = this.el = document.createElement('div'); el.className = 'hs-mini';
     el.innerHTML = '<h3></h3><p></p><div class="hs-track"><div class="hs-zone"></div><div class="hs-mark"></div></div><div class="hs-pips"></div><button data-a="stop">STOP (Space)</button> <button class="alt" data-a="quit">Step away (Esc)</button>';
     root.append(el);
@@ -139,7 +139,7 @@ class Timing {
     });
     addEventListener('keydown', (e) => {
       if (!this.open || e.repeat) return;
-      if (e.code === 'Space' || e.code === 'Enter' || e.code === 'KeyG') { this.press(); e.stopImmediatePropagation(); e.preventDefault(); }
+      if (e.code === 'Space' || e.code === 'Enter' || this.isUse(e.code)) { this.press(); e.stopImmediatePropagation(); e.preventDefault(); }
       else if (e.code === 'Escape') { this.close(); e.stopImmediatePropagation(); e.preventDefault(); }
     }, true);
   }
@@ -230,7 +230,7 @@ export class Heist {
     this.card = root.querySelector('.hs-card') as HTMLElement; this.bar = root.querySelector('.hs-bar') as HTMLElement;
     this.barTx = this.bar.querySelector('span') as HTMLElement; this.barI = this.bar.querySelector('i') as HTMLElement;
     this.fade = root.querySelector('.hs-fade') as HTMLElement; this.alarmEl = root.querySelector('.hs-alarm') as HTMLElement; this.banner = root.querySelector('.hs-banner') as HTMLElement;
-    this.mini = new Timing(root, (open) => this.game.input.setEnabled(!open));
+    this.mini = new Timing(root, (open) => this.game.input.setEnabled(!open), (c) => this.game.input.is(c, 'interact'));
     this.card.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
       if (!b || b.disabled) return;

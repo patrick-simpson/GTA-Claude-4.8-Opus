@@ -16,6 +16,8 @@ export interface CardView {
   mode: 'offer' | 'step' | 'done';
   /** A phone: only the phone line, compact. */
   phone?: boolean;
+  /** A gamepad was the last thing used: the pad's button for the tour key (tap skips or says yes, hold ends or says no). */
+  pad?: string;
 }
 
 export interface CardActions { yes(): void; no(): void; skip(): void; end(): void; close(): void }
@@ -51,9 +53,9 @@ export class TutorialCard {
     if (v.mode === 'step') {
       body += `<p class="tt-goal">${esc(v.goal)}</p>`
         + `<p class="tt-key"><b>Keyboard</b> ${esc(v.kb)}</p><p class="tt-key"><b>Phone</b> ${esc(v.touch)}</p>`;
-      foot = '<button type="button" data-act="skip">Skip step</button><button type="button" data-act="end">End tour</button><small>, skip · hold , end</small>';
+      foot = '<button type="button" data-act="skip">Skip step</button><button type="button" data-act="end">End tour</button><small>' + (v.pad ? esc(v.pad) + ' skip · hold ' + esc(v.pad) + ' end' : ', skip · hold , end') + '</small>';
     } else if (v.mode === 'offer') {
-      foot = '<button type="button" class="go" data-act="yes">Show me</button><button type="button" data-act="no">No thanks</button><small>, yes · hold , no</small>';
+      foot = '<button type="button" class="go" data-act="yes">Show me</button><button type="button" data-act="no">No thanks</button><small>' + (v.pad ? esc(v.pad) + ' yes · hold ' + esc(v.pad) + ' no' : ', yes · hold , no') + '</small>';
     } else {
       foot = '<button type="button" class="go" data-act="close">Thanks, Lou</button>';
     }

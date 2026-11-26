@@ -23,14 +23,15 @@ export class NightPanel {
     this.card = document.createElement('div'); this.card.className = 'nl-card';
     this.back.appendChild(this.card);
     document.body.appendChild(this.back);
+    game.input.addNav(this.back);
     this.card.addEventListener('click', (e) => this.click(e));
     this.back.addEventListener('click', (e) => { if (e.target === this.back) this.nl.closePanel(); });
     addEventListener('keydown', (e) => {
       if (!this.nl.panel) return;
       const k = e.code;
-      if (k === 'Escape' || (k === 'KeyG' && this.nl.panel === 'menu')) { e.preventDefault(); e.stopImmediatePropagation(); this.nl.closePanel(); return; }
+      if (k === 'Escape' || (this.game.input.is(k, 'interact') && this.nl.panel === 'menu')) { e.preventDefault(); e.stopImmediatePropagation(); this.nl.closePanel(); return; }
       if (this.nl.panel === 'menu' && /^Digit[1-9]$/.test(k)) { e.preventDefault(); e.stopImmediatePropagation(); this.nl.order(Number(k.slice(5)) - 1); return; }
-      if (this.nl.panel === 'darts' && (k === 'KeyG' || k === 'Space' || k === 'Enter') && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); this.act(); }
+      if (this.nl.panel === 'darts' && (this.game.input.is(k, 'interact') || k === 'Space' || k === 'Enter') && !e.repeat) { e.preventDefault(); e.stopImmediatePropagation(); this.act(); }
     }, true);
   }
 
