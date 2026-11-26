@@ -31,7 +31,7 @@ import { loadVehicleAssets, SHEET_TEXELS, type CarMaps, type SendCell, type Vehi
 import { BRIDGE, groundAt, setGroundHint, terrainAt, WATER_Y } from '../world/plan';
 import { heaveAt } from '../world/seasonData';
 import type { Box, Prop } from '../world/collide';
-import { CarDamage, LooseParts, damageShader, dent, scrape, shaderValues, HEAD_L, HEAD_R, TAIL_L, TAIL_R } from './carDamage';
+import { CarDamage, LooseParts, damageShader, dent, partCaps, scrape, shaderValues, HEAD_L, HEAD_R, TAIL_L, TAIL_R, DROP_DOOR_L, DROP_DOOR_R, DROP_HOOD, DROP_WHEEL } from './carDamage';
 
 const STEP = 1 / 120;
 /** Heavier than real gravity: jumps land sooner and cars feel planted. */
@@ -267,6 +267,8 @@ class Car implements Vehicle {
   braking = false; reversing = false;
   sinkT = 0;
   hitT = 0;
+  /** Seconds to the next spark off a dragging hub (item 44). */
+  sparkT = 0;
   /** In the sea but not yet written off: the half second of plough and spray before `sunk`. */
   ditch = false;
   dive = 0;
@@ -739,6 +741,8 @@ export class Vehicles implements VehiclesApi {
   private dmgOn = false;
   /** Bumpers lying in the road. */
   private loose!: LooseParts;
+  /** The fx generator as a field, so the parts' step does not make a closure each frame. */
+  private readonly rnd = (): number => this.rand();
   /** The wheels' material with the shared tire maps, made when they arrive. */
   private wheelTexMat: THREE.MeshStandardMaterial | null = null;
   private assets = new Map<VehicleKind, VehicleAsset>();
@@ -1062,7 +1066,7 @@ export class Vehicles implements VehiclesApi {
     }
     if (dt <= 0) { this.sync(night); return; }
     this.time += dt;
-    this.loose.update(dt, groundAt);
+    this.loose.update(dt, groundAt, this.rnd);
     const eye = game.view ? game.view.pos : game.camera.position;
     this.camX = eye.x; this.camZ = eye.z;
     const day = 1 - night;
@@ -1107,6 +1111,8 @@ export class Vehicles implements VehiclesApi {
         if (c.dead) dead = true;
       }
       if (dead) for (let i = list.length - 1; i >= 0; i--) if (list[i].dead) list.splice(i, 1);
+      // Doors, wheels and bumpers lying in the road are kicked aside by a car that drives through them.
+      if (this.loose.alive > 0) for (let i = 0; i < awake.length; i++) { const c = awake[i]; this.loose.kick(c.x, c.z, c.h, c.hl, c.hw, c.vx, c.vz, this.rnd); }
     }
     this.pairs = 0;
     this.fx(dt);
@@ -1224,6 +1230,16 @@ export class Vehicles implements VehiclesApi {
       if (hb) drag += sp.brake * 0.4;
       if (c.wade > 0) drag += c.wade * (0.3 + 2.4 * absV + 0.15 * absV * absV);
       if (c.soft) drag += (1.2 + 1.3 * mud) * clamp01(absV / 2);
+      // A car with a wheel gone drags that corner on the road: it slows, and the hub throws sparks.
+      if (c.dmg !== null && c.dmg.wheelOff !== 0 && absV > 1) {
+        drag += 1.1 * clamp01(absV / 4);
+        c.sparkT -= dt;
+        if (c.sparkT <= 0 && c.onGround && absV > 3) {
+          c.sparkT = 0.05 + this.rand() * 0.06;
+          const wo = c.dmg.wheelOff;
+          this.sparkAt(c, (wo & 5) ? sp.track / 2 : -sp.track / 2, (wo & 3) ? sp.wheelbase / 2 : -sp.wheelbase / 2, 2 + (this.rand() * 3 | 0));
+        }
+      }
       if (!driven) drag += 5;
       c.braking = brake > 0.05 || hb;
       // Hills: the part of gravity along the slope.
@@ -1442,7 +1458,7 @@ export class Vehicles implements VehiclesApi {
     if (c.wreck || c.puppet || c.shared) return;
     const dx = x - c.x, dz = z - c.z, s = Math.sin(c.h), co = Math.cos(c.h);
     const d = c.dmg ?? (c.dmg = new CarDamage());
-    const r = dent(d, dx * co - dz * s, dx * s + dz * co, c.hl, c.hw, speed, () => this.rand());
+    const r = dent(d, dx * co - dz * s, dx * s + dz * co, c.hl, c.hw, speed, this.rnd, partCaps(c.spec.kind));
     this.debris(c, r.glass, r.lamps, r.dropped);
   }
 
@@ -1459,6 +1475,28 @@ export class Vehicles implements VehiclesApi {
     }
     if (dropped & 1) this.loose.drop(c.x, c.y, c.z, c.h, true, c.hl, c.spec.width, c.vx, c.vz, c.color, () => this.rand());
     if (dropped & 2) this.loose.drop(c.x, c.y, c.z, c.h, false, c.hl, c.spec.width, c.vx, c.vz, c.color, () => this.rand());
+    // Item 44: doors and the bonnet swing on their hinges and fall; a wheel bounds off.
+    if (dropped & DROP_DOOR_L) this.loose.door(c, true, c.hl, c.hw, c.spec.height, c.color, this.rnd);
+    if (dropped & DROP_DOOR_R) this.loose.door(c, false, c.hl, c.hw, c.spec.height, c.color, this.rnd);
+    if (dropped & DROP_HOOD) this.loose.hood(c, c.hl, c.hw, c.spec.height, c.color, this.rnd);
+    if (dropped >= DROP_WHEEL) {
+      const ws = c.batch.model.wheels;
+      for (let i = 0; i < ws.length; i++) {
+        const bit = (i < 2 ? 0 : 2) + (ws[i].x > 0 ? 0 : 1);
+        if (dropped & (DROP_WHEEL << bit)) {
+          this.loose.wheel(c, ws[i].x, ws[i].z, c.spec.wheelR, c.spec.wheelW, this.rnd);
+          this.sparkAt(c, ws[i].x, ws[i].z, 14);
+        }
+      }
+    }
+  }
+
+  /** Sparks off a car's corner at local (lx, lz): a wheel torn off, or a hub dragging. */
+  private sparkAt(c: Car, lx: number, lz: number, n: number): void {
+    const fx = this.game.fx?.emitters;
+    if (!fx) return;
+    const s = Math.sin(c.h), co = Math.cos(c.h);
+    fx.sparks(c.x + lx * co + lz * s, c.y + 0.12, c.z - lx * s + lz * co, c.vx * 0.04, 0.3, c.vz * 0.04, n, 3 + Math.hypot(c.vx, c.vz) * 0.12);
   }
 
   /** What another browser says this car's damage is (src/net): any bumper that has newly come off falls here too. */
@@ -2198,7 +2236,9 @@ export class Vehicles implements VehiclesApi {
   /** Rebuild one car's cached matrices: the body on its springs, and each wheel on the ground under its corner. */
   private pose(c: Car): void {
     const sp = c.spec, ws = c.batch.model.wheels;
-    _e.set(-(c.pitch + c.pitchV), c.h, c.groundRoll + c.rollV);
+    // A wheel torn off: that corner of the body sits down on its brake disc.
+    const wo = c.dmg !== null ? c.dmg.wheelOff : 0;
+    _e.set(-(c.pitch + c.pitchV + (wo ? ((wo & 3) ? -0.05 : 0.05) : 0)), c.h, c.groundRoll + c.rollV + (wo ? ((wo & 5) ? -0.035 : 0.035) : 0));
     _q.setFromEuler(_e);
     _p.set(c.x, c.y + c.lift - c.susp, c.z);
     // The wheels follow the road, not the body, so the gap in the arches opens and closes.
@@ -2220,9 +2260,11 @@ export class Vehicles implements VehiclesApi {
       _q.copy(_qg).multiply(_qw).multiply(_qs);
       // A burst tyre sits on its rim: the wheel shrinks and drops toward the road.
       const flat = c.dmg !== null && (c.dmg.tyres & (1 << ((front ? 0 : 2) + (left ? 0 : 1)))) !== 0;
+      const gone = wo !== 0 && wo === 1 << ((front ? 0 : 2) + (left ? 0 : 1));
       if (flat) { _s.y = _s.z = sp.wheelR * 0.86; _p.y -= sp.wheelR * 0.12; }
+      if (gone) _s.set(0.0001, 0.0001, 0.0001);
       _m.compose(_p, _q, _s);
-      if (flat) _s.set(sp.wheelW, sp.wheelR, sp.wheelR);
+      if (flat || gone) _s.set(sp.wheelW, sp.wheelR, sp.wheelR);
       _m.toArray(c.wmat, i * 16);
     }
     c.stale = false;

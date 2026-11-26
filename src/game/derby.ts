@@ -24,7 +24,7 @@ import type { Game } from '../core/game';
 import type { Vehicle } from '../core/api';
 import type { Blip } from '../ui/hud';
 import type { VehicleKind } from '../ent/vehicleSpecs';
-import { CarDamage, damageOf, dent, pack, unpack, DAMAGE_BYTES } from '../ent/carDamage';
+import { CarDamage, damageOf, dent, partCaps, pack, unpack, DAMAGE_BYTES } from '../ent/carDamage';
 import { DERBY } from '../world/places';
 import { groundAt } from '../world/plan';
 import { RNG, TAU } from '../core/util';
@@ -87,6 +87,7 @@ const PA = {
     'A reminder that the snack bar accepts cash and grief.', 'That one was felt in the cheap seats. All seats are the cheap seats.',
     'Number {n} would like everyone to know that was on purpose.', 'Somewhere, a mechanic just bought a boat.'],
   bumper: ['Number {n}\'s bumper has left the car to pursue other interests.', 'Bumper on the field. Please do not take it home. Again.'],
+  part: ['Number {n} has shed a door, a bonnet or a wheel. It is lighter now. It is not faster.', 'Parts everywhere. Number {n} is now mostly a rumour of a car.'],
   out: ['Number {n} is out. Number {n} is now a planter.', 'Number {n} has stopped. We are told that is permanent.',
     'Number {n} is retiring from motoring, effective now.'],
   still: ['Number {n} is parked. This is not a parking lot. The parking lot is the parking lot.'],
@@ -461,11 +462,12 @@ export class Derby {
     if ('dmg' in c && speed > 5) {
       const d = c.dmg ?? (c.dmg = new CarDamage());
       const dx = x - v.x, dz = z - v.z, s = Math.sin(v.h), co = Math.cos(v.h);
-      const r = dent(d, dx * co - dz * s, dx * s + dz * co, v.hl, v.hw, speed * 1.35, Math.random);
+      const r = dent(d, dx * co - dz * s, dx * s + dz * co, v.hl, v.hw, speed * 1.35, Math.random, partCaps(v.spec.kind));
+      // (Doors, the bonnet and wheels fly off too: the pieces go into the dirt on every screen, from the damage bytes.)
       if (r.dropped) {
         this.vx.showDamage(v, r.dropped);
         this.stats.bumpers++;
-        if (this.clk - this.paAt > 5000) this.pa(pick(PA.bumper).replace(/\{n\}/g, String(e.num)));
+        if (this.clk - this.paAt > 5000) this.pa(pick(r.dropped & 3 ? PA.bumper : PA.part).replace(/\{n\}/g, String(e.num)));
       }
     }
     if (v.health <= FLOOR + 0.5) this.setOut(e, true, this.clk);
