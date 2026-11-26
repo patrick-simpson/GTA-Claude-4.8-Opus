@@ -275,7 +275,7 @@ export interface GameEvents {
   /** A pedestrian was knocked down by a vehicle. speed = the vehicle's, m/s; byPlayer = the player was driving it. */
   pedHit: { x: number; z: number; speed: number; byPlayer: boolean };
   /** Something notable the player just did (a key of audio/fmReactLines.json): Claude FM's host may remark on it. own: the game already toasts it, so no text fallback. */
-  moment: { kind: string; own?: boolean };
+  moment: { kind: string; own?: boolean; /** A number the moment carries (the Town Notice, game/notice.ts: a catch's ounces, a jump's metres, a townsfolk index). */ n?: number; /** What it was about (a photo subject, a dish). */ id?: string };
   // ── Harbor Patrol (src/sim/police.ts) ──
   /** Something illegal the player did at (x, z). weight: heat points, 1 = a whole level; it only counts if a bystander or officer could see it. Weapons emit this for gunfire and hits. */
   crime: { kind: string; x: number; z: number; weight: number };

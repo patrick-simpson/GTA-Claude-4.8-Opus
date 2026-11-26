@@ -367,6 +367,7 @@ export class Civic {
     const g = this.game, b = BOOKS[i], best = save.data.best, was = this.books();
     const now = was | (1 << i), fresh = now !== was;
     if (fresh) { best[KEY_BOOKS] = now; this.stats.books++; }
+    g.emit('moment', { kind: 'book' });
     const n = popcount(now);
     const all = n >= CARD.all, stamped = (this.stampMask() & STAMP_LIBRARY) !== 0;
     let msg = fresh ? `Borrowed. ${n} of ${CARD.all} books for the card.` : `You have read this one. ${n} of ${CARD.all} books for the card.`;

@@ -541,6 +541,7 @@ export class Activities {
     const first = !save.data.jumps.includes(i), record = save.record('jump:' + i, score, false);
     const hud = this.game.hud, line = v.sunk ? 'The landing has been filed under "water".' : JUMP_LINES[this.lines++ % JUMP_LINES.length];
     if (first || record) this.game.emit('moment', { kind: 'jump' });
+    if (!v.sunk) this.game.emit('moment', { kind: 'air', n: dist });
     if (first) {
       save.data.jumps.push(i);
       const paid = this.pay('jump:' + i, 200, 60);

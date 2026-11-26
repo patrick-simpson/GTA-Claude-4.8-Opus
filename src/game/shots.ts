@@ -158,6 +158,7 @@ export class Shots {
       const s = SUBJECTS.find((q) => q.id === id) as Subject;
       const why = this.check(s, cam);
       if (why) { if (!this.isDone(id) && /small|way/.test(why)) lines.push(`${s.name}: ${why}`); continue; }
+      g.emit('moment', { kind: 'shot', id });
       if (this.isDone(id)) { lines.push(`${s.name}: lovely, but you have it for today`); continue; }
       b['ph.mask'] = ((b['ph.mask'] ?? 0) | this.bit(id));
       const n = save.bump('ph.win');

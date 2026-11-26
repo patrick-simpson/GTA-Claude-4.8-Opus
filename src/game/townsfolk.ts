@@ -366,6 +366,7 @@ export class Townsfolk {
     const f = l.pl.folk, w = l.at, line = lineFor(f, w.moving ? 'walk' : w.stopId, this.game.sky.hour);
     this.game.hud.toast(`${f.name}: "${line}"`, 7);
     this.stats.greeted++;
+    this.game.emit('moment', { kind: 'folk', n: this.live.indexOf(l) });
     this.last = { id: f.id, line };
     l.talk = 6;
   }

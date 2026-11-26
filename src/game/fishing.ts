@@ -405,6 +405,7 @@ export class Fishing {
     }
     this.stats.landed++;
     const s = SPECIES[c.i];
+    if (!s.junk && !s.illegal) g.emit('moment', { kind: 'catch', n: c.oz });
     const flags = fileCatch(c.i, c.oz, this.spotIdx);
     const value = valueOf(c.i, c.oz);
     this.lastCatch = { i: c.i, oz: c.oz, value };

@@ -64,6 +64,8 @@ export class PlacesPanel {
   private tfList: FolkRow[] = [];
   /** The chip "Project" is on: the town's project, the Millpond Promenade, with its stages and the bar (game/project.ts). */
   private project = false;
+  /** The chip "Notice" is on: today's three Town Notice challenges (game/notice.ts). */
+  private notice = false;
   private shown: Place[] = [];
   private decided = false;
 
@@ -85,7 +87,7 @@ export class PlacesPanel {
     this.list = el.querySelector('.pl-list') as HTMLElement;
     this.foot = el.querySelector('.pl-foot') as HTMLElement;
     this.sel = el.querySelector('.pl-sel') as HTMLElement;
-    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-gigchip" data-cat="gigs"><i style="background:#2a9d8f"></i>Gigs</button>`, `<button type="button" class="pl-chip pl-evchip" data-cat="events"><i style="background:#b3262e"></i>Events</button>`, `<button type="button" class="pl-chip pl-phchip" data-cat="photos"><i style="background:#6a4c93"></i>Photos</button>`, ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-fdchip" data-cat="finds"><i style="background:#f0c419"></i>Finds</button>`] : []), ...(this.todo.townsfolk.on ? [`<button type="button" class="pl-chip pl-tfchip" data-cat="folk"><i style="background:#e07a3a"></i>Townsfolk</button>`] : []), ...(this.todo.project.on ? [`<button type="button" class="pl-chip pl-pjchip" data-cat="project"><i style="background:#2f5d4a"></i>Project</button>`] : []), `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...(STATIONS.length ? [`<button type="button" class="pl-chip pl-railchip" data-cat="rail"><i style="background:#2a7a45"></i>Train stations</button>`] : []), ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-ferrychip" data-cat="ferry"><i style="background:#1d5566"></i>Ferry</button>`] : []), ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
+    this.chips.innerHTML = [`<button type="button" class="pl-chip on" data-cat="">All</button>`, `<button type="button" class="pl-chip pl-ntchip" data-cat="notice"><i style="background:#e4a11b"></i>Notice</button>`, `<button type="button" class="pl-chip pl-gigchip" data-cat="gigs"><i style="background:#2a9d8f"></i>Gigs</button>`, `<button type="button" class="pl-chip pl-evchip" data-cat="events"><i style="background:#b3262e"></i>Events</button>`, `<button type="button" class="pl-chip pl-phchip" data-cat="photos"><i style="background:#6a4c93"></i>Photos</button>`, ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-fdchip" data-cat="finds"><i style="background:#f0c419"></i>Finds</button>`] : []), ...(this.todo.townsfolk.on ? [`<button type="button" class="pl-chip pl-tfchip" data-cat="folk"><i style="background:#e07a3a"></i>Townsfolk</button>`] : []), ...(this.todo.project.on ? [`<button type="button" class="pl-chip pl-pjchip" data-cat="project"><i style="background:#2f5d4a"></i>Project</button>`] : []), `<button type="button" class="pl-chip pl-hubchip" data-cat="hubs"><i style="background:#e4572e"></i>Cab stops</button>`, ...(STATIONS.length ? [`<button type="button" class="pl-chip pl-railchip" data-cat="rail"><i style="background:#2a7a45"></i>Train stations</button>`] : []), ...(STREETS_NEW ? [`<button type="button" class="pl-chip pl-ferrychip" data-cat="ferry"><i style="background:#1d5566"></i>Ferry</button>`] : []), ...CATEGORIES.map((c) => `<button type="button" class="pl-chip" data-cat="${c}"><i style="background:${CAT_COLOR[c]}"></i>${esc(CATEGORY_NAME[c])}</button>`)].join('');
 
     (el.querySelector('.pl-tab') as HTMLElement).addEventListener('click', () => this.fold(!el.classList.contains('fold')));
     this.foot.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.pl-ant')) { this.todo.events.setWearing(!this.todo.events.wearingAntlers); this.refresh(); } });
@@ -108,8 +110,9 @@ export class PlacesPanel {
       this.finds = b.dataset.cat === 'finds';
       this.folk = b.dataset.cat === 'folk';
       this.project = b.dataset.cat === 'project';
+      this.notice = b.dataset.cat === 'notice';
       this.gigSel = null;
-      this.cat = this.hub || this.rail || this.ferry || this.gigs || this.events || this.photos || this.finds || this.folk || this.project ? null : ((b.dataset.cat || null) as Category | null);
+      this.cat = this.hub || this.rail || this.ferry || this.gigs || this.events || this.photos || this.finds || this.folk || this.project || this.notice ? null : ((b.dataset.cat || null) as Category | null);
       this.chips.querySelectorAll('.pl-chip').forEach((c) => c.classList.toggle('on', c === b));
       this.refresh();
     });
@@ -157,6 +160,7 @@ export class PlacesPanel {
     if (this.finds) { this.refreshFinds(); return; }
     if (this.folk) { this.refreshFolk(); return; }
     if (this.project) { this.refreshProject(); return; }
+    if (this.notice) { this.refreshNotice(); return; }
     const placed = all.filter((x) => x.placed);
     const found = this.ferry ? this.ferryPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.rail ? this.railPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : this.hub ? this.hubPlaces().filter((x) => findPlaces([x], this.q.value, null).length > 0) : findPlaces(all, this.q.value, this.cat);
     if (!this.hub && !this.rail && !this.ferry) found.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
@@ -182,6 +186,17 @@ export class PlacesPanel {
       return `<li><button type="button" class="pl-row${x.when.open ? ' on' : ''}" data-i="${i}"><i style="background:#b3262e"></i><span class="pl-nm">${esc(x.title)} · ${esc(x.day)}</span><span class="pl-sub">${esc(x.where)} · ${distText(d)} · ${esc(x.text)}</span></button></li>`;
     }).join('');
     this.foot.innerHTML = `Evenings, 5 pm to 11 pm on the town clock · the same for everyone · a toast tells you when one opens nearby${ev.hasAntlers ? ` · <button type="button" class="pl-ant">Antlers: ${ev.wearingAntlers ? 'on' : 'off'}</button>` : ''}`;
+    this.sel.innerHTML = ''; this.sel.classList.remove('on');
+  }
+
+  /** The Town Notice: today's three challenges with progress, the purse and the streak. */
+  private refreshNotice(): void {
+    const nt = this.todo.notice, rows = nt.rows(), left = nt.left();
+    this.shown = [];
+    const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60);
+    this.list.innerHTML = `<li class="pl-none">${esc(nt.dateText())}</li>` + rows.map((x) => `<li><span class="pl-row${x.done ? ' on' : ''}"><i style="background:#e4a11b"></i><span class="pl-nm">${x.done ? '[done] ' : ''}${esc(x.text)}</span><span class="pl-sub">${x.done ? 'Done' : esc(x.label)} · ${esc(x.level)}</span></span></li>`).join('')
+      + `<li><span class="pl-row${nt.doneToday() ? ' on' : ''}"><i style="background:#2f5d4a"></i><span class="pl-nm">Notice streak: ${nt.streak()} day${nt.streak() === 1 ? '' : 's'}</span><span class="pl-sub">${nt.doneToday() ? 'Paid today. Next notice at midnight' : 'All three pays $' + nt.purse()} · $300, +$50 a day in a row, up to $600</span></span></li>`;
+    this.foot.textContent = `A new notice at midnight Maine time, the same for everyone · ${left >= 86400 ? '' : h + ' h ' + m + ' min left · '}jobs, rides, photos, finds, fish and more count on their own; boards stand at Quorum Square and Mercy Park`;
     this.sel.innerHTML = ''; this.sel.classList.remove('on');
   }
 
@@ -302,7 +317,7 @@ export class PlacesPanel {
   }
 
   private showSel(): void {
-    if (this.events || this.photos || this.finds || this.folk || this.project) { this.sel.innerHTML = ''; this.sel.classList.remove('on'); return; }
+    if (this.events || this.photos || this.finds || this.folk || this.project || this.notice) { this.sel.innerHTML = ''; this.sel.classList.remove('on'); return; }
     if (this.gigs) {
       const gg = this.todo.gigs, x = this.gigSel, act = gg.busy ? gg.info() : null;
       if (act) { this.sel.classList.add('on'); this.sel.innerHTML = `<b>On an order</b><span>${esc(act.phase === 0 ? 'Pickup: ' + act.from : 'Drop: ' + act.to)}</span><div class="pl-btns"><button type="button" class="pl-go pl-gigcancel">Cancel the order</button></div>`; return; }

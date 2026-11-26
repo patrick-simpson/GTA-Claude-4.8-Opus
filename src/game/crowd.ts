@@ -87,6 +87,8 @@ export class Crowd {
 
   /** A moment the player made: logged for gossip, and the big ones draw a cheer. */
   private moment(kind: string): void {
+    // Kinds with nothing to say (the Town Notice's counters, game/notice.ts) stay out of the log of the last few moments.
+    if (!GOSSIP[kind] && kind !== 'raceLose') return;
     const l = this.log;
     if (!(l.length && l[l.length - 1].kind === kind && this.t - l[l.length - 1].t < 5)) {
       if (l.length >= LOG) l.shift();

@@ -433,6 +433,7 @@ export class Nightlife {
   order(i: number): string {
     const g = this.game, p = g.player, m = this.menu(), it = m[i];
     if (!it || !this.inside) return '';
+    if (it.id === 'pie' && this.inside === 'diner') g.emit('moment', { kind: 'meal', id: 'pie' });
     let say = '';
     if (p.health >= 100) say = `You could not eat another bite. The ${it.name.toLowerCase()} will keep.`;
     else if (it.price > 0 && p.money < it.price) say = `${it.name} is ${money(it.price)}. You have ${money(p.money)}. The cook is sympathetic, not generous.`;
