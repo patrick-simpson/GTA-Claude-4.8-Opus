@@ -113,6 +113,8 @@ export class Town {
   private clockOff = 0;
   /** FACT_WEATHER_SEED: the seed, a forced weather (0 none, else 1 + index) and the town hour it ends. */
   private seed = 0;
+  /** The weather seed (FACT_WEATHER_SEED): world/roadCond.ts picks the freezing nights with it. */
+  get weatherSeed(): number { return this.seed; }
   private forced = 0;
   private forcedUntil = 0;
   /** FACT_BRIDGE as the service holds it, or null when it holds none (or this is the backup). */

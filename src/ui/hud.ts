@@ -22,6 +22,7 @@ import { ARROW, distText, type Guidance } from '../game/nav';
 import { trains } from '../world/train';
 
 import { ACC, subs, type Cue } from '../core/access';
+import { roads } from '../world/roadCond';
 /** Pardon's entrance (world) and the store's red: the radar badge, and the map's in menu.ts. */
 export const PARDONS_AT = { x: -612, z: -1160 }, PARDONS_RED = '#cc2229';
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f', SAGE = '#8a9a6b';
@@ -911,6 +912,7 @@ export class Hud implements HudApi {
   private cash = NaN;
   private mins = -1;
   private weather: SkyWeather | '' = '';
+  private roadCond = 0;
   private heat = 0;
   private searching = false;
   private veh: Vehicle | null = null;
@@ -1350,7 +1352,9 @@ export class Hud implements HudApi {
     const mins = Math.floor(g.sky.hour * 60) % 1440;
     if (mins !== this.mins) { this.mins = mins; this.clock.textContent = clock12(mins); }
     const w = g.sky.weather;
-    if (w !== this.weather) { this.weather = w; this.wx.textContent = WEATHER_WORD[w] ?? w; }
+    // Item 45: the road's state rides on the weather word (wet in rain, black ice on a freezing night).
+    const rc = roads.cond;
+    if (w !== this.weather || rc !== this.roadCond) { this.weather = w; this.roadCond = rc; this.wx.textContent = (WEATHER_WORD[w] ?? w) + (rc === 2 ? ' · black ice' : rc === 1 ? ' · wet roads' : ''); }
 
     // Heat.
     const heat = Math.ceil(clamp(p.heat, 0, 5));

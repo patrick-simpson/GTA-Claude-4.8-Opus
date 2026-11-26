@@ -504,6 +504,8 @@ export class Sky implements SkyApi {
   get snowCover(): number { return this._snow; }
   /** 0..1 how slippery the roads are: the cover, felt early (vehicle.ts grip, traffic.ts speeds). */
   get slick(): number { return this._slick; }
+  /** Whole days since the start (the town's day, set by lead()): black ice (world/roadCond.ts) is picked by it. */
+  get dayNo(): number { return this.day; }
   /** The season this frame (world/season.ts). */
   get season(): Season { return this._season; }
   /** Item 34: the look of the year (mud season, summer, fall, winter): world/season.ts. */

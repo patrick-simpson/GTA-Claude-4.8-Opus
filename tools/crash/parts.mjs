@@ -25,7 +25,7 @@ let failed = 0;
 const check = (ok, what, detail = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${what}${detail ? '  [' + detail + ']' : ''}`); if (!ok) failed++; };
 if (SHOTS) mkdirSync(path.join(ROOT, 'shots'), { recursive: true });
 
-const t = await boot({ query: 'net=0&stage=4', width: 1100, height: 620 });
+const t = await boot({ query: 'net=0&stage=4&road=dry', width: 1100, height: 620 });
 t.page.on('console', (m) => { if (m.type() === 'error') console.log('NOTE  console error: ' + m.text().slice(0, 200)); });
 await t.game((g) => { g.setTime(13); g.setWeather('clear'); g.teleport(-30, 285, 1.57); g.step(60); });
 const G = (fn, arg) => t.page.evaluate(`(${fn.toString()})(window.__game, ${JSON.stringify(arg ?? null)})`);

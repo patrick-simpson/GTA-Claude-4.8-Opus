@@ -26,6 +26,7 @@ import { places } from '../world/business';
 import { BUILDING_SITES } from '../world/buildings';
 import { groundAt, WATER_Y } from '../world/plan';
 import { progress } from '../world/progress';
+import { roads } from '../world/roadCond';
 import { money } from '../core/util';
 import { save } from './save';
 import { taper } from './activities';
@@ -436,7 +437,7 @@ class Cleared {
   show(v: boolean): void { this.mesh.visible = v && this.n > 0; }
 
   /** Forget every strip (a new job starts on a fresh road). */
-  clear(): void { this.pos.fill(0); this.aPos.needsUpdate = true; this.n = 0; this.head = 0; this.on = false; this.edge = false; this.mesh.visible = false; }
+  clear(): void { roads.clearMarks(); this.pos.fill(0); this.aPos.needsUpdate = true; this.n = 0; this.head = 0; this.on = false; this.edge = false; this.mesh.visible = false; }
 
   end(): void { this.on = false; this.edge = false; }
 
@@ -457,6 +458,8 @@ class Cleared {
       this.rx = this.cx - px; this.rz = this.cz - pz; this.ry = this.height(this.rx, this.rz, carY);
       this.edge = true;
     }
+    // Item 45: a plowed lane has little snow's slip, a salted one none and no black ice.
+    roads.mark(x, z, hw, kind === 'salt' ? 2 : 1);
     const nlx = x + px, nlz = z + pz, nly = this.height(nlx, nlz, carY), nrx = x - px, nrz = z - pz, nry = this.height(nrx, nrz, carY);
     const i = this.head, o = i * 12, p = this.pos, c = this.col;
     this.head = i + 1 === QUADS ? 0 : i + 1;

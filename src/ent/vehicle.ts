@@ -29,6 +29,7 @@ import { SPECS, isCycleKind, type VehicleKind, type VehicleSpec } from './vehicl
 import { vehicleModel, wheelGeometry, type VehicleModel } from './vehicleModels';
 import { loadVehicleAssets, SHEET_TEXELS, type CarMaps, type SendCell, type VehicleAsset } from './vehicleAssets';
 import { BRIDGE, groundAt, setGroundHint, terrainAt, WATER_Y } from '../world/plan';
+import { AQUA_S, roads } from '../world/roadCond';
 import { heaveAt } from '../world/seasonData';
 import type { Box, Prop } from '../world/collide';
 import { CarDamage, LooseParts, damageShader, dent, partCaps, scrape, shaderValues, HEAD_L, HEAD_R, TAIL_L, TAIL_R, DROP_DOOR_L, DROP_DOOR_R, DROP_HOOD, DROP_WHEEL } from './carDamage';
@@ -278,6 +279,9 @@ class Car implements Vehicle {
   soft = false;
   /** Item 34: over a frost heave this step (so the bump is felt once, as the wheels cross it). */
   heaveIn = false;
+  /** Item 45: the puddle under the wheels last step (-1 none), and seconds of aquaplaning left (the steering goes light). */
+  puddleIn = -1;
+  aquaT = 0;
   /** Seconds since the handbrake was let go, counted down from a short grace. */
   hbT = 0;
   // Skid marks: where each rear wheel last laid one.
@@ -1055,7 +1059,7 @@ export class Vehicles implements VehiclesApi {
     const list = this.cars, awake = this.awake, game = this.game;
     // The sky is built before the vehicles, but tests stub the game with less.
     const sky = game.sky as Game['sky'] | undefined;
-    this.wet = sky ? sky.wet : 0;
+    this.wet = sky ? Math.max(sky.wet, roads.wet) : 0;
     this.snow = sky && this.snowGrip ? sky.slick ?? 0 : 0;
     this.reflect(dt);
     const night = sky ? sky.night : 0;
@@ -1180,7 +1184,28 @@ export class Vehicles implements VehiclesApi {
     // Sand gives under the tires: less bite, and (below) it drags.
     // Packed snow: about half the bite (the slide comes early and lasts; see snowGrip).
     const mud = this.mud;
-    const gripBase = sp.grip * (1 - 0.22 * this.wet) * (1 - 0.5 * this.snow) * (c.soft ? 0.7 * (1 - 0.22 * mud) : 1) * (1 - 0.07 * mud);
+    // Item 45 (world/roadCond.ts): puddles, black ice, and plowed or salted lanes. surf is the road's grip here, snow the snow's share of it.
+    let surf = 1, snow = this.snow;
+    if (roads.active && c.onGround) {
+      roads.sample(c.x, c.z);
+      surf = roads.grip; snow = this.snow * roads.snowK;
+      const pi = roads.puddle;
+      if (c.driver === 'player') {
+        if (pi >= 0 && c.puddleIn < 0 && absV > 9) {
+          // A puddle at speed: a tug at the wheel, and above about 36 mph the car aquaplanes for most of a second.
+          roads.tugs++;
+          c.yawRate += (pi & 1 ? 1 : -1) * 0.16 * clamp01(absV / 16);
+          if (absV > 16) c.aquaT = AQUA_S; else c.aquaT = Math.max(c.aquaT, 0.25);
+        }
+      } else if (roads.onIce && c.loose <= 0 && absV > 7 && this.rand() < dt * 0.1 * clamp01(roads.ice * 2)) {
+        // A rare AI slide on ice.
+        roads.skids++;
+        c.loose = 1.4; c.yawRate += (this.rand() < 0.5 ? -1 : 1) * (0.5 + this.rand() * 0.5);
+      }
+      c.puddleIn = pi;
+    } else c.puddleIn = -1;
+    if (c.aquaT > 0) c.aquaT -= dt;
+    const gripBase = sp.grip * surf * (c.aquaT > 0 ? 0.6 : 1) * (1 - 0.22 * this.wet) * (1 - 0.5 * snow) * (c.soft ? 0.7 * (1 - 0.22 * mud) : 1) * (1 - 0.07 * mud);
     // Frost heave: a ridge across the road here and there; the springs take it as the wheels cross, and the body hops a little.
     if (mud > 0 && c.driver === 'player' && c.onGround && !c.soft) {
       const hv = heaveAt(c.x, c.z);
@@ -1200,7 +1225,8 @@ export class Vehicles implements VehiclesApi {
       const free = c.sliding || hb;
       const tanMax = Math.tan(sp.steer);
       const tanLim = Math.min(tanMax, gripBase * (free ? 3.6 : CORNER) * sp.wheelbase / (vf * vf + 0.01));
-      const tanS = c.steerPos * tanLim;
+      // Aquaplaning: the front tires float and the wheel goes light (it takes a third of the steering).
+      const tanS = c.steerPos * tanLim * (c.aquaT > 0 ? 0.35 : 1);
       c.steerAng = Math.atan(c.steerPos * Math.max(tanLim, 0.16));
 
       // Engine, brakes, drag.
@@ -1219,13 +1245,13 @@ export class Vehicles implements VehiclesApi {
       // here holds a stopped car, so it can always back out.
       if (c.wade > 0) along *= 1 - 0.35 * clamp01(c.wade / 0.6);
       // The wheels spin on snow: a gentler pull away.
-      along *= 1 - 0.4 * this.snow;
+      along *= (1 - 0.4 * snow) * (0.45 + 0.55 * surf);
       // A crumpled front is a hurt engine and a bent frame: a little less pull (carDamage.ts).
       if (c.dmg) along *= c.dmg.power();
       // Feet off: engine braking and drag bring it to rest in a block or so. A car nobody is in sits in gear.
       // Light at speed, so lifting through a bend is not half a brake; firmer near walking pace so it does stop.
       let drag = throttle === 0 ? (0.55 + 0.02 * absV) * (COAST[sp.kind] ?? 1) + (absV < 5 ? 1 - absV / 5 : 0) : 0.15;
-      drag += brake * sp.brake * (1 - 0.15 * this.wet - 0.5 * this.snow);
+      drag += brake * sp.brake * (1 - 0.15 * this.wet - 0.5 * snow) * (0.12 + 0.88 * surf);
       // Locked rears scrub little speed: the slide has to carry the car round.
       if (hb) drag += sp.brake * 0.4;
       if (c.wade > 0) drag += c.wade * (0.3 + 2.4 * absV + 0.15 * absV * absV);

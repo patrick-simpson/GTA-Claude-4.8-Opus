@@ -21,6 +21,7 @@ import { Launchers } from './launchers';
 import { Moose } from './moose';
 import { Fauna } from './fauna';
 import { SeasonFx } from './seasonFx';
+import { RoadFx } from './roadCond';
 import { Train } from './train';
 import { DuckLoose } from './duckLoose';
 import { StuntPark } from './stuntPark';
@@ -79,6 +80,8 @@ export class World implements WorldApi {
     this.parts.push(new Fauna(g, this.group));
     // The year beyond snow (world/seasonFx.ts): mud season's puddles, summer's stands and sailboats, the fall's harvest stands and leaf-peepers.
     this.parts.push(new SeasonFx(g, this.group, this.mats));
+    // Puddles in the lanes in rain and black ice on freezing winter nights (world/roadCond.ts; the cars read it in ent/vehicle.ts).
+    this.parts.push(new RoadFx(g, this.group));
     // The Budget Line (world/train.ts): a train on the mainland's rail, on the shared clock; the player can drive it.
     this.parts.push(new Train(g, this.group));
     // Giant rubber duck events (world/duckLoose.ts): the duck breaks loose now and then; push it home for a reward.

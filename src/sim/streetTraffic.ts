@@ -26,6 +26,7 @@ import type { Anchor, Driver, RoadPed } from './traffic';
 import { StreetSignals } from '../world/streetSignals';
 import { season } from '../world/season';
 import { VISITOR_PAINT } from '../world/seasonData';
+import { roads } from '../world/roadCond';
 
 /** What the rail drivers need from Traffic. */
 export interface RailHost {
@@ -393,7 +394,7 @@ export class StreetDrivers {
     const len = cum[cum.length - 1];
     const R = len / Math.max(turn, 0.01);
     r.path = out; r.cum = cum; r.k = 0; r.plane = lane; r.poff = off;
-    r.pv = clamp(Math.sqrt(2.4 * R), 3.2, 30) * (v.hl > 3.2 ? 0.85 : 1) * (1 - 0.5 * (this.host.game.sky?.slick ?? 0));
+    r.pv = clamp(Math.sqrt(2.4 * R), 3.2, 30) * (v.hl > 3.2 ? 0.85 : 1) * (1 - 0.5 * roads.ai);
     this.unqueue(d, n.id);
     r.stop = 0; r.stopT = 0; r.yellow = 0; r.prev = 99;
     this.stats.paths++;
@@ -495,7 +496,7 @@ export class StreetDrivers {
     }
     const sp = v.speed, sh = Math.sin(v.h), ch = Math.cos(v.h), long = v.hl > 3.2;
     let cx: number, cz: number, want = r.cruise, hold = false, stopD = 99;
-    const slick = g.sky?.slick ?? 0;
+    const slick = roads.ai;
 
     if (r.path) {
       // ── Through the junction ──

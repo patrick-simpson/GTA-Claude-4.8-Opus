@@ -19,6 +19,7 @@ import { clamp, TAU } from '../core/util';
 import type { RoadEdge, RoadNode } from '../world/plan';
 import { railOff } from '../sim/streetTraffic';
 import type { Traffic } from '../sim/traffic';
+import { roads } from '../world/roadCond';
 
 type Kind = 'signal' | 'stop' | 'yield' | 'round' | 'merge' | 'left';
 
@@ -301,7 +302,7 @@ export class Autopilot {
     for (let i = 1; i < np; i++) cum.push(cum[i - 1] + Math.hypot(P[2 * i] - P[2 * i - 2], P[2 * i + 1] - P[2 * i - 1]));
     const vcap: number[] = new Array(np);
     const hd = (i: number): number => Math.atan2(P[2 * Math.min(np - 1, i + 1)] - P[2 * Math.max(0, i - 1)], P[2 * Math.min(np - 1, i + 1) + 1] - P[2 * Math.max(0, i - 1) + 1]);
-    const slick = g.sky?.slick ?? 0;
+    const slick = roads.ai;
     for (let i = 0; i < np; i++) {
       // The bend within about 5 m either side.
       let a = i, b = i;
@@ -521,7 +522,7 @@ export class Autopilot {
       }
       if (h) {
         hold = true;
-        want = Math.min(want, stopD < 0.6 ? 0 : Math.sqrt((4.2 - 1.8 * (g.sky?.slick ?? 0)) * stopD));
+        want = Math.min(want, stopD < 0.6 ? 0 : Math.sqrt((4.2 - 1.8 * roads.ai) * stopD));
       }
     }
 

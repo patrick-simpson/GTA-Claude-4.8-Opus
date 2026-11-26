@@ -21,6 +21,7 @@ import { MAIN_SPLIT_Z } from '../world/mainland';
 import { season } from '../world/season';
 import { VISITOR_PAINT } from '../world/seasonData';
 import { StreetDrivers, type Rail } from './streetTraffic';
+import { roads } from '../world/roadCond';
 
 /** The most left and pushed cars the town keeps wherever they stand; past this the ones nobody can see are towed. */
 const KEPT_MAX = 40;
@@ -856,7 +857,7 @@ export class Traffic {
     if (t) want = Math.min(want, t.vmax);
     if (d.passing) want = Math.min(want, 7);
     // Snow: everybody creeps (and leaves more room, below).
-    const slick = this.game.sky?.slick ?? 0;
+    const slick = roads.ai;
     if (slick > 0) want *= 1 - 0.35 * slick;
 
     // ── The junction ahead ──
