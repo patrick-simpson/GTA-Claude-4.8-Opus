@@ -14,10 +14,11 @@
 import { HORN_CHOICES } from '../game/looks';
 import type { Vehicle } from '../core/api';
 import type { Game } from '../core/game';
-import { isBoatKind, type VehicleKind } from '../ent/vehicleSpecs';
+import { isBoatKind, SPECS, type VehicleKind } from '../ent/vehicleSpecs';
 import type { Remote } from '../net/remote';
 import { mulberry, type AudioCore } from './audio';
 import * as sfx from './sfx';
+import { ASPHALT, SURF_SOUND, detect, newSample, type Sample } from './surface';
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -247,47 +248,103 @@ function rpmAt(e: EngineSpec, speed: number, top: number): number {
   return e.idle;
 }
 
-/** A cheap engine for somebody else's car: one wave, one filter, placed in the world, with a little Doppler. */
+/**
+ * A cheap engine for somebody else's car (an AI car, or another player's): one wave, one filter, placed in the world, with a
+ * little Doppler, and under it that car's tyre noise in the band of the surface it is on (item 46).
+ */
 class FarEngine {
   v: Vehicle | null = null;
+  r: Remote | null = null;
+  /** Where it is and what it is doing, refreshed by refresh(). */
+  px = 0; py = 0; pz = 0; vx = 0; vz = 0; speed = 0; accel = 0; top = 40; kind: VehicleKind = 'sedan';
+  /** The surface under it, looked up by the owner a few times a second. */
+  readonly samp: Sample = newSample();
+  /** Levels last set (the tests read them). */
+  gain = 0; tyre = 0;
   private readonly o: OscillatorNode; private readonly lp: BiquadFilterNode; private readonly g: GainNode; private readonly pan: StereoPannerNode;
-  private kind: VehicleKind | null = null;
+  private readonly nb: BiquadFilterNode; private readonly ng: GainNode;
+  private wk: VehicleKind | null = null;
   constructor(private readonly core: AudioCore) {
     this.o = core.osc('sine', 20); this.lp = core.filter('lowpass', 900, 0.7); this.g = core.gain(0);
     this.pan = core.ctx.createStereoPanner();
     this.o.connect(this.lp); this.lp.connect(this.g); this.g.connect(this.pan); this.pan.connect(core.bus.engine);
     this.o.start();
+    // Tyre noise: pink noise in the surface's band, in the same panner.
+    const n = core.noiseSrc('pink');
+    this.nb = core.filter('bandpass', 700, 0.6); this.ng = core.gain(0);
+    n.connect(this.nb); this.nb.connect(this.ng); this.ng.connect(this.pan);
   }
-  assign(v: Vehicle | null): void {
-    this.v = v;
-    if (v && v.spec.kind !== this.kind) { this.kind = v.spec.kind; this.o.setPeriodicWave(engineWave(this.core, this.kind)); }
+  get live(): boolean { return this.v !== null || this.r !== null; }
+  assign(v: Vehicle | null, r: Remote | null = null): void {
+    this.v = v; this.r = r;
+    if (v || r) this.refresh();
+  }
+  /** Copy the car's state in. False when there is nothing to hear (and a car nobody drives is let go). */
+  refresh(): boolean {
+    const v = this.v, r = this.r;
+    if (v) {
+      if (!v.driver) { this.v = null; return false; }
+      if (v.sunk || v.wreck) return false;
+      this.px = v.x; this.py = v.y; this.pz = v.z; this.vx = v.vx; this.vz = v.vz; this.speed = v.speed; this.accel = v.ctl.accel; this.top = v.spec.topSpeed; this.kind = v.spec.kind;
+      return true;
+    }
+    if (r) {
+      if (!r.kind || !r.seen) return false;
+      this.px = r.x; this.py = r.y; this.pz = r.z; this.vx = r.vx; this.vz = r.vz; this.speed = r.speed; this.top = SPECS[r.kind].topSpeed; this.kind = r.kind;
+      // Their throttle is not on the wire: the faster they go, the harder they are taken to be pushing.
+      this.accel = clamp01(Math.abs(r.speed) / this.top * 1.4);
+      return true;
+    }
+    return false;
+  }
+  /** Look up the surface under it (a few times a second, from the owner's scan). */
+  retag(game: Game): void {
+    if (!this.live || !this.refresh()) return;
+    if (isBoatKind(this.kind)) { this.samp.kind = ASPHALT; this.samp.wet = 1; this.samp.puddle = false; } else detect(game, this.px, this.pz, this.samp);
   }
   update(): void {
-    const c = this.core, t = c.now, v = this.v;
-    if (!v || !v.driver || v.sunk || v.wreck) { this.g.gain.setTargetAtTime(0, t, 0.1); if (v && !v.driver) this.v = null; return; }
-    const e = ENGINES[v.spec.kind], spd = Math.abs(v.speed);
-    const dop = c.doppler(v.x, v.z, v.vx, v.vz);
-    const thr = clamp01(Math.abs(v.ctl.accel));
+    const c = this.core, t = c.now;
+    if (!this.live || !this.refresh()) { this.g.gain.setTargetAtTime(0, t, 0.1); this.ng.gain.setTargetAtTime(0, t, 0.1); this.gain = 0; this.tyre = 0; return; }
+    if (this.kind !== this.wk) { this.wk = this.kind; this.o.setPeriodicWave(engineWave(c, this.kind)); }
+    const e = ENGINES[this.kind], spd = Math.abs(this.speed), x = this.px, y = this.py, z = this.pz;
+    const dop = c.doppler(x, z, this.vx, this.vz);
+    const thr = clamp01(Math.abs(this.accel));
+    let gn: number;
     if (e.cyl === 0) {
       this.o.frequency.setTargetAtTime((170 + spd * 58) * dop, t, 0.05);
       this.lp.frequency.setTargetAtTime(4000, t, 0.1);
-      this.g.gain.setTargetAtTime(c.gainAt(v.x, v.y, v.z, 5, 70) * 0.1, t, 0.08);
+      gn = c.gainAt(x, y, z, 5, 70) * 0.1;
     } else {
-      const rpm = rpmAt(e, v.speed, v.spec.topSpeed), rn = (rpm - e.idle) / (e.redline - e.idle);
+      const rpm = rpmAt(e, this.speed, this.top), rn = (rpm - e.idle) / (e.redline - e.idle);
       this.o.frequency.setTargetAtTime((rpm / 120) * dop, t, 0.08);
       this.lp.frequency.setTargetAtTime(300 + e.bright * (0.15 + 0.5 * thr) * (0.3 + 0.7 * rn), t, 0.1);
-      this.g.gain.setTargetAtTime(c.gainAt(v.x, v.y, v.z, 6, 90) * e.level * (0.22 + 0.25 * rn + 0.2 * thr), t, 0.08);
+      gn = c.gainAt(x, y, z, 6, 90) * e.level * (0.22 + 0.25 * rn + 0.2 * thr);
     }
-    this.pan.pan.setTargetAtTime(c.panAt(v.x, v.z), t, 0.08);
+    this.g.gain.setTargetAtTime(gn, t, 0.08); this.gain = gn;
+    // The tyres: louder with speed, in the band of what they roll on (a shorter reach than the engine: it is a hush, not a roar).
+    const P = SURF_SOUND[this.samp.kind], wet = this.samp.wet * Math.max(P.hard, 0.15);
+    const ty = c.gainAt(x, y, z, 5, 55) * clamp01(spd / 28) * (P.far * 0.22 + 0.2 * wet);
+    this.nb.frequency.setTargetAtTime(P.farF * (1 + 0.5 * wet) * dop, t, 0.15);
+    this.ng.gain.setTargetAtTime(ty, t, 0.15); this.tyre = ty;
+    this.pan.pan.setTargetAtTime(c.panAt(x, z), t, 0.08);
   }
 }
 
-/** Tyres, road and wind for the car she is in. Three noise sources that never stop; only their gains and filters move. */
+/**
+ * Tyres, road and wind for the car she is in (item 46: they follow the surface, audio/surface.ts). Layers that never stop,
+ * only their gains and filters move: squeal, road roar, tread hiss, a rhythmic thump (cobbles, planks, deck joints), a
+ * granular crunch (gravel, snow, sand), a slide whisper for the surfaces that cannot squeal, and wind.
+ */
 export class Rolling {
   private readonly sq1: BiquadFilterNode; private readonly sq2: BiquadFilterNode; private readonly sqG: GainNode; private readonly sqTone: OscillatorNode; private readonly sqToneG: GainNode;
-  private readonly roadLp: BiquadFilterNode; private readonly roadG: GainNode; private readonly hissG: GainNode;
+  private readonly roadLp: BiquadFilterNode; private readonly roadG: GainNode; private readonly hissG: GainNode; private readonly hissBp: BiquadFilterNode;
   private readonly windBp: BiquadFilterNode; private readonly windG: GainNode;
+  private readonly thumpBp: BiquadFilterNode; private readonly thumpG: GainNode; private readonly thumpAm: GainNode; private readonly thumpLfo: OscillatorNode;
+  private readonly gritHp: BiquadFilterNode; private readonly gritG: GainNode; private readonly gritAm: GainNode; private readonly gritLp: BiquadFilterNode;
+  private readonly slideBp: BiquadFilterNode; private readonly slideG: GainNode;
   private wob = 0;
+  /** The layer levels last set (the tests read them). */
+  level = { roar: 0, hiss: 0, thump: 0, grit: 0, slide: 0, squeal: 0 };
   constructor(private readonly core: AudioCore, out: AudioNode) {
     const c = core;
     // Squeal: two narrow bands a fifth and a bit apart over a wavering tone. Rubber sings at a pitch, it does not hiss.
@@ -304,30 +361,67 @@ export class Rolling {
     const b = c.noiseSrc('brown');
     this.roadLp = c.filter('lowpass', 150, 0.6); this.roadG = c.gain(0);
     b.connect(this.roadLp); this.roadLp.connect(this.roadG); this.roadG.connect(out);
-    const p = c.noiseSrc('pink'), hb = c.filter('bandpass', 1100, 0.5);
+    const p = c.noiseSrc('pink');
+    this.hissBp = c.filter('bandpass', 1100, 0.5);
     this.hissG = c.gain(0);
-    p.connect(hb); hb.connect(this.hissG); this.hissG.connect(out);
+    p.connect(this.hissBp); this.hissBp.connect(this.hissG); this.hissG.connect(out);
     // Wind: only above town speeds.
     const w2 = c.noiseSrc('white');
     this.windBp = c.filter('bandpass', 600, 0.7); this.windG = c.gain(0);
     w2.connect(this.windBp); this.windBp.connect(this.windG); this.windG.connect(out);
+    // Thump: low noise swelled by a slow wave at the rate the wheels cross stones, planks and joints.
+    const tn = c.noiseSrc('brown');
+    this.thumpBp = c.filter('bandpass', 150, 1.1); this.thumpG = c.gain(0); this.thumpAm = c.gain(0);
+    this.thumpLfo = c.osc('sine', 3);
+    tn.connect(this.thumpBp); this.thumpBp.connect(this.thumpG); this.thumpG.connect(out);
+    this.thumpLfo.connect(this.thumpAm); this.thumpAm.connect(this.thumpG.gain);
+    this.thumpLfo.start();
+    // Grit: bright noise broken into grains by slow noise.
+    const gn = c.noiseSrc('white'), mn = c.noiseSrc('white');
+    this.gritHp = c.filter('highpass', 1800, 0.7); this.gritG = c.gain(0); this.gritAm = c.gain(0); this.gritLp = c.filter('lowpass', 30, 0.5);
+    gn.connect(this.gritHp); this.gritHp.connect(this.gritG); this.gritG.connect(out);
+    mn.connect(this.gritLp); this.gritLp.connect(this.gritAm); this.gritAm.connect(this.gritG.gain);
+    // Slide: a band of noise that wanders, for tyres that let go on something that cannot squeal.
+    const sn = c.noiseSrc('white');
+    this.slideBp = c.filter('bandpass', 1200, 1.3); this.slideG = c.gain(0);
+    sn.connect(this.slideBp); this.slideBp.connect(this.slideG); this.slideG.connect(out);
   }
-  /** on: she is in a car. wet 0..1. */
-  update(on: boolean, speed: number, slip: number, onGround: boolean, wet: number, dt: number): void {
-    const t = this.core.now, spd = Math.abs(speed), g = on && onGround ? 1 : 0;
+  /** on: she is in a car. s: the surface under her (audio/surface.ts) and how wet it is. */
+  update(on: boolean, speed: number, slip: number, onGround: boolean, s: Sample, dt: number): void {
+    const t = this.core.now, spd = Math.abs(speed), g = on && onGround ? 1 : 0, P = SURF_SOUND[s.kind], wet = s.wet;
     const k = clamp01((slip - 0.28) / 0.5);
-    const sq = on && onGround ? k * k * (3 - 2 * k) * clamp01(spd / 5) * (1 - 0.65 * wet) : 0;
+    const sq = on && onGround ? k * k * (3 - 2 * k) * clamp01(spd / 5) * (1 - 0.65 * wet) * P.squeal : 0;
     this.wob += dt * (5 + slip * 9);
     const f = 880 + spd * 9 + Math.sin(this.wob) * 45 + Math.sin(this.wob * 2.7) * 25 + slip * 160;
     this.sq1.frequency.setTargetAtTime(f, t, 0.03); this.sq2.frequency.setTargetAtTime(f * 1.53, t, 0.03);
     this.sqTone.frequency.setTargetAtTime(f, t, 0.03);
     this.sqG.gain.setTargetAtTime(sq * 1.5, t, 0.05);
-    this.roadLp.frequency.setTargetAtTime(110 + spd * 16, t, 0.1);
-    this.roadG.gain.setTargetAtTime(g * clamp01(spd / 45) * 0.9, t, 0.1);
-    this.hissG.gain.setTargetAtTime(g * clamp01(spd / 40) * (0.16 + 0.5 * wet) + sq * 0.2 * wet, t, 0.1);
+    // Surfaces change under her in a blink (a kerb, the bridge's first plank): slow time constants make the crossfade.
+    const tc = 0.12;
+    const roar = g * clamp01(spd / 45) * 0.9 * P.roar;
+    this.roadLp.frequency.setTargetAtTime(P.roarF + spd * P.roarK, t, tc);
+    this.roadG.gain.setTargetAtTime(roar, t, tc);
+    const hiss = g * clamp01(spd / 40) * (0.16 * P.hiss + 0.5 * wet * Math.max(P.hard, 0.15) * (s.puddle ? 1.5 : 1)) + sq * 0.2 * wet;
+    this.hissBp.frequency.setTargetAtTime(P.hissF * (1 + 0.6 * wet * P.hard), t, tc);
+    this.hissG.gain.setTargetAtTime(hiss, t, tc);
+    // Thump: pulses per metre times metres per second, capped where it would only buzz.
+    const th = g * clamp01(spd / 5) * P.thump * 0.5;
+    this.thumpBp.frequency.setTargetAtTime(P.thumpF, t, tc);
+    this.thumpLfo.frequency.setTargetAtTime(Math.min(34, 0.5 + spd * P.thumpPerM), t, 0.1);
+    this.thumpG.gain.setTargetAtTime(th, t, tc); this.thumpAm.gain.setTargetAtTime(th, t, tc);
+    // Grit: the grains come faster and louder with speed, and louder still when the wheels are spinning or sliding.
+    const gr = g * clamp01(spd / 14) * P.grit * 0.5 * (1 + 0.8 * clamp01(slip));
+    this.gritHp.frequency.setTargetAtTime(P.gritF, t, tc);
+    this.gritLp.frequency.setTargetAtTime(P.gritRate * (0.5 + clamp01(spd / 25)), t, tc);
+    this.gritG.gain.setTargetAtTime(gr * 0.45, t, tc); this.gritAm.gain.setTargetAtTime(gr * 3.2, t, tc);
+    // Slide: from a lighter slip than a squeal needs; on ice it is nearly all there is.
+    const ks = clamp01((slip - 0.16) / 0.4), sl = g * ks * ks * (3 - 2 * ks) * clamp01(spd / 3) * P.slide * 0.8;
+    this.slideBp.frequency.setTargetAtTime(P.slideF * (1 + 0.12 * Math.sin(this.wob * 1.3) + 0.25 * clamp01(spd / 30)), t, 0.06);
+    this.slideG.gain.setTargetAtTime(sl, t, 0.07);
     const wv = clamp01((spd - 12) / 45);
     this.windBp.frequency.setTargetAtTime(450 + spd * 22, t, 0.2);
     this.windG.gain.setTargetAtTime(on ? wv * wv * 0.5 : 0, t, 0.15);
+    const L = this.level; L.roar = roar; L.hiss = hiss; L.thump = th; L.grit = gr; L.slide = sl; L.squeal = sq;
   }
 }
 
@@ -395,9 +489,14 @@ const FAR = 3;
 
 export class VehicleSounds {
   readonly engine: EngineVoice;
-  private readonly rolling: Rolling;
+  readonly rolling: Rolling;
   private readonly far: FarEngine[] = [];
   private readonly own: AudioNode;
+  /** What she is rolling on, looked up eight times a second (item 46). */
+  readonly surf: Sample = newSample();
+  private surfT = 0;
+  private wasPuddle = false;
+  private readonly boatSurf: Sample = { kind: ASPHALT, wet: 1, puddle: false };
   private horn: HornVoice | null = null;
   private readonly aiHorns: { v: Vehicle; voice: HornVoice; g: GainNode; pan: StereoPannerNode }[] = [];
   /** Other players' horns (src/net/): the same voice as an AI car's, at the ghost's place. */
@@ -487,11 +586,21 @@ export class VehicleSounds {
     this.engine.update(st, dt);
     // A boat has no tyres: its hull hiss is the wet-road hiss at full wet, with no squeal.
     const boat = !!v && isBoatKind(v.spec.kind);
-    this.rolling.update(!!v && !v.sunk, v ? v.speed : 0, v && !boat ? v.slip : 0, v ? v.onGround : true, boat ? 1 : g.sky.wet, dt);
+    if (v && !boat) {
+      this.surfT -= dt;
+      if (this.surfT <= 0) {
+        this.surfT = 0.125; detect(g, v.x, v.z, this.surf);
+        // Into a puddle at speed: a slap of spray.
+        const pud = this.surf.puddle;
+        if (pud && !this.wasPuddle && Math.abs(v.speed) > 5 && v.onGround && core.claim('puddle', 2, 0.3)) sfx.splash(core, t + 0.02, core.direct('sfx', 0.5, 0.08), false, Math.random);
+        this.wasPuddle = pud;
+      }
+    } else this.wasPuddle = false;
+    this.rolling.update(!!v && !v.sunk, v ? v.speed : 0, v && !boat ? v.slip : 0, v ? v.onGround : true, boat ? this.boatSurf : this.surf, dt);
 
     // ── Everybody else's ──
     this.scanT -= dt;
-    if (this.scanT <= 0) { this.scanT = 0.25; this.assign(v); }
+    if (this.scanT <= 0) { this.scanT = 0.25; this.assign(v); for (const f of this.far) f.retag(g); }
     for (const f of this.far) f.update();
     // AI horns: a short scan for anyone leaning on theirs within earshot.
     const list = g.vehicles.list;
@@ -555,23 +664,42 @@ export class VehicleSounds {
     }
   }
 
-  /** Give the few far-engine voices to the nearest driven cars, keeping a voice on the car it already has where it can. */
+  /** Voices in use: the engine and tyre voices on other people's cars (the cap is the voice count there will ever be), and her own layers. */
+  stats(): { far: number; cap: number; tyres: number } {
+    let n = 0, ty = 0;
+    for (const f of this.far) if (f.live) { n++; if (f.tyre > 0.0005) ty++; }
+    return { far: n, cap: this.far.length, tyres: ty };
+  }
+
+  /** Give the few far-engine voices to the nearest driven cars (the town's, then other players'), keeping a voice on the car it already has where it can. */
   private assign(mine: Vehicle | null): void {
-    const core = this.core, list = this.game.vehicles.list, far = this.far;
-    for (const f of far) if (f.v && (!f.v.driver || f.v === mine || core.gainAt(f.v.x, f.v.y, f.v.z, 6, 90) < 0.03)) f.assign(null);
+    const core = this.core, g = this.game, list = g.vehicles.list, far = this.far;
+    for (const f of far) {
+      if (!f.live) continue;
+      if (f.v && (!f.v.driver || f.v === mine)) f.assign(null);
+      else if (f.r && (!f.r.kind || !f.r.seen)) f.assign(null);
+      else if (core.gainAt(f.px, f.py, f.pz, 6, 90) < 0.03) f.assign(null);
+    }
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
       if (c === mine || !c.driver || c.sunk) continue;
-      const gc = core.gainAt(c.x, c.y, c.z, 6, 90);
-      if (gc < 0.05) continue;
-      let have = false, free: FarEngine | null = null, worst: FarEngine | null = null, wg = gc;
-      for (const f of far) {
-        if (f.v === c) have = true;
-        else if (!f.v) free = f;
-        else { const fg = core.gainAt(f.v.x, f.v.y, f.v.z, 6, 90); if (fg < wg * 0.7) { wg = fg; worst = f; } }
-      }
-      if (have) continue;
-      (free ?? worst)?.assign(c);
+      this.offer(c, null, core.gainAt(c.x, c.y, c.z, 6, 90));
     }
+    for (const r of g.net.peers) {
+      if (!r.kind || !r.seen) continue;
+      this.offer(null, r, core.gainAt(r.x, r.y, r.z, 6, 90));
+    }
+  }
+
+  private offer(c: Vehicle | null, r: Remote | null, gc: number): void {
+    if (gc < 0.05) return;
+    const far = this.far;
+    let free: FarEngine | null = null, worst: FarEngine | null = null, wg = gc;
+    for (const f of far) {
+      if ((c && f.v === c) || (r && f.r === r)) return;
+      if (!f.live) free = f;
+      else { const fg = this.core.gainAt(f.px, f.py, f.pz, 6, 90); if (fg < wg * 0.7) { wg = fg; worst = f; } }
+    }
+    (free ?? worst)?.assign(c, r);
   }
 }
