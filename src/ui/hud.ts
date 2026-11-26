@@ -434,6 +434,18 @@ export interface Blip {
 /** What src/game/ wants drawn on the radar. Bump `rev` after changing either list. */
 export interface Nav { blips: Blip[]; route: number[] | null; rev: number; /** Other players' map pings (game/chat.ts), drawn over the blips. */ pings?: { x: number; z: number; who: string }[] }
 
+const RADAR_STORE = 'pc.radar';
+let radarNorth = false;
+try { radarNorth = localStorage.getItem(RADAR_STORE) === 'north'; } catch { /* no storage: heading up */ }
+/** The radar's turn: heading up (the camera's way is up, as it always was) or north up. Kept on this device (localStorage pc.radar). */
+export const radarPrefs = {
+  get northUp(): boolean { return radarNorth; },
+  set(north: boolean): void {
+    radarNorth = north;
+    try { localStorage.setItem(RADAR_STORE, north ? 'north' : 'heading'); } catch { /* not kept */ }
+  },
+};
+
 class Radar {
   private ctx: CanvasRenderingContext2D;
   private size = 0;
@@ -442,6 +454,8 @@ class Radar {
   private s: number;
   private x0: number;
   private z0: number;
+  /** The turn last drawn (see Hud.radarPose); written in place, so a frame allocates nothing. */
+  readonly pose = new Float64Array(3);
 
   constructor(private canvas: HTMLCanvasElement, plan: CityPlan, light: boolean) {
     this.ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
@@ -491,6 +505,9 @@ class Radar {
   draw(x: number, z: number, yaw: number, h: number, viewR: number, hp: number, armor: number, faint: boolean, hot: number, nav: Nav, peers: readonly { x: number; z: number }[] = []): void {
     const c = this.ctx, H = this.size / 2;
     if (H <= 0) return;
+    // Heading up: the chart turns so the camera's way is up. North up: the chart stays as drawn, north at the top.
+    const th = radarPrefs.northUp ? 0 : yaw - Math.PI, ca = Math.cos(th), sa = Math.sin(th);
+    this.pose[0] = th; this.pose[1] = th - Math.PI / 2; this.pose[2] = th + Math.PI - h;
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.clearRect(0, 0, this.size, this.size);
     c.translate(H, H);
@@ -505,7 +522,7 @@ class Radar {
     c.beginPath(); c.arc(0, 0, rf, 0, TAU); c.clip();
     c.fillStyle = BONE;
     c.fillRect(-rf, -rf, rf * 2, rf * 2);
-    c.rotate(yaw - Math.PI);
+    c.rotate(th);
     this.blit(x, z, viewR, rf / viewR);
     // The route in hand: a mustard line along the streets, drawn on the chart so the face clips it.
     const rt = nav.route;
@@ -529,7 +546,7 @@ class Radar {
     c.restore();
 
     // Bearing marks, upright whichever way the chart is turned.
-    const mr = H * 0.085, md = rf - mr * 1.3, ca = Math.cos(yaw - Math.PI), sa = Math.sin(yaw - Math.PI);
+    const mr = H * 0.085, md = rf - mr * 1.3;
     for (let i = 0; i < MARKS.length; i++) {
       const m = MARKS[i], dx = m.x - x, dz = m.z - z, d = Math.hypot(dx, dz);
       // Inside this the chart's own drawing of the place is on the face.
@@ -594,7 +611,7 @@ class Radar {
     }
 
     // Compass ring: a bone card that turns with the chart.
-    const rr = H * R_RING, north = yaw + Math.PI / 2;
+    const rr = H * R_RING, north = th - Math.PI / 2;
     c.strokeStyle = BONE;
     c.lineWidth = rr - rf;
     c.beginPath(); c.arc(0, 0, (rr + rf) / 2, 0, TAU); c.stroke();
@@ -614,7 +631,9 @@ class Radar {
     const bottom = Math.PI / 2, top = -Math.PI / 2;
     this.gauge(bottom + GAUGE_GAP, top + TAU - GAUGE_GAP, hp, VERMILION, faint ? 0.3 : 1);
     this.gauge(bottom - GAUGE_GAP, top + GAUGE_GAP, armor, TEAL, 1);
-    // Lubber mark: the fixed notch that says "up is where the camera looks".
+    // Lubber mark: the notch on the rim where the camera looks (straight up when heading up; it moves on a north-up radar).
+    c.save();
+    c.rotate(th - yaw + Math.PI);
     c.fillStyle = BONE;
     c.beginPath();
     c.moveTo(0, -rr - H * 0.012);
@@ -622,6 +641,7 @@ class Radar {
     c.lineTo(-H * 0.05, -H * 0.985);
     c.closePath();
     c.fill();
+    c.restore();
 
     // North rides the ring.
     const nx = Math.cos(north) * (rr + rf) / 2, ny = Math.sin(north) * (rr + rf) / 2, nr = H * 0.095;
@@ -636,7 +656,7 @@ class Radar {
     // Dess: a vermilion dart on her own heading.
     const a = H * 0.125;
     c.save();
-    c.rotate(yaw - h);
+    c.rotate(th + Math.PI - h);
     c.beginPath();
     c.moveTo(0, -a);
     c.lineTo(a * 0.7, a * 0.78);
@@ -933,8 +953,8 @@ export class Hud implements HudApi {
   private radarT = 1;
   private viewR = 150;
   private blink = 0;
-  // The radar's last picture: [x, z, yaw, h, viewR, hp, armor, faint].
-  private drawn = [NaN, 0, 0, 0, 0, 0, 0, 0, 0];
+  // The radar's last picture: [x, z, yaw, h, viewR, hp, armor, faint, peers, north up].
+  private drawn = [NaN, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   /** Other players as last drawn on the radar, flat [x, z, ...] (for the tests). */
   peerDots: number[] = [];
   private readonly peerList: { x: number; z: number }[] = [];
@@ -1078,6 +1098,12 @@ export class Hud implements HudApi {
     addEventListener('keydown', (e) => {
       if (e.code !== 'KeyK' || e.repeat || this.state !== 'play' || this.touch) return;
       this.showKeys(this.keysT > 0 ? 0 : 12);
+    });
+    // The radar's turn, flipped with a key (Controls: Radar). In play only, never on a phone.
+    addEventListener('keydown', (e) => {
+      if (!this.game.input.is(e.code, 'radar') || e.repeat || this.state !== 'play' || this.touch) return;
+      radarPrefs.set(!radarPrefs.northUp);
+      this.toast(radarPrefs.northUp ? 'Radar: north up' : 'Radar: heading up', 1.5);
     });
     // A click anywhere on the pause sheet resumes, except on the form itself,
     // where only the button does: people click paper to read it.
@@ -1228,6 +1254,8 @@ export class Hud implements HudApi {
 
   /** The radar's chart of both lands, for the pause menu's map. */
   chart(): { img: HTMLCanvasElement; s: number; x0: number; z0: number } { return this.radar.chart(); }
+  /** The radar's last turn, for the tests: [chart turn, N marker angle, arrow turn], radians, as drawn. */
+  radarPose(): Float64Array { return this.radar.pose; }
 
   /** A line of dialogue with the speaker's name, low in the middle. Not in HudApi yet. null clears it. */
   subtitle(who: string | null, text = '', seconds = 5): void {
@@ -1680,7 +1708,7 @@ export class Hud implements HudApi {
     const pl = this.peerList; pl.length = 0;
     let psig = 0;
     for (const r of g.net.peers) { pl.push(r); psig += r.x * 7 + r.z * 13 + 1; }
-    const d = this.drawn, yaw = g.cam.yaw;
+    const d = this.drawn, yaw = g.cam.yaw, nu = radarPrefs.northUp ? 1 : 0;
     const jumped = Math.abs(p.x - d[0]) > 4 || Math.abs(p.z - d[1]) > 4;
     this.radarT += dt;
     // A teleport redraws at once; otherwise 30 pictures a second is the ceiling.
@@ -1690,9 +1718,9 @@ export class Hud implements HudApi {
     this.navRev = this.nav.rev;
     if (
       navSame && Math.abs(p.x - d[0]) < 0.2 && Math.abs(p.z - d[1]) < 0.2 && Math.abs(yaw - d[2]) < 0.003 &&
-      Math.abs(p.h - d[3]) < 0.01 && Math.abs(this.viewR - d[4]) < 0.4 && hp === d[5] && armor === d[6] && faint === d[7] && Math.abs(psig - d[8]) < 0.2
+      Math.abs(p.h - d[3]) < 0.01 && Math.abs(this.viewR - d[4]) < 0.4 && hp === d[5] && armor === d[6] && faint === d[7] && Math.abs(psig - d[8]) < 0.2 && nu === d[9]
     ) return;
-    d[0] = p.x; d[1] = p.z; d[2] = yaw; d[3] = p.h; d[4] = this.viewR; d[5] = hp; d[6] = armor; d[7] = faint; d[8] = psig;
+    d[0] = p.x; d[1] = p.z; d[2] = yaw; d[3] = p.h; d[4] = this.viewR; d[5] = hp; d[6] = armor; d[7] = faint; d[8] = psig; d[9] = nu;
     this.radar.draw(p.x, p.z, yaw, p.h, this.viewR, hp, armor, faint === 1, this.hot, this.nav, pl);
     this.peerDots.length = 0;
     for (const o of pl) this.peerDots.push(Math.round(o.x * 10) / 10, Math.round(o.z * 10) / 10);

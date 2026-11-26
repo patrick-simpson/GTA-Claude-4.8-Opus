@@ -13,7 +13,7 @@ export type Action =
   | 'enter' | 'jump' | 'fire' | 'aim' | 'reload' | 'nextWeapon' | 'prevWeapon'
   | 'handbrake' | 'horn' | 'radio' | 'pause' | 'map' | 'interact' | 'lookBack' | 'camera' | 'sprint' | 'say' | 'emote' | 'chat'
   | 'forward' | 'back' | 'left' | 'right'
-  | 'photo' | 'autopilot' | 'bet' | 'convoy' | 'tutorial' | 'fireworks' | 'replay' | 'spectate' | 'snowball';
+  | 'photo' | 'autopilot' | 'bet' | 'convoy' | 'tutorial' | 'fireworks' | 'replay' | 'spectate' | 'snowball' | 'radar';
 
 /** What the Controls page lists, in order: [action, name, default keys (two slots)]. fire and aim stay on the mouse. */
 export const ACTION_LIST: [Action, string, [string, string]][] = [
@@ -47,6 +47,7 @@ export const ACTION_LIST: [Action, string, [string, string]][] = [
   ['fireworks', 'Light a firework', ['KeyL', '']],
   ['spectate', 'Spectate a player', ['KeyU', '']],
   ['snowball', 'Throw a snowball (holiday)', ['KeyX', '']],
+  ['radar', 'Radar: north up or heading up', ['Slash', '']],
 ];
 const ALL_ACTIONS = ACTION_LIST.map((r) => r[0]);
 export const DEFAULT_KEYS: Record<string, [string, string]> = {};

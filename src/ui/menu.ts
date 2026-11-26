@@ -34,7 +34,7 @@ import { kid } from '../core/kid';
 import { VOICE_CREDIT } from '../audio/voices';
 import { MAP_CREDIT, MUSIC_CREDIT } from '../core/credits';
 import { PEER_COLOR } from '../net/names';
-import { PARDONS_AT, PARDONS_RED } from './hud';
+import { PARDONS_AT, PARDONS_RED, radarPrefs } from './hud';
 import { HIDEABLE, touchPrefs, type TouchSize } from './touch';
 import { Wardrobe } from './wardrobe';
 import { PlacesPanel } from './places';
@@ -74,6 +74,7 @@ const CONTROLS: [string, string, string, string][] = [
   ['Fast travel (Courtesy Cab)', 'Map: pick a place, Travel there', 'Back, pick, Travel there', 'MAP, pick, Travel there'],
   ['Pause', 'Esc or P', 'Start', 'Pause key'],
   ['First-hour tour: skip a step / end it', ', (comma), hold to end', '', 'Skip step / End tour'],
+  ['Radar: north up / heading up', '/', '', ''],
   ['Unstick', 'Hold Backspace', '', ''],
 ];
 
@@ -782,6 +783,7 @@ export class Menu {
     const tog = (key: string, on: boolean): string => `<button type="button" class="mn-tog ${on ? 'on' : ''}" data-set="${key}" aria-pressed="${on}"><i></i>${on ? 'On' : 'Off'}</button>`;
     const q = (['auto', 'low', 'medium', 'high'] as QualityPick[]).map((v) => `<button type="button" class="mn-seg ${s.quality === v ? 'on' : ''}" data-set="quality" data-v="${v}">${v}</button>`).join('');
     const seasons = (['auto', 'autumn', 'winter', 'summer'] as SeasonPick[]).map((v) => `<button type="button" class="mn-seg ${season.shown === v ? 'on' : ''}" data-set="season" data-v="${v}">${v}</button>`).join('');
+    const radar = (['heading', 'north'] as const).map((v) => `<button type="button" class="mn-seg ${(v === 'north') === radarPrefs.northUp ? 'on' : ''}" data-set="radar" data-v="${v}">${v === 'north' ? 'north up' : 'heading up'}</button>`).join('');
     const running = this.game.quality.name, gov = this.game.gov;
     // Auto and a fixed preset swap while running; only a different preset has to rebuild the world.
     const want = s.quality === 'auto' ? autoPresetIfKnown() : s.quality;
@@ -804,6 +806,7 @@ export class Menu {
     <div class="mn-row"><span class="mn-lbl">Automatic replays</span><span>${tog('autoReplay', this.game.cam.replay.auto)}</span></div>
     <div class="mn-row"><span class="mn-lbl">Quality</span><span class="mn-segs">${q}</span></div>
     <div class="mn-row"><span class="mn-lbl">Season</span><span class="mn-segs">${seasons}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Radar</span><span class="mn-segs">${radar}</span></div>
     <div class="mn-row"><span class="mn-lbl">Holiday decorations</span><span class="mn-segs">${(['auto', 'on', 'off'] as HolidayPick[]).map((v) => `<button type="button" class="mn-seg ${holiday.shown === v ? 'on' : ''}" data-set="holiday" data-v="${v}">${v}</button>`).join('')}</span></div>
     ${this.tourRow()}
     ${this.nameRow()}
@@ -898,11 +901,12 @@ export class Menu {
     else if (key === 'invertY' || key === 'fsTap' || key === 'reducedMotion') s[key] = !s[key];
     else if (key === 'autoReplay') this.game.cam.replay.setAuto(!this.game.cam.replay.auto);
     else if (key === 'kid') kid.flip(!kid.on);
+    else if (key === 'radar') radarPrefs.set(el.dataset.v === 'north');
     else return;
     this.todo.applySettings();
     save.write();
     // The slider keeps the pointer; everything else is redrawn with its new state.
-    if (key !== 'sens' && !key.startsWith('vol')) { this.panes[3].innerHTML = this.settingsHtml(); (this.panes[3].querySelector(`[data-set="${key}"]${key === 'quality' ? `[data-v="${s.quality}"]` : key === 'season' ? `[data-v="${season.shown}"]` : key === 'holiday' ? `[data-v="${holiday.shown}"]` : ''}`) as HTMLElement | null)?.focus(); }
+    if (key !== 'sens' && !key.startsWith('vol')) { this.panes[3].innerHTML = this.settingsHtml(); (this.panes[3].querySelector(`[data-set="${key}"]${key === 'quality' ? `[data-v="${s.quality}"]` : key === 'season' ? `[data-v="${season.shown}"]` : key === 'holiday' ? `[data-v="${holiday.shown}"]` : key === 'radar' ? `[data-v="${el.dataset.v}"]` : ''}`) as HTMLElement | null)?.focus(); }
   }
 
   /** The Touch controls section (Form C-4). True when the key was one of its own. */
