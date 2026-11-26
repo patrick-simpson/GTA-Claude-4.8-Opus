@@ -1,0 +1,5 @@
+/* The book, plaque, librarian and ticket cards (ui/civicPanel.ts); the frame is nightPanel.css's. */
+.cv-back { background: rgba(30, 18, 10, 0.55); }
+.cv-text { font-size: 1.12em; line-height: 1.45; margin: 0.6em 0 0.4em; }
+.cv-fine { margin: 0.4em 0 0; opacity: 0.8; font-style: italic; }
+.cv-no { opacity: 0.55; }

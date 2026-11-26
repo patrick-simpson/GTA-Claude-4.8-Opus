@@ -37,6 +37,8 @@ import { Townsfolk } from './townsfolk';
 import { Crowd } from './crowd';
 import { Nightlife } from './nightlife';
 import { NightPanel } from '../ui/nightPanel';
+import { Civic } from './civic';
+import { CivicPanel } from '../ui/civicPanel';
 import { TownProject } from './project';
 import { Shops } from './shops';
 import { Tutorial } from './tutorial';
@@ -110,6 +112,9 @@ export class ThingsToDo {
   /** The Side Door Diner and the Hog Wallow Pub on Main St: walk-in rooms, a glowing street at night (fun queue 2, item 35). */
   readonly nightlife: Nightlife;
   readonly nightPanel: NightPanel;
+  /** The Overdue Library, the Museum of Mild Curiosities and the Depot's ticket hall: walk-in rooms (fun queue 2, item 47). */
+  readonly civic: Civic;
+  readonly civicPanel: CivicPanel;
   readonly shops: Shops;
   /** The optional first hour over the bridge to Tepid Falls, told by Lou (fun queue 2, item 36). */
   readonly tutorial: Tutorial;
@@ -161,6 +166,8 @@ export class ThingsToDo {
     this.crowd = new Crowd(game);
     this.nightlife = new Nightlife(game, this.townsfolk, () => this.busy === null);
     this.nightPanel = new NightPanel(game, this.nightlife);
+    this.civic = new Civic(game, () => this.busy === null);
+    this.civicPanel = new CivicPanel(game, this.civic);
     this.delivery = new Delivery(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.gigs = new Gigs(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.plow = new Plow(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
@@ -285,6 +292,8 @@ export class ThingsToDo {
     // Before the townsfolk: Walt stands at the pub's door and would take the G.
     this.nightlife.update(dt);
     this.nightPanel.update();
+    this.civic.update(dt);
+    this.civicPanel.update();
     this.townsfolk.update(dt);
     this.crowd.update(dt);
     this.delivery.update(dt);
@@ -294,12 +303,12 @@ export class ThingsToDo {
     this.jobs.update(dt);
     this.gigs.update(dt, !!(this.delivery.prompt || this.jobs.prompt || this.plow.prompt));
     this.shops.update(dt);
-    this.fishing.update(dt, !!(this.missions.prompt || this.semester.prompt || this.heist.prompt || this.racing.prompt || this.pursuit.prompt || this.coop.prompt || this.delivery.prompt || this.jobs.prompt || this.plow.prompt || this.gigs.prompt || this.shops.prompt || this.stores.prompt || this.townsfolk.prompt || this.nightlife.prompt));
+    this.fishing.update(dt, !!(this.missions.prompt || this.semester.prompt || this.heist.prompt || this.racing.prompt || this.pursuit.prompt || this.coop.prompt || this.delivery.prompt || this.jobs.prompt || this.plow.prompt || this.gigs.prompt || this.shops.prompt || this.stores.prompt || this.townsfolk.prompt || this.nightlife.prompt || this.civic.prompt));
     this.tutorial.update(dt);
     const w = this.waypoint;
     if (w) this.markers.put(w.x, w.z, 'goal', 5, 30);
     this.markers.end();
-    this.say(this.missions.prompt ?? this.semester.prompt ?? this.heist.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.coop.prompt ?? this.delivery.prompt ?? this.plow.prompt ?? this.snow.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.stores.prompt ?? this.events.prompt ?? this.project.prompt ?? this.nightlife.prompt ?? this.townsfolk.prompt ?? this.fishing.prompt);
+    this.say(this.missions.prompt ?? this.semester.prompt ?? this.heist.prompt ?? this.racing.prompt ?? this.pursuit.prompt ?? this.coop.prompt ?? this.delivery.prompt ?? this.plow.prompt ?? this.snow.prompt ?? this.jobs.prompt ?? this.gigs.prompt ?? this.shops.prompt ?? this.stores.prompt ?? this.events.prompt ?? this.project.prompt ?? this.nightlife.prompt ?? this.civic.prompt ?? this.townsfolk.prompt ?? this.fishing.prompt);
     // M or Tab (Back on a pad): straight to the map.
     if (g.input.eat('map')) { this.menu.tab = 0; g.setPaused(true); }
     const down = !(g.player.health > 0);

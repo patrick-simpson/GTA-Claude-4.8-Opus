@@ -34,13 +34,13 @@ export interface RoomSpec {
 }
 export interface Room { group: THREE.Group; spec: RoomSpec; dispose(): void; tris: number }
 
-type RGB = [number, number, number];
+export type RGB = [number, number, number];
 const tmp = new THREE.Color();
-const rgb = (hex: number): RGB => { tmp.set(hex); return [tmp.r, tmp.g, tmp.b]; };
-const mul = (c: RGB, k: number): RGB => [c[0] * k, c[1] * k, c[2] * k];
-const hash = (i: number, j: number): number => (((i * 73856093) ^ (j * 19349663)) >>> 0) % 256 / 255;
+export const rgb = (hex: number): RGB => { tmp.set(hex); return [tmp.r, tmp.g, tmp.b]; };
+export const mul = (c: RGB, k: number): RGB => [c[0] * k, c[1] * k, c[2] * k];
+export const hash = (i: number, j: number): number => (((i * 73856093) ^ (j * 19349663)) >>> 0) % 256 / 255;
 
-class Mesher {
+export class Mesher {
   pos: number[] = []; col: number[] = []; idx: number[] = [];
   constructor(private lamps: Lamp[], private amb: RGB) {}
 
@@ -115,15 +115,15 @@ class Mesher {
 }
 
 /** A small canvas texture, drawn once. */
-function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
+export function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   draw(cv.getContext('2d') as CanvasRenderingContext2D);
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
 }
-const FONT = "'Barlow Semi Condensed', 'Arial Narrow', sans-serif";
+export const FONT = "'Barlow Semi Condensed', 'Arial Narrow', sans-serif";
 
-interface Decal { tex: THREE.Texture; u: number; y: number; v: number; w: number; h: number; face: '+u' | '-u' | '+v' | '-v'; k?: number }
+export interface Decal { tex: THREE.Texture; u: number; y: number; v: number; w: number; h: number; face: '+u' | '-u' | '+v' | '-v'; k?: number }
 
 function neon(text: string, col: string, glow: string): THREE.CanvasTexture {
   return canvasTex(512, 160, (g) => {
@@ -133,7 +133,7 @@ function neon(text: string, col: string, glow: string): THREE.CanvasTexture {
     g.shadowBlur = 10; g.fillStyle = col; g.fillText(text, 256, 84);
   });
 }
-function board(lines: [string, string][], title: string, bg: string, ink: string, accent: string): THREE.CanvasTexture {
+export function board(lines: [string, string][], title: string, bg: string, ink: string, accent: string): THREE.CanvasTexture {
   return canvasTex(512, 320, (g) => {
     g.fillStyle = bg; g.fillRect(0, 0, 512, 320);
     g.strokeStyle = accent; g.lineWidth = 8; g.strokeRect(8, 8, 496, 304);
@@ -162,12 +162,12 @@ function dartboardTex(): THREE.CanvasTexture {
   });
 }
 
-const Cc = {
+export const Cc = {
   cream: rgb(0xefe2c0), teal: rgb(0x2a8a85), chrome: rgb(0xcfd6da), red: rgb(0xb3302a), dark: rgb(0x26292d), wood: rgb(0x8a5a36),
   navy: rgb(0x0d1830), brass: rgb(0xc9a24a), pie: rgb(0xd69a3c), berry: rgb(0x7a2548), white: rgb(0xf2ede0), mustard: rgb(0xe0a42a),
 };
 
-function pendant(m: Mesher, u: number, v: number, y: number, col: RGB, flare = 1): void {
+export function pendant(m: Mesher, u: number, v: number, y: number, col: RGB, flare = 1): void {
   m.cyl(u, v, 0.02, y + 0.15, 3.6, Cc.dark, 4);
   m.cyl(u, v, 0.3, y + 0.05, y + 0.2, mul(col, 0.35), 10);
   m.cyl(u, v, 0.22, y, y + 0.06, col, 10, 2.6 * flare, true);
@@ -377,11 +377,10 @@ function pub(): { spec: RoomSpec; m: Mesher; decals: Decal[] } {
   return { spec, m, decals };
 }
 
-/** Build one room's meshes. `low` halves the cell count (phones). */
-export function buildRoom(id: VenueId): Room {
-  const { spec, m, decals } = id === 'diner' ? diner() : pub();
+/** Put a built room's mesh and boards together (also for the civic rooms, world/civicRooms.ts). */
+export function assemble<S>(name: string, spec: S, m: Mesher, decals: Decal[]): { group: THREE.Group; spec: S; dispose(): void; tris: number } {
   const group = new THREE.Group();
-  group.name = 'night-' + id;
+  group.name = name;
   const geo = m.build();
   const mat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, side: THREE.DoubleSide });
   const main = new THREE.Mesh(geo, mat); main.name = 'room'; main.frustumCulled = false;
@@ -400,4 +399,10 @@ export function buildRoom(id: VenueId): Room {
     disposers.push(() => { dm.dispose(); d.tex.dispose(); });
   }
   return { group, spec, tris: m.idx.length / 3, dispose: () => { for (const f of disposers) f(); } };
+}
+
+/** Build one room's meshes. */
+export function buildRoom(id: VenueId): Room {
+  const { spec, m, decals } = id === 'diner' ? diner() : pub();
+  return assemble('night-' + id, spec, m, decals);
 }

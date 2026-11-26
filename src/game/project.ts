@@ -569,6 +569,20 @@ export class TownProject {
     }
   }
 
+  /** Cash handed in somewhere else (the museum's donation box, game/civic.ts): up to `want` dollars into the fund. Returns the line to say, '' when it cannot take any. */
+  donate(want: number): string {
+    const g = this.game, pl = g.player, goal = progress.goal();
+    if (!this.open || !goal || goal.kind !== 'project') return '';
+    const need = Math.ceil(goal.cost - goal.have), pay = Math.min(Math.floor(pl.money), need, Math.floor(want));
+    if (pay <= 0) return '';
+    pl.money -= pay;
+    this.stats.gifts++;
+    progress.add(pay);
+    progress.save();
+    g.todo.saveNow();
+    return `${money(pay)} for the ${PROJECT_NAME}${progress.mine ? " (the town's)" : ''}`;
+  }
+
   /** A radar badge at the yard while the project is in hand and the player is on the mainland. */
   blips(out: Blip[]): void {
     if (!this.on || this.game.player.z > -700) return;

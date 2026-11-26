@@ -137,6 +137,19 @@ export class RailService {
     return { eta: Math.max(0, best.t0 - m) / rate, left: (best.t1 - m) / rate, dir: best.dir, here: best.t0 <= m };
   }
 
+  /** The next few passenger trains to stand at station st, soonest first, either way (the depot's departure board, game/civic.ts). */
+  upcoming(st: number, n: number): { eta: number; left: number; dir: 1 | -1; here: boolean }[] {
+    const T = trains.cur, out: { eta: number; left: number; dir: 1 | -1; here: boolean }[] = [];
+    if (!T) return out;
+    const c = T.timetableClock(), m = c.run * RUN + c.u, rate = c.rate > 0 ? c.rate : 1e-6;
+    for (const w of standings(c.day, c.run - 1, 8)) {
+      if (w.st !== st || w.term || w.t1 <= m) continue;
+      out.push({ eta: Math.max(0, w.t0 - m) / rate, left: (w.t1 - m) / rate, dir: w.dir, here: w.t0 <= m });
+    }
+    out.sort((a, b) => a.eta - b.eta);
+    return out.length > n ? out.slice(0, n) : out;
+  }
+
   /** "Next train in 3 min" and the like, for the Places panel and the platform's prompt. */
   etaText(st: number): string {
     if (!this.open) return 'Service suspended while the train is off its timetable';
@@ -199,7 +212,9 @@ export class RailService {
       if (this.etaFor !== z || g.time - this.etaAt > 0.5 || g.time < this.etaAt) { this.etaFor = z; this.etaAt = g.time; this.etaStr = this.etaText(z); }
       text = `${st.name}. ${this.etaStr}`;
     }
-    if (text !== this.promptKey) { h.prompt(text); this.promptKey = text; }
+    // At the depot's door the hall's own prompt (game/civic.ts) is the one to read; this one comes back when she steps away.
+    if (g.todo.civic.prompt !== null) this.promptKey = '';
+    else if (text !== this.promptKey) { h.prompt(text); this.promptKey = text; }
     this.prompting = true;
     if (standing && g.input.hit('enter')) { g.input.eat('enter'); this.board(z); }
   }
@@ -320,7 +335,7 @@ export class RailService {
   // ── Fast travel ──
 
   /** Whether she can take the train from the platform she is on to station `to` now, and what the button says. */
-  status(to: number): { ok: boolean; fare: number; why: string; text: string } {
+  status(to: number, from = this.zone): { ok: boolean; fare: number; why: string; text: string } {
     const g = this.game, p = g.player, fare = kid.on ? 0 : FARE;
     const no = (why: string): { ok: boolean; fare: number; why: string; text: string } => ({ ok: false, fare, why, text: why });
     if (!this.on) return no('There is no railway here.');
@@ -329,8 +344,8 @@ export class RailService {
     if (!(p.health > 0)) return no('The Budget Line does not carry the deceased.');
     if (p.heat > 0) return no('The Budget Line does not carry fugitives.');
     if (g.todo.busy !== null) return no('Not during a mission, job or race.');
-    if (this.zone < 0) return no('Walk to a station platform to take the train.');
-    if (to === this.zone) return no('You are already at that station.');
+    if (from < 0) return no('Walk to a station platform to take the train.');
+    if (to === from) return no('You are already at that station.');
     if (!this.open) return no('The line is closed: the train is off its timetable.');
     const d = STATIONS[to];
     if (!g.todo.travel.open({ name: d.name, x: d.x, z: d.z, nx: 0, nz: 0 })) return no('No road to that station yet: the line is not open there.');
@@ -339,11 +354,11 @@ export class RailService {
   }
 
   /** Book it: the fare, a fade, the other platform. Returns the refusal, or ''. */
-  travel(to: number): string {
-    const s = this.status(to), g = this.game;
+  travel(to: number, from = this.zone): string {
+    const s = this.status(to, from), g = this.game;
     if (!s.ok) { g.hud.toast(s.why, 4); return s.why; }
     this.dest = to; this.phase = 1; this.t = 0;
-    this.last = { from: STATIONS[this.zone].name, to: STATIONS[to].name, fare: s.fare };
+    this.last = { from: STATIONS[from].name, to: STATIONS[to].name, fare: s.fare };
     g.input.setEnabled(false);
     if (g.state === 'paused') { g.setPaused(false); if (!g.input.touch) g.input.lock(); g.input.setEnabled(false); }
     const c = this.card;
