@@ -1,0 +1,27 @@
+/* The first-hour card (ui/tutorialCard.ts): a paper card under the objective strip, never in the way of play. */
+#tut-card {
+  position: fixed; top: 5.3em; left: 50%; transform: translateX(-50%); z-index: 30;
+  display: none; width: min(25em, calc(100vw - 15em)); box-sizing: border-box;
+  background: var(--bone, #f2e8cf); color: var(--ink, #14213d); border: 2px solid var(--ink, #14213d);
+  border-top: 5px solid var(--vermilion, #e4572e); box-shadow: 0.25em 0.25em 0 rgba(20, 33, 61, 0.5);
+  padding: 0.45em 0.8em 0.55em; pointer-events: none;
+  font: 500 14px/1.3 var(--f-body, 'Barlow Semi Condensed', sans-serif);
+}
+#tut-card.on { display: block; }
+#tut-card .tt-hd { font: 800 0.95em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.1em; text-transform: uppercase; }
+#tut-card .tt-hd span { float: right; opacity: 0.65; font-weight: 700; }
+#tut-card p { margin: 0.3em 0 0; }
+#tut-card .tt-goal { font-weight: 800; font-size: 1.12em; color: #a3211c; }
+#tut-card .tt-key { font-size: 0.88em; margin-top: 0.1em; }
+#tut-card .tt-key b { display: inline-block; min-width: 4.6em; font: 700 0.85em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.7; }
+#tut-card .tt-ft { display: flex; align-items: center; gap: 0.5em; margin-top: 0.5em; }
+#tut-card .tt-ft small { margin-left: auto; opacity: 0.6; font-size: 0.78em; }
+#tut-card button {
+  pointer-events: auto; font: 700 0.85em/1 var(--f-head, 'Arial Narrow', sans-serif); letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 0.55em 0.8em; min-height: 2.4em; border: 2px solid var(--ink, #14213d); background: transparent; color: var(--ink, #14213d); cursor: pointer;
+}
+#tut-card button.go { background: var(--ink, #14213d); color: var(--bone, #f2e8cf); }
+#tut-card.tch { top: 4.4em; width: min(23em, calc(100vw - 25em)); font-size: 12px; padding: 0.35em 0.65em 0.4em; }
+#tut-card.tch .tt-ft small { display: none; }
+#tut-card.tch .tt-key:nth-of-type(3) { display: none; }
+

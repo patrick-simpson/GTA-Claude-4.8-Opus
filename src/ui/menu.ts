@@ -71,6 +71,7 @@ const CONTROLS: [string, string, string, string][] = [
   ['Map and Places', 'M or Tab', 'Back', 'Pause, then MAP'],
   ['Fast travel (Courtesy Cab)', 'Map: pick a place, Travel there', 'Back, pick, Travel there', 'MAP, pick, Travel there'],
   ['Pause', 'Esc or P', 'Start', 'Pause key'],
+  ['First-hour tour: skip a step / end it', ', (comma), hold to end', '', 'Skip step / End tour'],
   ['Unstick', 'Hold Backspace', '', ''],
 ];
 
@@ -771,6 +772,7 @@ export class Menu {
     <div class="mn-row"><span class="mn-lbl">Quality</span><span class="mn-segs">${q}</span></div>
     <div class="mn-row"><span class="mn-lbl">Season</span><span class="mn-segs">${seasons}</span></div>
     <div class="mn-row"><span class="mn-lbl">Holiday decorations</span><span class="mn-segs">${(['auto', 'on', 'off'] as HolidayPick[]).map((v) => `<button type="button" class="mn-seg ${holiday.shown === v ? 'on' : ''}" data-set="holiday" data-v="${v}">${v}</button>`).join('')}</span></div>
+    ${this.tourRow()}
     ${this.nameRow()}
     <p class="mn-note">${how}${stale ? ` A change of preset rebuilds the world, so <b>${want}</b> takes effect when the page is reloaded: <button type="button" class="mn-link" data-set="reload">save and reload now</button>` : ''}</p>
     <p class="mn-note">${VOICE_CREDIT}</p>
@@ -788,6 +790,14 @@ export class Menu {
 </div>`;
   }
 
+  /** The first-hour tour (game/tutorial.ts): start it, replay it, or end it; and the stamp, once earned. */
+  private tourRow(): string {
+    const t = this.todo.tutorial;
+    const go = t.active ? 'restart the tour' : t.done ? 'replay the tour' : 'start the tour';
+    return `<div class="mn-row"><span class="mn-lbl">First hour with Lou</span><span><button type="button" class="mn-link" data-set="tour">${go}</button>${t.active ? ' &middot; <button type="button" class="mn-link" data-set="tourend">end it</button>' : ''}</span></div>
+    <p class="mn-note">Nine short steps over the bridge to Tepid Falls: a car, the map, a job, a photo, a find, the square. ${t.paid ? 'Stamp in your file: WELCOME TO TEPID FALLS.' : 'A little cash and a stamp at the end.'} Skip a step or end it any time.</p>`;
+  }
+
   /** The made-up multiplayer name and the button that re-rolls it. Only when a service is configured. */
   private nameRow(): string {
     const n = this.game.net;
@@ -801,6 +811,8 @@ export class Menu {
     const s = save.data.settings, key = el.dataset.set;
     if (key === 'mute') { const id = Number(el.dataset.id); this.game.net.chat.mute(id, !this.game.net.chat.muted(id)); this.panes[3].innerHTML = this.settingsHtml(); return; }
     if (key === 'newname') { const b = el.querySelector('b'); const nm = this.game.net.reroll(); if (b) b.textContent = nm; return; }
+    if (key === 'tour') { this.todo.tutorial.start(); this.resume(); return; }
+    if (key === 'tourend') { this.todo.tutorial.end(); this.panes[3].innerHTML = this.settingsHtml(); return; }
     if (key === 'reload') { this.todo.saveNow(); location.reload(); return; }
     if (key === 'sens') {
       s.sens = Math.max(0.3, Math.min(2.5, Number((el as HTMLInputElement).value) || 1));

@@ -38,6 +38,7 @@ import { Nightlife } from './nightlife';
 import { NightPanel } from '../ui/nightPanel';
 import { TownProject } from './project';
 import { Shops } from './shops';
+import { Tutorial } from './tutorial';
 import { Menu } from '../ui/menu';
 import { Navigator } from './nav';
 import { Autopilot } from './autopilot';
@@ -108,6 +109,8 @@ export class ThingsToDo {
   readonly nightlife: Nightlife;
   readonly nightPanel: NightPanel;
   readonly shops: Shops;
+  /** The optional first hour over the bridge to Tepid Falls, told by Lou (fun queue 2, item 36). */
+  readonly tutorial: Tutorial;
   /** The Calamity Courtesy Cab: fast travel from the map (game/travel.ts). */
   readonly travel: Cab;
   readonly menu: Menu;
@@ -162,6 +165,7 @@ export class ThingsToDo {
     this.snow = new SnowFight(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.snowTag = new SnowTag(game, this.snow);
     this.fishing = new Fishing(game, () => this.busy === null);
+    this.tutorial = new Tutorial(game, this.markers, () => this.busy, this.townsfolk, this.fishing);
     this.semester = new Semester(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.heist = new Heist(game, this.markers, () => this.busy === null, (id) => this.setBusy(id), st.givers.lou.at);
     this.shops = new Shops(game, this.markers);
@@ -177,7 +181,7 @@ export class ThingsToDo {
     });
     game.on('booked', () => { save.data.stats.booked++; });
     // A stranger's first minute: say where the work is.
-    game.on('start', () => { if (!save.data.missions.length) game.hud.toast('Lou, the watchman at your yard, wants a word. He is the L on the radar: The Cannery, Strand Blvd.', 9); });
+    game.on('start', () => { if (!save.data.missions.length && !this.tutorial.offerable() && !this.tutorial.active) game.hud.toast('Lou, the watchman at your yard, wants a word. He is the L on the radar: The Cannery, Strand Blvd.', 9); });
     // The tab is going away (closed, reloaded, sent to the background on a phone): this is the write that matters.
     addEventListener('pagehide', () => this.saveNow());
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.saveNow(); });
@@ -283,6 +287,7 @@ export class ThingsToDo {
     this.gigs.update(dt, !!(this.delivery.prompt || this.jobs.prompt || this.plow.prompt));
     this.shops.update(dt);
     this.fishing.update(dt, !!(this.missions.prompt || this.semester.prompt || this.heist.prompt || this.racing.prompt || this.pursuit.prompt || this.coop.prompt || this.delivery.prompt || this.jobs.prompt || this.plow.prompt || this.gigs.prompt || this.shops.prompt || this.stores.prompt || this.townsfolk.prompt || this.nightlife.prompt));
+    this.tutorial.update(dt);
     const w = this.waypoint;
     if (w) this.markers.put(w.x, w.z, 'goal', 5, 30);
     this.markers.end();
@@ -331,6 +336,7 @@ export class ThingsToDo {
       this.finds.blips(out);
       this.project.blips(out);
       this.shops.blips(out);
+      this.tutorial.blips(out);
       g.chat.blips(out); // fun queue 2, item 29: Follow me badges (game/follow.ts)
       const w = this.waypoint;
       if (w) { if (Math.hypot(p.x - w.x, p.z - w.z) < 14) this.waypoint = null; else out.push({ x: w.x, z: w.z, kind: 'way' }); }
@@ -344,7 +350,7 @@ export class ThingsToDo {
   }
 
   /** Where the route line is going now: the mission, delivery or job in hand, else the waypoint. */
-  target(): Pt | null { return this.missions.target ?? this.semester.target ?? this.heist.target ?? this.delivery.target ?? this.jobs.target ?? this.gigs.target ?? this.plow.target ?? this.waypoint; }
+  target(): Pt | null { return this.missions.target ?? this.semester.target ?? this.heist.target ?? this.delivery.target ?? this.jobs.target ?? this.gigs.target ?? this.plow.target ?? this.waypoint ?? this.tutorial.target; }
 
   /** Set the waypoint to a business's door (the Places list, a marker on the map) and work out the way at once, paused or not. */
   go(pl: Place | null): void {
