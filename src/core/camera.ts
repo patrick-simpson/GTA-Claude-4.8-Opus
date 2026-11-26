@@ -10,6 +10,7 @@
 // never push the lens through anything.
 
 import * as THREE from 'three';
+import { ACC } from './access';
 import type { Game } from './game';
 import type { CameraApi, Vehicle } from './api';
 import type { Prop } from '../world/collide';
@@ -141,7 +142,8 @@ export class CameraRig implements CameraApi {
 
   /** amount: 0 = nothing, 1 = the hardest hit there is. Adds up, and is gone in about half a second. */
   shake(amount: number): void {
-    this.trauma = Math.min(1, this.trauma + Math.max(0, amount));
+    // Settings > Accessibility > Calmer screen: a fifth of the shake.
+    this.trauma = Math.min(1, this.trauma + Math.max(0, amount) * (ACC.calm ? 0.2 : 1));
   }
 
   /** Recoil: tip the view up by `up` radians and sideways by `side`. It does not come back by itself; that is the player's job. */

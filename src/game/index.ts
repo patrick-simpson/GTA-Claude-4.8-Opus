@@ -43,6 +43,7 @@ import { Menu } from '../ui/menu';
 import { Navigator } from './nav';
 import { Autopilot } from './autopilot';
 import { Cab } from './travel';
+import { ACC } from '../core/access';
 import { ARRIVE, places, type Place } from '../world/business';
 import { ShopSigns } from '../world/shopSigns';
 
@@ -211,6 +212,7 @@ export class ThingsToDo {
     g.input.sensitivity = s.sens;
     g.input.invertY = s.invertY;
     document.body.classList.toggle('reduced-motion', s.reducedMotion);
+    ACC.apply();
     season.pick = s.season;
     // "Full screen on tap" lives in ui/title.ts, which asks the document element. With the setting off the
     // request is answered here and goes nowhere; with it on, the browser's own method shows through again.

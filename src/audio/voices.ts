@@ -24,6 +24,8 @@ import { kid } from '../core/kid';
 import type { AudioCore } from './audio';
 import { mulberry } from './audio';
 import REACT_LINES from './fmReactLines.json';
+import SUB_TEXT from './subtitleText.json';
+import { ACC, subs } from '../core/access';
 
 /** Shown in the menu's settings: what the licences ask for (tools/licenses/voices.md). */
 export const VOICE_CREDIT = 'Spoken lines: Piper text-to-speech. Voices trained on the VCTK corpus and the Alba recordings (University of Edinburgh, CC BY 4.0) and on LJ Speech (public domain). The Claude FM host: Kokoro-82M text-to-speech (Apache-2.0, hexgrad), voice am_michael.';
@@ -84,7 +86,33 @@ function play(core: AudioCore, pack: Pack, c: Clip, out: AudioNode, t: number, g
   s.buffer = pack.buf; s.playbackRate.value = rate;
   s.connect(g); g.connect(out);
   s.start(t, c.t, c.d / rate + 0.02);
+  if (ACC.subs) caption(pack, c, t - core.now, c.d / rate);
   return s;
+}
+
+/** The words of a clip and who says them, for the subtitles (Settings > Accessibility). Every clip of every pack has its text. */
+const STATION_OF: Record<string, string> = {};
+function station(key: string): string {
+  if (!STATION_OF[key]) for (const [call, k] of Object.entries(DJ_OF)) STATION_OF[k] = call;
+  return STATION_OF[key] ?? 'Radio';
+}
+function caption(pack: Pack, c: Clip, delay: number, dur: number): void {
+  const n = pack.name, txt = SUB_TEXT as unknown as Record<string, Record<string, string> | Record<string, string[]>>;
+  let text = '', who = 'Radio', pri = 2;
+  if (n === 'dj-claudefm-react') {
+    const at = c.id.indexOf('#');
+    text = ((REACT_LINES as Record<string, string[]>)[c.id.slice(0, at)] ?? [])[Number(c.id.slice(at + 1))] ?? ''; who = 'Claude FM';
+  } else if (n === 'barks') {
+    const m = /^([a-z]+)(\d+)[mf]$/.exec(c.id);
+    text = m ? (txt.barks as Record<string, string[]>)[m[1]]?.[Number(m[2])] ?? '' : ''; who = 'Passer-by'; pri = 1;
+  } else {
+    text = (txt[n] as Record<string, string> | undefined)?.[c.id] ?? '';
+    if (n === 'police') { who = c.kind === 'chat' ? 'Dispatch' : 'Officer'; pri = 3; }
+    else if (n === 'ads') { who = 'Advert'; pri = 1; }
+    else if (n === 'dj-claudefm') who = 'Claude FM';
+    else if (n.startsWith('dj-')) who = station(n.slice(3));
+  }
+  subs.say(who, text, delay, dur, pri);
 }
 
 // ── The radio's ──────────────────────────────────────────────────────────────

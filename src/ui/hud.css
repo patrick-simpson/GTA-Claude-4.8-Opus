@@ -8,7 +8,7 @@
 #hud {
   --ink: #14213d;
   --rule: 2px;
-  font-size: clamp(8.4px, calc(0.9vh + 0.35vw), 22px);
+  font-size: calc(clamp(8.4px, calc(0.9vh + 0.35vw), 22px) * var(--ui-scale, 1));
   font-family: var(--f-text);
   color: var(--bone);
   line-height: 1.15;
@@ -854,7 +854,7 @@
   position: fixed;
   inset: 0;
   box-sizing: border-box;
-  border: 0.9em solid var(--vermilion);
+  border: 0.9em solid var(--acc-alert, var(--vermilion));
   opacity: 0;
   pointer-events: none;
 }
@@ -933,6 +933,35 @@
 .hud-timer.on { display: flex; }
 .hud-timer b { font-family: var(--f-mono); font-weight: 600; font-size: 1.9em; line-height: 1; }
 .hud-timer.urgent b { color: var(--vermilion); }
+/* Subtitles for spoken clips (Settings > Accessibility): never more than two lines, above the mission line. */
+.hud-cc {
+  position: absolute;
+  left: 50%;
+  bottom: 12.5em;
+  transform: translateX(-50%);
+  display: none;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(40em, calc(100% - 24em));
+  padding: 0.4em 0.9em 0.45em;
+  background: rgba(8, 14, 28, 0.9);
+  border-radius: 0.2em;
+  color: #fff;
+  font-size: 1.55em;
+  font-weight: 600;
+  line-height: 1.22;
+  text-align: center;
+  pointer-events: none;
+  overflow: hidden;
+}
+.hud-cc.on { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.hud-cc b { font-family: var(--f-head); font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mustard); font-size: 0.8em; margin-right: 0.5em; display: inline; }
+.hud-cc b:empty { display: none; }
+.hud-cc span { display: inline; }
+body.acc-calm .hud-hurt, body.acc-calm .hud-hurt.a, body.acc-calm .hud-hurt.b { animation: none; opacity: 0; }
+body.acc-calm .hud-heat.a .hud-pips, body.acc-calm .hud-heat.b .hud-pips, body.acc-calm .hud-arm-flag.on { animation: none; opacity: 1; }
+#hud.touch .hud-cc { bottom: 9em; max-width: calc(100% - 28em); font-size: 1.15em; }
+#hud.paused .hud-cc { visibility: hidden; }
 #hud.touch .hud-sub { bottom: 3.2em; font-size: 1.2em; max-width: calc(100% - 26em); }
 #hud.touch .hud-timer { top: 5.6em; }
 #hud.paused .hud-sub, #hud.paused .hud-timer { visibility: hidden; }

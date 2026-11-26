@@ -33,7 +33,7 @@ import { autoPresetIfKnown } from '../core/governor';
 import { kid } from '../core/kid';
 import { VOICE_CREDIT } from '../audio/voices';
 import { MAP_CREDIT, MUSIC_CREDIT } from '../core/credits';
-import { PEER_COLOR } from '../net/names';
+import { ACC, PAL_NAMES, SCALES, SUB_NAMES, type PalName } from '../core/access';
 import { PARDONS_AT, PARDONS_RED, radarPrefs } from './hud';
 import { HIDEABLE, touchPrefs, type TouchSize } from './touch';
 import { Wardrobe } from './wardrobe';
@@ -564,7 +564,7 @@ export class Menu {
       for (let i = 2; i < rt.length; i += 2) c.lineTo(X(rt[i]), Z(rt[i + 1]));
       c.lineJoin = 'round'; c.lineCap = 'round';
       c.strokeStyle = INK; c.lineWidth = 6; c.stroke();
-      c.strokeStyle = MUSTARD; c.lineWidth = 3.5; c.stroke();
+      c.strokeStyle = ACC.c.goal; c.lineWidth = 3.5; c.stroke();
     }
 
     const r = Math.max(7, Math.min(11, 8 + k * 3));
@@ -580,9 +580,9 @@ export class Menu {
     // Ducks found: small gold dots. The ones still out there are nobody's business.
     for (const i of save.data.ducks) { const d = todo.jobs.ducks[i]; if (!d) continue; c.beginPath(); c.arc(X(d.x), Z(d.z), 3.5, 0, Math.PI * 2); c.fillStyle = '#f6c21a'; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke(); }
     for (let i = 0; i < RAMPS.length; i++) { if (i === RAMPS.length - 1 && progress.complete) continue; badge(RAMPS[i].x, RAMPS[i].z, save.data.jumps.includes(i) ? MUSTARD : BONE, 'J'); }
-    for (const rc of todo.raceBuilder.all(todo.jobs.races)) badge(rc.start.x, rc.start.z, TEAL, 'R', false, BONE);
+    for (const rc of todo.raceBuilder.all(todo.jobs.races)) badge(rc.start.x, rc.start.z, ACC.c.job, 'R', false, BONE);
     // The town events that are on tonight (game/events.ts): D derby, G regatta, X fair, M moose festival.
-    for (const ev of todo.events.badges()) badge(ev.x, ev.z, VERMILION, ev.letter, false, BONE);
+    for (const ev of todo.events.badges()) badge(ev.x, ev.z, ACC.c.alert, ev.letter, false, BONE);
     for (const y of todo.jobs.yards) badge(y.at.x, y.at.z, BONE, 'Y');
     for (const s of todo.shops.list) badge(s.at.x, s.at.z, BONE, s.letter);
     if (progress.complete) {
@@ -611,18 +611,21 @@ export class Menu {
         text(b.name, px, ty, lp, INK, true, '"Barlow Semi Condensed", sans-serif', 700);
       }
     }
-    if (!todo.busy) for (const o of todo.missions.offers()) { const gv = todo.missions.givers[o.giver]; badge(gv.at.x, gv.at.z, VERMILION, gv.letter, false, BONE); }
-    if (goal) badge(goal.x, goal.z, MUSTARD, '', true);
-    if (way) badge(way.x, way.z, MUSTARD, '', true);
+    if (!todo.busy) for (const o of todo.missions.offers()) { const gv = todo.missions.givers[o.giver]; badge(gv.at.x, gv.at.z, ACC.c.alert, gv.letter, false, BONE); }
+    if (goal) badge(goal.x, goal.z, ACC.c.goal, '', true);
+    if (way) badge(way.x, way.z, ACC.c.goal, '', true);
     // Safe chat pings (game/chat.ts): a violet diamond with a bang and the sender's made-up name under it.
-    for (const pg of this.game.hud.nav.pings ?? []) { badge(pg.x, pg.z, PEER_COLOR, '!', true, BONE); text(pg.who, X(pg.x), Z(pg.z) + r + 12, 10, INK, true); }
+    for (const pg of this.game.hud.nav.pings ?? []) { badge(pg.x, pg.z, ACC.c.peer, '!', true, BONE); text(pg.who, X(pg.x), Z(pg.z) + r + 12, 10, INK, true); }
 
     // Other players (multiplayer): a violet dot with the made-up name beside it. Nothing when not connected.
     for (const o of g.net.peers) {
       const px = X(o.x), py = Z(o.z);
       if (px < -20 || py < -20 || px > w + 20 || py > h + 20) continue;
-      c.beginPath(); c.arc(px, py, 6, 0, Math.PI * 2); c.fillStyle = PEER_COLOR; c.fill();
-      c.strokeStyle = BONE; c.lineWidth = 2; c.stroke(); c.strokeStyle = INK; c.lineWidth = 1; c.beginPath(); c.arc(px, py, 7.2, 0, Math.PI * 2); c.stroke();
+      c.beginPath();
+      // Under a colour-safe palette another player is a triangle (a dot is a round badge's shape).
+      if (ACC.shapes) { c.moveTo(px, py - 8); c.lineTo(px + 7.5, py + 5.5); c.lineTo(px - 7.5, py + 5.5); c.closePath(); } else c.arc(px, py, 6, 0, Math.PI * 2);
+      c.fillStyle = ACC.c.peer; c.fill();
+      c.strokeStyle = BONE; c.lineWidth = 2; c.stroke(); c.strokeStyle = INK; c.lineWidth = 1; if (!ACC.shapes) { c.beginPath(); c.arc(px, py, 7.2, 0, Math.PI * 2); c.stroke(); }
       text(o.text, px, py - 14, 11, INK);
     }
 
@@ -630,7 +633,7 @@ export class Menu {
     for (const m of todo.convoy.roster()) {
       const px = X(m.x), py = Z(m.z);
       if (px < -20 || py < -20 || px > w + 20 || py > h + 20) continue;
-      c.beginPath(); c.arc(px, py, 10, 0, Math.PI * 2); c.strokeStyle = '#2a9d8f'; c.lineWidth = 3.5; c.stroke();
+      c.beginPath(); c.arc(px, py, 10, 0, Math.PI * 2); c.strokeStyle = ACC.c.job; c.lineWidth = 3.5; c.stroke();
       text(m.me ? 'V you' : m.lead ? 'V ' + m.name : 'V', px, py + 24, 11, INK);
     }
 
@@ -646,13 +649,13 @@ export class Menu {
 
     // The Race Builder's route and checkpoints (ui/raceBuilder.ts), over the badges.
     this.rbPanel.refresh();
-    this.rbPanel.draw(c, X, Z, { ink: INK, mustard: MUSTARD, bone: BONE, teal: TEAL });
+    this.rbPanel.draw(c, X, Z, { ink: INK, mustard: ACC.c.goal, bone: BONE, teal: ACC.c.job });
 
     // Dess.
     c.save(); c.translate(X(p.x), Z(p.z)); c.rotate(Math.PI - p.h);
     const a = 11;
     c.beginPath(); c.moveTo(0, -a); c.lineTo(a * 0.7, a * 0.78); c.lineTo(0, a * 0.36); c.lineTo(-a * 0.7, a * 0.78); c.closePath();
-    c.strokeStyle = BONE; c.lineWidth = 4; c.stroke(); c.fillStyle = VERMILION; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke();
+    c.strokeStyle = BONE; c.lineWidth = 4; c.stroke(); c.fillStyle = ACC.c.alert; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke();
     c.restore();
 
     if (this.cross) { c.strokeStyle = INK; c.lineWidth = 1.5; c.beginPath(); c.moveTo(w / 2 - 12, h / 2); c.lineTo(w / 2 + 12, h / 2); c.moveTo(w / 2, h / 2 - 12); c.lineTo(w / 2, h / 2 + 12); c.stroke(); }
@@ -823,6 +826,7 @@ export class Menu {
     ${vol('Weather and town', 'volAmbience')}
     <p class="mn-note">The Harbor Authority has approved noise, within reason. T changes the station at the wheel.</p>
   </div>
+  ${this.accessHtml()}
   ${this.touchHtml()}
 </div>`;
   }
@@ -831,6 +835,40 @@ export class Menu {
   private tiltMsg = '';
 
   /** Form C-4, phones and tablets only: size, opacity, hand, which buttons, tilt, auto-gas, and the layout editor. Kept on this device (localStorage pc.touch). */
+  /** The Accessibility section (Form C-5): kept on this device (localStorage pc.access), every default as the game always was. */
+  private accessHtml(): string {
+    const seg = (key: string, on: boolean, v: string, label: string): string => `<button type="button" class="mn-seg ${on ? 'on' : ''}" data-set="${key}" data-v="${v}" aria-pressed="${on}">${label}</button>`;
+    const pal = PAL_NAMES.map(([v, n]) => seg('accpal', ACC.pal === v, v, n)).join('');
+    const sub = SUB_NAMES.map(([v, n]) => seg('accsubs', ACC.subs === v, String(v), n)).join('');
+    const sc = SCALES.map((v) => seg('accscale', ACC.scale === v, String(v), v + '%')).join('');
+    const tog = (key: string, on: boolean): string => `<button type="button" class="mn-tog ${on ? 'on' : ''}" data-set="${key}" aria-pressed="${on}"><i></i>${on ? 'On' : 'Off'}</button>`;
+    const hold = [['hold', 'Hold'], ['toggle', 'Press to switch']].map(([v, n]) => seg('acctoggle', (v === 'toggle') === ACC.toggle, v, n)).join('');
+    return `
+  <div class="mn-sec" id="mn-access">
+    <h3>Form C-5 &middot; Accessibility</h3>
+    <div class="mn-row"><span class="mn-lbl">Marker colours</span><span class="mn-segs">${pal}</span></div>
+    <p class="mn-acc-note">Radar, map, route line, rings on the ground, teams and other players. A colour-safe set also gives other players a triangle and jobs a hexagon on the radar.</p>
+    <div class="mn-row"><span class="mn-lbl">Subtitles</span><span class="mn-segs">${sub}</span></div>
+    <p class="mn-acc-note">Words for the radio hosts, adverts, police radio and shouts, and passers-by, along the lower middle of the screen.</p>
+    <div class="mn-row"><span class="mn-lbl">Text size</span><span class="mn-segs">${sc}</span></div>
+    <div class="mn-row"><span class="mn-lbl">Calmer screen</span><span>${tog('acccalm', ACC.calm)}</span></div>
+    <p class="mn-acc-note">Much less camera shake, and no hurt, splat or heat flashes; fireworks flash softer.</p>
+    <div class="mn-row"><span class="mn-lbl">Sprint and aim</span><span class="mn-segs">${hold}</span></div>
+  </div>`;
+  }
+
+  /** The Accessibility section's own buttons (every key starts acc). */
+  private accSetting(el: HTMLElement, key: string): void {
+    const v = el.dataset.v ?? '';
+    if (key === 'accpal') ACC.set({ pal: v as PalName });
+    else if (key === 'accsubs') ACC.set({ subs: Number(v) });
+    else if (key === 'accscale') ACC.set({ scale: Number(v) });
+    else if (key === 'acccalm') ACC.set({ calm: !ACC.calm });
+    else if (key === 'acctoggle') ACC.set({ toggle: v === 'toggle' });
+    this.panes[3].innerHTML = this.settingsHtml();
+    (this.panes[3].querySelector(`[data-set="${key}"]${v ? `[data-v="${v}"]` : ''}`) as HTMLElement | null)?.focus();
+  }
+
   private touchHtml(): string {
     if (!(this.game.input.touch || matchMedia('(pointer: coarse)').matches)) return '';
     const p = touchPrefs.v, ui = this.game.touchUI;
@@ -885,6 +923,7 @@ export class Menu {
     if (key === 'tour') { this.todo.tutorial.start(); this.resume(); return; }
     if (key === 'tourend') { this.todo.tutorial.end(); this.panes[3].innerHTML = this.settingsHtml(); return; }
     if (key === 'reload') { this.todo.saveNow(); location.reload(); return; }
+    if (key && key.startsWith('acc')) { this.accSetting(el, key); return; }
     if (key && key.startsWith('t') && this.touchSetting(el, key)) return;
     if (key === 'sens') {
       s.sens = Math.max(0.3, Math.min(2.5, Number((el as HTMLInputElement).value) || 1));

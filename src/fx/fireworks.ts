@@ -22,6 +22,7 @@ import { flip } from '../core/flip';
 import { money } from '../core/util';
 import { WATER_Y, groundAt, isWater } from '../world/plan';
 import { fwBoom, fwCrackle, fwLift } from '../audio/fireworks';
+import { ACC } from '../core/access';
 
 // ── Calendar ─────────────────────────────────────────────────────────────────
 
@@ -787,7 +788,7 @@ export class Fireworks {
       const k = f.i / (1 + (d / 420) ** 2);
       tot += k; r += f.r * k; g += f.g * k; b += f.b * k;
     }
-    this.flashLevel = Math.min(tot, 2.5) * (0.35 + 0.65 * (this.game.sky?.night ?? 1));
+    this.flashLevel = Math.min(tot, 2.5) * (0.35 + 0.65 * (this.game.sky?.night ?? 1)) * (ACC.calm ? 0.25 : 1);
     if (tot > 0) this.flashCol.setRGB(r / tot, g / tot, b / tot);
   }
 

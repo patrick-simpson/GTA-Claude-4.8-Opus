@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { Remote } from '../net/remote';
 import type { Blip } from '../ui/hud';
+import { ACC } from '../core/access';
 
 export const FOLLOW_PHRASE = 36;
 export const FOLLOW_S = 20;
@@ -46,8 +47,9 @@ export class FollowBeacons {
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tex, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, toneMapped: false }));
     halo.name = 'net_follow';
     halo.renderOrder = 22;
+    halo.material.color.set(ACC.pal === 'default' ? '#ffffff' : ACC.c.follow);
     this.scene.add(halo);
-    const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({ color: GOLD, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide, toneMapped: false }));
+    const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({ color: ACC.pal === 'default' ? GOLD : ACC.c.follow, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide, toneMapped: false }));
     ring.name = 'net_follow_ring';
     ring.rotation.x = -Math.PI / 2;
     ring.renderOrder = 22;
@@ -56,7 +58,16 @@ export class FollowBeacons {
   }
 
   /** Each frame: move the lights with their cars, pulse them, and take them down when the time is up or they leave town. */
+  private palVer = -1;
   update(now: number, peers: readonly number[]): void {
+    // Settings > Accessibility > Marker colours: the light follows the palette (the default is the gold it always was).
+    if (this.palVer !== ACC.ver) {
+      this.palVer = ACC.ver;
+      for (const b of this.list) {
+        (b.ring.material as THREE.MeshBasicMaterial).color.set(ACC.pal === 'default' ? GOLD : ACC.c.follow);
+        (b.halo.material as THREE.SpriteMaterial).color.set(ACC.pal === 'default' ? '#ffffff' : ACC.c.follow);
+      }
+    }
     for (let i = this.list.length - 1; i >= 0; i--) {
       const b = this.list[i];
       if (now >= b.until || !peers.includes(b.id) || !b.r.seen) { this.drop(b); this.list.splice(i, 1); continue; }

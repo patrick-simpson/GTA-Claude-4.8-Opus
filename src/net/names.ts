@@ -83,7 +83,8 @@ export function rerollName(): NameIndexes {
   return (mine = n);
 }
 
-/** The dot other players wear on the radar and the map: a violet nothing else on either of them uses. */
+/** The dot other players wear on the radar and the map: a violet nothing else on either of them uses. This is the default palette's;
+ *  the live colour is ACC.c.peer (core/access.ts), which the colour-safe palettes change. */
 export const PEER_COLOR = '#8e3fb8';
 
 /**

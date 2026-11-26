@@ -23,6 +23,7 @@ import type { CityPlan } from '../world/plan';
 import { progress } from '../world/progress';
 import { RNG, money } from '../core/util';
 import { save } from './save';
+import { ACC } from '../core/access';
 
 export interface Pt { x: number; z: number }
 
@@ -175,6 +176,8 @@ export function actorLook(game: Game, mission: number, step: number, s: Step): L
 
 export type MarkKind = 'goal' | 'giver' | 'job' | 'item';
 const MARK_COLOR: Record<MarkKind, number> = { goal: 0xf0a202, giver: 0xf2e8cf, job: 0x2a9d8f, item: 0xf0a202 };
+/** A marker's colour under the palette picked in Settings > Accessibility (the default palette is MARK_COLOR as it was). */
+function markHex(kind: MarkKind): number { return ACC.pal === 'default' ? MARK_COLOR[kind] : kind === 'giver' ? MARK_COLOR.giver : kind === 'job' ? ACC.n.job : ACC.n.goal; }
 
 /**
  * A tall soft column of light over a ring on the ground, in the glow style of
@@ -208,14 +211,22 @@ export class Markers {
     let m = this.mats.get(kind);
     if (!m) {
       // Not additive: against a noon sky an additive column is white on white. Plain see-through colour reads at any hour.
-      const base = { color: MARK_COLOR[kind], transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false };
+      const base = { color: markHex(kind), transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false };
       m = [new THREE.MeshBasicMaterial({ ...base, map: this.fade }), new THREE.MeshBasicMaterial({ ...base, opacity: 0.85 })];
       this.mats.set(kind, m);
     }
     return m;
   }
 
-  begin(dt: number): void { this.used = 0; this.t += dt; }
+  private palVer = -1;
+  begin(dt: number): void {
+    this.used = 0; this.t += dt;
+    // Settings > Accessibility > Marker colours: the rings and columns follow the palette (the default is MARK_COLOR as it was).
+    if (this.palVer !== ACC.ver) {
+      this.palVer = ACC.ver;
+      for (const [kind, m] of this.mats) { const hex = markHex(kind); m[0].color.setHex(hex); m[1].color.setHex(hex); }
+    }
+  }
 
   /** r: radius of the ring in meters. tall: height of the column. lift: how far up the column starts (over a person's head, say). */
   put(x: number, z: number, kind: MarkKind, r = 4, tall = 30, lift = 0): void {

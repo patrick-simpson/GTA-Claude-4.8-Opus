@@ -21,7 +21,7 @@ import { STREETS_NEW } from '../world/streets';
 import { ARROW, distText, type Guidance } from '../game/nav';
 import { trains } from '../world/train';
 
-import { PEER_COLOR } from '../net/names';
+import { ACC, subs, type Cue } from '../core/access';
 /** Pardon's entrance (world) and the store's red: the radar badge, and the map's in menu.ts. */
 export const PARDONS_AT = { x: -612, z: -1160 }, PARDONS_RED = '#cc2229';
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f', SAGE = '#8a9a6b';
@@ -533,7 +533,7 @@ class Radar {
       c.moveTo((rt[0] - x) * k, (rt[1] - z) * k);
       for (let i = 2; i < rt.length; i += 2) c.lineTo((rt[i] - x) * k, (rt[i + 1] - z) * k);
       c.strokeStyle = INK; c.lineWidth = Math.max(4, H * 0.075); c.stroke();
-      c.strokeStyle = MUSTARD; c.lineWidth = Math.max(2.5, H * 0.045); c.stroke();
+      c.strokeStyle = ACC.c.goal; c.lineWidth = Math.max(2.5, H * 0.045); c.stroke();
     }
     // The train, when there is one: a small square where its cab is.
     const tr = trains.cur;
@@ -561,11 +561,12 @@ class Radar {
       if (b.r) { this.area(c, b, dx, dz, d, kf, rf, ca, sa); continue; }
       const lim = (rf - br * 1.25) / kf, q = d > lim ? lim / d : 1;
       const px = (dx * ca - dz * sa) * q * kf, py = (dx * sa + dz * ca) * q * kf;
-      c.fillStyle = b.kind === 'goal' || b.kind === 'way' ? MUSTARD : b.kind === 'job' ? TEAL : BONE;
+      c.fillStyle = b.kind === 'goal' || b.kind === 'way' ? ACC.c.goal : b.kind === 'job' ? ACC.c.job : BONE;
       c.strokeStyle = INK;
       c.lineWidth = Math.max(1.5, br * 0.28);
       c.beginPath();
       if (b.kind === 'goal' || b.kind === 'way') { c.moveTo(px, py - br * 1.2); c.lineTo(px + br * 1.2, py); c.lineTo(px, py + br * 1.2); c.lineTo(px - br * 1.2, py); c.closePath(); }
+      else if (ACC.shapes && b.kind === 'job') { for (let i = 0; i < 6; i++) { const a = i * (TAU / 6) + TAU / 12, hx = px + Math.cos(a) * br * 1.15, hy = py + Math.sin(a) * br * 1.15; if (i) c.lineTo(hx, hy); else c.moveTo(hx, hy); } c.closePath(); }
       else c.arc(px, py, br, 0, TAU);
       c.fill(); c.stroke();
       if (b.label) {
@@ -582,7 +583,7 @@ class Radar {
         const dx = pg.x - x, dz = pg.z - z, d = Math.hypot(dx, dz) || 1;
         const lim = (rf - br * 1.25) / kf, q = d > lim ? lim / d : 1;
         const px = (dx * ca - dz * sa) * q * kf, py = (dx * sa + dz * ca) * q * kf, s = br * 1.3 * pulse;
-        c.fillStyle = PEER_COLOR; c.strokeStyle = BONE; c.lineWidth = Math.max(1.5, br * 0.28);
+        c.fillStyle = ACC.c.peer; c.strokeStyle = BONE; c.lineWidth = Math.max(1.5, br * 0.28);
         c.beginPath(); c.moveTo(px, py - s); c.lineTo(px + s, py); c.lineTo(px, py + s); c.lineTo(px - s, py); c.closePath(); c.fill(); c.stroke();
         c.fillStyle = BONE; c.font = `900 ${Math.round(br * 1.5)}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
         c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('!', px, py + br * 0.1);
@@ -602,11 +603,15 @@ class Radar {
     // Other players (multiplayer): small violet dots with a bone rim, on the face only, no names.
     if (peers.length) {
       const pr = H * 0.065;
-      c.fillStyle = PEER_COLOR; c.strokeStyle = BONE; c.lineWidth = Math.max(1.2, pr * 0.4);
+      c.fillStyle = ACC.c.peer; c.strokeStyle = BONE; c.lineWidth = Math.max(1.2, pr * 0.4);
       for (const o of peers) {
         const dx = o.x - x, dz = o.z - z;
         if (Math.hypot(dx, dz) * kf > rf - pr * 1.6) continue;
-        c.beginPath(); c.arc((dx * ca - dz * sa) * kf, (dx * sa + dz * ca) * kf, pr, 0, TAU); c.fill(); c.stroke();
+        const qx = (dx * ca - dz * sa) * kf, qy = (dx * sa + dz * ca) * kf;
+        c.beginPath();
+        // Under a colour-safe palette another player is a triangle, so it is not told from the round badges by colour alone.
+        if (ACC.shapes) { c.moveTo(qx, qy - pr * 1.3); c.lineTo(qx + pr * 1.15, qy + pr * 0.9); c.lineTo(qx - pr * 1.15, qy + pr * 0.9); c.closePath(); } else c.arc(qx, qy, pr, 0, TAU);
+        c.fill(); c.stroke();
       }
     }
 
@@ -629,8 +634,8 @@ class Radar {
 
     // Gauge scales on the housing: health up the left side, armor up the right.
     const bottom = Math.PI / 2, top = -Math.PI / 2;
-    this.gauge(bottom + GAUGE_GAP, top + TAU - GAUGE_GAP, hp, VERMILION, faint ? 0.3 : 1);
-    this.gauge(bottom - GAUGE_GAP, top + GAUGE_GAP, armor, TEAL, 1);
+    this.gauge(bottom + GAUGE_GAP, top + TAU - GAUGE_GAP, hp, ACC.c.alert, faint ? 0.3 : 1);
+    this.gauge(bottom - GAUGE_GAP, top + GAUGE_GAP, armor, ACC.c.job, 1);
     // Lubber mark: the notch on the rim where the camera looks (straight up when heading up; it moves on a north-up radar).
     c.save();
     c.rotate(th - yaw + Math.PI);
@@ -667,7 +672,7 @@ class Radar {
     c.strokeStyle = BONE;
     c.lineWidth = Math.max(2, H * 0.045);
     c.stroke();
-    c.fillStyle = VERMILION;
+    c.fillStyle = ACC.c.alert;
     c.fill();
     c.strokeStyle = INK;
     c.lineWidth = Math.max(1, H * 0.012);
@@ -681,9 +686,9 @@ class Radar {
     const pr = Math.max(4, Math.min((b.r ?? 0) * kf, rf * 0.45)), lim = (rf - pr) / kf, q = d > lim ? lim / d : 1;
     const px = (dx * ca - dz * sa) * q * kf, py = (dx * sa + dz * ca) * q * kf;
     c.save();
-    c.globalAlpha = 0.3; c.fillStyle = VERMILION;
+    c.globalAlpha = 0.3; c.fillStyle = ACC.c.alert;
     c.beginPath(); c.arc(px, py, pr, 0, TAU); c.fill();
-    c.globalAlpha = 0.9; c.strokeStyle = VERMILION; c.lineWidth = Math.max(1.5, rf * 0.02); c.setLineDash([pr * 0.35, pr * 0.25]);
+    c.globalAlpha = 0.9; c.strokeStyle = ACC.c.alert; c.lineWidth = Math.max(1.5, rf * 0.02); c.setLineDash([pr * 0.35, pr * 0.25]);
     c.stroke();
     c.restore();
   }
@@ -963,6 +968,8 @@ export class Hud implements HudApi {
   private navRev = -1;
   private turnEl: HTMLElement; private turnKey = '';
   private subEl!: HTMLElement; private subT = 0;
+  /** The subtitle strip for spoken clips (Settings > Accessibility) and the piece on it. */
+  private ccEl!: HTMLElement; private ccCue: Cue | null = null;
   private objShown: string | null = null;
   private timerEl!: HTMLElement; private timerTx = '';
 
@@ -1022,6 +1029,7 @@ export class Hud implements HudApi {
   <div class="hud-objective"><span class="hud-lbl">Current business</span><span class="hud-objective-tx"></span></div>
   <div class="hud-timer hud-slip"><span class="hud-lbl"></span><b></b></div>
   <div class="hud-sub"><b></b><span></span></div>
+  <div class="hud-cc"><b></b><span></span></div>
   <div class="hud-place"><div class="hud-place-in"><div class="hud-place-t"></div><div class="hud-place-s"></div></div></div>
   <div class="hud-stamp"><div class="hud-stamp-in"><div class="hud-stamp-t"></div><div class="hud-stamp-s"></div></div></div>
   <div class="hud-keys hud-slip">
@@ -1093,6 +1101,7 @@ export class Hud implements HudApi {
     this.radar = new Radar(q('.hud-radar canvas') as HTMLCanvasElement, game.plan, game.quality.name === 'low');
 
     this.subEl = q('.hud-sub');
+    this.ccEl = q('.hud-cc');
     this.timerEl = q('.hud-timer');
     addEventListener('resize', () => { this.resized = true; });
     addEventListener('keydown', (e) => {
@@ -1267,6 +1276,18 @@ export class Hud implements HudApi {
     this.subT = seconds;
   }
 
+  /** Subtitles for spoken clips: the piece core/access.ts says is on now. Written only when it changes. */
+  private tickCaptions(): void {
+    const cue = ACC.subs ? subs.poll(performance.now()) : null;
+    if (cue === this.ccCue) return;
+    this.ccCue = cue;
+    const el = this.ccEl;
+    el.classList.toggle('on', cue !== null);
+    if (!cue) return;
+    (el.children[0] as HTMLElement).textContent = cue.who;
+    (el.children[1] as HTMLElement).textContent = cue.text;
+  }
+
   /** The countdown slip under the objective strip: timer('Past due in', '1:05', urgent). null puts it away. */
   timer(label: string | null, value = '', urgent = false): void {
     const el = this.timerEl, key = label === null ? '' : `${label}|${value}|${urgent}`;
@@ -1382,6 +1403,7 @@ export class Hud implements HudApi {
     this.tickSwim(p);
     this.tickArms(live);
     if (this.subT > 0 && live && (this.subT -= dt) <= 0) this.subEl.classList.remove('on');
+    this.tickCaptions();
     if (this.backT > 0 && live && performance.now() - this.backT >= UNSTICK * 1000) { this.backT = 0; g.todo.unstick(); }
 
     if (live) {

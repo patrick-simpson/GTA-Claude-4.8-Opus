@@ -31,6 +31,7 @@ import { save } from './save';
 import { taper } from './activities';
 import type { Markers } from './script';
 import { People } from './eventProps';
+import { ACC } from '../core/access';
 
 export interface SnowLink {
   me(): number;
@@ -530,9 +531,21 @@ export class SnowFight {
 
   // ── Per frame ──────────────────────────────────────────────────────────────
 
+  /** Settings > Accessibility > Marker colours: the end zones and the flags follow the palette (the letters RED and BLUE are always on the board). */
+  private palVer = -1;
+  private readonly flagMats: { m: THREE.MeshStandardMaterial; red: boolean }[] = [];
+  private teamColours(): void {
+    if (this.palVer === ACC.ver) return;
+    this.palVer = ACC.ver;
+    const d = ACC.pal === 'default';
+    this.mats.red.color.setHex(d ? RED : ACC.n.red); this.mats.blue.color.setHex(d ? BLUE : ACC.n.blue);
+    for (const f of this.flagMats) f.m.color.setHex(d ? (f.red ? RED : BLUE) : f.red ? ACC.n.red : ACC.n.blue);
+  }
+
   update(dt: number): void {
     dt = Math.min(dt, 0.1);
     this.clk += dt;
+    this.teamColours();
     this.prompt = null;
     const g = this.game, p = g.player, now = performance.now();
     for (const [h, r] of this.known) if (h !== this.me && now - r.at > SILENCE_MS) { this.known.delete(h); if (this.mine === h) this.finish(h, 3, false); }
@@ -687,7 +700,8 @@ export class SnowFight {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
       const x = X + sx * hw, z = Z + sz * hd, y = groundAt(x, z);
       const pl = new THREE.Mesh(pole, dark); pl.position.set(x, y + 1.6, z); pl.castShadow = false; group.add(pl);
-      const fl = new THREE.Mesh(flag, new THREE.MeshStandardMaterial({ color: sx < 0 ? RED : BLUE, roughness: 0.8 })); fl.position.set(x + (sx < 0 ? 0.5 : -0.5), y + 2.9, z); fl.castShadow = false; group.add(fl);
+      const fm = new THREE.MeshStandardMaterial({ color: sx < 0 ? RED : BLUE, roughness: 0.8 }); this.flagMats.push({ m: fm, red: sx < 0 }); this.palVer = -1;
+      const fl = new THREE.Mesh(flag, fm); fl.position.set(x + (sx < 0 ? 0.5 : -0.5), y + 2.9, z); fl.castShadow = false; group.add(fl);
     }
     const mound = new THREE.SphereGeometry(1, 12, 8), snow = new THREE.MeshStandardMaterial({ color: 0xf4f7fb, roughness: 1 });
     for (const sx of [-1, 1]) for (const dz of [-6, 0, 6]) {
@@ -740,7 +754,8 @@ export class SnowFight {
       c.fillStyle = '#f2e8cf'; c.font = font(60); c.fillText(label, x + 150, 175);
       c.font = font(150); c.fillText(String(n), x + 150, 285);
     };
-    box(60, '#b3262e', 'RED', red, lead === 1); box(W - 360, '#2a5db0', 'BLUE', blue, lead === 2);
+    const dflt = ACC.pal === 'default';
+    box(60, dflt ? '#b3262e' : ACC.c.red, 'RED', red, lead === 1); box(W - 360, dflt ? '#2a5db0' : ACC.c.blue, 'BLUE', blue, lead === 2);
     c.fillStyle = '#f0a202'; c.font = font(mid.length > 6 ? 74 : 110); c.fillText(mid, W / 2, 245);
     c.fillStyle = '#f2e8cf'; c.font = font(40); c.fillText(sub, W / 2, 430);
     st.tex.needsUpdate = true;

@@ -10,5 +10,6 @@
 #sf-tag button[disabled] { opacity: 0.4; cursor: default; }
 #sf-splat { position: fixed; inset: 0; z-index: 29; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at 50% 45%, rgba(255, 255, 255, 0.92) 0%, rgba(240, 246, 255, 0.78) 30%, rgba(240, 246, 255, 0) 70%); }
 #sf-splat.on { animation: sf-splat 0.8s ease-out; }
+body.acc-calm #sf-splat.on { animation: none; opacity: 0; }
 @keyframes sf-splat { 0% { opacity: 0.95; transform: scale(1.12); } 100% { opacity: 0; transform: scale(1); } }
 body.touch #sf-tag { font-size: 0.72em; top: 3.4em; }

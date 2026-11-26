@@ -14,7 +14,7 @@
   background: rgba(20, 33, 61, 0.72);
   color: var(--ink);
   font-family: var(--f-text);
-  font-size: clamp(8.6px, calc(0.92vh + 0.36vw), 22px);
+  font-size: calc(clamp(8.6px, calc(0.92vh + 0.36vw), 22px) * var(--ui-scale, 1));
   line-height: 1.2;
   pointer-events: auto;
 }
@@ -288,3 +288,4 @@ body.reduced-motion .mn-card, body.reduced-motion .mn-slip { animation: none; }
 .mn-sec .sem-g { font-family: var(--f-mono, monospace); font-weight: 800; }
 .mn-sec .sem-A { color: #2a9d8f; } .mn-sec .sem-B { color: #4a8f3a; } .mn-sec .sem-C { color: #b8860b; } .mn-sec .sem-D { color: #d9822b; } .mn-sec .sem-F { color: var(--vermilion, #e4572e); }
 .mn-sec .sem-gpa { font-size: 1.25em; font-family: var(--f-mono, monospace); }
+.mn-acc-note { font-size: 0.8em; opacity: 0.75; margin: 0.3em 0 0; }

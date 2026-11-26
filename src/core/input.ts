@@ -8,6 +8,7 @@
 // second layer), panels that are open (addNav) are walked with the d-pad or stick, A and B.
 
 import { clamp } from './util';
+import { ACC } from './access';
 
 export type Action =
   | 'enter' | 'jump' | 'fire' | 'aim' | 'reload' | 'nextWeapon' | 'prevWeapon'
@@ -305,7 +306,14 @@ export class Input {
   private press(a: Action): void { this.held.add(a); this.pressed.add(a); }
 
   /** Held right now. */
-  down(a: Action): boolean { return this.enabled && (this.held.has(a) || this.padHeld.has(a) || this.touchHeld.has(a)); }
+  down(a: Action): boolean {
+    if (!this.enabled) return false;
+    // Settings > Accessibility > Sprint and aim: press once to switch on, again to switch off.
+    if (a === 'sprint' && ACC.toggle) return this.latchSprint;
+    if (a === 'aim' && ACC.toggle) return this.latchAim;
+    return this.held.has(a) || this.padHeld.has(a) || this.touchHeld.has(a);
+  }
+  private latchSprint = false; private latchAim = false;
   /** Went down this frame. */
   hit(a: Action): boolean { return this.enabled && this.pressed.has(a); }
   /** Consume a press so nothing else reacts to it this frame. */
@@ -384,6 +392,10 @@ export class Input {
     }
     if (!this.padActive) { this.padPrev = []; if (this.navWas) { this.navWas = false; this.navClear(); } }
     for (const a of this.padHeld) if (!prevPad.has(a)) this.pressed.add(a);
+    if (ACC.toggle && this.enabled) {
+      if (this.pressed.has('sprint')) this.latchSprint = !this.latchSprint;
+      if (this.pressed.has('aim')) this.latchAim = !this.latchAim;
+    } else { this.latchSprint = false; this.latchAim = false; }
 
     this.moveX = this.enabled ? clamp(x, -1, 1) : 0;
     this.moveY = this.enabled ? clamp(y, -1, 1) : 0;
