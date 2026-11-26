@@ -20,6 +20,7 @@ import {
   HORN_CHOICES, HORN_NAMES, PAINTS, RIM_COLORS, RIM_NAMES, SHOE_NAMES, SKIN_TONES, TOP_NAMES,
   myLook, onMyLook, randomPlayerLook, setMyLook, type PlayerLook,
 } from '../game/looks';
+import { extraPaints, outfits } from '../game/unlocksData';
 
 const PROMPT_KEY = 'portcalamity.lookprompt.v1';
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
@@ -127,6 +128,7 @@ export class Wardrobe {
 </div>
 <div class="mn-sec wd-sec">
   <h3>Form W-2 · What you wear</h3>
+  ${this.outfitRow()}
   ${this.row('Top', this.segs('top', TOP_NAMES, l.top))}
   ${this.row('Top colour', this.swatches('topColor', CLOTH_COLORS, l.topColor))}
   ${this.row(onePiece ? 'Jacket <em>(not over this)</em>' : 'Jacket <em>(open, over a tee)</em>', this.swatches('jacket', CLOTH_COLORS, onePiece ? 0 : l.jacket, true))}
@@ -142,13 +144,20 @@ export class Wardrobe {
 </div>`;
   }
 
+  /** Outfits earned by playing (game/unlocksData.ts): each sets the clothes fields and leaves the person alone; locked ones show their hint. */
+  private outfitRow(): string {
+    const list = outfits();
+    if (!list.length) return '';
+    return this.row('Outfits <em>(earned)</em>', `<span class="mn-segs wd-segs">${list.map((o) => `<button type="button" class="mn-seg" ${o.on ? `data-outfit="${o.id}"` : 'disabled'} title="${o.on ? o.name : 'Locked: ' + o.hint}">${o.name}${o.on ? '' : ' (locked)'}</button>`).join('')}</span>`);
+  }
+
   private carHtml(): string {
     const l = myLook(), v = this.game.player.vehicle;
     return `${this.head()}
 <div class="mn-sec wd-sec">
   <h3>Form W-3 · Your car</h3>
   ${this.row('Paint', this.segs('finish', FINISH_NAMES, l.finish))}
-  ${l.finish ? this.row('Colour', `<span class="wd-sws">${PAINTS.map((c) => `<button type="button" class="wd-sw wd-paint ${l.paint === c ? 'on' : ''}" style="--c:${hex(c)}" data-k="paint" data-v="${c}" title="${hex(c)}"></button>`).join('')}</span>`) : ''}
+  ${l.finish ? this.row('Colour', `<span class="wd-sws">${PAINTS.map((c) => `<button type="button" class="wd-sw wd-paint ${l.paint === c ? 'on' : ''}" style="--c:${hex(c)}" data-k="paint" data-v="${c}" title="${hex(c)}"></button>`).join('')}${extraPaints().map((x) => `<button type="button" class="wd-sw wd-paint ${l.paint === x.color && x.on ? 'on' : ''}" style="--c:${hex(x.color)}${x.on ? '' : ';opacity:0.3'}" ${x.on ? `data-k="paint" data-v="${x.color}" title="${x.name}"` : `disabled title="Locked: ${x.name}. See the Unlocks page."`}></button>`).join('')}</span>`) : ''}
   ${this.row('Rims', `<span class="wd-sws">${RIM_COLORS.map((c, i) => `<button type="button" class="wd-sw wd-rim ${l.rims === i ? 'on' : ''}" style="--c:${hex(c)}" data-k="rims" data-v="${i}" title="${RIM_NAMES[i]}"></button>`).join('')}</span><b class="mn-val wd-name">${RIM_NAMES[l.rims]}</b>`)}
   ${this.row('Horn', this.segs('horn', HORN_NAMES, l.horn))}
   <p class="mn-note">${v ? 'On the car you are driving now, and' : 'Not in a car now. It goes on'} every car you get into from here on. ${l.finish ? '' : 'Factory paint keeps each car its own colour.'} The others in town see the same paint and rims, and hear the same horn.</p>
@@ -166,6 +175,12 @@ export class Wardrobe {
         ? { ...old, finish: 1 + Math.floor(Math.random() * 2), paint: PAINTS[Math.floor(Math.random() * PAINTS.length)], rims: Math.floor(Math.random() * RIM_COLORS.length) }
         : { ...r, finish: old.finish, paint: old.paint, rims: old.rims, horn: old.horn };
       this.set(l);
+      return;
+    }
+    const of = t.closest<HTMLElement>('button[data-outfit]');
+    if (of) {
+      const o = outfits().find((q) => q.id === of.dataset.outfit);
+      if (o && o.on) { const l: PlayerLook = { ...myLook(), ...o.look }; if (l.top === 3 || l.top === 4) l.jacket = 0; this.set(l); }
       return;
     }
     const b = t.closest<HTMLElement>('button[data-k]');

@@ -34,6 +34,7 @@ import { Derby } from './derby';
 import { TownEvents } from './events';
 import { Finds } from './finds';
 import { Notice } from './notice';
+import { Unlocks } from './unlocks';
 import { Townsfolk } from './townsfolk';
 import { Crowd } from './crowd';
 import { Nightlife } from './nightlife';
@@ -106,6 +107,8 @@ export class ThingsToDo {
   readonly finds: Finds;
   /** The daily Town Notice: three quick challenges, a purse and a streak (fun queue 2, item 48). */
   readonly notice: Notice;
+  /** Places found and what finding them (and playing) unlocks: cars, outfits, paints, stations (fun queue 2, item 49). */
+  readonly unlocks: Unlocks;
   /** The town project: the Millpond Promenade, opened by everybody's points (fun queue 2, item 28). */
   readonly project: TownProject;
   /** Twelve named townsfolk who keep a day on the town clock (fun queue 2, item 30). */
@@ -165,6 +168,7 @@ export class ThingsToDo {
     this.events = new TownEvents(game, this.markers, () => this.busy === null, (id) => this.setBusy(id));
     this.finds = new Finds(game);
     this.notice = new Notice(game);
+    this.unlocks = new Unlocks(game);
     this.project = new TownProject(game);
     this.townsfolk = new Townsfolk(game, () => this.busy === null);
     this.crowd = new Crowd(game);
@@ -293,6 +297,7 @@ export class ThingsToDo {
     this.events.update(dt);
     this.finds.update(dt);
     this.notice.update(dt);
+    this.unlocks.update(dt);
     this.project.update();
     // Before the townsfolk: Walt stands at the pub's door and would take the G.
     this.nightlife.update(dt);

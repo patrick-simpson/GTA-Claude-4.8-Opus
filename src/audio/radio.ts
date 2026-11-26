@@ -98,6 +98,9 @@ export interface Station {
 const ACC = [1, 0.5, 0.6, 0.3, 0.35, 0.2, 0.15, 0.1];
 const UPRIGHT: Patch = { w: [1, 0.4, 0.15, 0.05], a: 0.008, d: 0.25, s: 0.3, r: 0.08, lp: 5, level: 0.4 };
 
+/** The stations that are earned, by call (game/unlocksData.ts). */
+const STATION_UNLOCK: Record<string, string> = { 'Dithers 91.7': 'st.dithers', 'Dam Country 1280': 'st.dam' };
+
 export const STATIONS: Station[] = [
   {
     call: 'WDOOF 99.9', gain: 1.5, name: 'Radio for Doofuses', seed: 999, style: 'oompah', bpm: 116, beats: 4, swing: 0, scale: MAJOR, tonic: 'I', keys: [53, 58, 48, 55],
@@ -182,6 +185,35 @@ export const STATIONS: Station[] = [
     mix: { drums: 0.8, bass: 1, stab: 1, pad: 1, lead: 1, lead2: 1 }, trem: [0.2, 6.6], wet: 0.1, am: true, hiss: 0.012,
   },  // The Christmas station (audio/carols.ts), on the air in the holiday season only: onAir() below.
   CAROLS,
+  // The two stations you earn by getting about (game/unlocksData.ts UNLOCKS st.*): off the dial until their place has been found. No host: music only.
+  {
+    call: 'Dithers 91.7', gain: 1.1, name: 'Student radio, mostly live', seed: 917, style: 'lofi', bpm: 92, beats: 4, swing: 0.2, scale: MAJOR, tonic: 'IM7', keys: [55, 50, 57, 52],
+    A: ['IM7 vi7 ii7 V7 IM7 iii7 IVM7 V7', 'IVM7 iii7 vi7 ii7 V7 V7 IM7 IM7'],
+    B: ['ii7 V7 IM7 vi7 ii7 V7 iii7 VI7', 'IVM7 IVM7 iii7 vi7 ii7 V7 IM7 V7'],
+    C: ['vi7 vi7 IVM7 IVM7 ii7 V7 IM7 IM7'],
+    dens: 0.45, sync: 0.4, oct: 1, kit: 'lofi',
+    bass: { w: 'triangle', a: 0.012, d: 0.28, s: 0.5, r: 0.1, lp: 4, level: 0.42 },
+    stab: { w: [1, 0.35, 0.05, 0.12, 0, 0.03], a: 0.004, d: 0.45, s: 0.25, r: 0.25, lp: 8, level: 0.17 },
+    pad: { w: [1, 0.35, 0.05, 0.12, 0, 0.03], a: 0.01, d: 1.1, s: 0.3, r: 0.4, lp: 6, level: 0.12 },
+    // A student's electric piano and a borrowed flute.
+    lead: { w: [1, 0.3, 0.08, 0.04], a: 0.03, d: 0.3, s: 0.6, r: 0.15, lp: 7, vib: 12, vibHz: 5.2, breath: 0.1, level: 0.3 },
+    lead2: { w: [1, 0, 0, 0.25, 0, 0, 0, 0, 0, 0.06], a: 0.002, d: 0.6, s: 0.05, r: 0.3, lp: 12, level: 0.28 },
+    mix: { drums: 0.7, bass: 1, stab: 1, pad: 1, lead: 1, lead2: 1 }, trem: [0.25, 5], wet: 0.22, hiss: 0.008,
+  },
+  {
+    call: 'Dam Country 1280', gain: 1.9, name: 'Hay, grain and gravel', seed: 1280, style: 'oompah', bpm: 126, beats: 4, swing: 0, scale: MAJOR, tonic: 'I', keys: [50, 55, 48, 53],
+    A: ['I I IV IV I I V7 V7', 'I IV I V7 I IV V7 I', 'I I IV I V7 V7 I I'],
+    B: ['IV IV I I V7 V7 I I7', 'IV I V7 I IV I V7 V7'],
+    C: ['I I7 IV iv I V7 I I'],
+    dens: 0.55, sync: 0.15, oct: 1, kit: 'band',
+    bass: { w: 'sawtooth', a: 0.025, d: 0.15, s: 0.65, r: 0.08, lp: 3, level: 0.4 },
+    stab: { w: 'square', a: 0.004, d: 0.08, s: 0.3, r: 0.05, lp: 5, det: 6, level: 0.14 },
+    pad: { w: ACC, a: 0.02, d: 0.1, s: 0.7, r: 0.06, lp: 7, det: 10, level: 0.07 },
+    // A steel guitar: a slide up into every note.
+    lead: { w: [1, 0.6, 0.35, 0.2, 0.1, 0.05], a: 0.02, d: 0.35, s: 0.55, r: 0.15, lp: 7, vib: 16, vibHz: 5.4, scoop: 80, level: 0.3 },
+    lead2: { w: 'sawtooth', a: 0.03, d: 0.2, s: 0.75, r: 0.08, lp: 4, vib: 10, vibHz: 5.5, scoop: 50, level: 0.25 },
+    mix: { drums: 0.75, bass: 1, stab: 1, pad: 0.8, lead: 1, lead2: 1 }, wet: 0.12, am: true, hiss: 0.01,
+  },
 ];
 
 // ── The composer ─────────────────────────────────────────────────────────────
@@ -600,6 +632,8 @@ export class Radio {
     if (!st) return n <= 0;
     if (st === CAROLS) return holiday.on;
     if (st.seed === 610) return progress.complete;
+    const earn = STATION_UNLOCK[st.call];
+    if (earn) return save.data.best['un.' + earn] === 1;
     return true;
   }
 

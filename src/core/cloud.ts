@@ -101,7 +101,7 @@ function localWhen(): number {
  * saves (where she stands, the hour, the distance driven), so its time stamp says little; this does not move unless she earned
  * or spent something, filed a mission, found a duck, landed a jump, did a job, set a record or changed her shop.
  */
-function sig(d: Doc | null): string {
+export function sig(d: Doc | null): string {
   if (!d) return '';
   const p = obj(d.player), st = obj(d.stats);
   const text = JSON.stringify([p.money, p.owned, d.missions, d.ducks, d.jumps, d.counts, d.best, d.shop, st.earned]);

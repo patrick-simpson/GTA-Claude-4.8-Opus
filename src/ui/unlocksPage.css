@@ -1,0 +1,22 @@
+/* The Unlocks page (ui/unlocksPage.ts). Same paper as the rest of the dossier. */
+.ul-places { list-style: none; margin: 0.6em 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(13em, 1fr)); gap: 0.2em 0.9em; }
+.ul-pl { display: flex; align-items: baseline; gap: 0.5em; font-size: 0.92em; opacity: 0.55; }
+.ul-pl.on { opacity: 1; }
+.ul-pl i { flex: none; width: 1.1em; height: 1.1em; border: 1.5px solid var(--ink); font-style: normal; font-weight: 900; font-size: 0.8em; line-height: 1; text-align: center; align-self: center; }
+.ul-pl.on i { color: var(--vermilion); }
+.ul-pl b { font-weight: 600; font-size: 0.92em; min-width: 0; overflow-wrap: anywhere; }
+.ul-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13.5em, 1fr)); gap: 0.5em; margin-top: 0.6em; }
+.ul-card { display: grid; grid-template-columns: auto 1fr auto; gap: 0.15em 0.5em; align-items: center; padding: 0.4em 0.5em; border: 1.5px solid var(--ink); background: rgba(255, 255, 255, 0.28); }
+.ul-card b { font-size: 0.95em; font-weight: 700; line-height: 1.15; }
+.ul-card em { font-style: normal; font-family: var(--f-mono); font-size: 0.62em; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.8; }
+.ul-card.on em { color: #2a6a3c; opacity: 1; }
+.ul-card small { grid-column: 1 / -1; font-size: 0.74em; line-height: 1.25; opacity: 0.8; }
+.ul-card .mn-bar { grid-column: 1 / -1; }
+.ul-card .ul-prog { font-family: var(--f-mono); opacity: 0.65; }
+.ul-card.lock { opacity: 0.78; border-style: dashed; }
+.ul-card.lock b { opacity: 0.8; }
+.ul-act { grid-column: 1 / -1; justify-self: start; margin-top: 0.2em; font-size: 0.8em; }
+.ul-sw { width: 1.3em; height: 1.3em; border: 1.5px solid var(--ink); background: var(--c); }
+.ul-sw.ul-car { border-radius: 40% 40% 12% 12%; height: 1em; }
+.ul-card:not(:has(.ul-sw)) { grid-template-columns: 1fr auto; }
+.ul-msg { color: var(--vermilion); }

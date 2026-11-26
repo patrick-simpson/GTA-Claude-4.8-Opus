@@ -183,7 +183,7 @@ export function sanitize(raw: unknown): SaveDoc {
   d.settings.volSfx = num(t.volSfx, 0.8, 0, 1);
   d.settings.volAmbience = num(t.volAmbience, 0.8, 0, 1);
   // Claude FM became the default after some saves had picked a station (or the radio off): once, put them on it.
-  d.settings.station = t.radioV === 1 ? Math.round(num(t.station, 0, -1, 6)) : 0;
+  d.settings.station = t.radioV === 1 ? Math.round(num(t.station, 0, -1, 12)) : 0;
   return d;
 }
 

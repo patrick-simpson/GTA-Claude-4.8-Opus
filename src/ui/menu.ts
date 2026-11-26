@@ -40,6 +40,9 @@ import { cloud } from '../core/cloud';
 import { HIDEABLE, touchPrefs, type TouchSize } from './touch';
 import { Wardrobe } from './wardrobe';
 import { PlacesPanel } from './places';
+import { unlocksHtml } from './unlocksPage';
+import { outfits } from '../game/unlocksData';
+import { myLook, setMyLook } from '../game/looks';
 import { RaceBuilderPanel } from './raceBuilder';
 import { CAT_COLOR } from '../world/shopSigns';
 import type { Place } from '../world/business';
@@ -51,7 +54,7 @@ import { transcriptHtml } from '../game/semesterData';
 
 const INK = '#14213d', BONE = '#f2e8cf', VERMILION = '#e4572e', MUSTARD = '#f0a202', TEAL = '#2a9d8f';
 type VolKey = 'volMaster' | 'volMusic' | 'volSfx' | 'volAmbience';
-const TABS = ['Map', 'Progress', 'Stats', 'Settings', 'Controls', 'Wardrobe'] as const;
+const TABS = ['Map', 'Progress', 'Stats', 'Settings', 'Controls', 'Wardrobe', 'Unlocks'] as const;
 const RAMP_NAMES = ['Low Tide Beach', 'The container yard', 'The park pond', 'The arena lot', 'The cannery', 'Pelican Pier', 'The end of the bridge'];
 const MILE = 1609.344, MPH = 2.23694, FEET = 3.28084;
 
@@ -105,6 +108,8 @@ export class Menu {
   /** The Controls page is waiting for a key: which action and which of its two slots. */
   private capture: { a: Action; slot: 0 | 1 } | null = null;
   private ctlMsg = '';
+  /** The Unlocks page's last answer (a car called, an outfit put on, or why not). */
+  private ulMsg = '';
   private readonly labels: { text: string; x: number; z: number; vert: boolean }[] = [];
   private readonly districts: { text: string; x: number; z: number }[] = [];
   /** The Wardrobe page (ui/wardrobe.ts): the player's own look and car. */
@@ -130,6 +135,7 @@ export class Menu {
     <section class="mn-pane mn-scroll"></section>
     <section class="mn-pane mn-scroll"></section>
     <section class="mn-pane mn-scroll mn-wd"></section>
+    <section class="mn-pane mn-scroll"></section>
   </div>
   <div class="mn-trv"></div>
   <div class="mn-ft"><button type="button" class="mn-btn mn-resume">Resume</button><span class="mn-or">or press Esc</span><button type="button" class="mn-btn mn-new">New game</button></div>
@@ -163,6 +169,20 @@ export class Menu {
       if (t.closest('.mn-new')) { this.confirmEl.classList.add('on'); (root.querySelector('.mn-keep') as HTMLElement).focus(); return; }
       if (t.closest('.mn-keep')) { this.confirmEl.classList.remove('on'); return; }
       if (t.closest('.mn-shred')) { this.confirmEl.classList.remove('on'); todo.newGame(); this.resume(); return; }
+      const call = t.closest<HTMLElement>('[data-call]');
+      if (call) {
+        const r = this.todo.unlocks.call(call.dataset.call as string);
+        this.ulMsg = r.text;
+        if (r.ok) { this.resume(); this.game.hud.toast(r.text + ' Get in when you are ready.', 5); } else this.panes[6].innerHTML = unlocksHtml(this.todo.unlocks, this.ulMsg);
+        return;
+      }
+      const wear = t.closest<HTMLElement>('[data-wear]');
+      if (wear) {
+        const o = outfits().find((q) => q.id === wear.dataset.wear);
+        if (o && o.on) { const l = { ...myLook(), ...o.look, picked: true }; if (l.top === 3 || l.top === 4) l.jacket = 0; setMyLook(l); this.ulMsg = `You are wearing: ${o.name}.`; } else this.ulMsg = 'Not yet unlocked.';
+        this.panes[6].innerHTML = unlocksHtml(this.todo.unlocks, this.ulMsg);
+        return;
+      }
       const cl = t.closest<HTMLElement>('[data-cloud]');
       if (cl) { this.onCloud(cl); return; }
       const set = t.closest<HTMLElement>('[data-set]');
@@ -233,6 +253,7 @@ export class Menu {
     else if (this.tab === 2) this.panes[2].innerHTML = this.statsHtml();
     else if (this.tab === 3) this.panes[3].innerHTML = this.settingsHtml();
     else if (this.tab === 4) this.panes[4].innerHTML = this.controlsHtml();
+    else if (this.tab === 6) this.panes[6].innerHTML = unlocksHtml(this.todo.unlocks, this.ulMsg);
   }
 
   // ── Keys and pad ───────────────────────────────────────────────────────────
@@ -493,6 +514,22 @@ export class Menu {
     c.fillRect(0, 0, w, h);
     c.imageSmoothingQuality = 'high';
     c.drawImage(ch.img, X(ch.x0), Z(ch.z0), (ch.img.width / ch.s) * k, (ch.img.height / ch.s) * k);
+    // Places not yet found (game/unlocks.ts) lie under a wash of fog: the districts' blocks, then the landmarks as dashed rings.
+    const ul = todo.unlocks, fog = ul.fogged();
+    if (fog.size) {
+      c.fillStyle = 'rgba(224,214,188,0.66)';
+      const wash = (name: string): boolean => fog.has(name);
+      c.beginPath();
+      const blocks = plan.streets ? plan.blocks.slice(0, plan.isle.blocks) : plan.blocks;
+      for (const b of blocks) { if (!wash(DISTRICT_NAME[b.district])) continue; c.rect(X(b.rect.x0), Z(b.rect.z0), (b.rect.x1 - b.rect.x0) * k, (b.rect.z1 - b.rect.z0) * k); }
+      if (plan.streets) for (const b of plan.streets.blocks) {
+        if (!b.district || !wash(DISTRICT_NAME[b.district]) || b.poly.length < 6) continue;
+        c.moveTo(X(b.poly[0]), Z(b.poly[1]));
+        for (let i = 2; i < b.poly.length; i += 2) c.lineTo(X(b.poly[i]), Z(b.poly[i + 1]));
+        c.closePath();
+      }
+      c.fill();
+    }
 
     const text = (s: string, x: number, y: number, px: number, color: string, halo = true, font = '"IBM Plex Mono", monospace', weight = 600): void => {
       c.font = `${weight} ${px}px ${font}`;
@@ -566,6 +603,21 @@ export class Menu {
     g.rail.drawChart(c, X, Z, k, w, h, INK, BONE);
     // The Calamity Shuttle (sim/ferry.ts): the ferry route, its two landings and the boats.
     g.ferry.drawChart(c, X, Z, k, w, h, INK, BONE);
+
+    // Landmarks to find: a dashed ring and a ? until found, then a small tick. Pins stand for places with no blocks of their own.
+    {
+      const mark = (x: number, z: number, rad: number, on: boolean, label: string): void => {
+        const px = X(x), py = Z(z);
+        if (px < -30 || py < -30 || px > w + 30 || py > h + 30) return;
+        const rr = Math.max(8, rad * k);
+        c.beginPath(); c.arc(px, py, rr, 0, Math.PI * 2);
+        if (on) { c.fillStyle = BONE; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.6; c.stroke(); text('✓', px, py + 0.5, Math.max(10, rr * 1.1), TEAL, false, '"Big Shoulders Display", sans-serif', 900); }
+        else { c.fillStyle = 'rgba(224,214,188,0.7)'; c.fill(); c.setLineDash([4, 3]); c.strokeStyle = INK; c.lineWidth = 1.4; c.stroke(); c.setLineDash([]); text('?', px, py + 0.5, Math.max(10, rr * 1.1), INK, false, '"Big Shoulders Display", sans-serif', 900); }
+        if (k >= 0.5 && label) text(on ? label : '???', px, py + rr + 9, 10, INK, true);
+      };
+      for (const s of ul.spots()) mark(s.def.at!.x, s.def.at!.z, Math.min(s.def.at!.r, 22), s.found, s.def.name);
+      for (const d of ul.defs()) if (d.pin) mark(d.pin.x, d.pin.z, 12, ul.isFound(d.id), d.name);
+    }
 
     // The way to the waypoint, along the streets.
     const p = g.player, way = todo.waypoint, goal = todo.missions.target ?? todo.jobs.target;
@@ -678,6 +730,14 @@ export class Menu {
     c.fillRect(10, h - 44, bar * k + 20, 34); c.strokeRect(10, h - 44, bar * k + 20, 34);
     c.fillStyle = INK; c.fillRect(20, h - 22, bar * k, 4); c.fillRect(20, h - 28, 2, 12); c.fillRect(20 + bar * k - 2, h - 28, 2, 12);
     text(`${Math.round(bar * FEET / 10) * 10} ft`, 20 + (bar * k) / 2, h - 33, 10, INK, false);
+    {
+      const label = `PLACES FOUND ${ul.foundCount()} / ${ul.total()}`;
+      c.font = '700 11px "IBM Plex Mono", monospace';
+      const pw = c.measureText(label).width + 18;
+      const px0 = bar * k + 38;
+      c.fillStyle = BONE; c.fillRect(px0, h - 44, pw, 34); c.strokeRect(px0, h - 44, pw, 34);
+      text(label, px0 + pw / 2, h - 27, 11, INK, false, '"IBM Plex Mono", monospace', 700);
+    }
     c.fillStyle = BONE; c.beginPath(); c.arc(w - 30, 32, 19, 0, Math.PI * 2); c.fill(); c.stroke();
     c.fillStyle = INK; c.beginPath(); c.moveTo(w - 30, 17); c.lineTo(w - 24, 34); c.lineTo(w - 36, 34); c.closePath(); c.fill();
     text('N', w - 30, 42, 10, INK, false);

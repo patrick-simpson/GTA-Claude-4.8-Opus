@@ -137,6 +137,14 @@ export function fanfare(core: AudioCore, t: number, out: AudioNode, big: boolean
   stampThunk(core, at + hold, out, 1, r);
 }
 
+/** Something unlocked (game/unlocks.ts): three bright notes up and a chime, a small fanfare, not the bridge's. */
+export function unlockJingle(core: AudioCore, t: number, out: AudioNode): void {
+  const s = 0.11;
+  brass(core, t, out, 72, s * 1.2, 0.17); brass(core, t + s, out, 76, s * 1.2, 0.17); brass(core, t + 2 * s, out, 79, 0.5, 0.2);
+  brass(core, t + 2 * s, out, 67, 0.5, 0.1);
+  chime(core, t + 3 * s, out, true);
+}
+
 /** Booked: the door, then the paperwork. */
 export function booked(core: AudioCore, t: number, out: AudioNode, r: Rand): void {
   const g = core.gain(0.6); g.connect(out);
@@ -188,6 +196,7 @@ export class UiSounds {
       chime(core, core.now + 0.35, this.out(0.6));
     });
     game.on('booked', () => { booked(core, core.now + 0.1, this.out(0.8), r); });
+    game.on('moment', (e) => { if (e.kind === 'unlock' && core.ctx.state === 'running' && core.claim('unlock', 1, 1.2)) unlockJingle(core, core.now + 0.1, this.out(0.8, 0.15)); });
     progress.onChange((what) => {
       // (Not for the town's bridge appearing on joining it: nobody here earned that.)
       if (progress.quiet || this.core.ctx.state !== 'running' || !core.claim('fanfare', 1, 2.5)) return;

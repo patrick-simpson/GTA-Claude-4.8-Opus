@@ -140,9 +140,11 @@ export class RadioVoice {
     if (p !== this.player) {
       this.cut(t);
       this.player = p; this.lastSong = -1; this.identDone = false; this.tuneT = t; this.busyUntil = 0;
-      if (p) { this.pack(p).load(c); this.ads.load(c); }
+      if (p && p.st.call in DJ_OF) { this.pack(p).load(c); this.ads.load(c); }
     }
     if (!p) return;
+    // The stations you earn (unlocks) have no host: music only.
+    if (!(p.st.call in DJ_OF)) return;
     const dj = this.pack(p);
     if (dj.state !== 'ready') return;
     const song = Math.floor(clock / songSeconds), into = clock - song * songSeconds;
